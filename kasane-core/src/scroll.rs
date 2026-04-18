@@ -86,7 +86,7 @@ pub fn default_scroll_candidate(
     scroll_amount: i32,
 ) -> Option<DefaultScrollCandidate> {
     // Scroll uses offset=0: scroll events work in screen-relative coordinates
-    match input::mouse_to_kakoune(mouse, scroll_amount, None, 0) {
+    match input::mouse_to_kakoune(mouse, scroll_amount, None, 0, None) {
         Some(KasaneRequest::Scroll {
             amount,
             line,

@@ -130,10 +130,10 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
                 line_range.clone(),
                 state,
                 buffer_state.as_deref(),
-                line_backgrounds.as_deref(),
+                line_backgrounds.as_ref().map(|v| v.as_slice()),
                 dm,
-                inline_decorations.as_deref(),
-                virtual_text.as_deref(),
+                inline_decorations.as_ref().map(|v| v.as_slice()),
+                virtual_text.as_ref().map(|v| v.as_slice()),
             );
         }
         Element::Empty => {}

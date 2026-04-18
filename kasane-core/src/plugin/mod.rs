@@ -83,10 +83,10 @@ pub type PluginRegistry = PluginRuntime;
 
 // Re-export display types for plugin API
 pub use crate::display::{
-    ActionResult, DisplayDirective, DisplayMapRef, DisplayUnit, DisplayUnitId, DisplayUnitMap,
-    FoldToggleState, NavigationAction, NavigationDirection, NavigationPolicy, ProjectionCategory,
-    ProjectionDescriptor, ProjectionId, ProjectionPolicyState, SemanticRole, SourceStrength,
-    UnitSource,
+    ActionResult, ContentAnchor, ContentAnnotation, DisplayDirective, DisplayMapRef, DisplayUnit,
+    DisplayUnitId, DisplayUnitMap, FoldToggleState, NavigationAction, NavigationDirection,
+    NavigationPolicy, ProjectionCategory, ProjectionDescriptor, ProjectionId,
+    ProjectionPolicyState, SemanticRole, SourceStrength, UnitSource,
 };
 
 // Re-export traits module
@@ -112,8 +112,8 @@ pub use safe_directive::SafeDisplayDirective;
 
 // Re-export compose module
 pub use compose::{
-    CommutativeComposable, Composable, ContributionSet, FirstWins, MenuTransformChain, OverlaySet,
-    TransformChain, TransformChainEntry,
+    CommutativeComposable, Composable, ContentAnnotationSet, ContributionSet, FirstWins,
+    MenuTransformChain, OverlaySet, TransformChain, TransformChainEntry,
 };
 
 // Re-export app_view, state, and bridge modules
@@ -157,6 +157,7 @@ bitflags! {
         const NAVIGATION_ACTION  = 1 << 22;
         const DROP_HANDLER       = 1 << 23;
         const RENDER_ORNAMENT    = 1 << 24;
+        const CONTENT_ANNOTATOR  = 1 << 25;
     }
 }
 

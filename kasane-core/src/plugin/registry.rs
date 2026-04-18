@@ -1659,6 +1659,37 @@ impl<'a> PluginView<'a> {
         set
     }
 
+    /// Collect content annotations from all plugins with CONTENT_ANNOTATOR capability.
+    ///
+    /// Returns a sorted, deduplicated vec of `ContentAnnotation` items.
+    pub fn collect_content_annotations(
+        &self,
+        state: &AppView<'_>,
+        ctx: &crate::plugin::AnnotateContext,
+    ) -> Vec<crate::display::ContentAnnotation> {
+        use super::compose::{Composable, ContentAnnotationSet};
+
+        if !self.has_capability(PluginCapabilities::CONTENT_ANNOTATOR) {
+            return Vec::new();
+        }
+
+        self.slots
+            .iter()
+            .filter(|slot| {
+                slot.capabilities
+                    .contains(PluginCapabilities::CONTENT_ANNOTATOR)
+            })
+            .fold(ContentAnnotationSet::empty(), |acc, slot| {
+                let annotations = slot.backend.content_annotations(state, ctx);
+                if annotations.is_empty() {
+                    acc
+                } else {
+                    acc.compose(ContentAnnotationSet::from_vec(annotations))
+                }
+            })
+            .into_vec()
+    }
+
     /// Collect overlay contributions with collision-avoidance context.
     pub fn collect_overlays_with_ctx(
         &self,

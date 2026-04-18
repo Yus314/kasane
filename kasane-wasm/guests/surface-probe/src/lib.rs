@@ -165,6 +165,14 @@ impl Guest for SurfaceProbePlugin {
         vec![Command::RequestRedraw(dirty_flags)]
     }
 
+    fn declare_projections() -> Vec<ProjectionDescriptor> {
+        vec![]
+    }
+
+    fn projection_directives(_projection_id: String) -> Vec<DisplayDirective> {
+        vec![]
+    }
+
     fn display_directives() -> Vec<DisplayDirective> {
         match host_state::get_line_text(0).as_deref() {
             Some("fold") => vec![DisplayDirective::Fold(FoldDirective {
@@ -179,13 +187,7 @@ impl Guest for SurfaceProbePlugin {
                 range_start: 1,
                 range_end: 3,
             })],
-            Some("insert") => vec![DisplayDirective::InsertAfter(InsertAfterDirective {
-                after: 1,
-                content: vec![Atom {
-                    face: host_state::get_default_face(),
-                    contents: "surface-probe-virtual".to_string(),
-                }],
-            })],
+            Some("insert") => vec![], // InsertAfter removed from DisplayDirective
             _ => vec![],
         }
     }

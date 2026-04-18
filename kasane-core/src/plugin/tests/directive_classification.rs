@@ -18,14 +18,6 @@ fn make_all_directive_instances() -> Vec<DisplayDirective> {
             }],
         },
         DisplayDirective::Hide { range: 0..1 },
-        DisplayDirective::InsertAfter {
-            after: 0,
-            content: vec![],
-        },
-        DisplayDirective::InsertBefore {
-            before: 0,
-            content: vec![],
-        },
     ]
 }
 
@@ -96,32 +88,19 @@ fn is_destructive_matches_constants() {
 
 #[test]
 fn classification_is_exhaustive_partition() {
-    let additive: BTreeSet<_> = display::ADDITIVE_VARIANTS.iter().copied().collect();
     let preserving: BTreeSet<_> = display::PRESERVING_VARIANTS.iter().copied().collect();
     let destructive: BTreeSet<_> = display::DESTRUCTIVE_VARIANTS.iter().copied().collect();
     let all: BTreeSet<_> = display::ALL_VARIANT_NAMES.iter().copied().collect();
 
     // Union == ALL
-    let union: BTreeSet<_> = additive
+    let union: BTreeSet<_> = preserving
         .iter()
-        .chain(preserving.iter())
         .chain(destructive.iter())
         .copied()
         .collect();
-    assert_eq!(
-        union, all,
-        "ADDITIVE ∪ PRESERVING ∪ DESTRUCTIVE must equal ALL"
-    );
+    assert_eq!(union, all, "PRESERVING ∪ DESTRUCTIVE must equal ALL");
 
     // Pairwise disjoint
-    assert!(
-        additive.is_disjoint(&preserving),
-        "ADDITIVE ∩ PRESERVING must be empty"
-    );
-    assert!(
-        additive.is_disjoint(&destructive),
-        "ADDITIVE ∩ DESTRUCTIVE must be empty"
-    );
     assert!(
         preserving.is_disjoint(&destructive),
         "PRESERVING ∩ DESTRUCTIVE must be empty"

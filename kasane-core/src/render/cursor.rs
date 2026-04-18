@@ -1,5 +1,6 @@
 use super::CursorStyle;
 use super::grid::CellGrid;
+use crate::display::segment_map::SegmentMap;
 use crate::display::{BufferLine, DisplayMap};
 use crate::element::Element;
 use crate::layout::flex::LayoutResult;
@@ -129,11 +130,45 @@ fn collect_buffer_origins(element: &Element, layout: &LayoutResult, origins: &mu
     }
 }
 
+/// Compute screen Y for a buffer line, using SegmentMap when present.
+///
+/// Two-layer coordinate translation: buffer → display (via DisplayMap) → screen (via SegmentMap).
+/// Falls back to direct display_map lookup when no SegmentMap is active.
+fn buffer_line_to_screen_y(
+    buffer_line: usize,
+    display_map: Option<&DisplayMap>,
+    display_scroll_offset: u16,
+    segment_map: Option<&SegmentMap>,
+) -> u16 {
+    if let Some(sm) = segment_map {
+        // Two-layer: buffer → display → screen
+        display_map
+            .and_then(|dm| dm.buffer_to_display(BufferLine(buffer_line)))
+            .and_then(|dl| sm.display_line_to_screen_y(dl.0))
+            .map(|y| y as u16)
+            .unwrap_or(buffer_line as u16)
+    } else {
+        // Legacy: buffer → display, then subtract scroll offset
+        display_map
+            .and_then(|dm| {
+                if dm.is_identity() {
+                    None
+                } else {
+                    dm.buffer_to_display(BufferLine(buffer_line))
+                        .map(|y| y.0 as u16)
+                }
+            })
+            .unwrap_or(buffer_line as u16)
+            .saturating_sub(display_scroll_offset)
+    }
+}
+
 /// Reset cursor highlighting in BufferRef areas outside the focused pane.
 ///
 /// Both panes paint from the same `state.lines` which has cursor faces baked in
 /// by Kakoune. This function finds BufferRef origins that fall outside the
 /// focused pane rectangle and resets the cursor cell faces to `default_face`.
+#[allow(clippy::too_many_arguments)]
 pub fn neutralize_unfocused_cursors(
     state: &AppState,
     element: &Element,
@@ -142,6 +177,7 @@ pub fn neutralize_unfocused_cursors(
     focus_rect: &crate::layout::Rect,
     display_map: Option<&DisplayMap>,
     display_scroll_offset: u16,
+    segment_map: Option<&SegmentMap>,
 ) {
     let mut origins = Vec::new();
     collect_buffer_origins(element, layout, &mut origins);
@@ -158,18 +194,12 @@ pub fn neutralize_unfocused_cursors(
 
         // Primary cursor
         let cx = state.observed.cursor_pos.column as u16 + ox;
-        let cy = display_map
-            .and_then(|dm| {
-                if dm.is_identity() {
-                    None
-                } else {
-                    dm.buffer_to_display(BufferLine(state.observed.cursor_pos.line as usize))
-                        .map(|y| y.0 as u16)
-                }
-            })
-            .unwrap_or(state.observed.cursor_pos.line as u16)
-            .saturating_sub(display_scroll_offset)
-            + oy;
+        let cy = buffer_line_to_screen_y(
+            state.observed.cursor_pos.line as usize,
+            display_map,
+            display_scroll_offset,
+            segment_map,
+        ) + oy;
         if let Some(cell) = grid.get_mut(cx, cy) {
             cell.face = state.observed.default_face;
         }
@@ -177,18 +207,12 @@ pub fn neutralize_unfocused_cursors(
         // Secondary cursors
         for coord in &state.inference.secondary_cursors {
             let sx = coord.column as u16 + ox;
-            let sy = display_map
-                .and_then(|dm| {
-                    if dm.is_identity() {
-                        None
-                    } else {
-                        dm.buffer_to_display(BufferLine(coord.line as usize))
-                            .map(|y| y.0 as u16)
-                    }
-                })
-                .unwrap_or(coord.line as u16)
-                .saturating_sub(display_scroll_offset)
-                + oy;
+            let sy = buffer_line_to_screen_y(
+                coord.line as usize,
+                display_map,
+                display_scroll_offset,
+                segment_map,
+            ) + oy;
             if let Some(cell) = grid.get_mut(sx, sy) {
                 cell.face = state.observed.default_face;
             }
@@ -200,6 +224,7 @@ pub fn neutralize_unfocused_cursors(
 /// `buffer_x_offset` accounts for left gutter columns.
 /// `display_map` transforms buffer line to display line when active.
 /// Returns (x, y) coordinates for the terminal cursor.
+#[allow(clippy::too_many_arguments)]
 pub fn cursor_position(
     state: &AppState,
     grid: &CellGrid,
@@ -208,22 +233,17 @@ pub fn cursor_position(
     buffer_y_offset: u16,
     display_scroll_offset: u16,
     focused_pane_rect: Option<&crate::layout::Rect>,
+    segment_map: Option<&SegmentMap>,
 ) -> (u16, u16) {
     match state.inference.cursor_mode {
         CursorMode::Buffer => {
             let cx = state.observed.cursor_pos.column as u16 + buffer_x_offset;
-            let cy = display_map
-                .and_then(|dm| {
-                    if dm.is_identity() {
-                        None
-                    } else {
-                        dm.buffer_to_display(BufferLine(state.observed.cursor_pos.line as usize))
-                            .map(|y| y.0 as u16)
-                    }
-                })
-                .unwrap_or(state.observed.cursor_pos.line as u16)
-                .saturating_sub(display_scroll_offset)
-                + buffer_y_offset;
+            let cy = buffer_line_to_screen_y(
+                state.observed.cursor_pos.line as usize,
+                display_map,
+                display_scroll_offset,
+                segment_map,
+            ) + buffer_y_offset;
             (cx, cy)
         }
         CursorMode::Prompt => {
@@ -273,6 +293,7 @@ pub fn clear_block_cursor_face(
     buffer_y_offset: u16,
     display_scroll_offset: u16,
     focused_pane_rect: Option<&crate::layout::Rect>,
+    segment_map: Option<&SegmentMap>,
 ) {
     if style == CursorStyle::Block || style == CursorStyle::Outline {
         return;
@@ -280,18 +301,12 @@ pub fn clear_block_cursor_face(
     let (cx, cy) = match state.inference.cursor_mode {
         CursorMode::Buffer => {
             let cx = state.observed.cursor_pos.column as u16 + buffer_x_offset;
-            let cy = display_map
-                .and_then(|dm| {
-                    if dm.is_identity() {
-                        None
-                    } else {
-                        dm.buffer_to_display(BufferLine(state.observed.cursor_pos.line as usize))
-                            .map(|y| y.0 as u16)
-                    }
-                })
-                .unwrap_or(state.observed.cursor_pos.line as u16)
-                .saturating_sub(display_scroll_offset)
-                + buffer_y_offset;
+            let cy = buffer_line_to_screen_y(
+                state.observed.cursor_pos.line as usize,
+                display_map,
+                display_scroll_offset,
+                segment_map,
+            ) + buffer_y_offset;
             (cx, cy)
         }
         CursorMode::Prompt => {
@@ -403,21 +418,16 @@ pub fn apply_secondary_cursor_faces(
     display_map: Option<&DisplayMap>,
     buffer_y_offset: u16,
     display_scroll_offset: u16,
+    segment_map: Option<&SegmentMap>,
 ) {
     for coord in &state.inference.secondary_cursors {
         let x = coord.column as u16 + buffer_x_offset;
-        let y = display_map
-            .and_then(|dm| {
-                if dm.is_identity() {
-                    None
-                } else {
-                    dm.buffer_to_display(BufferLine(coord.line as usize))
-                        .map(|y| y.0 as u16)
-                }
-            })
-            .unwrap_or(coord.line as u16)
-            .saturating_sub(display_scroll_offset)
-            + buffer_y_offset;
+        let y = buffer_line_to_screen_y(
+            coord.line as usize,
+            display_map,
+            display_scroll_offset,
+            segment_map,
+        ) + buffer_y_offset;
         if let Some(cell) = grid.get_mut(x, y) {
             cell.face = make_secondary_cursor_face(
                 &cell.face,

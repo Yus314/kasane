@@ -491,40 +491,7 @@ fn converts_hide_display_directive_from_guest() {
     );
 }
 
-#[test]
-fn converts_insert_after_display_directive_from_guest() {
-    let plugin = load_surface_probe_plugin();
-    let state = make_state_with_lines(&["insert", "alpha", "beta"]);
-
-    let directives = plugin.display_directives(&AppView::new(&state));
-    assert_eq!(directives.len(), 1);
-
-    let map = kasane_core::display::DisplayMap::build(state.observed.lines.len(), &directives);
-    assert_eq!(map.display_line_count(), 4);
-    assert_eq!(
-        map.display_to_buffer(DisplayLine(0)),
-        InverseResult::Actionable(BufferLine(0))
-    );
-    assert_eq!(
-        map.display_to_buffer(DisplayLine(1)),
-        InverseResult::Actionable(BufferLine(1))
-    );
-    assert_eq!(
-        map.display_to_buffer(DisplayLine(2)),
-        InverseResult::Virtual
-    );
-    assert_eq!(
-        map.display_to_buffer(DisplayLine(3)),
-        InverseResult::Actionable(BufferLine(2))
-    );
-    assert_eq!(
-        map.entry(DisplayLine(2))
-            .and_then(|entry| entry.synthetic())
-            .expect("virtual line")
-            .text(),
-        "surface-probe-virtual"
-    );
-}
+// insert_after_display_directive test removed: InsertAfter no longer in DisplayDirective
 
 #[test]
 fn routes_close_session_commands_to_host() {

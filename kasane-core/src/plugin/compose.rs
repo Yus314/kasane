@@ -30,6 +30,7 @@
 use super::element_patch::ElementPatch;
 use super::{OverlayContribution, PluginId, SourcedContribution};
 use crate::display::DirectiveSet;
+use crate::display::content_annotation::ContentAnnotation;
 
 /// A monoid: associative binary operation with identity element.
 ///
@@ -300,6 +301,60 @@ impl<T: Clone> Composable for FirstWins<T> {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// ContentAnnotationSet
+// ---------------------------------------------------------------------------
+
+/// Monoid over content annotations: compose = append + sort by `(anchor_line, priority, plugin_id)`.
+///
+/// The sorted-merge semantics make this commutative: regardless of the order
+/// plugins are evaluated, the final sorted vec is identical.
+#[derive(Debug, Clone, Default)]
+pub struct ContentAnnotationSet {
+    items: Vec<ContentAnnotation>,
+}
+
+impl ContentAnnotationSet {
+    /// Wrap annotations, normalizing to sorted order.
+    pub fn from_vec(mut items: Vec<ContentAnnotation>) -> Self {
+        items.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+        Self { items }
+    }
+
+    /// Unwrap into the inner vec (sorted).
+    pub fn into_vec(self) -> Vec<ContentAnnotation> {
+        self.items
+    }
+
+    /// Borrow the sorted items.
+    pub fn items(&self) -> &[ContentAnnotation] {
+        &self.items
+    }
+
+    /// Whether the set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    fn sort(&mut self) {
+        self.items.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+    }
+}
+
+impl Composable for ContentAnnotationSet {
+    fn empty() -> Self {
+        Self { items: Vec::new() }
+    }
+
+    fn compose(mut self, other: Self) -> Self {
+        self.items.extend(other.items);
+        self.sort();
+        self
+    }
+}
+
+impl CommutativeComposable for ContentAnnotationSet {}
 
 // ---------------------------------------------------------------------------
 // ElementPatch

@@ -4,7 +4,10 @@ pub(crate) mod menu;
 #[allow(clippy::field_reassign_with_default)]
 mod tests;
 
+use std::sync::Arc;
+
 use crate::display::DisplayMapRef;
+use crate::display::segment_map::SegmentMap;
 use crate::element::{Direction, Element, FlexChild, Overlay, OverlayAnchor, Style, StyleToken};
 use crate::layout::line_display_width;
 use crate::plugin::{AnnotateContext, AppView, PluginView, TransformSubject, TransformTarget};
@@ -57,6 +60,7 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
         surface_reports: base.surface_reports,
         display_map,
         display_scroll_offset: display_scroll_offset.0,
+        segment_map: None,
         focused_pane_rect: None,
         focused_pane_state: None,
     }
@@ -72,8 +76,10 @@ pub struct ViewSections {
     /// The active DisplayMap for the current frame (identity if no transforms).
     pub display_map: DisplayMapRef,
     /// Display scroll offset: first display line to render.
-    /// Non-zero when virtual lines push the cursor below the viewport.
+    /// Non-zero when folds push the cursor below the viewport.
     pub display_scroll_offset: usize,
+    /// Segment map for content annotation layout (None when no annotations).
+    pub segment_map: Option<Arc<SegmentMap>>,
     /// Multi-pane: focused pane rectangle. None = single pane.
     pub focused_pane_rect: Option<crate::layout::Rect>,
     /// Multi-pane: focused pane's AppState. When Some, cursor functions use this
@@ -298,6 +304,168 @@ pub(crate) struct BufferCoreParts {
     pub(crate) right_gutter: Option<Element>,
 }
 
+/// Segment a BufferRef into sub-BufferRefs interleaved with content annotation
+/// Elements in a Flex Column.
+///
+/// If `annotations` is empty, returns the buffer unchanged (zero overhead).
+///
+/// For each annotation, the buffer is split at the anchor line and the annotation
+/// element is inserted between the resulting sub-BufferRefs.
+///
+/// **T15 (Annotation Suppression)**: Annotations whose anchor line is invisible
+/// in the display map (hidden or folded) are filtered out.
+pub(crate) fn segment_buffer(
+    buffer_ref: Element,
+    annotations: &[crate::display::ContentAnnotation],
+    display_map: Option<&crate::display::DisplayMap>,
+) -> Element {
+    use crate::display::ContentAnchor;
+
+    if annotations.is_empty() {
+        return buffer_ref;
+    }
+
+    // Extract BufferRef fields
+    let (line_range, line_backgrounds, dm_ref, state, inline_decorations, virtual_text) =
+        match buffer_ref {
+            Element::BufferRef {
+                line_range,
+                line_backgrounds,
+                display_map,
+                state,
+                inline_decorations,
+                virtual_text,
+            } => (
+                line_range,
+                line_backgrounds,
+                display_map,
+                state,
+                inline_decorations,
+                virtual_text,
+            ),
+            other => return other, // Not a BufferRef — return unchanged
+        };
+
+    // T15: Filter annotations whose anchor line is invisible in the display map.
+    let visible_annotations: Vec<_> = annotations
+        .iter()
+        .filter(|ann| {
+            let anchor_line = ann.anchor.line();
+            if let Some(dm) = display_map {
+                // Anchor line must be visible (mapped to a display line)
+                dm.buffer_to_display(crate::display::BufferLine(anchor_line))
+                    .is_some()
+            } else {
+                // No display map → identity, all lines visible within range
+                anchor_line < line_range.end
+            }
+        })
+        .collect();
+
+    if visible_annotations.is_empty() {
+        // All annotations filtered — reconstruct unchanged BufferRef
+        return Element::BufferRef {
+            line_range,
+            line_backgrounds,
+            display_map: dm_ref,
+            state,
+            inline_decorations,
+            virtual_text,
+        };
+    }
+
+    // Collect unique split points (display line indices where annotations anchor)
+    // sorted by line number. We group InsertAfter at line N and InsertBefore at line N+1
+    // into the same split point after display line N.
+    let mut split_points: Vec<usize> = Vec::new();
+    for ann in &visible_annotations {
+        let split_after = match &ann.anchor {
+            ContentAnchor::InsertAfter(line) => *line,
+            ContentAnchor::InsertBefore(line) => {
+                if *line > line_range.start {
+                    line - 1
+                } else {
+                    // InsertBefore line 0 → insert before the very first line
+                    // We'll handle this as a special case below
+                    usize::MAX
+                }
+            }
+        };
+        if split_after != usize::MAX && !split_points.contains(&split_after) {
+            split_points.push(split_after);
+        }
+    }
+    split_points.sort();
+
+    // Collect annotations that go before the first line
+    let before_first: Vec<_> = visible_annotations
+        .iter()
+        .filter(
+            |ann| matches!(&ann.anchor, ContentAnchor::InsertBefore(l) if *l <= line_range.start),
+        )
+        .collect();
+
+    // Build Flex Column children
+    let mut children: Vec<FlexChild> = Vec::new();
+
+    // Insert any InsertBefore annotations targeting the first line
+    for ann in &before_first {
+        children.push(FlexChild::fixed(ann.element.clone()));
+    }
+
+    let mut current_start = line_range.start;
+
+    for &split_after in &split_points {
+        if split_after < current_start || split_after >= line_range.end {
+            continue;
+        }
+
+        let segment_end = split_after + 1;
+        // Emit sub-BufferRef for lines [current_start..segment_end]
+        if segment_end > current_start {
+            children.push(FlexChild::fixed(Element::BufferRef {
+                line_range: current_start..segment_end,
+                line_backgrounds: line_backgrounds.clone(),
+                display_map: dm_ref.clone(),
+                state: None, // state is per-pane, handled separately
+                inline_decorations: inline_decorations.clone(),
+                virtual_text: virtual_text.clone(),
+            }));
+        }
+
+        // Emit annotation elements anchored at this split point
+        for ann in &visible_annotations {
+            let matches = match &ann.anchor {
+                ContentAnchor::InsertAfter(line) => *line == split_after,
+                ContentAnchor::InsertBefore(line) => {
+                    *line > line_range.start && *line - 1 == split_after
+                }
+                #[allow(unreachable_patterns)]
+                _ => false,
+            };
+            if matches {
+                children.push(FlexChild::fixed(ann.element.clone()));
+            }
+        }
+
+        current_start = segment_end;
+    }
+
+    // Emit trailing sub-BufferRef for remaining lines
+    if current_start < line_range.end {
+        children.push(FlexChild::fixed(Element::BufferRef {
+            line_range: current_start..line_range.end,
+            line_backgrounds: line_backgrounds.clone(),
+            display_map: dm_ref.clone(),
+            state: None,
+            inline_decorations: inline_decorations.clone(),
+            virtual_text: virtual_text.clone(),
+        }));
+    }
+
+    Element::column(children)
+}
+
 pub(crate) fn build_buffer_core_parts(
     state: &AppState,
     registry: &PluginView<'_>,
@@ -346,19 +514,30 @@ pub(crate) fn build_buffer_core_parts(
     {
         Element::BufferRef {
             line_range: effective_start..effective_end,
-            line_backgrounds,
+            line_backgrounds: line_backgrounds.map(Arc::new),
             display_map: dm_for_element,
             state: None,
-            inline_decorations,
-            virtual_text,
+            inline_decorations: inline_decorations.map(Arc::new),
+            virtual_text: virtual_text.map(Arc::new),
         }
     } else {
         Element::buffer_ref(0..buffer_rows)
     };
+    // Segment buffer with content annotations (Phase D)
+    let content_annotations = registry.collect_content_annotations(&app_view, &annotate_ctx);
+    let segmented_buffer = segment_buffer(
+        buffer_element,
+        &content_annotations,
+        if display_map.is_identity() {
+            None
+        } else {
+            Some(&display_map)
+        },
+    );
     let transformed_buffer = registry
         .apply_transform_chain(
             TransformTarget::BUFFER,
-            TransformSubject::Element(buffer_element),
+            TransformSubject::Element(segmented_buffer),
             &app_view,
         )
         .into_element();

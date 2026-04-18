@@ -42,7 +42,7 @@ impl FoldToggleState {
 
     /// Remove fold directives whose ranges are currently expanded.
     ///
-    /// Non-fold directives (Hide, InsertAfter, InsertBefore) are preserved.
+    /// Non-fold directives (Hide) are preserved.
     pub fn filter_directives(&self, directives: &mut Vec<DisplayDirective>) {
         if self.expanded.is_empty() {
             return;
@@ -95,21 +95,12 @@ mod tests {
                     contents: "fold".into(),
                 }],
             },
-            DisplayDirective::InsertAfter {
-                after: 0,
-                content: vec![Atom {
-                    face: Face::default(),
-                    contents: "virtual".into(),
-                }],
-            },
+            DisplayDirective::Hide { range: 6..8 },
         ];
         state.filter_directives(&mut directives);
 
         assert_eq!(directives.len(), 1);
-        assert!(matches!(
-            directives[0],
-            DisplayDirective::InsertAfter { .. }
-        ));
+        assert!(matches!(directives[0], DisplayDirective::Hide { .. }));
     }
 
     #[test]
@@ -134,19 +125,10 @@ mod tests {
         let mut state = FoldToggleState::default();
         state.toggle(&(0..10)); // expand everything
 
-        let mut directives = vec![
-            DisplayDirective::Hide { range: 3..5 },
-            DisplayDirective::InsertBefore {
-                before: 1,
-                content: vec![Atom {
-                    face: Face::default(),
-                    contents: "v".into(),
-                }],
-            },
-        ];
+        let mut directives = vec![DisplayDirective::Hide { range: 3..5 }];
         state.filter_directives(&mut directives);
 
-        assert_eq!(directives.len(), 2);
+        assert_eq!(directives.len(), 1);
     }
 
     #[test]

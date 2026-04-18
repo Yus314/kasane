@@ -2,7 +2,7 @@
 //!
 //! Two categories:
 //! - **Structural** (Fold/Hide, mutually exclusive — at most one active): e.g. Outline, Focus
-//! - **Additive** (InsertAfter/InsertBefore, composable — any number active): e.g. Error Lens, Diff Marks
+//! - **Additive** (ContentAnnotation, composable — any number active): e.g. Error Lens, Diff Marks
 //!
 //! Priority bands:
 //! - Structural: -500..0 (Outline: -100, Focus: -200)
@@ -30,7 +30,7 @@ impl ProjectionId {
 pub enum ProjectionCategory {
     /// Fold/Hide projections — at most one active at a time.
     Structural,
-    /// InsertAfter/InsertBefore projections — any number active simultaneously.
+    /// ContentAnnotation projections — any number active simultaneously.
     Additive,
 }
 

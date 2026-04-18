@@ -354,6 +354,7 @@ fn update_inner<E: PluginEffects>(
                 scroll_amount,
                 state.runtime.display_map.as_deref(),
                 state.runtime.display_scroll_offset,
+                state.runtime.segment_map.as_deref(),
             ) {
                 vec![Command::SendToKakoune(req)]
             } else {

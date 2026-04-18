@@ -478,22 +478,6 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 Command::PasteClipboard
             }
 
-            /// Build a single-atom InsertAfter display directive.
-            pub fn plain_insert_after(after: u32, text: &str, face: Face) -> DisplayDirective {
-                DisplayDirective::InsertAfter(InsertAfterDirective {
-                    after,
-                    content: vec![Atom { face, contents: text.to_string() }],
-                })
-            }
-
-            /// Build a single-atom InsertBefore display directive.
-            pub fn plain_insert_before(before: u32, text: &str, face: Face) -> DisplayDirective {
-                DisplayDirective::InsertBefore(InsertBeforeDirective {
-                    before,
-                    content: vec![Atom { face, contents: text.to_string() }],
-                })
-            }
-
             /// Build a single-atom Fold display directive.
             pub fn plain_fold(range_start: u32, range_end: u32, text: &str, face: Face) -> DisplayDirective {
                 DisplayDirective::Fold(FoldDirective {

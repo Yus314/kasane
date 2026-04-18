@@ -29,8 +29,6 @@ impl TaggedDirective {
         let (variant, anchor) = match &self.directive {
             DisplayDirective::Hide { range } => (0, range.start),
             DisplayDirective::Fold { range, .. } => (1, range.start),
-            DisplayDirective::InsertAfter { after, .. } => (2, *after),
-            DisplayDirective::InsertBefore { before, .. } => (3, *before),
         };
         (self.priority, &self.plugin_id, variant, anchor)
     }
@@ -59,24 +57,18 @@ impl DirectiveSet {
 /// Resolve a set of tagged directives into a flat list for `DisplayMap::build()`.
 ///
 /// Rules:
-/// 1. **InsertAfter**: All kept. Same-line ordering by `(priority, plugin_id)`.
-/// 2. **InsertBefore**: All kept. Same-line ordering by `(priority, plugin_id)`.
-/// 3. **Hide**: Set union of all ranges (idempotent).
-/// 4. **Fold overlap**: Higher `(priority, plugin_id)` wins; lower-priority
+/// 1. **Hide**: Set union of all ranges (idempotent).
+/// 2. **Fold overlap**: Higher `(priority, plugin_id)` wins; lower-priority
 ///    overlapping fold dropped entirely (protects summary integrity).
-/// 5. **Fold-Hide partial overlap**: Fold removed (conservative).
-/// 6. **InsertAfter suppression**: Inserts targeting hidden or folded lines removed.
-/// 7. **InsertBefore suppression**: Inserts targeting hidden or folded lines removed.
+/// 3. **Fold-Hide partial overlap**: Fold removed (conservative).
 pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
     if set.is_empty() {
         return Vec::new();
     }
 
-    // Partition into folds, hides, inserts_after, inserts_before
+    // Partition into folds and hides
     let mut folds: Vec<(Range<usize>, &TaggedDirective)> = Vec::new();
     let mut hides: Vec<Range<usize>> = Vec::new();
-    let mut inserts: Vec<&TaggedDirective> = Vec::new();
-    let mut inserts_before: Vec<&TaggedDirective> = Vec::new();
 
     for td in &set.directives {
         match &td.directive {
@@ -85,12 +77,6 @@ pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
             }
             DisplayDirective::Hide { range } => {
                 hides.push(range.clone());
-            }
-            DisplayDirective::InsertAfter { .. } => {
-                inserts.push(td);
-            }
-            DisplayDirective::InsertBefore { .. } => {
-                inserts_before.push(td);
             }
         }
     }
@@ -137,57 +123,7 @@ pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
         hidden_count == 0
     });
 
-    // Compute invisible_set = hidden ∪ (all accepted fold ranges)
-    let mut invisible = hidden;
-    for (range, _) in &accepted_folds {
-        for slot in invisible
-            .iter_mut()
-            .take(range.end.min(line_count))
-            .skip(range.start)
-        {
-            *slot = true;
-        }
-    }
-
-    // Remove inserts whose target line is invisible
-    let mut kept_inserts: Vec<&TaggedDirective> = inserts
-        .into_iter()
-        .filter(|td| {
-            if let DisplayDirective::InsertAfter { after, .. } = &td.directive {
-                *after < line_count && !invisible[*after]
-            } else {
-                false
-            }
-        })
-        .collect();
-
-    // Sort inserts for same-line ordering by (priority, plugin_id)
-    kept_inserts.sort_by(|a, b| {
-        a.priority
-            .cmp(&b.priority)
-            .then_with(|| a.plugin_id.cmp(&b.plugin_id))
-    });
-
-    // Remove inserts_before whose target line is invisible
-    let mut kept_inserts_before: Vec<&TaggedDirective> = inserts_before
-        .into_iter()
-        .filter(|td| {
-            if let DisplayDirective::InsertBefore { before, .. } = &td.directive {
-                *before < line_count && !invisible[*before]
-            } else {
-                false
-            }
-        })
-        .collect();
-
-    // Sort inserts_before for same-line ordering by (priority, plugin_id)
-    kept_inserts_before.sort_by(|a, b| {
-        a.priority
-            .cmp(&b.priority)
-            .then_with(|| a.plugin_id.cmp(&b.plugin_id))
-    });
-
-    // Emit canonical order: hides, folds, inserts_after, inserts_before
+    // Emit canonical order: hides, folds
     let mut result = Vec::new();
 
     // Emit hides
@@ -199,16 +135,6 @@ pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
 
     // Emit accepted folds
     for (_, td) in &accepted_folds {
-        result.push(td.directive.clone());
-    }
-
-    // Emit kept inserts_after
-    for td in &kept_inserts {
-        result.push(td.directive.clone());
-    }
-
-    // Emit kept inserts_before
-    for td in &kept_inserts_before {
         result.push(td.directive.clone());
     }
 
@@ -258,8 +184,6 @@ pub fn partition_directives(set: &DirectiveSet) -> Vec<DirectiveGroup> {
             let range = match &td.directive {
                 DisplayDirective::Fold { range, .. } => range.clone(),
                 DisplayDirective::Hide { range } => range.clone(),
-                DisplayDirective::InsertAfter { after, .. } => *after..*after + 1,
-                DisplayDirective::InsertBefore { before, .. } => *before..*before + 1,
             };
             (range, i)
         })
@@ -301,14 +225,6 @@ pub fn partition_directives(set: &DirectiveSet) -> Vec<DirectiveGroup> {
                     DisplayDirective::Hide { range } => {
                         range.start.hash(&mut hasher);
                         range.end.hash(&mut hasher);
-                    }
-                    DisplayDirective::InsertAfter { after, content } => {
-                        after.hash(&mut hasher);
-                        content.len().hash(&mut hasher);
-                    }
-                    DisplayDirective::InsertBefore { before, content } => {
-                        before.hash(&mut hasher);
-                        content.len().hash(&mut hasher);
                     }
                 }
             }

@@ -30,6 +30,7 @@ pub struct SalsaInputHandles {
     pub annotations: AnnotationResultInput,
     pub plugin_overlays: PluginOverlaysInput,
     pub transform_patches: TransformPatchesInput,
+    pub content_annotations: ContentAnnotationsInput,
     contribution_cache: ContributionCache,
 }
 
@@ -86,6 +87,7 @@ impl SalsaInputHandles {
             annotations: AnnotationResultInput::new(db, None, None, None, None, None),
             plugin_overlays: PluginOverlaysInput::new(db, vec![]),
             transform_patches: TransformPatchesInput::new(db, None, None),
+            content_annotations: ContentAnnotationsInput::new(db, vec![]),
             contribution_cache: ContributionCache::default(),
         }
     }
@@ -405,6 +407,41 @@ pub fn sync_display_directives(
         .display_directives
         .set_buffer_line_count(db)
         .to(line_count);
+}
+
+/// Synchronize content annotations from plugins into Salsa.
+///
+/// Call this after `sync_plugin_contributions()` (which sets up the display map
+/// and annotations). Only re-collects if any CONTENT_ANNOTATOR plugin needs
+/// recollection.
+pub fn sync_content_annotations(
+    db: &mut KasaneDatabase,
+    state: &AppState,
+    registry: &PluginView<'_>,
+    inputs: &SalsaInputHandles,
+) {
+    use crate::display::DisplayMapRef;
+    use crate::plugin::AnnotateContext;
+    use std::sync::Arc;
+
+    if !registry.has_capability(crate::plugin::PluginCapabilities::CONTENT_ANNOTATOR) {
+        return;
+    }
+
+    let display_map: DisplayMapRef =
+        crate::salsa_views::display_map_query(db, inputs.display_directives);
+    let annotate_ctx = AnnotateContext {
+        line_width: state.runtime.cols,
+        gutter_width: 0,
+        display_map: Some(Arc::clone(&display_map)),
+        pane_surface_id: None,
+        pane_focused: true,
+    };
+    let annotations = registry.collect_content_annotations(&AppView::new(state), &annotate_ctx);
+    inputs
+        .content_annotations
+        .set_annotations(db)
+        .to(annotations);
 }
 
 /// Synchronize transform patches from TRANSFORMER plugins into Salsa.

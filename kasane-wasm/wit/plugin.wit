@@ -271,8 +271,6 @@ interface types {
 
     variant display-directive {
         fold(fold-directive),
-        insert-after(insert-after-directive),
-        insert-before(insert-before-directive),
         hide(hide-directive),
     }
 
@@ -280,16 +278,6 @@ interface types {
         range-start: u32,
         range-end: u32,
         summary: list<atom>,
-    }
-
-    record insert-after-directive {
-        after: u32,
-        content: list<atom>,
-    }
-
-    record insert-before-directive {
-        before: u32,
-        content: list<atom>,
     }
 
     record hide-directive {
@@ -316,7 +304,6 @@ interface types {
     enum semantic-role {
         buffer-content,
         fold-summary,
-        virtual-text,
         plugin-defined,
     }
 

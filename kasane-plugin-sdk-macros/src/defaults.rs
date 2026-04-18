@@ -82,6 +82,8 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "contribute_overlay_v2",
         "annotate_line",
         "display_directives",
+        "declare_projections",
+        "projection_directives",
         "replace",
         "decorate",
         "decorator_priority",
@@ -325,6 +327,24 @@ pub(crate) fn generate_defaults(
         "display_directives",
         quote! {
             fn display_directives() -> Vec<DisplayDirective> {
+                vec![]
+            }
+        }
+    );
+
+    add_default!(
+        "declare_projections",
+        quote! {
+            fn declare_projections() -> Vec<ProjectionDescriptor> {
+                vec![]
+            }
+        }
+    );
+
+    add_default!(
+        "projection_directives",
+        quote! {
+            fn projection_directives(_projection_id: String) -> Vec<DisplayDirective> {
                 vec![]
             }
         }

@@ -147,6 +147,15 @@ pub struct DisplayDirectivesInput {
     pub buffer_line_count: usize,
 }
 
+/// Content annotations from plugins (rich Element insertions between buffer lines).
+///
+/// Set by `sync_content_annotations()` after display map and annotations are collected.
+#[salsa::input]
+pub struct ContentAnnotationsInput {
+    #[returns(ref)]
+    pub annotations: Vec<crate::display::ContentAnnotation>,
+}
+
 /// Pre-collected transform patches from TRANSFORMER plugins.
 ///
 /// Each field stores the composed pure patch for a transform target, or `None`

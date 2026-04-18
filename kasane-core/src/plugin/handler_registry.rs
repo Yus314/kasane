@@ -1104,6 +1104,30 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         });
     }
 
+    /// Register a content annotation handler.
+    ///
+    /// Content annotations insert full `Element` trees between buffer lines
+    /// (unlike display directives which only insert `Vec<Atom>` text).
+    /// The handler is called once per frame and returns annotations for
+    /// all relevant lines.
+    ///
+    /// Structurally additive — no safety tiers or RecoveryWitness needed.
+    pub fn on_content_annotation(
+        &mut self,
+        handler: impl Fn(&S, &AppView<'_>, &AnnotateContext) -> Vec<crate::display::ContentAnnotation>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.content_annotation_handler = Some(Box::new(move |state, app, ctx| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, app, ctx)
+        }));
+    }
+
     /// Register backend-independent physical ornament proposals.
     pub fn on_render_ornaments(
         &mut self,

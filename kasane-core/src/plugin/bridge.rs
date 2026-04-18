@@ -723,6 +723,18 @@ impl PluginBackend for PluginBridge {
         }
     }
 
+    fn content_annotations(
+        &self,
+        state: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> Vec<crate::display::ContentAnnotation> {
+        if let Some(handler) = &self.table.content_annotation_handler {
+            handler(&*self.state, state, ctx)
+        } else {
+            vec![]
+        }
+    }
+
     fn display_directives(&self, app: &AppView<'_>) -> Vec<DisplayDirective> {
         if let Some(handler) = &self.table.display_handler {
             handler(&*self.state, app)

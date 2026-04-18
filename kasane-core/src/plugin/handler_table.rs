@@ -17,6 +17,7 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
 
+use crate::display::content_annotation::ContentAnnotation;
 use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
 use crate::display::unit::DisplayUnit;
 
@@ -179,6 +180,11 @@ pub(crate) type ErasedOverlayHandler = Box<
 >;
 pub(crate) type ErasedDisplayHandler =
     Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> Vec<DisplayDirective> + Send + Sync>;
+pub(crate) type ErasedContentAnnotationHandler = Box<
+    dyn Fn(&dyn PluginState, &AppView<'_>, &AnnotateContext) -> Vec<ContentAnnotation>
+        + Send
+        + Sync,
+>;
 pub(crate) type ErasedRenderOrnamentHandler = Box<
     dyn Fn(&dyn PluginState, &AppView<'_>, &RenderOrnamentContext) -> OrnamentBatch + Send + Sync,
 >;
@@ -374,6 +380,7 @@ pub(crate) struct HandlerTable {
     pub(crate) overlay_handler: Option<ErasedOverlayHandler>,
     pub(crate) display_handler: Option<ErasedDisplayHandler>,
     pub(crate) projection_entries: Vec<ProjectionEntry>,
+    pub(crate) content_annotation_handler: Option<ErasedContentAnnotationHandler>,
     pub(crate) render_ornament_handler: Option<ErasedRenderOrnamentHandler>,
     pub(crate) menu_transform_handler: Option<ErasedMenuTransformHandler>,
 
@@ -437,6 +444,7 @@ impl HandlerTable {
             overlay_handler: None,
             display_handler: None,
             projection_entries: Vec::new(),
+            content_annotation_handler: None,
             render_ornament_handler: None,
             menu_transform_handler: None,
             navigation_policy_handler: None,
@@ -493,6 +501,9 @@ impl HandlerTable {
         }
         if self.display_handler.is_some() || !self.projection_entries.is_empty() {
             caps |= PluginCapabilities::DISPLAY_TRANSFORM;
+        }
+        if self.content_annotation_handler.is_some() {
+            caps |= PluginCapabilities::CONTENT_ANNOTATOR;
         }
         if self.render_ornament_handler.is_some() {
             caps |= PluginCapabilities::RENDER_ORNAMENT;

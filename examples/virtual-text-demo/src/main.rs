@@ -1,16 +1,14 @@
-//! Virtual text proof artifact — demonstrates DisplayMap-based inline annotations.
+//! Content annotation proof artifact — demonstrates ContentAnnotation-based inline annotations.
 //!
 //! This native Plugin proves that:
-//! 1. InsertAfter directives add virtual text lines between buffer lines
-//! 2. Cursor movement naturally skips virtual text (SourceMapping::None)
-//! 3. Mouse clicks on virtual text are suppressed (InteractionPolicy::ReadOnly)
-//! 4. Buffer editing works correctly with virtual text present
-//! 5. display_line_count > buffer_line_count when virtual text is active
+//! 1. ContentAnnotation inserts rich Element content between buffer lines
+//! 2. Mouse clicks on annotation content are suppressed via SegmentMap
+//! 3. Buffer editing works correctly with annotations present
 //!
 //! Usage:
 //!   cargo run --manifest-path examples/virtual-text-demo/Cargo.toml -- [file]
 //!
-//! Press `z` to toggle virtual text annotations on/off.
+//! Press `z` to toggle content annotations on/off.
 //! Detects TODO, FIXME, HACK, NOTE keywords in buffer lines.
 
 use kasane::kasane_core::plugin_prelude::*;
@@ -58,24 +56,24 @@ fn detect_keyword(text: &str) -> Option<&'static Keyword> {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-struct VirtualTextState {
+struct AnnotationDemoState {
     enabled: bool,
 }
 
-struct VirtualTextDemoPlugin;
+struct ContentAnnotationDemoPlugin;
 
-impl Plugin for VirtualTextDemoPlugin {
-    type State = VirtualTextState;
+impl Plugin for ContentAnnotationDemoPlugin {
+    type State = AnnotationDemoState;
 
     fn id(&self) -> PluginId {
         PluginId("virtual_text_demo".into())
     }
 
-    fn register(&self, r: &mut HandlerRegistry<VirtualTextState>) {
+    fn register(&self, r: &mut HandlerRegistry<AnnotationDemoState>) {
         r.on_key(|state, key, _app| {
             if key.key == Key::Char('z') && key.modifiers.is_empty() {
                 Some((
-                    VirtualTextState {
+                    AnnotationDemoState {
                         enabled: !state.enabled,
                     },
                     vec![Command::RequestRedraw(DirtyFlags::ALL)],
@@ -85,32 +83,31 @@ impl Plugin for VirtualTextDemoPlugin {
             }
         });
 
-        r.on_display(|state, app| {
+        r.on_content_annotation(|state, app, _ctx| {
             if !state.enabled {
                 return vec![];
             }
 
-            let mut directives = Vec::new();
+            let mut annotations = Vec::new();
             for (i, line) in app.lines().iter().enumerate() {
                 let text = line_text(line);
                 if let Some(kw) = detect_keyword(&text) {
-                    directives.push(DisplayDirective::InsertAfter {
-                        after: i,
-                        content: vec![Atom {
-                            face: Face {
+                    let label = format!("  {} {} \u{2014} {}", kw.icon, kw.pattern, kw.label);
+                    annotations.push(ContentAnnotation {
+                        anchor: ContentAnchor::InsertAfter(i),
+                        element: Element::text(
+                            &label,
+                            Face {
                                 fg: Color::Named(kw.color),
                                 ..Face::default()
                             },
-                            contents: format!(
-                                "  {} {} \u{2014} {}",
-                                kw.icon, kw.pattern, kw.label
-                            )
-                            .into(),
-                        }],
+                        ),
+                        plugin_id: PluginId("virtual_text_demo".into()),
+                        priority: 0,
                     });
                 }
             }
-            directives
+            annotations
         });
 
         r.on_contribute(SlotId::STATUS_RIGHT, |state, _app, _ctx| {
@@ -141,6 +138,6 @@ impl Plugin for VirtualTextDemoPlugin {
 
 fn main() {
     kasane::run_with_factories([host_plugin("virtual_text_demo", || {
-        PluginBridge::new(VirtualTextDemoPlugin)
+        PluginBridge::new(ContentAnnotationDemoPlugin)
     })]);
 }

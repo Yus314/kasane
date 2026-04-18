@@ -1,12 +1,13 @@
 use proptest::prelude::*;
 
+use crate::display::content_annotation::{ContentAnchor, ContentAnnotation};
 use crate::display::{DirectiveSet, DisplayDirective, TaggedDirective};
 use crate::element::Element;
 use crate::element::OverlayAnchor;
 use crate::plugin::PluginId;
 use crate::plugin::compose::{
-    Composable, ContributionSet, FirstWins, MenuTransformChain, OverlaySet, TransformChain,
-    TransformChainEntry,
+    Composable, ContentAnnotationSet, ContributionSet, FirstWins, MenuTransformChain, OverlaySet,
+    TransformChain, TransformChainEntry,
 };
 use crate::plugin::context::{
     ContribSizeHint, Contribution, OverlayContribution, SourcedContribution, TransformTarget,
@@ -61,20 +62,6 @@ fn arb_display_directive() -> impl Strategy<Value = DisplayDirective> {
                 contents: String::new().into()
             }],
         }),
-        (0usize..200).prop_map(|after| DisplayDirective::InsertAfter {
-            after,
-            content: vec![Atom {
-                face: Face::default(),
-                contents: String::new().into()
-            }],
-        }),
-        (0usize..200).prop_map(|before| DisplayDirective::InsertBefore {
-            before,
-            content: vec![Atom {
-                face: Face::default(),
-                contents: String::new().into()
-            }],
-        }),
     ]
 }
 
@@ -117,6 +104,30 @@ fn arb_transform_chain_entry() -> impl Strategy<Value = TransformChainEntry> {
 fn arb_transform_chain() -> impl Strategy<Value = TransformChain> {
     prop::collection::vec(arb_transform_chain_entry(), 0..8)
         .prop_map(|entries| TransformChain::from_entries(entries))
+}
+
+fn arb_content_annotation() -> impl Strategy<Value = ContentAnnotation> {
+    (
+        arb_plugin_id(),
+        -100i16..100i16,
+        0usize..200,
+        prop::bool::ANY,
+    )
+        .prop_map(|(id, priority, line, is_after)| ContentAnnotation {
+            anchor: if is_after {
+                ContentAnchor::InsertAfter(line)
+            } else {
+                ContentAnchor::InsertBefore(line)
+            },
+            element: Element::Empty,
+            plugin_id: id,
+            priority,
+        })
+}
+
+fn arb_content_annotation_set() -> impl Strategy<Value = ContentAnnotationSet> {
+    prop::collection::vec(arb_content_annotation(), 0..8)
+        .prop_map(|items| ContentAnnotationSet::from_vec(items))
 }
 
 // ---------------------------------------------------------------------------
@@ -236,6 +247,54 @@ proptest! {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ContentAnnotationSet — monoid laws
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #[test]
+    fn content_annotation_set_left_identity(x in arb_content_annotation_set()) {
+        let result = ContentAnnotationSet::empty().compose(x.clone());
+        assert_eq!(result.items().len(), x.items().len());
+    }
+
+    #[test]
+    fn content_annotation_set_right_identity(x in arb_content_annotation_set()) {
+        let result = x.clone().compose(ContentAnnotationSet::empty());
+        assert_eq!(result.items().len(), x.items().len());
+    }
+
+    #[test]
+    fn content_annotation_set_associativity(
+        a in arb_content_annotation_set(),
+        b in arb_content_annotation_set(),
+        c in arb_content_annotation_set(),
+    ) {
+        let total = a.items().len() + b.items().len() + c.items().len();
+        let left = a.clone().compose(b.clone()).compose(c.clone());
+        let right = a.compose(b.compose(c));
+        prop_assert_eq!(left.items().len(), total);
+        prop_assert_eq!(right.items().len(), total);
+        // Both should produce the same sort order
+        for (l, r) in left.items().iter().zip(right.items().iter()) {
+            prop_assert_eq!(l.sort_key(), r.sort_key());
+        }
+    }
+
+    #[test]
+    fn content_annotation_set_commutativity(
+        a in arb_content_annotation_set(),
+        b in arb_content_annotation_set(),
+    ) {
+        let ab = a.clone().compose(b.clone());
+        let ba = b.compose(a);
+        prop_assert_eq!(ab.items().len(), ba.items().len());
+        for (l, r) in ab.items().iter().zip(ba.items().iter()) {
+            prop_assert_eq!(l.sort_key(), r.sort_key());
+        }
+    }
+}
+
 /// Same plugin_id + same priority with multiple directive variants must
 /// compose commutatively thanks to the 4-element sort key.
 #[test]
@@ -250,9 +309,9 @@ fn directive_set_commutativity_same_plugin_same_priority() {
     };
     let b = DirectiveSet {
         directives: vec![TaggedDirective {
-            directive: DisplayDirective::InsertAfter {
-                after: 3,
-                content: vec![Atom {
+            directive: DisplayDirective::Fold {
+                range: 3..6,
+                summary: vec![Atom {
                     face: Face::default(),
                     contents: String::new().into(),
                 }],

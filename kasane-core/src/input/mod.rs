@@ -351,14 +351,24 @@ pub fn mouse_to_kakoune(
     scroll_amount: i32,
     display_map: Option<&crate::display::DisplayMap>,
     display_scroll_offset: usize,
+    segment_map: Option<&crate::display::segment_map::SegmentMap>,
 ) -> Option<crate::protocol::KasaneRequest> {
     use crate::display::InverseResult;
     use crate::protocol::KasaneRequest;
 
-    let (line, column) = if let Some(dm) = display_map.filter(|dm| !dm.is_identity()) {
+    let (line, column) = if let Some(sm) = segment_map {
+        // Two-layer inverse: screen_y → display_line → buffer_line
+        let screen_y = event.line as usize;
+        let display_y = sm.screen_y_to_display_line(screen_y)?;
+        let dm = display_map?;
+        match dm.display_to_buffer(crate::display::DisplayLine(display_y)) {
+            InverseResult::Actionable(bl) => (bl.0 as u32, event.column),
+            _ => return None,
+        }
+    } else if let Some(dm) = display_map.filter(|dm| !dm.is_identity()) {
         let display_y = event.line as usize + display_scroll_offset;
         // Inverse projection: only Actionable (strong source) generates a Kakoune event.
-        // Informational (fold), Virtual (synthetic), OutOfRange → suppress.
+        // Informational (fold), OutOfRange → suppress.
         match dm.display_to_buffer(crate::display::DisplayLine(display_y)) {
             InverseResult::Actionable(bl) => (bl.0 as u32, event.column),
             _ => return None,
@@ -579,7 +589,7 @@ mod tests {
             column: 10,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3, None, 0).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None, 0, None).unwrap();
         assert_eq!(
             req,
             KasaneRequest::MousePress {
@@ -600,7 +610,7 @@ mod tests {
             column: 7,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3, None, 0).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None, 0, None).unwrap();
         assert_eq!(req, KasaneRequest::MouseMove { line: 3, column: 7 });
     }
 
@@ -614,7 +624,7 @@ mod tests {
             column: 2,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3, None, 0).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None, 0, None).unwrap();
         assert_eq!(req, KasaneRequest::MouseMove { line: 1, column: 2 });
     }
 
@@ -692,7 +702,7 @@ mod tests {
             column: 0,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3, None, 0).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None, 0, None).unwrap();
         assert_eq!(
             req,
             KasaneRequest::Scroll {
@@ -764,7 +774,7 @@ mod tests {
             column: 3,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3, Some(&dm), 0).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, Some(&dm), 0, None).unwrap();
         assert_eq!(
             req,
             KasaneRequest::MousePress {
@@ -798,33 +808,7 @@ mod tests {
             column: 0,
             modifiers: Modifiers::empty(),
         };
-        assert!(mouse_to_kakoune(&evt, 3, Some(&dm), 0).is_none());
-    }
-
-    /// Click on a virtual line inserted by InsertAfter (ReadOnly) should be suppressed.
-    #[test]
-    fn test_mouse_on_virtual_line_suppressed() {
-        use crate::display::{DisplayDirective, DisplayMap};
-        use crate::protocol::Atom;
-
-        let dm = DisplayMap::build(
-            5,
-            &[DisplayDirective::InsertAfter {
-                after: 1,
-                content: vec![Atom {
-                    face: Default::default(),
-                    contents: "virtual text".into(),
-                }],
-            }],
-        );
-        // Display lines: 0=buf0, 1=buf1, 2=virtual(ReadOnly), 3=buf2, ...
-        let evt = MouseEvent {
-            kind: MouseEventKind::Press(MouseButton::Left),
-            line: 2,
-            column: 0,
-            modifiers: Modifiers::empty(),
-        };
-        assert!(mouse_to_kakoune(&evt, 3, Some(&dm), 0).is_none());
+        assert!(mouse_to_kakoune(&evt, 3, Some(&dm), 0, None).is_none());
     }
 
     /// Click on a display line after hidden lines: buffer line should be
@@ -843,7 +827,7 @@ mod tests {
             column: 5,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3, Some(&dm), 0).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, Some(&dm), 0, None).unwrap();
         assert_eq!(
             req,
             KasaneRequest::MousePress {
@@ -880,7 +864,7 @@ mod tests {
             column: 0,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3, Some(&dm), 3).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, Some(&dm), 3, None).unwrap();
         assert_eq!(
             req,
             KasaneRequest::MousePress {

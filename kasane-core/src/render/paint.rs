@@ -155,7 +155,6 @@ pub(crate) fn analyze_buffer_line<'a>(
                 let buf_line = match entry.source() {
                     SourceMapping::BufferLine(l) => Some(l.0),
                     SourceMapping::LineRange(r) => Some(r.start),
-                    SourceMapping::None => None,
                 };
                 (buf_line, entry.synthetic())
             } else {

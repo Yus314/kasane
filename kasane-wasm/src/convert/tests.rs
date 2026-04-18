@@ -249,38 +249,6 @@ fn convert_display_directive_fold_roundtrip() {
 }
 
 #[test]
-fn convert_display_directive_insert_after_roundtrip() {
-    let directive = kasane_core::display::DisplayDirective::InsertAfter {
-        after: 3,
-        content: vec![Atom {
-            face: Face::default(),
-            contents: "virtual".into(),
-        }],
-    };
-
-    let wit = display_directive_to_wit(&directive);
-    let roundtrip = wit_display_directive_to_directive(&wit);
-
-    assert_eq!(roundtrip, directive);
-}
-
-#[test]
-fn convert_display_directive_insert_before_roundtrip() {
-    let directive = kasane_core::display::DisplayDirective::InsertBefore {
-        before: 0,
-        content: vec![Atom {
-            face: Face::default(),
-            contents: "virtual-before".into(),
-        }],
-    };
-
-    let wit = display_directive_to_wit(&directive);
-    let roundtrip = wit_display_directive_to_directive(&wit);
-
-    assert_eq!(roundtrip, directive);
-}
-
-#[test]
 fn convert_display_directive_hide_roundtrip() {
     let directive = kasane_core::display::DisplayDirective::Hide { range: 4..7 };
 
@@ -292,23 +260,7 @@ fn convert_display_directive_hide_roundtrip() {
 
 #[test]
 fn convert_display_directive_list_roundtrip() {
-    let directives = vec![
-        kasane_core::display::DisplayDirective::Hide { range: 1..3 },
-        kasane_core::display::DisplayDirective::InsertAfter {
-            after: 3,
-            content: vec![Atom {
-                face: Face::default(),
-                contents: "virtual".into(),
-            }],
-        },
-        kasane_core::display::DisplayDirective::InsertBefore {
-            before: 0,
-            content: vec![Atom {
-                face: Face::default(),
-                contents: "virtual-before".into(),
-            }],
-        },
-    ];
+    let directives = vec![kasane_core::display::DisplayDirective::Hide { range: 1..3 }];
 
     let wit = display_directives_to_wit(&directives);
     let roundtrip = wit_display_directives_to_directives(&wit);

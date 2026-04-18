@@ -489,16 +489,16 @@ pub enum Element {
     BufferRef {
         line_range: Range<usize>,
         /// Per-line background overrides from plugins (indexed by line within range).
-        line_backgrounds: Option<Vec<Option<Face>>>,
+        line_backgrounds: Option<Arc<Vec<Option<Face>>>>,
         /// Display transformation map (None = identity, no transformations).
         display_map: Option<DisplayMapRef>,
         /// Pane-specific state for multi-pane rendering. When `Some`, `paint_buffer_ref`
         /// reads lines/faces from here instead of the walk context's primary AppState.
         state: Option<Box<BufferRefState>>,
         /// Per-line inline decorations (byte-range Style/Hide) from plugins.
-        inline_decorations: Option<Vec<Option<crate::render::InlineDecoration>>>,
+        inline_decorations: Option<Arc<Vec<Option<crate::render::InlineDecoration>>>>,
         /// Per-line EOL virtual text atoms from plugins.
-        virtual_text: Option<Vec<Option<Vec<Atom>>>>,
+        virtual_text: Option<Arc<Vec<Option<Vec<Atom>>>>>,
     },
 }
 

@@ -370,23 +370,23 @@ fn test_collect_display_directives_composes_multi_plugin() {
     }));
     registry.register_backend(Box::new(DisplayTransformPlugin {
         id: "second",
-        directives: vec![DisplayDirective::InsertAfter {
-            after: 3,
-            content: vec![Atom {
+        directives: vec![DisplayDirective::Fold {
+            range: 3..5,
+            summary: vec![Atom {
                 face: Face::default(),
-                contents: "virtual".into(),
+                contents: "folded".into(),
             }],
         }],
         priority: 0,
     }));
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
+    state.observed.lines = vec![vec![], vec![], vec![], vec![], vec![], vec![]];
 
     let directives = registry
         .view()
         .collect_display_directives(&AppView::new(&state));
-    // Both plugins' directives are present (Hide + InsertAfter)
+    // Both plugins' directives are present (Hide + Fold)
     assert!(
         directives
             .iter()
@@ -395,7 +395,7 @@ fn test_collect_display_directives_composes_multi_plugin() {
     assert!(
         directives
             .iter()
-            .any(|d| matches!(d, DisplayDirective::InsertAfter { .. }))
+            .any(|d| matches!(d, DisplayDirective::Fold { .. }))
     );
 }
 
@@ -407,24 +407,13 @@ fn test_collect_display_map_composes_multi_plugin() {
         directives: vec![DisplayDirective::Hide { range: 1..3 }],
         priority: 0,
     }));
-    registry.register_backend(Box::new(DisplayTransformPlugin {
-        id: "second",
-        directives: vec![DisplayDirective::InsertAfter {
-            after: 3,
-            content: vec![Atom {
-                face: Face::default(),
-                contents: "virtual".into(),
-            }],
-        }],
-        priority: 0,
-    }));
 
     let mut state = AppState::default();
     state.observed.lines = vec![vec![], vec![], vec![], vec![]];
 
     let display_map = registry.view().collect_display_map(&AppView::new(&state));
-    // 4 lines - 2 hidden + 1 virtual = 3 display lines
-    assert_eq!(display_map.display_line_count(), 3);
+    // 4 lines - 2 hidden = 2 display lines
+    assert_eq!(display_map.display_line_count(), 2);
     assert_eq!(
         display_map.buffer_to_display(crate::display::BufferLine(0)),
         Some(crate::display::DisplayLine(0))
@@ -441,11 +430,6 @@ fn test_collect_display_map_composes_multi_plugin() {
         display_map.buffer_to_display(crate::display::BufferLine(3)),
         Some(crate::display::DisplayLine(1))
     ); // visible
-    // display line 2 is the virtual text
-    assert_eq!(
-        display_map.display_to_buffer(crate::display::DisplayLine(2)),
-        crate::display::InverseResult::Virtual
-    );
 }
 
 #[test]
@@ -495,16 +479,7 @@ fn test_collect_display_directives_single_plugin_unchanged() {
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(DisplayTransformPlugin {
         id: "only",
-        directives: vec![
-            DisplayDirective::Hide { range: 1..3 },
-            DisplayDirective::InsertAfter {
-                after: 0,
-                content: vec![Atom {
-                    face: Face::default(),
-                    contents: "virtual".into(),
-                }],
-            },
-        ],
+        directives: vec![DisplayDirective::Hide { range: 1..3 }],
         priority: 0,
     }));
 
@@ -519,9 +494,6 @@ fn test_collect_display_directives_single_plugin_unchanged() {
             .iter()
             .any(|d| matches!(d, DisplayDirective::Hide { range } if *range == (1..3)))
     );
-    assert!(directives.iter().any(
-        |d| matches!(d, DisplayDirective::InsertAfter { content, .. } if content.first().map(|a| a.contents.as_str()) == Some("virtual"))
-    ));
 }
 
 #[test]
@@ -1415,11 +1387,12 @@ use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolic
 use crate::display::unit::{DisplayUnit, DisplayUnitId, SemanticRole, UnitSource};
 
 fn make_display_unit(role: SemanticRole) -> DisplayUnit {
+    let source = UnitSource::Line(0);
     DisplayUnit {
-        id: DisplayUnitId::from_content(&UnitSource::None, &role),
+        id: DisplayUnitId::from_content(&source, &role),
         display_line: 0,
         role,
-        source: UnitSource::None,
+        source,
         interaction: InteractionPolicy::Normal,
     }
 }

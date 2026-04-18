@@ -218,6 +218,7 @@ pub(crate) struct PreparedFrame {
     pub buffer_x_offset: u16,
     pub buffer_y_offset: u16,
     pub display_scroll_offset: usize,
+    pub segment_map: Option<std::sync::Arc<crate::display::segment_map::SegmentMap>>,
     pub focused_pane_rect: Option<Rect>,
     pub focused_pane_state: Option<Box<AppState>>,
 }
@@ -256,6 +257,8 @@ pub(crate) fn prepare_frame(
         None => (find_buffer_x_offset(&sections.base, &base_layout), 0),
     };
 
+    let segment_map = sections.segment_map.clone();
+
     PreparedFrame {
         sections,
         base_layout,
@@ -264,6 +267,7 @@ pub(crate) fn prepare_frame(
         buffer_x_offset,
         buffer_y_offset,
         display_scroll_offset,
+        segment_map,
         focused_pane_rect,
         focused_pane_state,
     }
@@ -355,6 +359,7 @@ pub(crate) fn render_cached_core(
             focus_rect,
             dm,
             dso,
+            frame.segment_map.as_deref(),
         );
     }
 
@@ -366,6 +371,7 @@ pub(crate) fn render_cached_core(
         dm,
         frame.buffer_y_offset,
         dso,
+        frame.segment_map.as_deref(),
     );
 
     // Resolve cursor style: ornament Style > default
@@ -381,6 +387,7 @@ pub(crate) fn render_cached_core(
         frame.buffer_y_offset,
         dso,
         frame.focused_pane_rect.as_ref(),
+        frame.segment_map.as_deref(),
     );
     let (cx, cy) = cursor_position(
         cursor_state,
@@ -390,6 +397,7 @@ pub(crate) fn render_cached_core(
         frame.buffer_y_offset,
         dso,
         frame.focused_pane_rect.as_ref(),
+        frame.segment_map.as_deref(),
     );
 
     let result = RenderResult {

@@ -2,7 +2,7 @@
 //!
 //! Display Units are the formal domain of the inverse projection ρ. They give the
 //! input system a well-defined structure for dispatching events to display-transformed
-//! content (fold summaries, virtual text, hidden regions).
+//! content (fold summaries, hidden regions).
 //!
 //! A `DisplayUnitMap` is built from a non-identity `DisplayMap` and provides O(1)
 //! lookup by display line. When `DisplayMap::is_identity()`, no `DisplayUnitMap` is
@@ -37,8 +37,6 @@ pub enum SemanticRole {
     BufferContent,
     /// Fold summary representing a collapsed range.
     FoldSummary,
-    /// Virtual text with no buffer origin.
-    VirtualText,
     /// Plugin-defined role. Core applies Skip default; plugins override.
     Plugin(PluginTag, u32),
 }
@@ -54,8 +52,6 @@ pub enum SourceStrength {
     Weak,
     /// Sub-line only (`Span`).
     Partial,
-    /// No buffer origin (`None`).
-    Absent,
 }
 
 /// Source mapping from a display unit to buffer coordinates.
@@ -65,8 +61,6 @@ pub enum UnitSource {
     Line(usize),
     /// Multiple buffer lines — fold (σ strength: Weak).
     LineRange(Range<usize>),
-    /// No buffer origin — virtual text (σ strength: Absent).
-    None,
     /// Sub-line range within a buffer line (σ strength: Partial). Future extension.
     Span {
         line: usize,
@@ -80,7 +74,6 @@ impl UnitSource {
         match self {
             UnitSource::Line(_) => SourceStrength::Strong,
             UnitSource::LineRange(_) => SourceStrength::Weak,
-            UnitSource::None => SourceStrength::Absent,
             UnitSource::Span { .. } => SourceStrength::Partial,
         }
     }
@@ -137,7 +130,6 @@ impl DisplayUnitMap {
                     UnitSource::LineRange(range.clone()),
                     SemanticRole::FoldSummary,
                 ),
-                SourceMapping::None => (UnitSource::None, SemanticRole::VirtualText),
             };
 
             let id = DisplayUnitId::from_content(&source, &role);
@@ -273,7 +265,6 @@ impl DisplayUnitMap {
                 let source_matches = match (&unit.source, &entry.source) {
                     (UnitSource::Line(l), SourceMapping::BufferLine(bl)) => *l == bl.0,
                     (UnitSource::LineRange(r), SourceMapping::LineRange(er)) => r == er,
-                    (UnitSource::None, SourceMapping::None) => true,
                     _ => false,
                 };
                 debug_assert!(
@@ -316,14 +307,6 @@ impl DisplayUnitMap {
             // DU-INV-4 (Policy Soundness): σ strength constrains interaction policy.
             for unit in &self.units {
                 match unit.source.strength() {
-                    SourceStrength::Absent => {
-                        debug_assert_ne!(
-                            unit.interaction,
-                            InteractionPolicy::Normal,
-                            "DU-INV-4: Absent source at display_line {} cannot have Normal interaction",
-                            unit.display_line,
-                        );
-                    }
                     SourceStrength::Weak => {
                         debug_assert_eq!(
                             unit.interaction,
@@ -383,7 +366,6 @@ pub(crate) fn assert_display_unit_map_invariants(dum: &DisplayUnitMap, display_m
         let source_matches = match (&unit.source, &entry.source) {
             (UnitSource::Line(l), SourceMapping::BufferLine(bl)) => *l == bl.0,
             (UnitSource::LineRange(r), SourceMapping::LineRange(er)) => r == er,
-            (UnitSource::None, SourceMapping::None) => true,
             _ => false,
         };
         assert!(
@@ -424,14 +406,6 @@ pub(crate) fn assert_display_unit_map_invariants(dum: &DisplayUnitMap, display_m
     // DU-INV-4 (Policy Soundness)
     for unit in &dum.units {
         match unit.source.strength() {
-            SourceStrength::Absent => {
-                assert_ne!(
-                    unit.interaction,
-                    InteractionPolicy::Normal,
-                    "DU-INV-4: Absent source at display_line {} cannot have Normal",
-                    unit.display_line,
-                );
-            }
             SourceStrength::Weak => {
                 assert_eq!(
                     unit.interaction,
@@ -518,68 +492,14 @@ mod tests {
     }
 
     #[test]
-    fn insert_after_produces_virtual_text_unit() {
-        let directives = vec![DisplayDirective::InsertAfter {
-            after: 1,
-            content: vec![Atom {
-                face: Face::default(),
-                contents: "virtual".into(),
-            }],
-        }];
-        let dm = DisplayMap::build(3, &directives);
-        let dum = DisplayUnitMap::build(&dm);
-
-        // Display: buffer(0), buffer(1), virtual, buffer(2)
-        assert_eq!(dum.unit_count(), 4);
-
-        let virtual_unit = dum.unit_at_line(2).unwrap();
-        assert_eq!(virtual_unit.role, SemanticRole::VirtualText);
-        assert_eq!(virtual_unit.source, UnitSource::None);
-        assert_ne!(virtual_unit.interaction, InteractionPolicy::Normal);
-
-        assert_display_unit_map_invariants(&dum, &dm);
-    }
-
-    #[test]
-    fn insert_before_produces_virtual_text_unit() {
-        let directives = vec![DisplayDirective::InsertBefore {
-            before: 1,
-            content: vec![Atom {
-                face: Face::default(),
-                contents: "virtual".into(),
-            }],
-        }];
-        let dm = DisplayMap::build(3, &directives);
-        let dum = DisplayUnitMap::build(&dm);
-
-        // Display: buffer(0), virtual, buffer(1), buffer(2)
-        assert_eq!(dum.unit_count(), 4);
-
-        let virtual_unit = dum.unit_at_line(1).unwrap();
-        assert_eq!(virtual_unit.role, SemanticRole::VirtualText);
-        assert_eq!(virtual_unit.source, UnitSource::None);
-
-        assert_display_unit_map_invariants(&dum, &dm);
-    }
-
-    #[test]
     fn content_addressed_id_stability() {
-        let directives = vec![
-            DisplayDirective::Fold {
-                range: 2..5,
-                summary: vec![Atom {
-                    face: Face::default(),
-                    contents: "folded".into(),
-                }],
-            },
-            DisplayDirective::InsertAfter {
-                after: 0,
-                content: vec![Atom {
-                    face: Face::default(),
-                    contents: "virtual".into(),
-                }],
-            },
-        ];
+        let directives = vec![DisplayDirective::Fold {
+            range: 2..5,
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "folded".into(),
+            }],
+        }];
 
         let dm1 = DisplayMap::build(8, &directives);
         let dum1 = DisplayUnitMap::build(&dm1);
@@ -603,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_fold_insert_hide() {
+    fn mixed_fold_and_hide() {
         let directives = vec![
             DisplayDirective::Fold {
                 range: 1..3,
@@ -612,21 +532,7 @@ mod tests {
                     contents: "fold".into(),
                 }],
             },
-            DisplayDirective::InsertAfter {
-                after: 0,
-                content: vec![Atom {
-                    face: Face::default(),
-                    contents: "after-0".into(),
-                }],
-            },
             DisplayDirective::Hide { range: 5..7 },
-            DisplayDirective::InsertBefore {
-                before: 4,
-                content: vec![Atom {
-                    face: Face::default(),
-                    contents: "before-4".into(),
-                }],
-            },
         ];
         let dm = DisplayMap::build(10, &directives);
         let dum = DisplayUnitMap::build(&dm);
@@ -641,7 +547,6 @@ mod tests {
     fn source_strength_classification() {
         assert_eq!(UnitSource::Line(0).strength(), SourceStrength::Strong);
         assert_eq!(UnitSource::LineRange(0..5).strength(), SourceStrength::Weak);
-        assert_eq!(UnitSource::None.strength(), SourceStrength::Absent);
         assert_eq!(
             UnitSource::Span {
                 line: 0,
@@ -654,27 +559,18 @@ mod tests {
 
     // --- hit_test ---
 
-    /// Helper: build a DisplayUnitMap from a fold+insert scenario.
-    /// 8 buffer lines, fold 2..5, insert virtual after line 0.
-    /// Display: [buf(0), virtual, buf(1), fold(2..5), buf(5), buf(6), buf(7)]
-    ///           dl=0    dl=1     dl=2    dl=3        dl=4    dl=5    dl=6
-    fn build_fold_insert_dum() -> (DisplayMap, DisplayUnitMap) {
-        let directives = vec![
-            DisplayDirective::Fold {
-                range: 2..5,
-                summary: vec![Atom {
-                    face: Face::default(),
-                    contents: "folded".into(),
-                }],
-            },
-            DisplayDirective::InsertAfter {
-                after: 0,
-                content: vec![Atom {
-                    face: Face::default(),
-                    contents: "virtual".into(),
-                }],
-            },
-        ];
+    /// Helper: build a DisplayUnitMap from a fold scenario.
+    /// 8 buffer lines, fold 2..5.
+    /// Display: [buf(0), buf(1), fold(2..5), buf(5), buf(6), buf(7)]
+    ///           dl=0    dl=1    dl=2        dl=3    dl=4    dl=5
+    fn build_fold_dum() -> (DisplayMap, DisplayUnitMap) {
+        let directives = vec![DisplayDirective::Fold {
+            range: 2..5,
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "folded".into(),
+            }],
+        }];
         let dm = DisplayMap::build(8, &directives);
         let dum = DisplayUnitMap::build(&dm);
         (dm, dum)
@@ -682,7 +578,7 @@ mod tests {
 
     #[test]
     fn hit_test_returns_buffer_content_unit() {
-        let (_dm, dum) = build_fold_insert_dum();
+        let (_dm, dum) = build_fold_dum();
         // Display line 0 = buffer(0)
         let unit = dum.hit_test(0, 0).unwrap();
         assert_eq!(unit.role, SemanticRole::BufferContent);
@@ -691,40 +587,31 @@ mod tests {
 
     #[test]
     fn hit_test_returns_fold_summary_unit() {
-        let (_dm, dum) = build_fold_insert_dum();
-        // Display line 3 = fold summary
-        let unit = dum.hit_test(3, 0).unwrap();
+        let (_dm, dum) = build_fold_dum();
+        // Display line 2 = fold summary
+        let unit = dum.hit_test(2, 0).unwrap();
         assert_eq!(unit.role, SemanticRole::FoldSummary);
         assert_eq!(unit.interaction, InteractionPolicy::ReadOnly);
     }
 
     #[test]
-    fn hit_test_returns_virtual_text_unit() {
-        let (_dm, dum) = build_fold_insert_dum();
-        // Display line 1 = virtual text (InsertAfter line 0)
-        let unit = dum.hit_test(1, 0).unwrap();
-        assert_eq!(unit.role, SemanticRole::VirtualText);
-        assert_eq!(unit.source, UnitSource::None);
-    }
-
-    #[test]
     fn hit_test_with_scroll_offset() {
-        let (_dm, dum) = build_fold_insert_dum();
-        // event_line=0, offset=3 → display_line=3 = fold summary
-        let unit = dum.hit_test(0, 3).unwrap();
+        let (_dm, dum) = build_fold_dum();
+        // event_line=0, offset=2 → display_line=2 = fold summary
+        let unit = dum.hit_test(0, 2).unwrap();
         assert_eq!(unit.role, SemanticRole::FoldSummary);
 
-        // event_line=1, offset=3 → display_line=4 = buf(5)
-        let unit = dum.hit_test(1, 3).unwrap();
+        // event_line=1, offset=2 → display_line=3 = buf(5)
+        let unit = dum.hit_test(1, 2).unwrap();
         assert_eq!(unit.role, SemanticRole::BufferContent);
         assert_eq!(unit.source, UnitSource::Line(5));
     }
 
     #[test]
     fn hit_test_out_of_range() {
-        let (_dm, dum) = build_fold_insert_dum();
-        // Display has 7 lines; line 7 is out of range
-        assert!(dum.hit_test(7, 0).is_none());
+        let (_dm, dum) = build_fold_dum();
+        // Display has 6 lines; line 6 is out of range
+        assert!(dum.hit_test(6, 0).is_none());
         // Large scroll offset pushes past end
         assert!(dum.hit_test(0, 100).is_none());
     }
@@ -732,53 +619,53 @@ mod tests {
     // --- navigate ---
 
     #[test]
-    fn navigate_down_skips_virtual_text() {
-        let (_dm, dum) = build_fold_insert_dum();
-        // Display: [buf(0), virtual, buf(1), fold(2..5), buf(5), buf(6), buf(7)]
-        //           dl=0    dl=1     dl=2    dl=3        dl=4    dl=5    dl=6
-        // From dl=0, navigate Down should skip virtual(dl=1) → reach buf(1) at dl=2
+    fn navigate_down_reaches_next_buffer_line() {
+        let (_dm, dum) = build_fold_dum();
+        // Display: [buf(0), buf(1), fold(2..5), buf(5), buf(6), buf(7)]
+        //           dl=0    dl=1    dl=2        dl=3    dl=4    dl=5
+        // From dl=0, navigate Down → buf(1) at dl=1
         let target = dum
             .navigate(0, crate::display::NavigationDirection::Down)
             .unwrap();
-        assert_eq!(target.display_line, 2);
+        assert_eq!(target.display_line, 1);
         assert_eq!(target.role, SemanticRole::BufferContent);
     }
 
     #[test]
-    fn navigate_up_skips_virtual_text() {
-        let (_dm, dum) = build_fold_insert_dum();
-        // From dl=2 (buf(1)), navigate Up should skip virtual(dl=1) → reach buf(0) at dl=0
+    fn navigate_up_from_fold() {
+        let (_dm, dum) = build_fold_dum();
+        // From dl=2 (fold), navigate Up → buf(1) at dl=1
         let target = dum
             .navigate(2, crate::display::NavigationDirection::Up)
             .unwrap();
-        assert_eq!(target.display_line, 0);
+        assert_eq!(target.display_line, 1);
         assert_eq!(target.role, SemanticRole::BufferContent);
     }
 
     #[test]
     fn navigate_down_stops_at_boundary() {
-        let (_dm, dum) = build_fold_insert_dum();
-        // From dl=2 (buf(1)), navigate Down → fold summary at dl=3 (Boundary)
+        let (_dm, dum) = build_fold_dum();
+        // From dl=1 (buf(1)), navigate Down → fold summary at dl=2 (Boundary)
         let target = dum
-            .navigate(2, crate::display::NavigationDirection::Down)
+            .navigate(1, crate::display::NavigationDirection::Down)
             .unwrap();
-        assert_eq!(target.display_line, 3);
+        assert_eq!(target.display_line, 2);
         assert_eq!(target.role, SemanticRole::FoldSummary);
     }
 
     #[test]
     fn navigate_from_last_unit_down_returns_none() {
-        let (_dm, dum) = build_fold_insert_dum();
-        // dl=6 is the last unit
+        let (_dm, dum) = build_fold_dum();
+        // dl=5 is the last unit
         assert!(
-            dum.navigate(6, crate::display::NavigationDirection::Down)
+            dum.navigate(5, crate::display::NavigationDirection::Down)
                 .is_none()
         );
     }
 
     #[test]
     fn navigate_from_first_unit_up_returns_none() {
-        let (_dm, dum) = build_fold_insert_dum();
+        let (_dm, dum) = build_fold_dum();
         assert!(
             dum.navigate(0, crate::display::NavigationDirection::Up)
                 .is_none()
@@ -789,9 +676,9 @@ mod tests {
 
     #[test]
     fn navigate_with_policy_custom_skip() {
-        let (_dm, dum) = build_fold_insert_dum();
-        // Display: [buf(0), virtual, buf(1), fold(2..5), buf(5), buf(6), buf(7)]
-        //           dl=0    dl=1     dl=2    dl=3        dl=4    dl=5    dl=6
+        let (_dm, dum) = build_fold_dum();
+        // Display: [buf(0), buf(1), fold(2..5), buf(5), buf(6), buf(7)]
+        //           dl=0    dl=1    dl=2        dl=3    dl=4    dl=5
         // Custom policy: mark BufferContent as Skip (only Boundary/Normal are navigable)
         let target = dum.navigate_with_policy(0, crate::display::NavigationDirection::Down, |u| {
             match &u.role {
@@ -799,15 +686,15 @@ mod tests {
                 other => crate::display::NavigationPolicy::default_for(other),
             }
         });
-        // Should skip buf(1) at dl=2, reach fold at dl=3 (Boundary)
+        // Should skip buf(1) at dl=1, reach fold at dl=2 (Boundary)
         let target = target.unwrap();
-        assert_eq!(target.display_line, 3);
+        assert_eq!(target.display_line, 2);
         assert_eq!(target.role, SemanticRole::FoldSummary);
     }
 
     #[test]
     fn navigate_with_policy_matches_default() {
-        let (_dm, dum) = build_fold_insert_dum();
+        let (_dm, dum) = build_fold_dum();
         // navigate_with_policy with default_for should produce the same result as navigate
         for start_line in 0..dum.unit_count() {
             for dir in [
@@ -844,24 +731,6 @@ mod tests {
             (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
                 DisplayDirective::Hide {
                     range: s..(s + len).min(m),
-                }
-            }),
-            (0usize..m).prop_map(|after| {
-                DisplayDirective::InsertAfter {
-                    after,
-                    content: vec![Atom {
-                        face: Face::default(),
-                        contents: "virtual".into(),
-                    }],
-                }
-            }),
-            (0usize..m).prop_map(|before| {
-                DisplayDirective::InsertBefore {
-                    before,
-                    content: vec![Atom {
-                        face: Face::default(),
-                        contents: "virtual-before".into(),
-                    }],
                 }
             }),
         ]

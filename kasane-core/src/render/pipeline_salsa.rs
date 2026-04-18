@@ -222,6 +222,7 @@ impl ViewSource for SalsaViewSource<'_> {
             surface_reports,
             display_map,
             display_scroll_offset,
+            segment_map: None,
             focused_pane_rect,
             focused_pane_state,
         }
@@ -283,26 +284,38 @@ fn compose_base_from_salsa(
     {
         Element::BufferRef {
             line_range: effective_start..effective_end,
-            line_backgrounds,
+            line_backgrounds: line_backgrounds.map(Arc::new),
             display_map: dm_for_element,
             state: None,
-            inline_decorations,
-            virtual_text,
+            inline_decorations: inline_decorations.map(Arc::new),
+            virtual_text: virtual_text.map(Arc::new),
         }
     } else {
         buffer_el
     };
 
+    // Segment buffer with content annotations (Phase D)
+    let content_annotations = handles.content_annotations.annotations(db);
+    let segmented_buffer = view::segment_buffer(
+        buffer_with_bg,
+        content_annotations,
+        if display_map.is_identity() {
+            None
+        } else {
+            Some(display_map)
+        },
+    );
+
     // Apply buffer transform chain: use Salsa-cached patch when available
     let transformed_buffer = match handles.transform_patches.buffer(db) {
         Some(patch) => patch
             .clone()
-            .apply(TransformSubject::Element(buffer_with_bg))
+            .apply(TransformSubject::Element(segmented_buffer))
             .into_element(),
         None => registry
             .apply_transform_chain(
                 TransformTarget::BUFFER,
-                TransformSubject::Element(buffer_with_bg),
+                TransformSubject::Element(segmented_buffer),
                 &AppView::new(state),
             )
             .into_element(),

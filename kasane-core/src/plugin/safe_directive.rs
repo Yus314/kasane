@@ -25,21 +25,11 @@ impl std::fmt::Debug for SafeDisplayDirective {
 
 impl SafeDisplayDirective {
     /// All variant names covered by this projection (sorted).
-    pub const VARIANT_NAMES: &'static [&'static str] = &["Fold", "InsertAfter", "InsertBefore"];
+    pub const VARIANT_NAMES: &'static [&'static str] = &["Fold"];
 
     /// Collapse a range of buffer lines into a single summary line.
     pub fn fold(range: Range<usize>, summary: Vec<Atom>) -> Self {
         Self(DisplayDirective::Fold { range, summary })
-    }
-
-    /// Insert a virtual text line after the given buffer line.
-    pub fn insert_after(after: usize, content: Vec<Atom>) -> Self {
-        Self(DisplayDirective::InsertAfter { after, content })
-    }
-
-    /// Insert a virtual text line before the given buffer line.
-    pub fn insert_before(before: usize, content: Vec<Atom>) -> Self {
-        Self(DisplayDirective::InsertBefore { before, content })
     }
 }
 

@@ -359,12 +359,21 @@ pub trait PluginBackend: Any {
 
     // === Display Transform ===
 
+    /// Return content annotations (rich Element insertions between buffer lines).
+    fn content_annotations(
+        &self,
+        _state: &AppView<'_>,
+        _ctx: &AnnotateContext,
+    ) -> Vec<crate::display::ContentAnnotation> {
+        vec![]
+    }
+
     /// Priority for display directive composition (higher = wins overlap conflicts).
     fn display_directive_priority(&self) -> i16 {
         0
     }
 
-    /// Return display transformation directives (fold, hide, insert virtual text).
+    /// Return spatial display transformation directives (fold, hide).
     fn display_directives(&self, _state: &AppView<'_>) -> Vec<DisplayDirective> {
         vec![]
     }

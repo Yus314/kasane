@@ -1,13 +1,16 @@
 //! Display Transformation Foundation — maps between buffer lines and display lines.
 //!
-//! When plugins fold, hide, or insert virtual text, the display line count
-//! diverges from the buffer line count. `DisplayMap` provides O(1) bidirectional
-//! mapping between the two coordinate systems.
+//! When plugins fold or hide buffer lines, the display line count diverges
+//! from the buffer line count. `DisplayMap` provides O(1) bidirectional
+//! mapping between the two coordinate systems. Content insertion between
+//! buffer lines is handled by [`ContentAnnotation`] at the Element layer.
 
+pub mod content_annotation;
 pub mod fold_state;
 pub mod navigation;
 pub mod projection;
 pub mod resolve;
+pub mod segment_map;
 pub mod stability;
 #[cfg(test)]
 mod tests;
@@ -28,7 +31,10 @@ pub struct BufferLine(pub usize);
 #[repr(transparent)]
 pub struct DisplayLine(pub usize);
 
+pub use content_annotation::{ContentAnchor, ContentAnnotation};
 pub use fold_state::FoldToggleState;
+// SegmentMap is not re-exported at the display level to avoid API surface bloat;
+// access via `display::segment_map::SegmentMap` when needed.
 pub use navigation::{ActionResult, NavigationAction, NavigationDirection, NavigationPolicy};
 pub use projection::{
     ProjectionCategory, ProjectionDescriptor, ProjectionId, ProjectionPolicyState,
@@ -38,12 +44,17 @@ pub use resolve::{
     DirectiveGroup, DirectiveSet, ResolveCache, TaggedDirective, partition_directives, resolve,
     resolve_incremental,
 };
-pub use stability::DirectiveStabilityMonitor;
+pub use stability::{ContentAnnotationStabilityMonitor, DirectiveStabilityMonitor};
 pub use unit::{
     DisplayUnit, DisplayUnitId, DisplayUnitMap, SemanticRole, SourceStrength, UnitSource,
 };
 
-/// Plugin-declared display transformation directive.
+/// Plugin-declared spatial display transformation directive.
+///
+/// Spatial directives perform coordinate compression: they change *which*
+/// buffer lines are visible and *where* they appear. Content insertion
+/// (previously `InsertAfter`/`InsertBefore`) is now handled by
+/// [`ContentAnnotation`] at the Element layer.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DisplayDirective {
     /// Collapse a range of buffer lines into a single summary line.
@@ -51,10 +62,6 @@ pub enum DisplayDirective {
         range: Range<usize>,
         summary: Vec<Atom>,
     },
-    /// Insert a virtual text line after the given buffer line.
-    InsertAfter { after: usize, content: Vec<Atom> },
-    /// Insert a virtual text line before the given buffer line.
-    InsertBefore { before: usize, content: Vec<Atom> },
     /// Hide a range of buffer lines entirely.
     Hide { range: Range<usize> },
 }
@@ -64,7 +71,7 @@ pub enum DisplayDirective {
 // =============================================================================
 
 /// All variant names of `DisplayDirective` (sorted).
-pub const ALL_VARIANT_NAMES: &[&str] = &["Fold", "Hide", "InsertAfter", "InsertBefore"];
+pub const ALL_VARIANT_NAMES: &[&str] = &["Fold", "Hide"];
 
 /// Variants classified as destructive (§10.2 Destructive).
 pub const DESTRUCTIVE_VARIANTS: &[&str] = &["Hide"];
@@ -72,17 +79,12 @@ pub const DESTRUCTIVE_VARIANTS: &[&str] = &["Hide"];
 /// Variants classified as preserving (§10.2 Preserving).
 pub const PRESERVING_VARIANTS: &[&str] = &["Fold"];
 
-/// Variants classified as additive (§10.2 Additive).
-pub const ADDITIVE_VARIANTS: &[&str] = &["InsertAfter", "InsertBefore"];
-
 impl DisplayDirective {
     /// Variant name as a static string (exhaustive — no wildcard).
     pub fn variant_name(&self) -> &'static str {
         match self {
             DisplayDirective::Fold { .. } => "Fold",
             DisplayDirective::Hide { .. } => "Hide",
-            DisplayDirective::InsertAfter { .. } => "InsertAfter",
-            DisplayDirective::InsertBefore { .. } => "InsertBefore",
         }
     }
 
@@ -99,8 +101,6 @@ pub enum SourceMapping {
     BufferLine(BufferLine),
     /// This display line represents a folded range of buffer lines.
     LineRange(Range<usize>),
-    /// This display line is virtual text (no buffer origin).
-    None,
 }
 
 /// Result of inverse projection: display line → buffer origin.
@@ -118,8 +118,6 @@ pub enum InverseResult {
         representative: BufferLine,
         range: Range<usize>,
     },
-    /// No buffer origin (virtual text). Inverse projection is undefined.
-    Virtual,
     /// Display line index out of range.
     OutOfRange,
 }
@@ -172,12 +170,11 @@ impl SyntheticContent {
 /// A single entry in the DisplayMap, representing one display line.
 ///
 /// Constructed exclusively through smart constructors ([`buffer_line`],
-/// [`fold_summary`], [`virtual_text`]) which enforce INV-6
-/// (SourceMapping ↔ synthetic consistency) at construction time.
+/// [`fold_summary`]) which enforce INV-6 (SourceMapping ↔ synthetic
+/// consistency) at construction time.
 ///
 /// [`buffer_line`]: DisplayEntry::buffer_line
 /// [`fold_summary`]: DisplayEntry::fold_summary
-/// [`virtual_text`]: DisplayEntry::virtual_text
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplayEntry {
     source: SourceMapping,
@@ -208,17 +205,6 @@ impl DisplayEntry {
         }
     }
 
-    /// Virtual text entry: Absent source, ReadOnly interaction, synthetic content.
-    ///
-    /// INV-6 guaranteed by construction: `None` ↔ `synthetic: Some`.
-    pub fn virtual_text(atoms: Vec<Atom>) -> Self {
-        Self {
-            source: SourceMapping::None,
-            interaction: InteractionPolicy::ReadOnly,
-            synthetic: Some(SyntheticContent { atoms }),
-        }
-    }
-
     /// Source mapping for this display line.
     pub fn source(&self) -> &SourceMapping {
         &self.source
@@ -229,7 +215,7 @@ impl DisplayEntry {
         self.interaction
     }
 
-    /// Synthetic content (fold summary or virtual text), if any.
+    /// Synthetic content (fold summary), if any.
     pub fn synthetic(&self) -> Option<&SyntheticContent> {
         self.synthetic.as_ref()
     }
@@ -326,8 +312,6 @@ impl DisplayMap {
         // Track which buffer lines are affected by directives
         let mut folded: Vec<Option<(Range<usize>, Vec<Atom>)>> = vec![None; line_count];
         let mut hidden: Vec<bool> = vec![false; line_count];
-        let mut insert_after: Vec<Vec<Vec<Atom>>> = vec![vec![]; line_count];
-        let mut insert_before: Vec<Vec<Vec<Atom>>> = vec![vec![]; line_count];
 
         for directive in directives {
             match directive {
@@ -346,16 +330,6 @@ impl DisplayMap {
                         for item in hidden.iter_mut().take(range.end).skip(range.start) {
                             *item = true;
                         }
-                    }
-                }
-                DisplayDirective::InsertAfter { after, content } => {
-                    if *after < line_count {
-                        insert_after[*after].push(content.clone());
-                    }
-                }
-                DisplayDirective::InsertBefore { before, content } => {
-                    if *before < line_count {
-                        insert_before[*before].push(content.clone());
                     }
                 }
             }
@@ -387,20 +361,10 @@ impl DisplayMap {
                 continue;
             }
 
-            // InsertBefore: add virtual lines before this buffer line
-            for atoms in &insert_before[line] {
-                entries.push(DisplayEntry::virtual_text(atoms.clone()));
-            }
-
             // Normal buffer line
             let display_idx = entries.len();
             entries.push(DisplayEntry::buffer_line(BufferLine(line)));
             buffer_to_display[line] = Some(display_idx);
-
-            // InsertAfter: add virtual lines after this buffer line
-            for atoms in &insert_after[line] {
-                entries.push(DisplayEntry::virtual_text(atoms.clone()));
-            }
         }
 
         let dm = DisplayMap {
@@ -427,7 +391,6 @@ impl DisplayMap {
     /// Returns an [`InverseResult`] encoding the source strength:
     /// - `Actionable` for 1:1 buffer lines (safe for action generation)
     /// - `Informational` for fold summaries (range start, not a precise target)
-    /// - `Virtual` for virtual text lines (no buffer origin)
     /// - `OutOfRange` if the display line index is beyond the map
     pub fn display_to_buffer(&self, display_y: DisplayLine) -> InverseResult {
         let Some(entry) = self.entries.get(display_y.0) else {
@@ -439,7 +402,6 @@ impl DisplayMap {
                 representative: BufferLine(range.start),
                 range: range.clone(),
             },
-            SourceMapping::None => InverseResult::Virtual,
         }
     }
 
@@ -462,7 +424,6 @@ impl DisplayMap {
     /// Check if a display line is dirty based on the buffer's `lines_dirty` flags.
     ///
     /// For fold summary lines, returns true if any buffer line in the fold range is dirty.
-    /// For virtual text lines, always returns false (they don't change from buffer edits).
     /// For identity maps, delegates directly to the `lines_dirty` array.
     pub fn is_display_line_dirty(&self, display_y: DisplayLine, lines_dirty: &[bool]) -> bool {
         let Some(entry) = self.entries.get(display_y.0) else {
@@ -473,7 +434,6 @@ impl DisplayMap {
             SourceMapping::LineRange(range) => range
                 .clone()
                 .any(|l| lines_dirty.get(l).copied().unwrap_or(true)),
-            SourceMapping::None => false,
         }
     }
 
@@ -532,9 +492,6 @@ impl DisplayMap {
                             r.contains(&bl),
                             "INV-1: b2d[{bl}] = {dl} but entries[{dl}] = LineRange({r:?})"
                         ),
-                        SourceMapping::None => {
-                            panic!("INV-3: b2d[{bl}] = {dl} but entries[{dl}] = None (virtual)")
-                        }
                     }
                 }
             }
@@ -584,7 +541,6 @@ impl DisplayMap {
                         }
                         prev_buf = r.end.checked_sub(1);
                     }
-                    SourceMapping::None => {} // INV-3 checked in INV-1 loop
                 }
             }
 
@@ -594,7 +550,6 @@ impl DisplayMap {
                 let range = match &self.entries[dl].source {
                     SourceMapping::BufferLine(bl) => bl.0..bl.0 + 1,
                     SourceMapping::LineRange(r) => r.start..r.end.min(n_buf),
-                    SourceMapping::None => continue,
                 };
                 for bl in range {
                     debug_assert!(
@@ -608,10 +563,6 @@ impl DisplayMap {
             // INV-6: Synthetic consistency
             for (dl, entry) in self.entries.iter().enumerate() {
                 match &entry.source {
-                    SourceMapping::None => debug_assert!(
-                        entry.synthetic.is_some(),
-                        "INV-6: entries[{dl}] = None but synthetic is None"
-                    ),
                     SourceMapping::BufferLine(_) => debug_assert!(
                         entry.synthetic.is_none(),
                         "INV-6: entries[{dl}] = BufferLine but has synthetic"
@@ -631,9 +582,9 @@ impl DisplayMap {
 
 /// Compute the display scroll offset so the cursor remains visible.
 ///
-/// When plugins insert virtual lines (e.g. `InsertAfter`), the display line
-/// count may exceed the viewport height.  This function returns the first
-/// display line that should be rendered so the cursor stays on-screen.
+/// When plugins fold lines, the display line count may differ from the buffer
+/// line count. This function returns the first display line that should be
+/// rendered so the cursor stays on-screen.
 ///
 /// Returns 0 for identity maps or when the content fits in the viewport.
 pub fn compute_display_scroll_offset(
@@ -705,9 +656,6 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
                         "INV-1: b2d[{bl}] = {dl} but source = LineRange({r:?})"
                     );
                 }
-                SourceMapping::None => {
-                    panic!("INV-3: b2d[{bl}] = {dl} but source = None");
-                }
             }
         }
     }
@@ -745,7 +693,6 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
                 }
                 prev_buf = r.end.checked_sub(1);
             }
-            SourceMapping::None => {}
         }
     }
 
@@ -755,7 +702,6 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
         let range = match &dm.entries[dl].source {
             SourceMapping::BufferLine(bl) => bl.0..bl.0 + 1,
             SourceMapping::LineRange(r) => r.start..r.end.min(n_buf),
-            SourceMapping::None => continue,
         };
         for bl in range {
             assert!(!covered[bl], "INV-4: buffer line {bl} covered twice");
@@ -766,12 +712,6 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
     // INV-6
     for (dl, entry) in dm.entries.iter().enumerate() {
         match &entry.source {
-            SourceMapping::None => {
-                assert!(
-                    entry.synthetic.is_some(),
-                    "INV-6: entries[{dl}] None without synthetic"
-                );
-            }
             SourceMapping::BufferLine(_) => {
                 assert!(
                     entry.synthetic.is_none(),

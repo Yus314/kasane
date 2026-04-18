@@ -766,44 +766,6 @@ fn mouse_press_on_normal_line_forwards_to_kakoune() {
     assert!(matches!(result.commands[0], Command::SendToKakoune(_)));
 }
 
-#[test]
-fn mouse_press_on_virtual_text_suppressed() {
-    use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
-    use std::sync::Arc;
-
-    let mut state = Box::new(AppState::default());
-    state.runtime.cols = 80;
-    state.runtime.rows = 24;
-    let mut registry = PluginRuntime::new();
-
-    let directives = vec![DisplayDirective::InsertAfter {
-        after: 0,
-        content: vec![crate::protocol::Atom {
-            face: Face::default(),
-            contents: "virtual".into(),
-        }],
-    }];
-    let dm = DisplayMap::build(3, &directives);
-    let dum = DisplayUnitMap::build(&dm);
-    state.runtime.display_map = Some(Arc::new(dm));
-    state.runtime.display_unit_map = Some(dum);
-    state.runtime.display_scroll_offset = 0;
-
-    // Display: [buf(0), virtual, buf(1), buf(2)]
-    // Click on display line 1 = virtual text (ReadOnly)
-    let mouse = MouseEvent {
-        kind: MouseEventKind::Press(MouseButton::Left),
-        line: 1,
-        column: 5,
-        modifiers: Modifiers::empty(),
-    };
-    let result = update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
-    assert!(
-        result.commands.is_empty(),
-        "virtual text click should be suppressed"
-    );
-}
-
 // --- DU-3: Fold toggle integration tests ---
 
 #[test]

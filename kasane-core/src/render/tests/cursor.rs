@@ -171,7 +171,17 @@ fn test_clear_block_cursor_face_bar() {
     };
     grid.put_char(2, 0, "x", &cursor_face);
 
-    clear_block_cursor_face(&state, &mut grid, CursorStyle::Bar, 0, None, 0, 0, None);
+    clear_block_cursor_face(
+        &state,
+        &mut grid,
+        CursorStyle::Bar,
+        0,
+        None,
+        0,
+        0,
+        None,
+        None,
+    );
 
     let cell = grid.get(2, 0).unwrap();
     assert_eq!(cell.face, state.observed.default_face);
@@ -204,6 +214,7 @@ fn test_clear_block_cursor_face_underline() {
         0,
         0,
         None,
+        None,
     );
 
     let cell = grid.get(3, 1).unwrap();
@@ -223,7 +234,17 @@ fn test_clear_block_cursor_face_block_noop() {
     };
     grid.put_char(0, 0, "z", &cursor_face);
 
-    clear_block_cursor_face(&state, &mut grid, CursorStyle::Block, 0, None, 0, 0, None);
+    clear_block_cursor_face(
+        &state,
+        &mut grid,
+        CursorStyle::Block,
+        0,
+        None,
+        0,
+        0,
+        None,
+        None,
+    );
 
     let cell = grid.get(0, 0).unwrap();
     assert_eq!(cell.face, cursor_face);
@@ -253,7 +274,17 @@ fn test_clear_block_cursor_face_prompt() {
     // Prompt cursor at col = prompt_width(1) + cursor_pos(3) = 4, last row = 4
     grid.put_char(4, 4, "p", &cursor_face);
 
-    clear_block_cursor_face(&state, &mut grid, CursorStyle::Bar, 0, None, 0, 0, None);
+    clear_block_cursor_face(
+        &state,
+        &mut grid,
+        CursorStyle::Bar,
+        0,
+        None,
+        0,
+        0,
+        None,
+        None,
+    );
 
     let cell = grid.get(4, 4).unwrap();
     assert_eq!(cell.face, state.observed.status_default_face);
@@ -269,7 +300,17 @@ fn test_clear_block_cursor_face_out_of_bounds() {
 
     let mut grid = CellGrid::new(10, 5);
     // Should not panic
-    clear_block_cursor_face(&state, &mut grid, CursorStyle::Bar, 0, None, 0, 0, None);
+    clear_block_cursor_face(
+        &state,
+        &mut grid,
+        CursorStyle::Bar,
+        0,
+        None,
+        0,
+        0,
+        None,
+        None,
+    );
 }
 
 // --- make_secondary_cursor_face tests ---
@@ -387,7 +428,7 @@ fn test_apply_secondary_cursor_faces_on_grid() {
     let mut grid = CellGrid::new(10, 5);
     grid.put_char(3, 0, "x", &cursor_face);
 
-    apply_secondary_cursor_faces(&state, &mut grid, 0, None, 0, 0);
+    apply_secondary_cursor_faces(&state, &mut grid, 0, None, 0, 0, None);
 
     let cell = grid.get(3, 0).unwrap();
     // REVERSE should be gone
@@ -418,7 +459,7 @@ fn test_apply_secondary_cursor_faces_with_offset() {
     // buffer_x_offset=3, so the cell is at grid x=5
     grid.put_char(5, 1, "y", &cursor_face);
 
-    apply_secondary_cursor_faces(&state, &mut grid, 3, None, 0, 0);
+    apply_secondary_cursor_faces(&state, &mut grid, 3, None, 0, 0, None);
 
     let cell = grid.get(5, 1).unwrap();
     assert!(!cell.face.attributes.contains(Attributes::REVERSE));

@@ -13,14 +13,6 @@ pub(crate) fn wit_display_directive_to_directive(
             range: fold.range_start as usize..fold.range_end as usize,
             summary: super::wit_atoms_to_atoms(&fold.summary),
         },
-        wit::DisplayDirective::InsertAfter(insert) => DisplayDirective::InsertAfter {
-            after: insert.after as usize,
-            content: super::wit_atoms_to_atoms(&insert.content),
-        },
-        wit::DisplayDirective::InsertBefore(insert) => DisplayDirective::InsertBefore {
-            before: insert.before as usize,
-            content: super::wit_atoms_to_atoms(&insert.content),
-        },
         wit::DisplayDirective::Hide(hide) => DisplayDirective::Hide {
             range: hide.range_start as usize..hide.range_end as usize,
         },
@@ -46,18 +38,6 @@ pub(crate) fn display_directive_to_wit(directive: &DisplayDirective) -> wit::Dis
                 summary: super::atoms_to_wit(summary),
             })
         }
-        DisplayDirective::InsertAfter { after, content } => {
-            wit::DisplayDirective::InsertAfter(wit::InsertAfterDirective {
-                after: *after as u32,
-                content: super::atoms_to_wit(content),
-            })
-        }
-        DisplayDirective::InsertBefore { before, content } => {
-            wit::DisplayDirective::InsertBefore(wit::InsertBeforeDirective {
-                before: *before as u32,
-                content: super::atoms_to_wit(content),
-            })
-        }
         DisplayDirective::Hide { range } => wit::DisplayDirective::Hide(wit::HideDirective {
             range_start: range.start as u32,
             range_end: range.end as u32,
@@ -79,7 +59,6 @@ pub(crate) fn display_unit_to_wit(unit: &DisplayUnit) -> wit::DisplayUnitInfo {
     let (role, plugin_tag, role_id) = match &unit.role {
         SemanticRole::BufferContent => (wit::SemanticRole::BufferContent, None, 0),
         SemanticRole::FoldSummary => (wit::SemanticRole::FoldSummary, None, 0),
-        SemanticRole::VirtualText => (wit::SemanticRole::VirtualText, None, 0),
         SemanticRole::Plugin(tag, id) => {
             (wit::SemanticRole::PluginDefined, Some(tag.0 as u32), *id)
         }

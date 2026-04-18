@@ -57,7 +57,6 @@ impl NavigationPolicy {
             SemanticRole::FoldSummary => NavigationPolicy::Boundary {
                 action: NavigationAction::ToggleFold,
             },
-            SemanticRole::VirtualText => NavigationPolicy::Skip,
             SemanticRole::Plugin(_, _) => NavigationPolicy::Skip,
         }
     }
@@ -83,14 +82,6 @@ mod tests {
             NavigationPolicy::Boundary {
                 action: NavigationAction::ToggleFold,
             },
-        );
-    }
-
-    #[test]
-    fn default_policy_virtual_text() {
-        assert_eq!(
-            NavigationPolicy::default_for(&SemanticRole::VirtualText),
-            NavigationPolicy::Skip,
         );
     }
 

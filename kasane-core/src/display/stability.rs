@@ -11,7 +11,10 @@
 //!
 //! [`FrameworkAccess`]: crate::plugin::FrameworkAccess
 
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use super::DisplayDirective;
+use super::content_annotation::ContentAnnotation;
 
 /// Window size for cycle detection (detects up to (WINDOW-1)-cycles).
 const WINDOW: usize = 4;
@@ -85,6 +88,87 @@ impl DirectiveStabilityMonitor {
     }
 }
 
+/// Fingerprint a set of content annotations for oscillation detection.
+///
+/// Since `Element` does not implement `Hash` or `PartialEq`, we fingerprint
+/// the structural metadata: anchor, priority, and plugin_id. This is
+/// sufficient for cycle detection because oscillating annotations will have
+/// identical metadata across frames.
+fn fingerprint_annotations(annotations: &[ContentAnnotation]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    annotations.len().hash(&mut hasher);
+    for ann in annotations {
+        ann.anchor.line().hash(&mut hasher);
+        std::mem::discriminant(&ann.anchor).hash(&mut hasher);
+        ann.priority.hash(&mut hasher);
+        ann.plugin_id.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// Monitors content annotation stability across frames.
+///
+/// Uses hash-based fingerprinting (anchor + priority + plugin_id) to detect
+/// oscillation cycles without requiring `PartialEq` on `Element`.
+#[derive(Debug, Clone)]
+pub struct ContentAnnotationStabilityMonitor {
+    /// Ring buffer of recent annotation fingerprints.
+    history: Vec<u64>,
+    /// Number of frames recorded so far (saturates at WINDOW).
+    count: usize,
+}
+
+impl Default for ContentAnnotationStabilityMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ContentAnnotationStabilityMonitor {
+    /// Create a new monitor with no history.
+    pub fn new() -> Self {
+        Self {
+            history: Vec::with_capacity(WINDOW),
+            count: 0,
+        }
+    }
+
+    /// Record a frame's content annotations and check for oscillation.
+    ///
+    /// Returns `true` if a cycle was detected (same fingerprint appeared
+    /// in the recent window), `false` otherwise.
+    pub fn record(&mut self, annotations: &[ContentAnnotation]) -> bool {
+        let fingerprint = fingerprint_annotations(annotations);
+        let detected = self.detect_cycle(fingerprint);
+        let idx = self.count % WINDOW;
+        if self.history.len() <= idx {
+            self.history.push(fingerprint);
+        } else {
+            self.history[idx] = fingerprint;
+        }
+        self.count += 1;
+        if detected {
+            tracing::warn!(
+                "content annotation oscillation detected (fingerprint repeated within {WINDOW}-frame window)"
+            );
+        }
+        detected
+    }
+
+    /// Reset the monitor (e.g. on buffer change where oscillation is expected).
+    pub fn reset(&mut self) {
+        self.history.clear();
+        self.count = 0;
+    }
+
+    fn detect_cycle(&self, fingerprint: u64) -> bool {
+        if self.count < 2 {
+            return false;
+        }
+        self.history.contains(&fingerprint)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,16 +186,6 @@ mod tests {
 
     fn hide(start: usize, end: usize) -> DisplayDirective {
         DisplayDirective::Hide { range: start..end }
-    }
-
-    fn insert_after(after: usize) -> DisplayDirective {
-        DisplayDirective::InsertAfter {
-            after,
-            content: vec![Atom {
-                face: Face::default(),
-                contents: "virtual".into(),
-            }],
-        }
     }
 
     #[test]
@@ -147,7 +221,7 @@ mod tests {
         let mut mon = DirectiveStabilityMonitor::new();
         let a = vec![fold(1, 3)];
         let b = vec![hide(1, 3)];
-        let c = vec![insert_after(0)];
+        let c = vec![fold(5, 8)];
         assert!(!mon.record(&a)); // frame 0
         assert!(!mon.record(&b)); // frame 1
         assert!(!mon.record(&c)); // frame 2
@@ -191,5 +265,104 @@ mod tests {
         }
         // A was evicted from history, so no cycle detected
         assert!(!mon.record(&a));
+    }
+
+    // --- ContentAnnotationStabilityMonitor tests ---
+
+    use crate::display::content_annotation::{ContentAnchor, ContentAnnotation};
+    use crate::element::Element;
+    use crate::plugin::PluginId;
+
+    fn ann(line: usize, priority: i16) -> ContentAnnotation {
+        ContentAnnotation {
+            anchor: ContentAnchor::InsertAfter(line),
+            element: Element::Empty,
+            plugin_id: PluginId("test".into()),
+            priority,
+        }
+    }
+
+    fn ann_before(line: usize) -> ContentAnnotation {
+        ContentAnnotation {
+            anchor: ContentAnchor::InsertBefore(line),
+            element: Element::Empty,
+            plugin_id: PluginId("test".into()),
+            priority: 0,
+        }
+    }
+
+    #[test]
+    fn content_no_cycle_on_first_two_frames() {
+        let mut mon = ContentAnnotationStabilityMonitor::new();
+        let a = vec![ann(5, 0)];
+        assert!(!mon.record(&a));
+        assert!(!mon.record(&a));
+    }
+
+    #[test]
+    fn content_detects_repeat() {
+        let mut mon = ContentAnnotationStabilityMonitor::new();
+        let a = vec![ann(5, 0)];
+        mon.record(&a);
+        mon.record(&a);
+        assert!(mon.record(&a));
+    }
+
+    #[test]
+    fn content_detects_2_cycle() {
+        let mut mon = ContentAnnotationStabilityMonitor::new();
+        let a = vec![ann(5, 0)];
+        let b = vec![ann(10, 0)];
+        assert!(!mon.record(&a));
+        assert!(!mon.record(&b));
+        assert!(mon.record(&a));
+    }
+
+    #[test]
+    fn content_no_false_positive() {
+        let mut mon = ContentAnnotationStabilityMonitor::new();
+        assert!(!mon.record(&[ann(1, 0)]));
+        assert!(!mon.record(&[ann(2, 0)]));
+        assert!(!mon.record(&[ann(3, 0)]));
+        assert!(!mon.record(&[ann(4, 0)]));
+    }
+
+    #[test]
+    fn content_reset_clears() {
+        let mut mon = ContentAnnotationStabilityMonitor::new();
+        let a = vec![ann(5, 0)];
+        let b = vec![ann(10, 0)];
+        mon.record(&a);
+        mon.record(&b);
+        mon.reset();
+        assert!(!mon.record(&a));
+    }
+
+    #[test]
+    fn content_empty_annotations() {
+        let mut mon = ContentAnnotationStabilityMonitor::new();
+        assert!(!mon.record(&[]));
+        assert!(!mon.record(&[]));
+    }
+
+    #[test]
+    fn content_different_anchors_distinct() {
+        let mut mon = ContentAnnotationStabilityMonitor::new();
+        let a = vec![ann(5, 0)];
+        let b = vec![ann_before(5)];
+        assert!(!mon.record(&a));
+        assert!(!mon.record(&b));
+        // Same line but different anchor type → different fingerprint
+        assert!(mon.record(&a));
+    }
+
+    #[test]
+    fn content_window_evicts() {
+        let mut mon = ContentAnnotationStabilityMonitor::new();
+        for i in 0..WINDOW {
+            mon.record(&[ann(i * 100, 0)]);
+        }
+        // First entry evicted
+        assert!(!mon.record(&[ann(999, 0)]));
     }
 }

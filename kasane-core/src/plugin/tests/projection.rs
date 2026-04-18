@@ -135,9 +135,9 @@ fn additive_projection_active_applies_directives() {
         descriptors: vec![make_additive_descriptor("error-lens")],
         directive_map: vec![(
             "error-lens".into(),
-            vec![DisplayDirective::InsertAfter {
-                after: 1,
-                content: vec![Atom {
+            vec![DisplayDirective::Fold {
+                range: 1..3,
+                summary: vec![Atom {
                     face: Face::default(),
                     contents: "error: unused variable".into(),
                 }],
@@ -145,15 +145,15 @@ fn additive_projection_active_applies_directives() {
         )],
     }));
 
-    let mut state = state_with_lines(3);
+    let mut state = state_with_lines(4);
     state
         .config
         .projection_policy
         .toggle_additive(ProjectionId::new("error-lens"));
 
     let dm = registry.view().collect_display_map(&AppView::new(&state));
-    // 3 lines + 1 virtual = 4 display lines
-    assert_eq!(dm.display_line_count(), 4);
+    // 4 lines, fold 1..3 (2 lines → 1 summary) = 3 display lines
+    assert_eq!(dm.display_line_count(), 3);
 }
 
 #[test]
@@ -172,11 +172,11 @@ fn structural_and_additive_compose() {
             ),
             (
                 "error-lens".into(),
-                vec![DisplayDirective::InsertAfter {
-                    after: 0,
-                    content: vec![Atom {
+                vec![DisplayDirective::Fold {
+                    range: 0..2,
+                    summary: vec![Atom {
                         face: Face::default(),
-                        contents: "virtual".into(),
+                        contents: "folded".into(),
                     }],
                 }],
             ),
@@ -194,8 +194,8 @@ fn structural_and_additive_compose() {
         .toggle_additive(ProjectionId::new("error-lens"));
 
     let dm = registry.view().collect_display_map(&AppView::new(&state));
-    // 5 - 2 hidden + 1 virtual = 4 display lines
-    assert_eq!(dm.display_line_count(), 4);
+    // 5 - 2 hidden = 3, then fold 0..2 (2 lines → 1) = 2 display lines
+    assert_eq!(dm.display_line_count(), 2);
 }
 
 #[test]
