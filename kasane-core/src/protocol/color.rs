@@ -207,6 +207,8 @@ bitflags! {
         const FINAL_FG         = 1 << 9;
         const FINAL_BG         = 1 << 10;
         const FINAL_ATTR       = 1 << 11;
+        const DOTTED_UNDERLINE = 1 << 12;
+        const DASHED_UNDERLINE = 1 << 13;
     }
 }
 
@@ -221,6 +223,8 @@ fn parse_attribute(s: &str) -> Option<Attributes> {
         "dim" => Attributes::DIM,
         "italic" => Attributes::ITALIC,
         "strikethrough" => Attributes::STRIKETHROUGH,
+        "dotted_underline" => Attributes::DOTTED_UNDERLINE,
+        "dashed_underline" => Attributes::DASHED_UNDERLINE,
         "final_fg" => Attributes::FINAL_FG,
         "final_bg" => Attributes::FINAL_BG,
         "final_attr" => Attributes::FINAL_ATTR,
@@ -239,6 +243,8 @@ fn attribute_str(attr: Attributes) -> &'static str {
         Attributes::DIM => "dim",
         Attributes::ITALIC => "italic",
         Attributes::STRIKETHROUGH => "strikethrough",
+        Attributes::DOTTED_UNDERLINE => "dotted_underline",
+        Attributes::DASHED_UNDERLINE => "dashed_underline",
         Attributes::FINAL_FG => "final_fg",
         Attributes::FINAL_BG => "final_bg",
         Attributes::FINAL_ATTR => "final_attr",

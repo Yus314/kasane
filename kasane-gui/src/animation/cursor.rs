@@ -1,8 +1,11 @@
-//! Animations: cursor movement easing, smooth scroll, blink cycle.
+//! Cursor animation adapter: wraps AnimationEngine with the CursorAnimation API.
 
 use std::time::Instant;
 
-use kasane_core::render::{BlinkHint, EasingCurve, MovementHint};
+use kasane_core::render::{BlinkHint, MovementHint};
+
+use super::engine::AnimationEngine;
+use super::track::{EasingFn, TrackId};
 
 /// Default duration of cursor move animation (ease-out).
 const DEFAULT_MOVE_DURATION: f32 = 0.1; // 100ms
@@ -23,35 +26,28 @@ pub struct CursorRenderState {
     pub opacity: f32,
 }
 
-/// Smooth cursor movement and blink animation.
+/// Cursor animation built on top of `AnimationEngine`.
+///
+/// Manages smooth cursor movement via engine tracks and blink via a
+/// time-based sine wave (blink doesn't need track interpolation).
 pub struct CursorAnimation {
-    /// Current interpolated position (in cell coordinates, fractional).
-    current_x: f32,
-    current_y: f32,
-    /// Previous position at the start of the current animation.
-    prev_x: f32,
-    prev_y: f32,
-    /// Target position (in cell coordinates).
+    engine: AnimationEngine,
+    /// Target position in cell coordinates.
     target_x: f32,
     target_y: f32,
-    /// Animation progress 0.0 → 1.0.
-    move_t: f32,
-    /// Time since last move (for blink delay).
-    time_since_move: f32,
-    /// Last frame timestamp.
-    last_frame: Instant,
-    /// Whether any animation is currently running.
-    pub is_animating: bool,
     /// Whether the cursor has been initialized with a target.
     initialized: bool,
-    // --- Plugin-configurable parameters ---
+    /// Whether any animation is currently running.
+    pub is_animating: bool,
+    // Blink state (managed outside the engine — it's a periodic function, not interpolation)
+    time_since_move: f32,
+    last_frame: Instant,
+    // Plugin-configurable parameters
     blink_enabled: bool,
     blink_delay: f32,
     blink_period: f32,
     min_opacity: f32,
     move_enabled: bool,
-    move_duration: f32,
-    easing: EasingCurve,
 }
 
 impl Default for CursorAnimation {
@@ -62,25 +58,33 @@ impl Default for CursorAnimation {
 
 impl CursorAnimation {
     pub fn new() -> Self {
+        let mut engine = AnimationEngine::new();
+        engine.register(
+            TrackId::CURSOR_X,
+            0.0,
+            DEFAULT_MOVE_DURATION,
+            EasingFn::EaseOut,
+        );
+        engine.register(
+            TrackId::CURSOR_Y,
+            0.0,
+            DEFAULT_MOVE_DURATION,
+            EasingFn::EaseOut,
+        );
+
         CursorAnimation {
-            current_x: 0.0,
-            current_y: 0.0,
-            prev_x: 0.0,
-            prev_y: 0.0,
+            engine,
             target_x: 0.0,
             target_y: 0.0,
-            move_t: 1.0,
+            initialized: false,
+            is_animating: true, // Start with blink animation
             time_since_move: 0.0,
             last_frame: Instant::now(),
-            is_animating: true, // Start with blink animation
-            initialized: false,
             blink_enabled: true,
             blink_delay: DEFAULT_BLINK_DELAY,
             blink_period: DEFAULT_BLINK_PERIOD,
             min_opacity: DEFAULT_MIN_OPACITY,
             move_enabled: true,
-            move_duration: DEFAULT_MOVE_DURATION,
-            easing: EasingCurve::EaseOut,
         }
     }
 
@@ -94,8 +98,12 @@ impl CursorAnimation {
         }
         if let Some(m) = movement {
             self.move_enabled = m.enabled;
-            self.move_duration = m.duration_ms as f32 / 1000.0;
-            self.easing = m.easing;
+            let dur = m.duration_ms as f32 / 1000.0;
+            self.engine.set_duration(TrackId::CURSOR_X, dur);
+            self.engine.set_duration(TrackId::CURSOR_Y, dur);
+            let easing = EasingFn::from(m.easing);
+            self.engine.set_easing(TrackId::CURSOR_X, easing);
+            self.engine.set_easing(TrackId::CURSOR_Y, easing);
         }
     }
 
@@ -105,25 +113,25 @@ impl CursorAnimation {
         let ty = y as f32;
         if !self.initialized {
             // First target: snap immediately
-            self.current_x = tx;
-            self.current_y = ty;
-            self.prev_x = tx;
-            self.prev_y = ty;
+            self.engine.snap(TrackId::CURSOR_X, tx);
+            self.engine.snap(TrackId::CURSOR_Y, ty);
             self.target_x = tx;
             self.target_y = ty;
-            self.move_t = 1.0;
             self.initialized = true;
             return;
         }
         if (tx - self.target_x).abs() < 0.01 && (ty - self.target_y).abs() < 0.01 {
             return; // No change
         }
-        // Start new movement animation from current interpolated position
-        self.prev_x = self.current_x;
-        self.prev_y = self.current_y;
         self.target_x = tx;
         self.target_y = ty;
-        self.move_t = 0.0;
+        if self.move_enabled {
+            self.engine.set_target(TrackId::CURSOR_X, tx);
+            self.engine.set_target(TrackId::CURSOR_Y, ty);
+        } else {
+            self.engine.snap(TrackId::CURSOR_X, tx);
+            self.engine.snap(TrackId::CURSOR_Y, ty);
+        }
         self.time_since_move = 0.0;
         self.is_animating = true;
     }
@@ -134,60 +142,48 @@ impl CursorAnimation {
         let dt = now.duration_since(self.last_frame).as_secs_f32();
         self.last_frame = now;
 
-        // Advance move animation
-        if self.move_enabled && self.move_t < 1.0 {
-            let duration = self.move_duration.max(0.001);
-            self.move_t += dt / duration;
-            if self.move_t >= 1.0 {
-                self.move_t = 1.0;
-            }
-            let t = match self.easing {
-                EasingCurve::Linear => self.move_t,
-                EasingCurve::EaseOut => ease_out_cubic(self.move_t),
-                EasingCurve::EaseInOut => ease_in_out_cubic(self.move_t),
-            };
-            self.current_x = self.prev_x + (self.target_x - self.prev_x) * t;
-            self.current_y = self.prev_y + (self.target_y - self.prev_y) * t;
+        // Advance movement tracks
+        let move_active = if self.move_enabled {
+            self.engine.tick()
         } else {
-            self.current_x = self.target_x;
-            self.current_y = self.target_y;
-        }
+            false
+        };
 
         // Advance blink timer
         self.time_since_move += dt;
 
         // Compute opacity
         let opacity = if !self.blink_enabled || self.time_since_move < self.blink_delay {
-            1.0 // Fully visible when blink disabled or right after movement
+            1.0
         } else {
             let blink_t = self.time_since_move - self.blink_delay;
             let period = self.blink_period.max(0.001);
             let phase = (blink_t / period * std::f32::consts::TAU).sin();
-            // Map sin(-1..1) to opacity(min_opacity..1.0)
             let half_range = (1.0 - self.min_opacity) / 2.0;
             (self.min_opacity + half_range) + half_range * phase
         };
 
         // Determine if we need to keep animating
-        let move_active = self.move_enabled && self.move_t < 1.0;
         let blink_active =
             self.blink_enabled && self.time_since_move < self.blink_delay + self.blink_period;
         self.is_animating = move_active || blink_active;
 
+        let cx = self.engine.value(TrackId::CURSOR_X);
+        let cy = self.engine.value(TrackId::CURSOR_Y);
+
         CursorRenderState {
-            x: self.current_x * cell_width,
-            y: self.current_y * cell_height,
+            x: cx * cell_width,
+            y: cy * cell_height,
             opacity,
         }
     }
 
-    /// Compute the next instant at which the cursor animation needs a frame,
-    /// or `None` if the cursor is fully idle (no movement, blink cycle complete).
+    /// Compute the next instant at which the cursor animation needs a frame.
     pub fn next_frame_deadline(&self) -> Option<Instant> {
         if !self.is_animating {
             return None;
         }
-        if self.move_enabled && self.move_t < 1.0 {
+        if self.engine.is_animating() {
             // Smooth 60fps move animation
             Some(self.last_frame + std::time::Duration::from_nanos(16_666_667))
         } else if self.blink_enabled && self.time_since_move < self.blink_delay {
@@ -205,32 +201,27 @@ impl CursorAnimation {
     /// Pause the animation (e.g. on window focus loss).
     pub fn pause(&mut self) {
         self.is_animating = false;
+        self.engine.pause_all();
     }
 
     /// Resume the animation after a pause, adjusting last_frame to avoid a time jump.
     pub fn resume(&mut self) {
         self.last_frame = Instant::now();
-        // Re-evaluate whether we should be animating
-        let move_active = self.move_enabled && self.move_t < 1.0;
+        self.engine.resume_all();
+        let move_active = self.engine.is_animating();
         let blink_active =
             self.blink_enabled && self.time_since_move < self.blink_delay + self.blink_period;
         self.is_animating = move_active || blink_active;
     }
-}
 
-/// Ease-out cubic: decelerating to zero velocity.
-fn ease_out_cubic(t: f32) -> f32 {
-    let t = t - 1.0;
-    t * t * t + 1.0
-}
+    /// Access the underlying animation engine for direct track manipulation.
+    pub fn engine(&self) -> &AnimationEngine {
+        &self.engine
+    }
 
-/// Ease-in-out cubic: accelerate then decelerate.
-fn ease_in_out_cubic(t: f32) -> f32 {
-    if t < 0.5 {
-        4.0 * t * t * t
-    } else {
-        let t = 2.0 * t - 2.0;
-        0.5 * t * t * t + 1.0
+    /// Access the underlying animation engine mutably.
+    pub fn engine_mut(&mut self) -> &mut AnimationEngine {
+        &mut self.engine
     }
 }
 
@@ -249,26 +240,15 @@ mod tests {
     }
 
     #[test]
-    fn test_ease_out_cubic() {
-        assert!((ease_out_cubic(0.0) - 0.0).abs() < 0.001);
-        assert!((ease_out_cubic(1.0) - 1.0).abs() < 0.001);
-        // Midpoint should be > 0.5 (ease-out is front-loaded)
-        assert!(ease_out_cubic(0.5) > 0.5);
-    }
-
-    #[test]
     fn test_move_resets_blink() {
         let mut anim = CursorAnimation::new();
         anim.update_target(0, 0);
-        // Simulate some time passing
         std::thread::sleep(std::time::Duration::from_millis(10));
         let state = anim.tick(10.0, 20.0);
         assert!((state.opacity - 1.0).abs() < 0.01);
 
-        // Move to new position
         anim.update_target(5, 5);
         let state = anim.tick(10.0, 20.0);
-        // Should be fully visible (just moved)
         assert!((state.opacity - 1.0).abs() < 0.01);
     }
 
@@ -278,13 +258,10 @@ mod tests {
         anim.update_target(0, 0);
         anim.tick(10.0, 20.0);
 
-        // After tick with initial snap, move_t = 1.0 and time_since_move ≈ 0.
-        // Simulate enough time for blink cycle to complete.
+        // Simulate enough time for blink cycle to complete
         anim.time_since_move = DEFAULT_BLINK_DELAY + DEFAULT_BLINK_PERIOD + 0.1;
-        anim.move_t = 1.0;
         anim.tick(10.0, 20.0);
 
-        // Should no longer be animating
         assert!(!anim.is_animating);
         assert!(anim.next_frame_deadline().is_none());
     }
@@ -295,7 +272,6 @@ mod tests {
         anim.update_target(0, 0);
         anim.tick(10.0, 20.0);
         anim.update_target(5, 5);
-        // move_t is now 0, so we're animating movement
         assert!(anim.is_animating);
         let deadline = anim.next_frame_deadline();
         assert!(deadline.is_some());
@@ -313,7 +289,17 @@ mod tests {
         assert!(anim.next_frame_deadline().is_none());
 
         anim.resume();
-        // Should resume animating (time_since_move ≈ 0 < BLINK_DELAY + BLINK_PERIOD)
         assert!(anim.is_animating);
+    }
+
+    #[test]
+    fn test_easing_functions_via_engine() {
+        use super::super::track::{ease_in_out_cubic, ease_out_cubic};
+        assert!((ease_out_cubic(0.0) - 0.0).abs() < 0.001);
+        assert!((ease_out_cubic(1.0) - 1.0).abs() < 0.001);
+        assert!(ease_out_cubic(0.5) > 0.5);
+
+        assert!((ease_in_out_cubic(0.0) - 0.0).abs() < 0.001);
+        assert!((ease_in_out_cubic(1.0) - 1.0).abs() < 0.001);
     }
 }

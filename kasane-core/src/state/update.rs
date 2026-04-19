@@ -1,3 +1,4 @@
+use crate::display::InteractionPolicy;
 use crate::input;
 use crate::input::{DropEvent, InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{
@@ -7,7 +8,70 @@ use crate::plugin::{
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::scroll::{LegacyScrollDispatch, ScrollPlan};
 
+use super::shadow_cursor::{ShadowCursor, ShadowKeyResult, ShadowPhase};
 use super::{AppState, DirtyFlags, DragState};
+
+/// Internal dispatch result for shadow cursor key handling.
+enum ShadowKeyDispatch {
+    /// Key was consumed by the shadow cursor, redraw needed.
+    Consumed(DirtyFlags),
+    /// Shadow cursor should deactivate, fall through to normal key handling.
+    Deactivate,
+    /// Editing committed, send commands to Kakoune.
+    Commit(Vec<Command>),
+    /// Shadow cursor did not handle this key, fall through.
+    Pass,
+}
+
+/// Dispatch a key event to the active shadow cursor.
+fn handle_shadow_cursor_key_dispatch(state: &mut AppState, key: &KeyEvent) -> ShadowKeyDispatch {
+    // Extract shadow cursor info before mutable borrow
+    let (display_line, span_index) = match state.runtime.shadow_cursor.as_ref() {
+        Some(s) => (s.display_line, s.span_index),
+        None => return ShadowKeyDispatch::Pass,
+    };
+
+    // Get the span text for transitioning from Navigating → Editing
+    let span_text = state
+        .runtime
+        .display_map
+        .as_ref()
+        .and_then(|dm| {
+            let entry = dm.entry(crate::display::DisplayLine(display_line))?;
+            let syn = entry.synthetic()?;
+            Some(syn.text())
+        })
+        .unwrap_or_default();
+
+    let shadow = state.runtime.shadow_cursor.as_mut().unwrap();
+    match super::shadow_cursor::handle_shadow_cursor_key(shadow, key, &span_text) {
+        ShadowKeyResult::Consumed(flags) => ShadowKeyDispatch::Consumed(flags),
+        ShadowKeyResult::Deactivate => ShadowKeyDispatch::Deactivate,
+        ShadowKeyResult::Commit(_) => {
+            // Resolve the editable span and build mirror commit commands
+            let shadow = state.runtime.shadow_cursor.as_ref().unwrap();
+            let commands = state
+                .runtime
+                .display_map
+                .as_ref()
+                .and_then(|dm| {
+                    let entry = dm.entry(crate::display::DisplayLine(display_line))?;
+                    if let crate::display::SourceMapping::Projected { spans, .. } = entry.source() {
+                        let span = spans.get(span_index)?;
+                        Some(super::shadow_cursor::build_mirror_commit(
+                            shadow,
+                            span,
+                            state.observed.lines.len(),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
+            ShadowKeyDispatch::Commit(commands)
+        }
+    }
+}
 
 /// Messages that drive the application state machine.
 pub enum Msg {
@@ -98,6 +162,7 @@ fn update_inner<E: PluginEffects>(
 ) -> UpdateResult {
     match msg {
         Msg::Kakoune(req) => {
+            let is_draw = matches!(&req, KakouneRequest::Draw { .. });
             let req_kind = match &req {
                 KakouneRequest::Draw { .. } => "Draw",
                 KakouneRequest::DrawStatus { .. } => "DrawStatus",
@@ -107,6 +172,37 @@ fn update_inner<E: PluginEffects>(
                 tracing::debug!(kind = req_kind, "incoming Kakoune request");
             }
             let flags = state.apply(req);
+
+            // Deactivate shadow cursor when Draw arrives and anchor line is dirty
+            if is_draw
+                && flags.contains(DirtyFlags::BUFFER_CONTENT)
+                && let Some(ref shadow) = state.runtime.shadow_cursor
+            {
+                // Check if the anchor line of the shadow cursor's span changed
+                if let Some(dum) = &state.runtime.display_unit_map {
+                    if let Some(unit) = dum.unit_at_line(shadow.display_line) {
+                        if let crate::display::UnitSource::ProjectedLine { anchor, .. } =
+                            &unit.source
+                        {
+                            if state
+                                .inference
+                                .lines_dirty
+                                .get(*anchor)
+                                .copied()
+                                .unwrap_or(true)
+                            {
+                                state.runtime.shadow_cursor = None;
+                            }
+                        } else {
+                            // Display unit no longer projected → deactivate
+                            state.runtime.shadow_cursor = None;
+                        }
+                    } else {
+                        // Display line no longer exists → deactivate
+                        state.runtime.shadow_cursor = None;
+                    }
+                }
+            }
             let mut commands = Vec::new();
             let mut scroll_plans = Vec::new();
             if !flags.is_empty() {
@@ -130,6 +226,36 @@ fn update_inner<E: PluginEffects>(
             }
         }
         Msg::Key(key) => {
+            // ShadowCursor pre-dispatch: intercept keys when shadow cursor is active
+            if state.runtime.shadow_cursor.is_some() {
+                match handle_shadow_cursor_key_dispatch(state, &key) {
+                    ShadowKeyDispatch::Consumed(flags) => {
+                        return UpdateResult {
+                            flags,
+                            commands: vec![],
+                            scroll_plans: vec![],
+                            source_plugin: None,
+                        };
+                    }
+                    ShadowKeyDispatch::Commit(commands) => {
+                        state.runtime.shadow_cursor = None;
+                        return UpdateResult {
+                            flags: DirtyFlags::BUFFER_CONTENT,
+                            commands,
+                            scroll_plans: vec![],
+                            source_plugin: None,
+                        };
+                    }
+                    ShadowKeyDispatch::Deactivate => {
+                        state.runtime.shadow_cursor = None;
+                        // Fall through to normal key handling
+                    }
+                    ShadowKeyDispatch::Pass => {
+                        // Fall through to normal key handling
+                    }
+                }
+            }
+
             // 1. Notify all plugins (observe only, cannot consume)
             effects.observe_key_all(&key, &AppView::new(state));
 
@@ -162,6 +288,31 @@ fn update_inner<E: PluginEffects>(
             }
         }
         Msg::TextInput(text) => {
+            // ShadowCursor pre-dispatch: intercept IME text input
+            if let Some(ref mut shadow) = state.runtime.shadow_cursor
+                && let ShadowPhase::Editing {
+                    ref mut working_text,
+                    ref mut cursor_grapheme_offset,
+                    ..
+                } = shadow.phase
+            {
+                use unicode_segmentation::UnicodeSegmentation;
+                let offset = *cursor_grapheme_offset;
+                let byte_pos: usize = working_text
+                    .graphemes(true)
+                    .take(offset)
+                    .map(|g| g.len())
+                    .sum();
+                working_text.insert_str(byte_pos, &text);
+                *cursor_grapheme_offset += text.graphemes(true).count();
+                return UpdateResult {
+                    flags: DirtyFlags::BUFFER_CONTENT,
+                    commands: vec![],
+                    scroll_plans: vec![],
+                    source_plugin: None,
+                };
+            }
+
             let app = AppView::new(state);
             effects.observe_text_input_all(&text, &app);
 
@@ -187,6 +338,21 @@ fn update_inner<E: PluginEffects>(
             }
         }
         Msg::Mouse(mouse) => {
+            // Deactivate shadow cursor when clicking outside editable area
+            if state.runtime.shadow_cursor.is_some()
+                && matches!(mouse.kind, input::MouseEventKind::Press(_))
+            {
+                let hit_editable = state
+                    .runtime
+                    .display_unit_map
+                    .as_ref()
+                    .and_then(|dum| dum.hit_test(mouse.line, state.runtime.display_scroll_offset))
+                    .is_some_and(|u| u.interaction == InteractionPolicy::Editable);
+                if !hit_editable {
+                    state.runtime.shadow_cursor = None;
+                }
+            }
+
             // Update drag state
             match mouse.kind {
                 input::MouseEventKind::Press(button) => {
@@ -335,6 +501,26 @@ fn update_inner<E: PluginEffects>(
                                         } else {
                                             state.config.fold_toggle_state.toggle(range);
                                         }
+                                        return UpdateResult {
+                                            flags: DirtyFlags::BUFFER_CONTENT,
+                                            ..suppressed
+                                        };
+                                    }
+                                    // Built-in fallback: shadow cursor activation
+                                    if let NavigationAction::ActivateShadowCursor = &action
+                                        && let UnitSource::ProjectedLine { anchor, spans: _ } =
+                                            &unit.source
+                                    {
+                                        // Owner plugin comes from the display
+                                        // directive; for now use a placeholder.
+                                        let owner = crate::plugin::PluginId(String::new());
+                                        state.runtime.shadow_cursor = Some(ShadowCursor {
+                                            display_line: unit.display_line,
+                                            span_index: 0,
+                                            phase: ShadowPhase::Navigating,
+                                            owner_plugin: owner,
+                                        });
+                                        let _ = anchor;
                                         return UpdateResult {
                                             flags: DirtyFlags::BUFFER_CONTENT,
                                             ..suppressed

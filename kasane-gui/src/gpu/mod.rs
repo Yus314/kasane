@@ -6,7 +6,9 @@
 pub mod bg_pipeline;
 pub mod border_pipeline;
 pub mod cell_renderer;
+pub mod compositor;
 pub mod decoration_pipeline;
+pub mod gradient_pipeline;
 pub mod image_pipeline;
 pub mod metrics;
 pub(crate) mod pipeline_common;

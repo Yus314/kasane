@@ -11,6 +11,7 @@ pub mod observed;
 pub mod policy;
 pub mod runtime_state;
 pub mod session_state;
+pub mod shadow_cursor;
 pub mod snapshot;
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
@@ -172,6 +173,7 @@ impl AppState {
         "display_map",
         "display_unit_map",
         "available_projections",
+        "shadow_cursor",
         "fold_toggle_state",
         "projection_policy",
     ];
@@ -233,6 +235,7 @@ impl AppState {
         ("display_map", "runtime"),
         ("display_unit_map", "runtime"),
         ("available_projections", "runtime"),
+        ("shadow_cursor", "runtime"),
     ];
 
     /// Heuristic fields: `(field, rule, severity)`.
@@ -320,6 +323,7 @@ impl AppState {
                 "display_map",
                 "display_unit_map",
                 "available_projections",
+                "shadow_cursor",
             ],
         ),
     ];
@@ -424,9 +428,10 @@ impl AppState {
         self.inference = InferenceState::default();
         self.cursor_cache = derived::CursorCache::default();
         self.runtime.drag = DragState::None;
+        self.runtime.shadow_cursor = None;
         self.config.fold_toggle_state = crate::display::FoldToggleState::default();
         self.config.projection_policy = crate::display::ProjectionPolicyState::default();
-        // session, config (except fold_toggle_state/projection_policy), and runtime (except drag)
+        // session, config (except fold_toggle_state/projection_policy), and runtime (except drag/shadow_cursor)
         // are intentionally preserved
     }
 

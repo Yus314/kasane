@@ -24,6 +24,7 @@ pub const CONFIG_SECTIONS: &[&str] = &[
     "font",
     "colors",
     "plugins",
+    "effects",
     "settings",
     "widgets",
 ];

@@ -57,6 +57,21 @@ use super::{
     PluginState, RenderOrnamentContext, SlotId, TransformContext, TransformTarget, VirtualTextItem,
 };
 
+/// Context passed to `on_virtual_edit` handlers when a shadow cursor edit is committed.
+#[derive(Debug, Clone)]
+pub struct VirtualEditContext {
+    /// Buffer line anchoring the editable span (0-indexed).
+    pub anchor_line: usize,
+    /// Index of the span within the editable virtual text.
+    pub span_index: usize,
+    /// Original text content at activation time.
+    pub original_text: String,
+    /// Current edited text content.
+    pub working_text: String,
+    /// Byte range within the anchor buffer line (for Mirror reference).
+    pub buffer_byte_range: std::ops::Range<usize>,
+}
+
 /// Downcast state, call handler, box the new state and return `(BoxedState, second)`.
 macro_rules! register_state_effect {
     ($self:ident, $field:ident, $handler:ident $(, $arg:ident)*) => {
@@ -1219,6 +1234,25 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         + 'static,
     ) {
         register_state_effect!(self, navigation_action_handler, handler, unit, action);
+    }
+
+    // =========================================================================
+    // Virtual edit handlers (BDT)
+    // =========================================================================
+
+    /// Register a virtual edit handler for editable virtual text.
+    ///
+    /// Called when a shadow cursor edit is committed on a `PluginDefined`
+    /// projection. The handler receives the edit context and returns
+    /// `(new_state, Vec<Command>)` with the commands to apply.
+    pub fn on_virtual_edit(
+        &mut self,
+        handler: impl Fn(&S, &VirtualEditContext, &AppView<'_>) -> (S, Vec<Command>)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        register_state_effect!(self, virtual_edit_handler, handler, ctx, app);
     }
 
     // =========================================================================

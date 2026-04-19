@@ -14,6 +14,14 @@ use crate::protocol::{Atom, Face};
 
 fn make_all_directive_instances() -> Vec<DisplayDirective> {
     vec![
+        DisplayDirective::EditableVirtualText {
+            after: 0,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "edit".into(),
+            }],
+            editable_spans: vec![],
+        },
         DisplayDirective::Fold {
             range: 0..1,
             summary: vec![Atom {

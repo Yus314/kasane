@@ -13,6 +13,7 @@ use std::ops::Range;
 
 use crate::display::{DisplayLine, DisplayMap, InteractionPolicy, SourceMapping};
 use crate::element::PluginTag;
+use crate::state::shadow_cursor::EditableSpan;
 
 /// Stable identity for a display unit, derived from content (not insertion order).
 ///
@@ -39,6 +40,8 @@ pub enum SemanticRole {
     FoldSummary,
     /// Plugin-defined role. Core applies Skip default; plugins override.
     Plugin(PluginTag, u32),
+    /// Editable virtual text projected from a buffer line.
+    EditableVirtualText,
 }
 
 /// Classification of source mapping strength (σ).
@@ -52,6 +55,8 @@ pub enum SourceStrength {
     Weak,
     /// Sub-line only (`Span`).
     Partial,
+    /// Projected from a buffer line via editable virtual text.
+    Projected,
 }
 
 /// Source mapping from a display unit to buffer coordinates.
@@ -66,6 +71,11 @@ pub enum UnitSource {
         line: usize,
         byte_range: Range<usize>,
     },
+    /// Projected from a buffer line via editable virtual text (σ strength: Projected).
+    ProjectedLine {
+        anchor: usize,
+        spans: Vec<EditableSpan>,
+    },
 }
 
 impl UnitSource {
@@ -75,6 +85,7 @@ impl UnitSource {
             UnitSource::Line(_) => SourceStrength::Strong,
             UnitSource::LineRange(_) => SourceStrength::Weak,
             UnitSource::Span { .. } => SourceStrength::Partial,
+            UnitSource::ProjectedLine { .. } => SourceStrength::Projected,
         }
     }
 }
@@ -129,6 +140,13 @@ impl DisplayUnitMap {
                 SourceMapping::LineRange(range) => (
                     UnitSource::LineRange(range.clone()),
                     SemanticRole::FoldSummary,
+                ),
+                SourceMapping::Projected { anchor, spans } => (
+                    UnitSource::ProjectedLine {
+                        anchor: anchor.0,
+                        spans: spans.clone(),
+                    },
+                    SemanticRole::EditableVirtualText,
                 ),
             };
 
@@ -262,9 +280,15 @@ impl DisplayUnitMap {
                 let entry = display_map
                     .entry(DisplayLine(unit.display_line))
                     .expect("DU-INV-2: display_line out of range");
-                let source_matches = match (&unit.source, &entry.source) {
+                let source_matches = match (&unit.source, entry.source()) {
                     (UnitSource::Line(l), SourceMapping::BufferLine(bl)) => *l == bl.0,
                     (UnitSource::LineRange(r), SourceMapping::LineRange(er)) => r == er,
+                    (
+                        UnitSource::ProjectedLine { anchor, .. },
+                        SourceMapping::Projected {
+                            anchor: bl_anchor, ..
+                        },
+                    ) => *anchor == bl_anchor.0,
                     _ => false,
                 };
                 debug_assert!(
@@ -273,7 +297,8 @@ impl DisplayUnitMap {
                     unit.display_line,
                 );
                 debug_assert_eq!(
-                    unit.interaction, entry.interaction,
+                    unit.interaction,
+                    entry.interaction(),
                     "DU-INV-2: unit at display_line {} interaction mismatch",
                     unit.display_line,
                 );
@@ -285,6 +310,7 @@ impl DisplayUnitMap {
                 let buf_start = match &unit.source {
                     UnitSource::Line(l) => Some(*l),
                     UnitSource::LineRange(r) => Some(r.start),
+                    UnitSource::ProjectedLine { anchor, .. } => Some(*anchor),
                     _ => None,
                 };
                 if let Some(start) = buf_start {
@@ -326,6 +352,14 @@ impl DisplayUnitMap {
                     SourceStrength::Partial => {
                         // Partial sources are not yet produced by the builder.
                     }
+                    SourceStrength::Projected => {
+                        debug_assert_eq!(
+                            unit.interaction,
+                            InteractionPolicy::Editable,
+                            "DU-INV-4: Projected source at display_line {} must have Editable interaction",
+                            unit.display_line,
+                        );
+                    }
                 }
             }
         }
@@ -363,9 +397,15 @@ pub(crate) fn assert_display_unit_map_invariants(dum: &DisplayUnitMap, display_m
         let entry = display_map
             .entry(DisplayLine(unit.display_line))
             .expect("DU-INV-2: display_line out of range");
-        let source_matches = match (&unit.source, &entry.source) {
+        let source_matches = match (&unit.source, entry.source()) {
             (UnitSource::Line(l), SourceMapping::BufferLine(bl)) => *l == bl.0,
             (UnitSource::LineRange(r), SourceMapping::LineRange(er)) => r == er,
+            (
+                UnitSource::ProjectedLine { anchor, .. },
+                SourceMapping::Projected {
+                    anchor: bl_anchor, ..
+                },
+            ) => *anchor == bl_anchor.0,
             _ => false,
         };
         assert!(
@@ -374,7 +414,8 @@ pub(crate) fn assert_display_unit_map_invariants(dum: &DisplayUnitMap, display_m
             unit.display_line,
         );
         assert_eq!(
-            unit.interaction, entry.interaction,
+            unit.interaction,
+            entry.interaction(),
             "DU-INV-2: unit at display_line {} interaction mismatch",
             unit.display_line,
         );
@@ -386,6 +427,7 @@ pub(crate) fn assert_display_unit_map_invariants(dum: &DisplayUnitMap, display_m
         let buf_start = match &unit.source {
             UnitSource::Line(l) => Some(*l),
             UnitSource::LineRange(r) => Some(r.start),
+            UnitSource::ProjectedLine { anchor, .. } => Some(*anchor),
             _ => None,
         };
         if let Some(start) = buf_start {
@@ -423,6 +465,14 @@ pub(crate) fn assert_display_unit_map_invariants(dum: &DisplayUnitMap, display_m
                 );
             }
             SourceStrength::Partial => {}
+            SourceStrength::Projected => {
+                assert_eq!(
+                    unit.interaction,
+                    InteractionPolicy::Editable,
+                    "DU-INV-4: Projected source at display_line {} must be Editable",
+                    unit.display_line,
+                );
+            }
         }
     }
 }

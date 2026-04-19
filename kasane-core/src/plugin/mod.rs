@@ -84,6 +84,8 @@ pub use registry::{
 #[deprecated(note = "renamed to PluginRuntime")]
 pub type PluginRegistry = PluginRuntime;
 
+pub use handler_registry::VirtualEditContext;
+
 // Re-export display types for plugin API
 pub use crate::display::{
     ActionResult, ContentAnchor, ContentAnnotation, DisplayDirective, DisplayMapRef, DisplayUnit,
@@ -161,6 +163,7 @@ bitflags! {
         const DROP_HANDLER       = 1 << 23;
         const RENDER_ORNAMENT    = 1 << 24;
         const CONTENT_ANNOTATOR  = 1 << 25;
+        const VIRTUAL_EDIT       = 1 << 26;
     }
 }
 

@@ -82,6 +82,7 @@ pub(crate) fn wit_display_directive_to_directive_with_resolver(
             content: super::wit_atoms_to_atoms(&d.content),
             priority: d.priority,
         },
+        // EditableVirtualText is not exposed via the WIT interface yet.
     }
 }
 
@@ -235,6 +236,14 @@ pub(crate) fn display_directive_to_wit(directive: &DisplayDirective) -> wit::Dis
             content: super::atoms_to_wit(content),
             priority: *priority,
         }),
+        DisplayDirective::EditableVirtualText { after, content, .. } => {
+            // EditableVirtualText is not yet exposed via WIT; degrade to InsertAfter.
+            wit::DisplayDirective::InsertAfter(wit::InterlineDirective {
+                line: *after as u32,
+                content: 0,
+                priority: 0,
+            })
+        }
     }
 }
 
@@ -252,6 +261,7 @@ pub(crate) fn display_unit_to_wit(unit: &DisplayUnit) -> wit::DisplayUnitInfo {
     let (role, plugin_tag, role_id) = match &unit.role {
         SemanticRole::BufferContent => (wit::SemanticRole::BufferContent, None, 0),
         SemanticRole::FoldSummary => (wit::SemanticRole::FoldSummary, None, 0),
+        SemanticRole::EditableVirtualText => (wit::SemanticRole::PluginDefined, None, 0),
         SemanticRole::Plugin(tag, id) => {
             (wit::SemanticRole::PluginDefined, Some(tag.0 as u32), *id)
         }
@@ -294,6 +304,7 @@ pub(crate) fn navigation_action_to_wit_kind(action: &NavigationAction) -> u32 {
         NavigationAction::None => 0,
         NavigationAction::ToggleFold => 1,
         NavigationAction::Plugin(_tag, id) => 2 + id,
+        NavigationAction::ActivateShadowCursor => 0, // Not exposed via WIT; treat as no-op
     }
 }
 

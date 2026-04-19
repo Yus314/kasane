@@ -36,6 +36,10 @@ pub struct RuntimeState {
     pub available_projections: Vec<ProjectionDescriptor>,
     /// Syntax analysis provider for the current buffer (e.g., tree-sitter).
     pub syntax_provider: Option<Arc<dyn SyntaxProvider>>,
+    /// Shadow cursor for editable virtual text (BDT).
+    /// Active when the user is editing within an `EditableVirtualText` span.
+    /// Lives entirely in display space; key events are intercepted while active.
+    pub shadow_cursor: Option<super::shadow_cursor::ShadowCursor>,
 }
 
 impl std::fmt::Debug for RuntimeState {
@@ -71,6 +75,7 @@ impl Default for RuntimeState {
             segment_map: None,
             available_projections: Vec::new(),
             syntax_provider: None,
+            shadow_cursor: None,
         }
     }
 }

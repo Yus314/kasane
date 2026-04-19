@@ -6,9 +6,10 @@ use compact_str::CompactString;
 use kasane_plugin_model::SettingValue;
 
 use super::{
-    BorderStyleConfig, ClipboardConfig, ColorsConfig, Config, FontConfig, ImageProtocolConfig,
-    LogConfig, MenuConfig, MenuPosition, MouseConfig, PluginSelection, PluginsConfig, ScrollConfig,
-    SearchConfig, StatusPosition, ThemeConfig, ThemeValue, UiConfig, WindowConfig,
+    BorderStyleConfig, ClipboardConfig, ColorsConfig, Config, CursorLineHighlightMode,
+    EffectsConfig, FontConfig, ImageProtocolConfig, LogConfig, MenuConfig, MenuPosition,
+    MouseConfig, PluginSelection, PluginsConfig, ScrollConfig, SearchConfig, StatusPosition,
+    ThemeConfig, ThemeValue, UiConfig, WindowConfig,
 };
 
 /// A recoverable config parse error (field-level, not fatal).
@@ -51,6 +52,7 @@ pub fn parse_config_from_nodes(nodes: &[kdl::KdlNode]) -> (Config, Vec<ConfigErr
             "font" => config.font = parse_font(node, &mut errors),
             "colors" => config.colors = parse_colors(node, &mut errors),
             "plugins" => config.plugins = parse_plugins(node, &mut errors),
+            "effects" => config.effects = parse_effects(node, &mut errors),
             "settings" => config.settings = parse_settings(node),
             _ => {}
         }
@@ -614,6 +616,79 @@ fn parse_plugin_selection(node: &kdl::KdlNode) -> PluginSelection {
         }
         _ => PluginSelection::Auto,
     }
+}
+
+/// Parse a hex color string (e.g. "#1a1a2e") to normalized [r, g, b, a].
+fn parse_hex_color(s: &str) -> Option<[f32; 4]> {
+    let hex = s.strip_prefix('#')?;
+    if hex.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0])
+}
+
+fn parse_effects(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> EffectsConfig {
+    const KNOWN: &[&str] = &[
+        "background-gradient",
+        "cursor-line-highlight",
+        "overlay-transition-ms",
+        "backdrop-blur",
+    ];
+    validate_children(node, "effects", KNOWN, errors);
+
+    let mut e = EffectsConfig::default();
+    let children = node.children();
+
+    // background-gradient { start "#1a1a2e"; end "#16213e" }
+    if let Some(doc) = children {
+        for child in doc.nodes() {
+            if child.name().value() == "background-gradient" {
+                let grad_children = child.children();
+                if let Some(s) = child_or_prop_string(child, grad_children, "start") {
+                    match parse_hex_color(s) {
+                        Some(c) => e.gradient_start = Some(c),
+                        None => errors.push(ConfigError {
+                            section: "effects".into(),
+                            field: "background-gradient.start".into(),
+                            message: format!("invalid hex color: {s}"),
+                        }),
+                    }
+                }
+                if let Some(s) = child_or_prop_string(child, grad_children, "end") {
+                    match parse_hex_color(s) {
+                        Some(c) => e.gradient_end = Some(c),
+                        None => errors.push(ConfigError {
+                            section: "effects".into(),
+                            field: "background-gradient.end".into(),
+                            message: format!("invalid hex color: {s}"),
+                        }),
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(v) = child_or_prop_string(node, children, "cursor-line-highlight") {
+        match v {
+            "off" | "none" => e.cursor_line_highlight = CursorLineHighlightMode::Off,
+            "subtle" => e.cursor_line_highlight = CursorLineHighlightMode::Subtle,
+            other => errors.push(ConfigError {
+                section: "effects".into(),
+                field: "cursor-line-highlight".into(),
+                message: format!("unknown value {:?}, expected \"off\" or \"subtle\"", other),
+            }),
+        }
+    }
+    if let Some(v) = child_or_prop_i64(node, children, "overlay-transition-ms") {
+        e.overlay_transition_ms = v.clamp(0, 1000) as u16;
+    }
+    if let Some(v) = child_or_prop_bool(node, children, "backdrop-blur") {
+        e.backdrop_blur = v;
+    }
+    e
 }
 
 fn parse_settings(node: &kdl::KdlNode) -> HashMap<String, HashMap<String, SettingValue>> {

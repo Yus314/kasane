@@ -36,6 +36,8 @@ pub enum NavigationAction {
     ToggleFold,
     /// Plugin-defined action (DU-4 scope).
     Plugin(PluginTag, u32),
+    /// Activate a shadow cursor on an editable virtual text line.
+    ActivateShadowCursor,
 }
 
 /// Result of handling a navigation action.
@@ -58,6 +60,9 @@ impl NavigationPolicy {
                 action: NavigationAction::ToggleFold,
             },
             SemanticRole::Plugin(_, _) => NavigationPolicy::Skip,
+            SemanticRole::EditableVirtualText => NavigationPolicy::Boundary {
+                action: NavigationAction::ActivateShadowCursor,
+            },
         }
     }
 }

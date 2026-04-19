@@ -90,6 +90,8 @@ pub fn convert_attribute(attr: Attributes) -> Option<CtAttribute> {
         Attributes::UNDERLINE => Some(CtAttribute::Underlined),
         Attributes::CURLY_UNDERLINE => Some(CtAttribute::Undercurled),
         Attributes::DOUBLE_UNDERLINE => Some(CtAttribute::DoubleUnderlined),
+        Attributes::DOTTED_UNDERLINE => Some(CtAttribute::Underdotted),
+        Attributes::DASHED_UNDERLINE => Some(CtAttribute::Underdashed),
         Attributes::REVERSE => Some(CtAttribute::Reverse),
         Attributes::BLINK => Some(CtAttribute::SlowBlink),
         Attributes::BOLD => Some(CtAttribute::Bold),

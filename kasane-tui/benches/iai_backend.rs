@@ -133,6 +133,7 @@ fn default_result() -> RenderResult {
         cursor_blink: None,
         cursor_movement: None,
         display_scroll_offset: 0,
+        visual_hints: Default::default(),
     }
 }
 

@@ -4,9 +4,10 @@ use std::collections::HashMap;
 
 use super::unified::CONFIG_SECTIONS;
 use super::{
-    BorderStyleConfig, ColorsConfig, Config, FontConfig, ImageProtocolConfig, LogConfig,
-    MenuConfig, MenuPosition, MouseConfig, PluginSelection, PluginsConfig, ScrollConfig,
-    SearchConfig, StatusPosition, ThemeConfig, ThemeValue, UiConfig, WindowConfig,
+    BorderStyleConfig, ColorsConfig, Config, CursorLineHighlightMode, EffectsConfig, FontConfig,
+    ImageProtocolConfig, LogConfig, MenuConfig, MenuPosition, MouseConfig, PluginSelection,
+    PluginsConfig, ScrollConfig, SearchConfig, StatusPosition, ThemeConfig, ThemeValue, UiConfig,
+    WindowConfig,
 };
 
 /// Generate KDL nodes for the config sections of a [`Config`] value.
@@ -52,6 +53,9 @@ pub fn config_to_kdl_nodes(config: &Config) -> Vec<kdl::KdlNode> {
     }
     if config.plugins != PluginsConfig::default() {
         nodes.push(plugins_to_kdl(&config.plugins));
+    }
+    if config.effects != EffectsConfig::default() {
+        nodes.push(effects_to_kdl(&config.effects));
     }
     if !config.settings.is_empty() {
         nodes.push(settings_to_kdl(&config.settings));
@@ -307,6 +311,45 @@ fn colors_to_kdl(c: &ColorsConfig) -> kdl::KdlNode {
             str_child("bright_white", &c.bright_white),
         ],
     )
+}
+
+fn color_to_hex(c: [f32; 4]) -> String {
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        (c[0] * 255.0) as u8,
+        (c[1] * 255.0) as u8,
+        (c[2] * 255.0) as u8
+    )
+}
+
+fn effects_to_kdl(e: &EffectsConfig) -> kdl::KdlNode {
+    let mut children = Vec::new();
+
+    if let (Some(start), Some(end)) = (e.gradient_start, e.gradient_end) {
+        let grad_children = vec![
+            str_child("start", &color_to_hex(start)),
+            str_child("end", &color_to_hex(end)),
+        ];
+        children.push(section_with_children("background-gradient", grad_children));
+    }
+    if e.cursor_line_highlight != CursorLineHighlightMode::Off {
+        let mode_str = match e.cursor_line_highlight {
+            CursorLineHighlightMode::Off => "off",
+            CursorLineHighlightMode::Subtle => "subtle",
+        };
+        children.push(str_child("cursor-line-highlight", mode_str));
+    }
+    if e.overlay_transition_ms != 150 {
+        children.push(i64_child(
+            "overlay-transition-ms",
+            e.overlay_transition_ms as i64,
+        ));
+    }
+    if e.backdrop_blur {
+        children.push(bool_child("backdrop-blur", true));
+    }
+
+    section_with_children("effects", children)
 }
 
 fn plugins_to_kdl(p: &PluginsConfig) -> kdl::KdlNode {

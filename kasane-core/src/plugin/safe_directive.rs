@@ -10,6 +10,7 @@ use std::ops::Range;
 use crate::display::{DisplayDirective, GutterSide, InlineInteraction, VirtualTextPosition};
 use crate::element::Element;
 use crate::protocol::{Atom, Face};
+use crate::state::shadow_cursor::EditableSpan;
 
 /// A display directive guaranteed not to be destructive.
 ///
@@ -27,6 +28,7 @@ impl std::fmt::Debug for SafeDisplayDirective {
 impl SafeDisplayDirective {
     /// All variant names covered by this projection (sorted).
     pub const VARIANT_NAMES: &'static [&'static str] = &[
+        "EditableVirtualText",
         "Fold",
         "Gutter",
         "InsertAfter",
@@ -115,6 +117,19 @@ impl SafeDisplayDirective {
             position,
             content,
             priority,
+        })
+    }
+
+    /// Insert an editable virtual text line after the given buffer line.
+    pub fn editable_virtual_text(
+        after: usize,
+        content: Vec<Atom>,
+        editable_spans: Vec<EditableSpan>,
+    ) -> Self {
+        Self(DisplayDirective::EditableVirtualText {
+            after,
+            content,
+            editable_spans,
         })
     }
 }

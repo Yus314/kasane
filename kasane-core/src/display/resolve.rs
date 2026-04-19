@@ -43,6 +43,7 @@ impl TaggedDirective {
             DisplayDirective::StyleLine { line, .. } => (7, *line),
             DisplayDirective::Gutter { line, .. } => (8, *line),
             DisplayDirective::VirtualText { line, .. } => (9, *line),
+            DisplayDirective::EditableVirtualText { after, .. } => (10, *after),
         };
         (self.priority, &self.plugin_id, variant, anchor)
     }
@@ -84,6 +85,8 @@ pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
     let mut folds: Vec<(Range<usize>, &TaggedDirective)> = Vec::new();
     let mut hides: Vec<Range<usize>> = Vec::new();
 
+    let mut editable_inserts: Vec<&TaggedDirective> = Vec::new();
+
     for td in &set.directives {
         match &td.directive {
             DisplayDirective::Fold { range, .. } => {
@@ -92,7 +95,10 @@ pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
             DisplayDirective::Hide { range } => {
                 hides.push(range.clone());
             }
-            // Non-spatial directives are not resolved here
+            DisplayDirective::EditableVirtualText { .. } => {
+                editable_inserts.push(td);
+            }
+            // Non-spatial directives (other than EditableVirtualText) are not resolved here
             _ => {}
         }
     }
@@ -139,7 +145,48 @@ pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
         hidden_count == 0
     });
 
-    // Emit canonical order: hides, folds
+    // Compute invisible_set = hidden ∪ (all accepted fold ranges)
+    let mut invisible = hidden;
+    for (range, _) in &accepted_folds {
+        for slot in invisible
+            .iter_mut()
+            .take(range.end.min(line_count))
+            .skip(range.start)
+        {
+            *slot = true;
+        }
+    }
+
+    // Rule 8-10: EditableVirtualText — suppress on invisible anchors,
+    // only highest-priority per anchor survives.
+    let mut kept_editable: Vec<&TaggedDirective> = editable_inserts
+        .into_iter()
+        .filter(|td| {
+            if let DisplayDirective::EditableVirtualText { after, .. } = &td.directive {
+                *after < line_count && !invisible[*after]
+            } else {
+                false
+            }
+        })
+        .collect();
+    kept_editable.sort_by(|a, b| {
+        a.priority
+            .cmp(&b.priority)
+            .then_with(|| a.plugin_id.cmp(&b.plugin_id))
+    });
+    // Rule 10: same anchor → keep only the highest priority (first after sort by Reverse priority)
+    {
+        let mut seen_anchors = std::collections::HashSet::new();
+        kept_editable.retain(|td| {
+            if let DisplayDirective::EditableVirtualText { after, .. } = &td.directive {
+                seen_anchors.insert(*after)
+            } else {
+                false
+            }
+        });
+    }
+
+    // Emit canonical order: hides, folds, editable
     let mut result = Vec::new();
 
     // Emit hides
@@ -151,6 +198,11 @@ pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
 
     // Emit accepted folds
     for (_, td) in &accepted_folds {
+        result.push(td.directive.clone());
+    }
+
+    // Emit kept editable virtual text
+    for td in &kept_editable {
         result.push(td.directive.clone());
     }
 
@@ -547,6 +599,7 @@ fn directive_bounding_range(d: &DisplayDirective) -> Range<usize> {
         | DisplayDirective::StyleLine { line, .. }
         | DisplayDirective::Gutter { line, .. }
         | DisplayDirective::VirtualText { line, .. } => *line..*line + 1,
+        DisplayDirective::EditableVirtualText { after, .. } => *after..*after + 1,
     }
 }
 
@@ -611,6 +664,15 @@ fn hash_directive(d: &DisplayDirective, hasher: &mut impl std::hash::Hasher) {
             line.hash(hasher);
             position.hash(hasher);
             priority.hash(hasher);
+        }
+        DisplayDirective::EditableVirtualText {
+            after,
+            content,
+            editable_spans,
+        } => {
+            after.hash(hasher);
+            content.len().hash(hasher);
+            editable_spans.len().hash(hasher);
         }
     }
 }

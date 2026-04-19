@@ -460,6 +460,7 @@ fn test_free_read_fields_match() {
         "display_scroll_offset",
         "display_map",
         "display_unit_map",
+        "shadow_cursor",
         "fold_toggle_state",
         "projection_policy",
         "available_projections",
@@ -520,7 +521,7 @@ fn test_field_epistemic_map_complete() {
         // Session (2)
         ("session_descriptors", "session"),
         ("active_session_key", "session"),
-        // Runtime (9)
+        // Runtime (10)
         ("focused", "runtime"),
         ("drag", "runtime"),
         ("cols", "runtime"),
@@ -531,6 +532,7 @@ fn test_field_epistemic_map_complete() {
         ("display_map", "runtime"),
         ("display_unit_map", "runtime"),
         ("available_projections", "runtime"),
+        ("shadow_cursor", "runtime"),
     ]);
 
     let actual: HashMap<&str, &str> = AppState::FIELD_EPISTEMIC_MAP.iter().copied().collect();

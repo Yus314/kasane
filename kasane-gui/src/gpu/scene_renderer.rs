@@ -13,7 +13,9 @@ use kasane_core::protocol::Attributes;
 
 use super::bg_pipeline::BgPipeline;
 use super::border_pipeline::BorderPipeline;
+use super::compositor::{BlitPipeline, BlurPipeline, RenderTarget};
 use super::decoration_pipeline::{self, DecorationPipeline};
+use super::gradient_pipeline::GradientPipeline;
 use super::image_pipeline::ImagePipeline;
 use super::texture_cache::{LoadState, TextureCache, TextureKey};
 use super::{CURSOR_BAR_WIDTH, CURSOR_OUTLINE_THICKNESS, CURSOR_UNDERLINE_HEIGHT, CellMetrics};
@@ -28,6 +30,7 @@ pub struct SceneRenderer {
     text_atlas: TextAtlas,
     text_renderer: TextRenderer,
     shadow: BorderPipeline,
+    gradient: GradientPipeline,
     bg: BgPipeline,
     border: BorderPipeline,
     decoration: DecorationPipeline,
@@ -60,6 +63,14 @@ pub struct SceneRenderer {
 
     /// Event loop proxy for dispatching async image load completions.
     event_proxy: winit::event_loop::EventLoopProxy<crate::GuiEvent>,
+
+    /// GPU effects configuration.
+    effects: kasane_core::config::EffectsConfig,
+
+    // Compositor for render-to-texture effects (backdrop blur)
+    blit: BlitPipeline,
+    blur: BlurPipeline,
+    base_target: Option<RenderTarget>,
 }
 
 impl SceneRenderer {
@@ -105,6 +116,9 @@ impl SceneRenderer {
         );
 
         let shadow = BorderPipeline::new(gpu, surface_format);
+        let gradient = GradientPipeline::new(gpu, surface_format);
+        let blit = BlitPipeline::new(&gpu.device, surface_format);
+        let blur = BlurPipeline::new(&gpu.device, surface_format);
         let bg = BgPipeline::new(gpu, surface_format);
         let border = BorderPipeline::new(gpu, surface_format);
         let decoration = DecorationPipeline::new(gpu, surface_format);
@@ -118,6 +132,7 @@ impl SceneRenderer {
             text_atlas,
             text_renderer,
             shadow,
+            gradient,
             bg,
             border,
             decoration,
@@ -137,6 +152,10 @@ impl SceneRenderer {
             frame_screen_w: 0.0,
             frame_screen_h: 0.0,
             event_proxy,
+            effects: kasane_core::config::EffectsConfig::default(),
+            blit,
+            blur,
+            base_target: None,
         }
     }
 
@@ -148,6 +167,53 @@ impl SceneRenderer {
         CellSize {
             width: self.metrics.cell_width,
             height: self.metrics.cell_height,
+        }
+    }
+
+    /// Update GPU effects configuration.
+    pub fn set_effects(&mut self, effects: kasane_core::config::EffectsConfig) {
+        self.effects = effects;
+    }
+
+    /// Returns true if a bg color matches the default bg and gradient is active,
+    /// meaning the fill should be skipped to let the gradient show through.
+    fn should_skip_default_bg(&self, bg: &[f32; 4], color_resolver: &ColorResolver) -> bool {
+        if self.effects.gradient_start.is_none() {
+            return false;
+        }
+        let dbg = color_resolver.default_bg();
+        (bg[0] - dbg[0]).abs() < 0.002
+            && (bg[1] - dbg[1]).abs() < 0.002
+            && (bg[2] - dbg[2]).abs() < 0.002
+    }
+
+    /// Draw semi-transparent overlays on non-focused pane areas.
+    fn render_pane_dim(&mut self, visual_hints: &kasane_core::render::VisualHints) {
+        let Some(ref pane) = visual_hints.focused_pane else {
+            return;
+        };
+        let dim_color = [0.0_f32, 0.0, 0.0, 0.25];
+        let sw = self.frame_screen_w;
+        let sh = self.frame_screen_h;
+
+        // Top strip (above focused pane)
+        if pane.y > 0.0 {
+            self.bg.push_rect(0.0, 0.0, sw, pane.y, dim_color);
+        }
+        // Bottom strip (below focused pane)
+        let bottom = pane.y + pane.h;
+        if bottom < sh {
+            self.bg.push_rect(0.0, bottom, sw, sh - bottom, dim_color);
+        }
+        // Left strip (within pane row)
+        if pane.x > 0.0 {
+            self.bg.push_rect(0.0, pane.y, pane.x, pane.h, dim_color);
+        }
+        // Right strip (within pane row)
+        let right = pane.x + pane.w;
+        if right < sw {
+            self.bg
+                .push_rect(right, pane.y, sw - right, pane.h, dim_color);
         }
     }
 
@@ -192,6 +258,7 @@ impl SceneRenderer {
     }
 
     /// Render with animated cursor state.
+    #[allow(clippy::too_many_arguments)]
     pub fn render_with_cursor(
         &mut self,
         gpu: &super::GpuState,
@@ -200,6 +267,8 @@ impl SceneRenderer {
         cursor_style: CursorStyle,
         cursor_state: &CursorRenderState,
         cursor_color: kasane_core::protocol::Color,
+        overlay_opacities: &[f32],
+        visual_hints: &kasane_core::render::VisualHints,
     ) -> anyhow::Result<()> {
         self.render_inner(
             gpu,
@@ -212,6 +281,8 @@ impl SceneRenderer {
                 cursor_style,
                 cursor_color,
             )),
+            overlay_opacities,
+            visual_hints,
         )
     }
 
@@ -234,7 +305,14 @@ impl SceneRenderer {
                 kasane_core::protocol::Color::Default,
             )
         });
-        self.render_inner(gpu, commands, color_resolver, animated)
+        self.render_inner(
+            gpu,
+            commands,
+            color_resolver,
+            animated,
+            &[],
+            &Default::default(),
+        )
     }
 
     /// Core render implementation.
@@ -242,12 +320,15 @@ impl SceneRenderer {
     /// Renders in layers: base layer first, then each overlay layer.  Within
     /// each layer the draw order is background → borders → text, so overlay
     /// backgrounds correctly occlude base-layer text.
+    #[allow(clippy::too_many_arguments)]
     fn render_inner(
         &mut self,
         gpu: &super::GpuState,
         commands: &[DrawCommand],
         color_resolver: &ColorResolver,
         cursor: Option<(f32, f32, f32, CursorStyle, kasane_core::protocol::Color)>,
+        overlay_opacities: &[f32],
+        visual_hints: &kasane_core::render::VisualHints,
     ) -> anyhow::Result<()> {
         let _frame_span = tracing::info_span!("gpu_frame", commands = commands.len()).entered();
         let output = match gpu.surface.get_current_texture() {
@@ -287,6 +368,7 @@ impl SceneRenderer {
         let screen_size_data = bytemuck::cast_slice(&screen_size);
         for buffer in [
             self.shadow.uniform_buffer(),
+            self.gradient.uniform_buffer(),
             self.bg.uniform_buffer(),
             self.border.uniform_buffer(),
             self.decoration.uniform_buffer(),
@@ -329,11 +411,29 @@ impl SceneRenderer {
             },
         );
 
+        // Determine if compositor path is active (backdrop blur with overlays)
+        let has_overlays = layer_ranges.len() > 1;
+        let use_compositor = self.effects.backdrop_blur && has_overlays;
+
+        // Ensure base render target exists at correct size
+        if use_compositor {
+            let w = gpu.config.width;
+            let h = gpu.config.height;
+            let format = gpu.config.format;
+            if let Some(ref mut target) = self.base_target {
+                target.resize(&gpu.device, w, h, format, "base_target");
+            } else {
+                self.base_target =
+                    Some(RenderTarget::new(&gpu.device, w, h, format, "base_target"));
+            }
+        }
+
         // Each layer gets its own encoder + submit so that queue.write_buffer
         // data is flushed before the next layer overwrites shared GPU buffers.
         for (layer_idx, &(range_start, range_end)) in layer_ranges.iter().enumerate() {
             // Reset per-layer pipeline instances
             self.shadow.instances.clear();
+            self.gradient.instances.clear();
             self.bg.instances.clear();
             self.border.instances.clear();
             self.decoration.instances.clear();
@@ -347,12 +447,63 @@ impl SceneRenderer {
 
             // Cursor belongs to the base layer (layer 0)
             if layer_idx == 0 {
+                // Gradient background (drawn before bg, after clear)
+                if let (Some(start), Some(end)) =
+                    (self.effects.gradient_start, self.effects.gradient_end)
+                {
+                    self.gradient.push(0.0, 0.0, screen_w, screen_h, start, end);
+                }
+
+                // Cursor line highlight
+                if let Some((_cx, cy, _opacity, _style, _color)) = cursor
+                    && self.effects.cursor_line_highlight
+                        != kasane_core::config::CursorLineHighlightMode::Off
+                {
+                    let fg = color_resolver.resolve(kasane_core::protocol::Color::Default, true);
+                    let highlight_color = [fg[0], fg[1], fg[2], 0.03];
+                    let line_y = (cy / cell_h).floor() * cell_h;
+                    self.bg
+                        .push_rect(0.0, line_y, screen_w, cell_h, highlight_color);
+                }
+
                 self.render_cursor(cursor, color_resolver, cell_w, cell_h);
+
+                // Dim non-focused panes in multi-pane mode
+                self.render_pane_dim(visual_hints);
+            }
+
+            // Apply per-layer opacity for overlay fade transitions.
+            // Overlay layers are layer_idx > 0; their opacity comes from
+            // overlay_opacities[layer_idx - 1] (0.0 = invisible, 1.0 = full).
+            if layer_idx > 0 {
+                let opacity = overlay_opacities.get(layer_idx - 1).copied().unwrap_or(1.0);
+                if opacity < 1.0 {
+                    // Multiply alpha channel of all bg instances (stride=8, alpha at offset 7)
+                    for chunk in self.bg.instances.chunks_exact_mut(8) {
+                        chunk[7] *= opacity;
+                    }
+                    // Border instances (stride=14, fill alpha at offset 9, border alpha at offset 13)
+                    for chunk in self.border.instances.chunks_exact_mut(14) {
+                        chunk[9] *= opacity;
+                        chunk[13] *= opacity;
+                    }
+                    // Decoration instances (stride=10, alpha at offset 7)
+                    for chunk in self.decoration.instances.chunks_exact_mut(10) {
+                        chunk[7] *= opacity;
+                    }
+                    // Shadow instances (stride=14, fill alpha at offset 9)
+                    for chunk in self.shadow.instances.chunks_exact_mut(14) {
+                        chunk[9] *= opacity;
+                    }
+                }
             }
 
             // Ensure GPU buffers are large enough for this layer
             let shadow_count = self.shadow.instances.len() / 14;
             self.shadow.ensure_buffer(gpu, shadow_count);
+
+            let gradient_count = self.gradient.instances.len() / 12;
+            self.gradient.ensure_buffer(gpu, gradient_count);
 
             let bg_count = self.bg.instances.len() / 8;
             self.bg.ensure_buffer(gpu, bg_count);
@@ -418,10 +569,18 @@ impl SceneRenderer {
                     wgpu::LoadOp::Load
                 };
 
+                // When compositor is active, layer 0 renders to base_target;
+                // overlay layers render directly to the swapchain.
+                let target_view = if use_compositor && layer_idx == 0 {
+                    &self.base_target.as_ref().unwrap().view
+                } else {
+                    &view
+                };
+
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("scene_layer_pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
+                        view: target_view,
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
@@ -436,6 +595,7 @@ impl SceneRenderer {
                 });
 
                 self.shadow.upload_and_draw(gpu, &mut render_pass);
+                self.gradient.upload_and_draw(gpu, &mut render_pass);
                 self.bg.upload_and_draw(gpu, &mut render_pass);
                 self.border.upload_and_draw(gpu, &mut render_pass);
                 self.text_renderer
@@ -447,6 +607,74 @@ impl SceneRenderer {
 
             let _submit_span = tracing::info_span!("encoder_submit", layer = layer_idx).entered();
             gpu.queue.submit(std::iter::once(encoder.finish()));
+
+            // After layer 0: apply blur and blit base_target to swapchain
+            if use_compositor && layer_idx == 0 {
+                let base = self.base_target.as_ref().unwrap();
+                let format = gpu.config.format;
+
+                // Blur the base target
+                let mut blur_encoder =
+                    gpu.device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("blur_encoder"),
+                        });
+                let blurred_view =
+                    self.blur
+                        .apply(&gpu.device, &gpu.queue, &mut blur_encoder, base, format);
+
+                // Blit blurred result to swapchain
+                let blit_bg = self
+                    .blit
+                    .create_texture_bind_group(&gpu.device, blurred_view);
+                {
+                    let mut blit_pass =
+                        blur_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("blur_blit_pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                depth_slice: None,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                            multiview_mask: None,
+                        });
+                    self.blit.draw(&gpu.queue, &mut blit_pass, &blit_bg, 1.0);
+                }
+
+                // Also blit the sharp (unblurred) base on top with slight opacity
+                // so text remains readable. This creates the frosted glass effect.
+                let sharp_bg = self.blit.create_texture_bind_group(&gpu.device, &base.view);
+                {
+                    let mut sharp_pass =
+                        blur_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("sharp_blit_pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                depth_slice: None,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load,
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                            multiview_mask: None,
+                        });
+                    // Blend sharp base at ~70% over blurred base for readability
+                    self.blit.draw(&gpu.queue, &mut sharp_pass, &sharp_bg, 0.7);
+                }
+
+                gpu.queue.submit(std::iter::once(blur_encoder.finish()));
+            }
         }
 
         output.present();
@@ -498,6 +726,12 @@ impl SceneRenderer {
                     return;
                 };
                 let (_, mut bg, _) = color_resolver.resolve_face_colors(face);
+
+                // When gradient is active, skip fills matching default bg
+                // so the gradient shows through.
+                if !*elevated && self.should_skip_default_bg(&bg, color_resolver) {
+                    return;
+                }
                 if *elevated {
                     // Subtle elevation: ~10/255 in sRGB ≈ VS Code's floating window offset
                     bg[0] = (bg[0] + 0.04).min(1.0);
@@ -826,6 +1060,8 @@ impl SceneRenderer {
             Attributes::UNDERLINE
                 | Attributes::CURLY_UNDERLINE
                 | Attributes::DOUBLE_UNDERLINE
+                | Attributes::DOTTED_UNDERLINE
+                | Attributes::DASHED_UNDERLINE
                 | Attributes::STRIKETHROUGH,
         ) {
             return;
@@ -872,6 +1108,18 @@ impl SceneRenderer {
                 decoration_pipeline::DECO_DOUBLE,
             );
         }
+        if attrs.contains(Attributes::DOTTED_UNDERLINE) {
+            let dot_h = (cell_h * 0.15).max(4.0);
+            let y = py + baseline + thickness - dot_h * 0.1;
+            self.decoration
+                .push(x, y, w, dot_h, ul_color, decoration_pipeline::DECO_DOTTED);
+        }
+        if attrs.contains(Attributes::DASHED_UNDERLINE) {
+            let y = py + baseline + thickness;
+            let dash_h = (cell_h * 0.08).max(2.0);
+            self.decoration
+                .push(x, y, w, dash_h, ul_color, decoration_pipeline::DECO_DASHED);
+        }
         if attrs.contains(Attributes::STRIKETHROUGH) {
             // Strikethrough at approximately the x-height center
             let y = py + baseline * 0.55;
@@ -912,7 +1160,10 @@ impl SceneRenderer {
 
             // Background rectangle — skip when not needed so the parent
             // element's background (e.g. an elevated Container) shows through.
-            if actual_w > 0.0 && needs_bg {
+            if actual_w > 0.0
+                && needs_bg
+                && !self.should_skip_default_bg(&visual_bg, color_resolver)
+            {
                 self.bg.push_rect(x, py, actual_w, cell_h, visual_bg);
             }
 
@@ -991,7 +1242,7 @@ impl SceneRenderer {
         let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_face_colors(face);
 
         // Background — skip when not needed (parent bg shows through)
-        if actual_w > 0.0 && needs_bg {
+        if actual_w > 0.0 && needs_bg && !self.should_skip_default_bg(&visual_bg, color_resolver) {
             self.bg
                 .push_rect(px, py, actual_w, self.metrics.cell_height, visual_bg);
         }

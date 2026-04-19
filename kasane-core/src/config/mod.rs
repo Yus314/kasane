@@ -23,6 +23,7 @@ pub struct Config {
     pub font: FontConfig,
     pub colors: ColorsConfig,
     pub plugins: PluginsConfig,
+    pub effects: EffectsConfig,
     /// Per-plugin typed settings: `settings { <plugin_id> { key value; ... } }`.
     pub settings: HashMap<String, HashMap<String, SettingValue>>,
 }
@@ -312,6 +313,43 @@ impl Default for ColorsConfig {
             bright_white: "#e5e5e5".to_string(),
         }
     }
+}
+
+/// GPU visual effects configuration.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EffectsConfig {
+    /// Background gradient start color (top). `None` = disabled.
+    pub gradient_start: Option<[f32; 4]>,
+    /// Background gradient end color (bottom). `None` = disabled.
+    pub gradient_end: Option<[f32; 4]>,
+    /// Cursor line highlight mode.
+    pub cursor_line_highlight: CursorLineHighlightMode,
+    /// Overlay transition duration in milliseconds.
+    pub overlay_transition_ms: u16,
+    /// Enable backdrop blur (frosted glass) behind floating overlays.
+    pub backdrop_blur: bool,
+}
+
+impl Default for EffectsConfig {
+    fn default() -> Self {
+        EffectsConfig {
+            gradient_start: None,
+            gradient_end: None,
+            cursor_line_highlight: CursorLineHighlightMode::Off,
+            overlay_transition_ms: 150,
+            backdrop_blur: false,
+        }
+    }
+}
+
+/// Cursor line highlight rendering mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorLineHighlightMode {
+    /// No cursor line highlight.
+    #[default]
+    Off,
+    /// Subtle foreground-tinted highlight (alpha=0.03).
+    Subtle,
 }
 
 /// Plugin configuration.
@@ -1130,5 +1168,55 @@ settings {
             nodes.is_empty(),
             "default Config should produce no KDL nodes (all values are defaults)"
         );
+    }
+
+    #[test]
+    fn test_effects_config_defaults() {
+        let e = EffectsConfig::default();
+        assert_eq!(e.gradient_start, None);
+        assert_eq!(e.gradient_end, None);
+        assert_eq!(e.cursor_line_highlight, CursorLineHighlightMode::Off);
+        assert_eq!(e.overlay_transition_ms, 150);
+        assert!(!e.backdrop_blur);
+    }
+
+    #[test]
+    fn test_parse_effects_gradient() {
+        let kdl = r##"effects {
+            background-gradient {
+                start "#1a1a2e"
+                end "#16213e"
+            }
+            cursor-line-highlight "subtle"
+            overlay-transition-ms 200
+            backdrop-blur #true
+        }"##;
+        let doc: kdl::KdlDocument = kdl.parse().unwrap();
+        let (config, errors) = kdl_parser::parse_config_from_nodes(doc.nodes());
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+
+        let e = &config.effects;
+        let start = e.gradient_start.unwrap();
+        assert!((start[0] - 0x1a as f32 / 255.0).abs() < 0.01);
+        assert!((start[1] - 0x1a as f32 / 255.0).abs() < 0.01);
+        assert!((start[2] - 0x2e as f32 / 255.0).abs() < 0.01);
+
+        let end = e.gradient_end.unwrap();
+        assert!((end[0] - 0x16 as f32 / 255.0).abs() < 0.01);
+        assert!((end[1] - 0x21 as f32 / 255.0).abs() < 0.01);
+        assert!((end[2] - 0x3e as f32 / 255.0).abs() < 0.01);
+
+        assert_eq!(e.cursor_line_highlight, CursorLineHighlightMode::Subtle);
+        assert_eq!(e.overlay_transition_ms, 200);
+        assert!(e.backdrop_blur);
+    }
+
+    #[test]
+    fn test_parse_effects_empty() {
+        let kdl = "effects {\n}";
+        let doc: kdl::KdlDocument = kdl.parse().unwrap();
+        let (config, errors) = kdl_parser::parse_config_from_nodes(doc.nodes());
+        assert!(errors.is_empty());
+        assert_eq!(config.effects, EffectsConfig::default());
     }
 }

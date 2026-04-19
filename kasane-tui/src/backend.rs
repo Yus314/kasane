@@ -70,7 +70,7 @@ impl TuiBackend {
     pub fn present(
         &mut self,
         grid: &mut CellGrid,
-        result: RenderResult,
+        result: &RenderResult,
         image_requests: &[ImageRequest],
     ) -> anyhow::Result<()> {
         // --- Kitty: reconcile and write uploads outside SyncUpdate ---

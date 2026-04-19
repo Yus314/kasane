@@ -319,6 +319,9 @@ proptest! {
                 (InverseResult::Informational { range, .. }, SourceMapping::LineRange(src_range)) => {
                     prop_assert_eq!(range, src_range, "C2: Informational range mismatch at dl={}", dl);
                 }
+                (InverseResult::Projected { anchor, .. }, SourceMapping::Projected { anchor: src_anchor, .. }) => {
+                    prop_assert_eq!(anchor, src_anchor, "C2: Projected anchor mismatch at dl={}", dl);
+                }
                 (result, source) => {
                     prop_assert!(false, "C2 violated at dl={}: result={:?}, source={:?}", dl, result, source);
                 }

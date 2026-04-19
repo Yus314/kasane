@@ -39,6 +39,7 @@ use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::pane_map::PaneStates;
 
 use crate::animation::CursorAnimation;
+use crate::animation::track::{EasingFn, TrackId};
 use crate::backend::GuiBackend;
 use crate::colors::ColorResolver;
 use crate::diagnostics_overlay::build_diagnostic_overlay_commands;
@@ -100,6 +101,8 @@ where
     cursor_animation: CursorAnimation,
     cursor_dirty: bool,
     last_render_result: Option<RenderResult>,
+    // Overlay fade state
+    prev_overlay_count: usize,
     ime: GuiImeState,
     diagnostic_overlay: PluginDiagnosticOverlayState,
 
@@ -249,6 +252,7 @@ where
             cursor_animation: CursorAnimation::new(),
             cursor_dirty: false,
             last_render_result: None,
+            prev_overlay_count: 0,
             ime: GuiImeState::default(),
             diagnostic_overlay,
             event_proxy: event_proxy.clone(),
@@ -287,13 +291,14 @@ where
         // Initialize GPU
         match GpuState::new(window.clone(), self.config.window.present_mode.as_deref()) {
             Ok(gpu) => {
-                let sr = SceneRenderer::new(
+                let mut sr = SceneRenderer::new(
                     &gpu,
                     &self.config.font,
                     scale_factor,
                     phys_size,
                     self.event_proxy.clone(),
                 );
+                sr.set_effects(self.config.effects.clone());
                 let metrics = sr.metrics().clone();
 
                 // Setup color resolver
@@ -846,7 +851,7 @@ where
         let (Some(window), Some(sr), Some(render_result)) = (
             self.window.as_ref(),
             self.scene_renderer.as_ref(),
-            self.last_render_result,
+            self.last_render_result.as_ref(),
         ) else {
             return;
         };
@@ -987,9 +992,9 @@ where
                     pane_states: pane_states_opt,
                 },
             );
-            self.last_render_result = Some(result);
+            self.last_render_result = Some(result.clone());
             if let Some(ref window) = self.window {
-                sync_window_ime_cursor_area(window, &self.ime, result, sr.metrics());
+                sync_window_ime_cursor_area(window, &self.ime, &result, sr.metrics());
             }
             self.state.runtime.display_scroll_offset = result.display_scroll_offset;
             self.state.runtime.display_map = Some(display_map);
@@ -1007,7 +1012,7 @@ where
                 self.state.runtime.rows,
             );
             let ime_overlay_commands =
-                build_ime_overlay_commands(&self.ime, result, cell_size, ime_overlay_face);
+                build_ime_overlay_commands(&self.ime, &result, cell_size, ime_overlay_face);
             let mut overlay_commands = overlay_commands;
             overlay_commands.extend(ime_overlay_commands);
             let frame_commands = append_overlay_commands(commands, overlay_commands);
@@ -1017,15 +1022,29 @@ where
                 .color_resolver
                 .as_ref()
                 .expect("resolver checked above");
+
+            // Drive overlay fade transitions
+            let overlay_count = frame_commands
+                .iter()
+                .filter(|c| matches!(c, kasane_core::render::DrawCommand::BeginOverlay))
+                .count();
+            let overlay_opacities = compute_overlay_opacities(
+                &mut self.cursor_animation,
+                overlay_count,
+                &mut self.prev_overlay_count,
+                self.config.effects.overlay_transition_ms,
+            );
+
             submit_render(
                 sr,
                 gpu,
                 resolver,
                 &frame_commands,
                 &mut self.cursor_animation,
-                result,
+                &result,
                 cw,
                 ch,
+                &overlay_opacities,
                 "scene render",
             );
 
@@ -1035,12 +1054,12 @@ where
                 &self.registry,
                 &self.surface_registry,
             );
-        } else if let Some(result) = self.last_render_result {
+        } else if let Some(result) = self.last_render_result.clone() {
             // Cursor-only frame: reuse cached scene commands
             let _cursor_span = tracing::info_span!("cursor_only_frame").entered();
             let commands = self.scene_cache.composed_ref();
             if let Some(ref window) = self.window {
-                sync_window_ime_cursor_area(window, &self.ime, result, sr.metrics());
+                sync_window_ime_cursor_area(window, &self.ime, &result, sr.metrics());
             }
             let overlay_commands = build_diagnostic_overlay_commands(
                 &self.diagnostic_overlay,
@@ -1049,7 +1068,7 @@ where
                 self.state.runtime.rows,
             );
             let ime_overlay_commands =
-                build_ime_overlay_commands(&self.ime, result, cell_size, ime_overlay_face);
+                build_ime_overlay_commands(&self.ime, &result, cell_size, ime_overlay_face);
             let mut overlay_commands = overlay_commands;
             overlay_commands.extend(ime_overlay_commands);
             let frame_commands = append_overlay_commands(commands, overlay_commands);
@@ -1058,15 +1077,28 @@ where
                 .color_resolver
                 .as_ref()
                 .expect("resolver checked above");
+
+            let overlay_count = frame_commands
+                .iter()
+                .filter(|c| matches!(c, kasane_core::render::DrawCommand::BeginOverlay))
+                .count();
+            let overlay_opacities = compute_overlay_opacities(
+                &mut self.cursor_animation,
+                overlay_count,
+                &mut self.prev_overlay_count,
+                self.config.effects.overlay_transition_ms,
+            );
+
             submit_render(
                 sr,
                 gpu,
                 resolver,
                 &frame_commands,
                 &mut self.cursor_animation,
-                result,
+                &result,
                 cw,
                 ch,
+                &overlay_opacities,
                 "cursor-only",
             );
         }
@@ -1080,9 +1112,10 @@ fn submit_render(
     resolver: &ColorResolver,
     commands: &[kasane_core::render::DrawCommand],
     cursor_animation: &mut CursorAnimation,
-    result: RenderResult,
+    result: &RenderResult,
     cell_width: f32,
     cell_height: f32,
+    overlay_opacities: &[f32],
     label: &str,
 ) {
     cursor_animation.apply_hints(result.cursor_blink, result.cursor_movement);
@@ -1096,10 +1129,82 @@ fn submit_render(
         result.cursor_style,
         &cursor_state,
         result.cursor_color,
+        overlay_opacities,
+        &result.visual_hints,
     ) {
         Ok(()) => tracing::debug!("[app] render_frame complete ({label})"),
         Err(e) => tracing::error!("[app] scene render failed: {e}"),
     }
+}
+
+/// Compute per-overlay-layer opacities by driving animation engine tracks.
+///
+/// Detects overlay appearance/disappearance and drives fade-in/fade-out
+/// via the cursor animation engine's MENU_OPACITY and INFO_OPACITY tracks.
+fn compute_overlay_opacities(
+    cursor_animation: &mut CursorAnimation,
+    overlay_count: usize,
+    prev_overlay_count: &mut usize,
+    transition_ms: u16,
+) -> Vec<f32> {
+    if transition_ms == 0 {
+        *prev_overlay_count = overlay_count;
+        return vec![1.0; overlay_count];
+    }
+
+    let duration = transition_ms as f32 / 1000.0;
+    let engine = cursor_animation.engine_mut();
+
+    // Ensure tracks are registered unconditionally.
+    // register() overwrites only if the track doesn't exist yet.
+    let tracks = [TrackId::MENU_OPACITY, TrackId::INFO_OPACITY];
+    for &track in &tracks {
+        if !engine.has_track(track) {
+            engine.register(track, 0.0, duration, EasingFn::EaseOut);
+        }
+    }
+
+    // Drive transitions based on overlay count changes.
+    //
+    // Key insight: overlay_count changes like 1→3→1→3 (menu stays, info
+    // appears/disappears). We must snap tracks to 0 when their layer
+    // disappears, not only when ALL overlays disappear.
+    if overlay_count > *prev_overlay_count {
+        // New overlays appeared — fade in each new layer
+        if *prev_overlay_count == 0 {
+            engine.snap(TrackId::MENU_OPACITY, 0.0);
+            engine.set_duration(TrackId::MENU_OPACITY, duration);
+            engine.set_target(TrackId::MENU_OPACITY, 1.0);
+        }
+        if overlay_count > 1 && *prev_overlay_count <= 1 {
+            engine.snap(TrackId::INFO_OPACITY, 0.0);
+            engine.set_duration(TrackId::INFO_OPACITY, duration);
+            engine.set_target(TrackId::INFO_OPACITY, 1.0);
+        }
+    } else if overlay_count < *prev_overlay_count {
+        if overlay_count == 0 {
+            // All overlays gone
+            engine.snap(TrackId::MENU_OPACITY, 0.0);
+            engine.snap(TrackId::INFO_OPACITY, 0.0);
+        } else if overlay_count <= 1 && *prev_overlay_count > 1 {
+            // Info layers disappeared but menu remains
+            engine.snap(TrackId::INFO_OPACITY, 0.0);
+        }
+    }
+
+    *prev_overlay_count = overlay_count;
+
+    // Collect opacities for each overlay layer
+    let mut opacities = Vec::with_capacity(overlay_count);
+    for i in 0..overlay_count {
+        let track = if i == 0 {
+            TrackId::MENU_OPACITY
+        } else {
+            TrackId::INFO_OPACITY
+        };
+        opacities.push(engine.value(track).max(0.01));
+    }
+    opacities
 }
 
 fn append_overlay_commands(
@@ -1291,8 +1396,8 @@ where
                 .sync_active_from_manager(&self.session_manager, &self.state);
         }
 
-        // Cursor animation drives continuous redraw when active
-        if self.cursor_animation.is_animating
+        // Cursor/overlay animation drives continuous redraw when active
+        if (self.cursor_animation.is_animating || self.cursor_animation.engine().is_animating())
             && let Some(ref window) = self.window
         {
             window.request_redraw();
@@ -1314,10 +1419,11 @@ where
             .active_frame_interval()
             .map(|d| std::time::Instant::now() + d);
         let cursor_deadline = self.cursor_animation.next_frame_deadline();
-        let deadline = match (scroll_deadline, cursor_deadline) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        };
+        let engine_deadline = self.cursor_animation.engine().next_frame_deadline();
+        let deadline = [scroll_deadline, cursor_deadline, engine_deadline]
+            .into_iter()
+            .flatten()
+            .min();
         match deadline {
             Some(t) => event_loop.set_control_flow(ControlFlow::WaitUntil(t)),
             None => event_loop.set_control_flow(ControlFlow::Wait),

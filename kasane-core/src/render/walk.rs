@@ -653,6 +653,26 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         face: char_face,
                     });
                 }
+                BufferLineAction::EditableSynthetic { atoms, .. } => {
+                    // Render identically to Synthetic in GPU path
+                    let fill_face = atoms.first().map(|a| a.face).unwrap_or(params.default_face);
+                    self.out.push(DrawCommand::FillRect {
+                        rect: PixelRect {
+                            x: px,
+                            y: py,
+                            w: row_w,
+                            h: cs.height,
+                        },
+                        face: fill_face,
+                        elevated: false,
+                    });
+                    let resolved = resolve_atoms(atoms, None);
+                    self.out.push(DrawCommand::DrawAtoms {
+                        pos: PixelPos { x: px, y: py },
+                        atoms: resolved,
+                        max_width: row_w,
+                    });
+                }
             }
         }
     }

@@ -25,7 +25,7 @@ struct VertexOutput {
 // Instance layout: 10 floats
 // [0..4] rect: x, y, w, h (pixels)
 // [4..8] color: r, g, b, a (sRGB)
-// [8]    decoration type: 0=solid, 1=curly, 2=double
+// [8]    decoration type: 0=solid, 1=curly, 2=double, 3=dotted, 4=dashed
 // [9]    stroke thickness (pixels)
 fn srgb_to_linear(c: f32) -> f32 {
     if c <= 0.04045 {
@@ -116,6 +116,52 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let d = min(d1, d2);
 
             let alpha = 1.0 - smoothstep(line_thickness * 0.5, line_thickness * 0.5 + 0.5, d);
+
+            if alpha < 0.01 {
+                discard;
+            }
+            return vec4<f32>(in.color.rgb, in.color.a * alpha);
+        }
+        // Dotted underline — evenly spaced dots
+        case 3u: {
+            let dot_spacing = max(h * 2.0, 4.0);
+            let dot_radius = max(h * 0.35, 1.0);
+            let center_y = h * 0.5;
+
+            // Repeat along x within each dot_spacing cell
+            let cell_x = lx % dot_spacing;
+            let dot_center_x = dot_spacing * 0.5;
+
+            let dx = cell_x - dot_center_x;
+            let dy = ly - center_y;
+            let dist = sqrt(dx * dx + dy * dy);
+
+            let alpha = 1.0 - smoothstep(dot_radius - 0.5, dot_radius + 0.5, dist);
+
+            if alpha < 0.01 {
+                discard;
+            }
+            return vec4<f32>(in.color.rgb, in.color.a * alpha);
+        }
+        // Dashed underline — alternating dash and gap
+        case 4u: {
+            let period = max(h * 6.0, 8.0);
+            let dash_ratio = 0.6; // 60% dash, 40% gap
+            let center_y = h * 0.5;
+            let stroke_h = max(h * 0.4, 1.0);
+
+            let phase = (lx % period) / period;
+
+            // Vertical distance from center
+            let dy = abs(ly - center_y);
+            let y_alpha = 1.0 - smoothstep(stroke_h * 0.5, stroke_h * 0.5 + 0.5, dy);
+
+            // Horizontal dash/gap transition with AA
+            let edge = dash_ratio;
+            let aa_width = 1.0 / period; // 1px feather in normalized space
+            let x_alpha = 1.0 - smoothstep(edge - aa_width, edge + aa_width, phase);
+
+            let alpha = x_alpha * y_alpha;
 
             if alpha < 0.01 {
                 discard;

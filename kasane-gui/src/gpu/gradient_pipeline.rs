@@ -2,48 +2,39 @@ use wgpu::MultisampleState;
 
 use super::pipeline_common::{InstanceBuffer, ScreenUniforms};
 
-/// Initial capacity for decoration instance buffer.
-const INITIAL_DECO_CAPACITY: usize = 512;
+/// Initial capacity for gradient instance buffer.
+const INITIAL_GRADIENT_CAPACITY: usize = 4;
 
-/// Per-instance data: 10 floats, 40 bytes.
-/// [0..4] rect: x, y, w, h (pixels)
-/// [4..8] color: r, g, b, a (sRGB normalized)
-/// [8]    decoration type: 0=solid, 1=curly, 2=double
-/// [9]    stroke thickness (reserved for future use)
-const FLOATS_PER_INSTANCE: usize = 10;
+/// Per-instance data: 12 floats, 48 bytes.
+/// [0..4]  rect: x, y, w, h (pixels)
+/// [4..8]  start_color: r, g, b, a (sRGB normalized)
+/// [8..12] end_color: r, g, b, a (sRGB normalized)
+const FLOATS_PER_INSTANCE: usize = 12;
 const BYTES_PER_INSTANCE: u64 = (FLOATS_PER_INSTANCE * 4) as u64;
 
-/// Decoration type constants passed to the shader.
-pub const DECO_SOLID: f32 = 0.0;
-pub const DECO_CURLY: f32 = 1.0;
-pub const DECO_DOUBLE: f32 = 2.0;
-pub const DECO_DOTTED: f32 = 3.0;
-pub const DECO_DASHED: f32 = 4.0;
-
-/// Text decoration rendering pipeline — renders underlines, curly underlines,
-/// double underlines, and strikethrough lines after the text pass.
-pub struct DecorationPipeline {
+/// Gradient background rendering pipeline — renders vertical gradients with dithering.
+pub struct GradientPipeline {
     pipeline: wgpu::RenderPipeline,
     uniforms: ScreenUniforms,
     instance_buf: InstanceBuffer,
     pub instances: Vec<f32>,
 }
 
-impl DecorationPipeline {
+impl GradientPipeline {
     pub fn new(gpu: &super::GpuState, surface_format: wgpu::TextureFormat) -> Self {
         let shader = gpu
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("decoration_shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("decoration.wgsl").into()),
+                label: Some("gradient_shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("gradient.wgsl").into()),
             });
 
-        let uniforms = ScreenUniforms::new(&gpu.device, "decoration_uniforms");
+        let uniforms = ScreenUniforms::new(&gpu.device, "gradient_uniforms");
 
         let pipeline_layout = gpu
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("decoration_pipeline_layout"),
+                label: Some("gradient_pipeline_layout"),
                 bind_group_layouts: &[Some(&uniforms.bind_group_layout)],
                 immediate_size: 0,
             });
@@ -51,7 +42,7 @@ impl DecorationPipeline {
         let pipeline = gpu
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("decoration_pipeline"),
+                label: Some("gradient_pipeline"),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
@@ -66,17 +57,17 @@ impl DecorationPipeline {
                                 shader_location: 0,
                                 format: wgpu::VertexFormat::Float32x4,
                             },
-                            // color: vec4<f32>
+                            // start_color: vec4<f32>
                             wgpu::VertexAttribute {
                                 offset: 16,
                                 shader_location: 1,
                                 format: wgpu::VertexFormat::Float32x4,
                             },
-                            // params: vec2<f32> (type, thickness)
+                            // end_color: vec4<f32>
                             wgpu::VertexAttribute {
                                 offset: 32,
                                 shader_location: 2,
-                                format: wgpu::VertexFormat::Float32x2,
+                                format: wgpu::VertexFormat::Float32x4,
                             },
                         ],
                     }],
@@ -105,16 +96,16 @@ impl DecorationPipeline {
 
         let instance_buf = InstanceBuffer::new(
             &gpu.device,
-            INITIAL_DECO_CAPACITY,
+            INITIAL_GRADIENT_CAPACITY,
             BYTES_PER_INSTANCE,
-            "decoration_instances",
+            "gradient_instances",
         );
 
-        DecorationPipeline {
+        GradientPipeline {
             pipeline,
             uniforms,
             instance_buf,
-            instances: Vec::with_capacity(INITIAL_DECO_CAPACITY * FLOATS_PER_INSTANCE),
+            instances: Vec::with_capacity(INITIAL_GRADIENT_CAPACITY * FLOATS_PER_INSTANCE),
         }
     }
 
@@ -128,10 +119,29 @@ impl DecorationPipeline {
         self.instance_buf.ensure_capacity(&gpu.device, needed);
     }
 
-    /// Push a decoration instance (10 floats).
-    pub fn push(&mut self, x: f32, y: f32, w: f32, h: f32, color: [f32; 4], deco_type: f32) {
+    /// Push a gradient instance (12 floats: rect + start_color + end_color).
+    pub fn push(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        start_color: [f32; 4],
+        end_color: [f32; 4],
+    ) {
         self.instances.extend_from_slice(&[
-            x, y, w, h, color[0], color[1], color[2], color[3], deco_type, 0.0,
+            x,
+            y,
+            w,
+            h,
+            start_color[0],
+            start_color[1],
+            start_color[2],
+            start_color[3],
+            end_color[0],
+            end_color[1],
+            end_color[2],
+            end_color[3],
         ]);
     }
 

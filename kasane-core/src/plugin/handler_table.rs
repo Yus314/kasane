@@ -203,6 +203,17 @@ pub(crate) type ErasedNavigationActionHandler = Box<
         + Sync,
 >;
 
+// Virtual edit handler (BDT)
+pub(crate) type ErasedVirtualEditHandler = Box<
+    dyn Fn(
+            &dyn PluginState,
+            &super::handler_registry::VirtualEditContext,
+            &AppView<'_>,
+        ) -> (Box<dyn PluginState>, Vec<Command>)
+        + Send
+        + Sync,
+>;
+
 // =============================================================================
 // Handler entry types (handler + metadata)
 // =============================================================================
@@ -391,6 +402,9 @@ pub(crate) struct HandlerTable {
     pub(crate) navigation_policy_handler: Option<ErasedNavigationPolicyHandler>,
     pub(crate) navigation_action_handler: Option<ErasedNavigationActionHandler>,
 
+    // --- Virtual Edit (BDT) ---
+    pub(crate) virtual_edit_handler: Option<ErasedVirtualEditHandler>,
+
     // --- Pub/Sub ---
     pub(crate) publishers: Vec<PublishEntry>,
     pub(crate) subscribers: Vec<SubscribeEntry>,
@@ -453,6 +467,7 @@ impl HandlerTable {
             menu_transform_handler: None,
             navigation_policy_handler: None,
             navigation_action_handler: None,
+            virtual_edit_handler: None,
             publishers: Vec::new(),
             subscribers: Vec::new(),
             extension_definitions: Vec::new(),
@@ -523,6 +538,9 @@ impl HandlerTable {
         }
         if self.navigation_action_handler.is_some() {
             caps |= PluginCapabilities::NAVIGATION_ACTION;
+        }
+        if self.virtual_edit_handler.is_some() {
+            caps |= PluginCapabilities::VIRTUAL_EDIT;
         }
         caps
     }

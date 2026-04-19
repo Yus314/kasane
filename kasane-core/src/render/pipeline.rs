@@ -101,6 +101,37 @@ fn compute_render_result(
     display_scroll_offset: u16,
     focused_pane_rect: Option<&Rect>,
 ) -> RenderResult {
+    // ShadowCursor override: when active and editing, place cursor at the shadow position
+    if let Some(ref shadow) = state.runtime.shadow_cursor
+        && let crate::state::shadow_cursor::ShadowPhase::Editing {
+            cursor_grapheme_offset,
+            working_text,
+            ..
+        } = &shadow.phase
+    {
+        use unicode_segmentation::UnicodeSegmentation;
+        use unicode_width::UnicodeWidthStr;
+        // Compute display column from grapheme offset
+        let display_col: u16 = working_text
+            .graphemes(true)
+            .take(*cursor_grapheme_offset)
+            .map(|g| UnicodeWidthStr::width(g) as u16)
+            .sum();
+        let cx = display_col + buffer_x_offset;
+        let cy =
+            (shadow.display_line as u16).saturating_sub(display_scroll_offset) + buffer_y_offset;
+        return RenderResult {
+            cursor_x: cx,
+            cursor_y: cy,
+            cursor_style: super::CursorStyle::Bar,
+            cursor_color: crate::protocol::Color::Default,
+            cursor_blink: None,
+            cursor_movement: None,
+            display_scroll_offset: display_scroll_offset as usize,
+            visual_hints: super::VisualHints::default(),
+        };
+    }
+
     let (cx, cy) = match state.inference.cursor_mode {
         CursorMode::Buffer => {
             let cx = state.observed.cursor_pos.column as u16 + buffer_x_offset;
@@ -148,6 +179,7 @@ fn compute_render_result(
         cursor_blink: hint.blink,
         cursor_movement: hint.movement,
         display_scroll_offset: display_scroll_offset as usize,
+        visual_hints: super::VisualHints::default(),
     }
 }
 
@@ -408,6 +440,7 @@ pub(crate) fn render_cached_core(
         cursor_blink: hint.blink,
         cursor_movement: hint.movement,
         display_scroll_offset: frame.display_scroll_offset,
+        visual_hints: super::VisualHints::default(),
     };
     (result, frame.display_map)
 }
@@ -447,7 +480,7 @@ pub(crate) fn scene_render_core<'a>(
     let cursor_hint = ornaments
         .cursor_style
         .unwrap_or_else(|| cursor_style_default(cursor_state).into());
-    let result = compute_render_result(
+    let mut result = compute_render_result(
         cursor_state,
         cursor_hint,
         frame.buffer_x_offset,
@@ -456,6 +489,27 @@ pub(crate) fn scene_render_core<'a>(
         dso,
         frame.focused_pane_rect.as_ref(),
     );
+
+    // Populate visual hints for GPU backend
+    {
+        let cursor_y = result.cursor_y as f32 * cell_size.height;
+        let viewport_width = state.runtime.cols as f32 * cell_size.width;
+        result.visual_hints.cursor_line = Some(super::visual_hints::CursorLineHint {
+            y: cursor_y,
+            height: cell_size.height,
+            width: viewport_width,
+        });
+
+        // Focused pane hint for non-focused pane dimming
+        if let Some(ref rect) = frame.focused_pane_rect {
+            result.visual_hints.focused_pane = Some(super::visual_hints::FocusedPaneHint {
+                x: rect.x as f32 * cell_size.width,
+                y: rect.y as f32 * cell_size.height,
+                w: rect.w as f32 * cell_size.width,
+                h: rect.h as f32 * cell_size.height,
+            });
+        }
+    }
 
     // Fast path: all sections cached
     if scene_cache.is_fully_cached() {
@@ -491,6 +545,22 @@ pub(crate) fn scene_render_core<'a>(
     if scene_cache.menu_commands.is_none() {
         let cmds = if let Some(ref overlay) = frame.sections.menu_overlay {
             let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
+
+            // Collect overlay region hint
+            let r = &overlay_layout.area;
+            result
+                .visual_hints
+                .overlay_regions
+                .push(super::visual_hints::OverlayRegionHint {
+                    rect: scene::PixelRect {
+                        x: r.x as f32 * cell_size.width,
+                        y: r.y as f32 * cell_size.height,
+                        w: r.w as f32 * cell_size.width,
+                        h: r.h as f32 * cell_size.height,
+                    },
+                    id: 0,
+                });
+
             walk::walk_paint_scene_section(
                 &overlay.element,
                 &overlay_layout,
@@ -508,14 +578,31 @@ pub(crate) fn scene_render_core<'a>(
     // Info + plugin overlays section
     if scene_cache.info_commands.is_none() {
         let mut cmds = Vec::new();
-        for overlay in frame
+        for (idx, overlay) in frame
             .sections
             .info_overlays
             .iter()
             .chain(frame.sections.plugin_overlays.iter())
+            .enumerate()
         {
             cmds.push(DrawCommand::BeginOverlay);
             let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
+
+            // Collect overlay region hint
+            let r = &overlay_layout.area;
+            result
+                .visual_hints
+                .overlay_regions
+                .push(super::visual_hints::OverlayRegionHint {
+                    rect: scene::PixelRect {
+                        x: r.x as f32 * cell_size.width,
+                        y: r.y as f32 * cell_size.height,
+                        w: r.w as f32 * cell_size.width,
+                        h: r.h as f32 * cell_size.height,
+                    },
+                    id: (idx + 1) as u32,
+                });
+
             let overlay_cmds = walk::walk_paint_scene_section(
                 &overlay.element,
                 &overlay_layout,

@@ -19,6 +19,7 @@ pub mod svg;
 pub(crate) mod test_helpers;
 pub mod theme;
 pub mod view;
+pub mod visual_hints;
 pub(crate) mod walk;
 
 #[cfg(test)]
@@ -35,6 +36,7 @@ pub use pipeline_salsa::{
     RenderPipelineOptions, SceneRenderOptions, render_pipeline_cached, scene_render_pipeline_cached,
 };
 pub use scene::{CellSize, DrawCommand, PixelPos, PixelRect, ResolvedAtom, SceneCache};
+pub use visual_hints::VisualHints;
 
 // ---------------------------------------------------------------------------
 // Image protocol types
@@ -121,7 +123,7 @@ impl From<CursorStyle> for CursorStyleHint {
 }
 
 /// Rendering pipeline result. Contains cursor position/style for the backend.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct RenderResult {
     pub cursor_x: u16,
     pub cursor_y: u16,
@@ -137,4 +139,6 @@ pub struct RenderResult {
     /// Display scroll offset applied this frame.
     /// Used to update `AppState::display_scroll_offset` for mouse coordinate translation.
     pub display_scroll_offset: usize,
+    /// GPU-specific visual hints. Ignored by TUI backend.
+    pub visual_hints: VisualHints,
 }

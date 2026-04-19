@@ -595,7 +595,7 @@ where
             if diagnostic_overlay.is_active() {
                 paint_diagnostic_overlay(&diagnostic_overlay, &mut grid);
             }
-            backend.present(&mut grid, result, &image_requests)?;
+            backend.present(&mut grid, &result, &image_requests)?;
             state.runtime.display_scroll_offset = result.display_scroll_offset;
             state.runtime.display_map = Some(display_map);
             state.runtime.display_unit_map = state

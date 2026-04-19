@@ -1,6 +1,8 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use std::ops::Range;
+
 use super::grid::CellGrid;
 use super::theme::Theme;
 use crate::display::{DisplayLine, DisplayMap, SourceMapping, SyntheticContent};
@@ -131,6 +133,26 @@ pub(crate) enum BufferLineAction<'a> {
         /// Face for the padding character (fg adjusted if same as bg).
         char_face: Face,
     },
+    /// Render editable synthetic content (editable virtual text).
+    /// When a shadow cursor is active on this line, `shadow_override` contains
+    /// the replacement text and cursor position for rendering.
+    EditableSynthetic {
+        atoms: &'a [Atom],
+        #[allow(dead_code)] // Will be used when shadow override rendering is connected
+        shadow_override: Option<ShadowRenderInfo>,
+    },
+}
+
+/// Rendering information for a shadow cursor override on an editable line.
+#[derive(Debug)]
+#[allow(dead_code)] // Fields will be used when shadow override rendering is connected
+pub(crate) struct ShadowRenderInfo {
+    /// Byte range within the synthetic content to replace.
+    pub span_byte_range: Range<usize>,
+    /// Replacement text (working_text from the shadow cursor).
+    pub replacement_text: String,
+    /// Cursor position as grapheme offset from span start.
+    pub cursor_grapheme_offset: usize,
 }
 
 /// Analyze a single display line and return a `BufferLineAction` describing what to render.
@@ -155,6 +177,7 @@ pub(crate) fn analyze_buffer_line<'a>(
                 let buf_line = match entry.source() {
                     SourceMapping::BufferLine(l) => Some(l.0),
                     SourceMapping::LineRange(r) => Some(r.start),
+                    SourceMapping::Projected { .. } => None,
                 };
                 (buf_line, entry.synthetic())
             } else {
@@ -182,8 +205,18 @@ pub(crate) fn analyze_buffer_line<'a>(
         }
     }
 
-    // Step 3: Synthetic content (fold summary, virtual text)
+    // Step 3: Synthetic content (fold summary, virtual text, editable virtual text)
     if let Some(syn) = synthetic {
+        // Check if this is an editable entry (Projected source)
+        if let Some(dm) = display_map
+            && let Some(entry) = dm.entry(DisplayLine(display_line))
+            && matches!(entry.source(), SourceMapping::Projected { .. })
+        {
+            return BufferLineAction::EditableSynthetic {
+                atoms: &syn.atoms,
+                shadow_override: None, // Caller fills in from ShadowCursor state
+            };
+        }
         return BufferLineAction::Synthetic { atoms: &syn.atoms };
     }
 
@@ -290,6 +323,17 @@ pub(crate) fn paint_buffer_ref(
             BufferLineAction::Padding { face, char_face } => {
                 grid.fill_region(y, area.x, area.w, &face);
                 grid.put_char(area.x, y, params.padding_char, &char_face);
+            }
+            BufferLineAction::EditableSynthetic {
+                atoms,
+                shadow_override: _,
+            } => {
+                // Render editable synthetic content identically to Synthetic for now.
+                // When shadow_override is Some, the caller will have already patched
+                // the atoms or the grid will be updated in the pipeline layer.
+                let fill_face = atoms.first().map(|a| a.face).unwrap_or(params.default_face);
+                grid.fill_region(y, area.x, area.w, &fill_face);
+                grid.put_line_with_base(y, area.x, atoms, area.w, None);
             }
         }
     }

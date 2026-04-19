@@ -102,7 +102,7 @@ fn push_preedit_text(
 
 pub(crate) fn build_ime_overlay_commands(
     ime: &GuiImeState,
-    render: RenderResult,
+    render: &RenderResult,
     cell_size: CellSize,
     face: Face,
 ) -> Vec<DrawCommand> {
@@ -193,7 +193,7 @@ pub(crate) fn build_ime_overlay_commands(
 pub(crate) fn sync_ime_cursor_area(
     window: &Window,
     ime: &GuiImeState,
-    render: RenderResult,
+    render: &RenderResult,
     metrics: &CellMetrics,
 ) {
     if !ime.policy_allowed || !ime.platform_enabled {
@@ -238,7 +238,7 @@ mod tests {
                 preedit: "変換中".to_string(),
                 ..GuiImeState::default()
             },
-            RenderResult {
+            &RenderResult {
                 cursor_x: 3,
                 cursor_y: 4,
                 cursor_style: kasane_core::render::CursorStyle::Block,
@@ -246,6 +246,7 @@ mod tests {
                 cursor_blink: None,
                 cursor_movement: None,
                 display_scroll_offset: 0,
+                visual_hints: Default::default(),
             },
             CellSize {
                 width: 10.0,
@@ -271,7 +272,7 @@ mod tests {
                 cursor_range: Some((1, 2)),
                 ..GuiImeState::default()
             },
-            RenderResult {
+            &RenderResult {
                 cursor_x: 1,
                 cursor_y: 2,
                 cursor_style: kasane_core::render::CursorStyle::Block,
@@ -279,6 +280,7 @@ mod tests {
                 cursor_blink: None,
                 cursor_movement: None,
                 display_scroll_offset: 0,
+                visual_hints: Default::default(),
             },
             CellSize {
                 width: 10.0,
@@ -323,7 +325,7 @@ mod tests {
                 cursor_range: Some((1, 1)),
                 ..GuiImeState::default()
             },
-            RenderResult {
+            &RenderResult {
                 cursor_x: 0,
                 cursor_y: 0,
                 cursor_style: kasane_core::render::CursorStyle::Block,
@@ -331,6 +333,7 @@ mod tests {
                 cursor_blink: None,
                 cursor_movement: None,
                 display_scroll_offset: 0,
+                visual_hints: Default::default(),
             },
             CellSize {
                 width: 10.0,
@@ -358,7 +361,7 @@ mod tests {
                 cursor_range: Some((2, 4)),
                 ..GuiImeState::default()
             },
-            RenderResult {
+            &RenderResult {
                 cursor_x: 0,
                 cursor_y: 0,
                 cursor_style: kasane_core::render::CursorStyle::Block,
@@ -366,6 +369,7 @@ mod tests {
                 cursor_blink: None,
                 cursor_movement: None,
                 display_scroll_offset: 0,
+                visual_hints: Default::default(),
             },
             CellSize {
                 width: 10.0,

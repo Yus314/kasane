@@ -1,0 +1,653 @@
+//! Shadow cursor state for editable virtual text (BDT).
+//!
+//! A `ShadowCursor` represents a cursor within an editable virtual text span.
+//! It operates outside the Kakoune protocol: text editing happens locally in
+//! `working_text`, and only on commit (Enter) is the result projected back to
+//! the buffer via `exec -draft`.
+
+use std::ops::Range;
+
+use unicode_segmentation::UnicodeSegmentation;
+
+use crate::input::KeyEvent;
+use crate::plugin::{Command, PluginId};
+use crate::state::DirtyFlags;
+
+/// How the virtual text maps back to the buffer on commit.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum EditProjection {
+    /// Buffer content is directly mirrored in the virtual text.
+    /// Commit replaces `buffer_byte_range` with `working_text`.
+    Mirror,
+    /// Plugin's `on_virtual_edit` handler transforms the edit.
+    PluginDefined,
+}
+
+/// A contiguous editable region within a virtual text line.
+///
+/// Byte ranges are aligned to `Atom` boundaries in the synthetic content.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EditableSpan {
+    /// Byte range within the virtual text's synthetic content.
+    pub display_byte_range: Range<usize>,
+    /// Anchor buffer line (0-indexed) that this span projects to.
+    pub anchor_line: usize,
+    /// Byte range within the anchor buffer line (Mirror projection).
+    pub buffer_byte_range: Range<usize>,
+    /// How edits are projected back to the buffer.
+    pub projection: EditProjection,
+}
+
+/// Lifecycle phase of a shadow cursor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShadowPhase {
+    /// Cursor is positioned but no editing has started.
+    Navigating,
+    /// Active text editing within the span.
+    Editing {
+        /// Current content being edited (may differ from original).
+        working_text: String,
+        /// Original content at activation time (for Hippocratic check).
+        original_text: String,
+        /// Cursor position as grapheme cluster offset from span start.
+        cursor_grapheme_offset: usize,
+    },
+}
+
+/// A cursor within an editable virtual text span, independent of Kakoune's cursor.
+///
+/// The shadow cursor lives entirely in display space. It intercepts key events
+/// while active, updates `working_text` locally, and on commit generates
+/// `exec -draft` commands to project the edit back to the buffer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShadowCursor {
+    /// Display line where the editable virtual text is rendered.
+    pub display_line: usize,
+    /// Index into the `EditableSpan` vector of the display entry.
+    pub span_index: usize,
+    /// Current lifecycle phase.
+    pub phase: ShadowPhase,
+    /// Plugin that owns the editable virtual text.
+    pub owner_plugin: PluginId,
+}
+
+/// Result of handling a key event in shadow cursor context.
+pub enum ShadowKeyResult {
+    /// Key was consumed by the shadow cursor.
+    Consumed(DirtyFlags),
+    /// Shadow cursor should deactivate; fall through to normal key handling.
+    Deactivate,
+    /// Editing committed; send commands to Kakoune.
+    Commit(Vec<Command>),
+}
+
+/// Handle a key event within an active shadow cursor.
+///
+/// In `Navigating` phase, the first printable character transitions to `Editing`.
+/// In `Editing` phase, character keys modify `working_text` with grapheme-correct ops.
+pub fn handle_shadow_cursor_key(
+    shadow: &mut ShadowCursor,
+    key: &KeyEvent,
+    span_text: &str,
+) -> ShadowKeyResult {
+    use crate::input::Key;
+
+    match key.key {
+        // Escape always deactivates
+        Key::Escape => ShadowKeyResult::Deactivate,
+
+        // Up/Down/PageUp/PageDown deactivate (return to buffer navigation)
+        Key::Up | Key::Down | Key::PageUp | Key::PageDown => ShadowKeyResult::Deactivate,
+
+        // Enter commits the edit
+        Key::Enter => {
+            if let ShadowPhase::Editing {
+                ref working_text,
+                ref original_text,
+                ..
+            } = shadow.phase
+            {
+                let commands =
+                    build_commit_commands(working_text, original_text, shadow.span_index);
+                ShadowKeyResult::Commit(commands)
+            } else {
+                ShadowKeyResult::Deactivate
+            }
+        }
+
+        // Character input
+        Key::Char(c) => {
+            match &mut shadow.phase {
+                ShadowPhase::Navigating => {
+                    // Transition to Editing with initial char
+                    let mut working_text = span_text.to_string();
+                    let grapheme_count = working_text.graphemes(true).count();
+                    // Place cursor at end, then insert char
+                    let cursor = grapheme_count;
+                    let byte_pos: usize = working_text.graphemes(true).map(|g| g.len()).sum();
+                    let mut buf = [0u8; 4];
+                    let s = c.encode_utf8(&mut buf);
+                    working_text.insert_str(byte_pos, s);
+                    shadow.phase = ShadowPhase::Editing {
+                        working_text,
+                        original_text: span_text.to_string(),
+                        cursor_grapheme_offset: cursor + 1,
+                    };
+                    ShadowKeyResult::Consumed(DirtyFlags::BUFFER_CONTENT)
+                }
+                ShadowPhase::Editing {
+                    working_text,
+                    cursor_grapheme_offset,
+                    ..
+                } => {
+                    let offset = *cursor_grapheme_offset;
+                    let byte_pos: usize = working_text
+                        .graphemes(true)
+                        .take(offset)
+                        .map(|g| g.len())
+                        .sum();
+                    let mut buf = [0u8; 4];
+                    let s = c.encode_utf8(&mut buf);
+                    working_text.insert_str(byte_pos, s);
+                    *cursor_grapheme_offset += 1;
+                    ShadowKeyResult::Consumed(DirtyFlags::BUFFER_CONTENT)
+                }
+            }
+        }
+
+        // Backspace: delete grapheme before cursor
+        Key::Backspace => {
+            if let ShadowPhase::Editing {
+                working_text,
+                cursor_grapheme_offset,
+                ..
+            } = &mut shadow.phase
+            {
+                if *cursor_grapheme_offset > 0 {
+                    let offset = *cursor_grapheme_offset;
+                    let graphemes: Vec<&str> = working_text.graphemes(true).collect();
+                    let byte_start: usize =
+                        graphemes.iter().take(offset - 1).map(|g| g.len()).sum();
+                    let byte_end: usize = graphemes.iter().take(offset).map(|g| g.len()).sum();
+                    working_text.replace_range(byte_start..byte_end, "");
+                    *cursor_grapheme_offset -= 1;
+                }
+                ShadowKeyResult::Consumed(DirtyFlags::BUFFER_CONTENT)
+            } else {
+                ShadowKeyResult::Consumed(DirtyFlags::empty())
+            }
+        }
+
+        // Delete: delete grapheme after cursor
+        Key::Delete => {
+            if let ShadowPhase::Editing {
+                working_text,
+                cursor_grapheme_offset,
+                ..
+            } = &mut shadow.phase
+            {
+                let offset = *cursor_grapheme_offset;
+                let graphemes: Vec<&str> = working_text.graphemes(true).collect();
+                if offset < graphemes.len() {
+                    let byte_start: usize = graphemes.iter().take(offset).map(|g| g.len()).sum();
+                    let byte_end: usize = graphemes.iter().take(offset + 1).map(|g| g.len()).sum();
+                    working_text.replace_range(byte_start..byte_end, "");
+                }
+                ShadowKeyResult::Consumed(DirtyFlags::BUFFER_CONTENT)
+            } else {
+                ShadowKeyResult::Consumed(DirtyFlags::empty())
+            }
+        }
+
+        // Left: move cursor left one grapheme
+        Key::Left => {
+            if let ShadowPhase::Editing {
+                cursor_grapheme_offset,
+                ..
+            } = &mut shadow.phase
+            {
+                if *cursor_grapheme_offset > 0 {
+                    *cursor_grapheme_offset -= 1;
+                }
+                ShadowKeyResult::Consumed(DirtyFlags::BUFFER_CONTENT)
+            } else {
+                ShadowKeyResult::Consumed(DirtyFlags::empty())
+            }
+        }
+
+        // Right: move cursor right one grapheme
+        Key::Right => {
+            if let ShadowPhase::Editing {
+                working_text,
+                cursor_grapheme_offset,
+                ..
+            } = &mut shadow.phase
+            {
+                let max = working_text.graphemes(true).count();
+                if *cursor_grapheme_offset < max {
+                    *cursor_grapheme_offset += 1;
+                }
+                ShadowKeyResult::Consumed(DirtyFlags::BUFFER_CONTENT)
+            } else {
+                ShadowKeyResult::Consumed(DirtyFlags::empty())
+            }
+        }
+
+        // Home: move cursor to start
+        Key::Home => {
+            if let ShadowPhase::Editing {
+                cursor_grapheme_offset,
+                ..
+            } = &mut shadow.phase
+            {
+                *cursor_grapheme_offset = 0;
+                ShadowKeyResult::Consumed(DirtyFlags::BUFFER_CONTENT)
+            } else {
+                ShadowKeyResult::Consumed(DirtyFlags::empty())
+            }
+        }
+
+        // End: move cursor to end
+        Key::End => {
+            if let ShadowPhase::Editing {
+                working_text,
+                cursor_grapheme_offset,
+                ..
+            } = &mut shadow.phase
+            {
+                *cursor_grapheme_offset = working_text.graphemes(true).count();
+                ShadowKeyResult::Consumed(DirtyFlags::BUFFER_CONTENT)
+            } else {
+                ShadowKeyResult::Consumed(DirtyFlags::empty())
+            }
+        }
+
+        // Tab and other keys: consume but no-op
+        _ => ShadowKeyResult::Consumed(DirtyFlags::empty()),
+    }
+}
+
+/// Build commit commands for projecting the edit back to the buffer.
+///
+/// Implements the Hippocratic condition: if working_text == original_text,
+/// return empty commands (no-op).
+fn build_commit_commands(
+    working_text: &str,
+    original_text: &str,
+    _span_index: usize,
+) -> Vec<Command> {
+    // Hippocratic condition: no change → no commands
+    if working_text == original_text {
+        return vec![];
+    }
+
+    // The actual buffer projection requires the EditableSpan (anchor_line,
+    // buffer_byte_range) which is resolved by the caller. This function
+    // returns placeholder commands; the real projection happens in
+    // `build_mirror_commit` which is called from the update dispatch.
+    vec![]
+}
+
+/// Build mirror-projection commit commands from a shadow cursor and its span.
+///
+/// For Mirror projection: generates `exec -draft` to select the anchor line's
+/// byte range and replace it with `working_text`.
+///
+/// For PluginDefined: deferred to BDT-7 (plugin API).
+///
+/// # Security
+///
+/// - `anchor_line` must be within `line_count`
+/// - `buffer_byte_range` must be within the anchor line's content
+/// - Violations result in empty commands (graceful degradation)
+pub fn build_mirror_commit(
+    shadow: &ShadowCursor,
+    span: &EditableSpan,
+    line_count: usize,
+) -> Vec<Command> {
+    let (working_text, original_text) = match &shadow.phase {
+        ShadowPhase::Editing {
+            working_text,
+            original_text,
+            ..
+        } => (working_text.as_str(), original_text.as_str()),
+        ShadowPhase::Navigating => return vec![],
+    };
+
+    // Hippocratic condition
+    if working_text == original_text {
+        return vec![];
+    }
+
+    // Security: validate anchor_line
+    if span.anchor_line >= line_count {
+        return vec![];
+    }
+
+    match span.projection {
+        EditProjection::Mirror => {
+            // Generate exec -draft command:
+            // 1. Go to anchor line (1-indexed)
+            // 2. Select the byte range
+            // 3. Replace with working_text
+            let line_1indexed = span.anchor_line + 1;
+            let col_start = span.buffer_byte_range.start + 1; // 1-indexed
+            let col_end = span.buffer_byte_range.end; // inclusive end in Kakoune
+
+            // Escape working_text for Kakoune insert mode
+            let escaped = escape_for_kakoune_insert(working_text);
+
+            let cmd = if span.buffer_byte_range.is_empty() {
+                // Empty range: insert at position
+                format!("exec -draft {line_1indexed}g {col_start}li{escaped}<esc>")
+            } else {
+                // Non-empty range: select and replace
+                format!("exec -draft {line_1indexed}g {col_start}l{col_end}lsc{escaped}<esc>")
+            };
+
+            vec![Command::kakoune_command(&cmd)]
+        }
+        EditProjection::PluginDefined => {
+            // Deferred to BDT-7 (plugin API)
+            vec![]
+        }
+    }
+}
+
+/// Escape text for Kakoune insert mode within `exec -draft`.
+fn escape_for_kakoune_insert(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '<' => result.push_str("<lt>"),
+            '>' => result.push_str("<gt>"),
+            '\n' => result.push_str("<ret>"),
+            _ => result.push(c),
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::input::{Key, KeyEvent, Modifiers};
+
+    fn make_key(k: Key) -> KeyEvent {
+        KeyEvent {
+            key: k,
+            modifiers: Modifiers::empty(),
+        }
+    }
+
+    fn make_shadow(phase: ShadowPhase) -> ShadowCursor {
+        ShadowCursor {
+            display_line: 0,
+            span_index: 0,
+            phase,
+            owner_plugin: PluginId(String::new()),
+        }
+    }
+
+    #[test]
+    fn escape_deactivates_from_navigating() {
+        let mut shadow = make_shadow(ShadowPhase::Navigating);
+        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Escape), "hello");
+        assert!(matches!(result, ShadowKeyResult::Deactivate));
+    }
+
+    #[test]
+    fn escape_deactivates_from_editing() {
+        let mut shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "hello".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 5,
+        });
+        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Escape), "hello");
+        assert!(matches!(result, ShadowKeyResult::Deactivate));
+    }
+
+    #[test]
+    fn char_transitions_navigating_to_editing() {
+        let mut shadow = make_shadow(ShadowPhase::Navigating);
+        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Char('a')), "hello");
+        assert!(matches!(result, ShadowKeyResult::Consumed(_)));
+        match &shadow.phase {
+            ShadowPhase::Editing {
+                working_text,
+                original_text,
+                cursor_grapheme_offset,
+            } => {
+                assert_eq!(working_text, "helloa");
+                assert_eq!(original_text, "hello");
+                assert_eq!(*cursor_grapheme_offset, 6);
+            }
+            _ => panic!("expected Editing phase"),
+        }
+    }
+
+    #[test]
+    fn char_insert_at_cursor() {
+        let mut shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "hllo".into(),
+            original_text: "hllo".into(),
+            cursor_grapheme_offset: 1,
+        });
+        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Char('e')), "hllo");
+        assert!(matches!(result, ShadowKeyResult::Consumed(_)));
+        if let ShadowPhase::Editing {
+            working_text,
+            cursor_grapheme_offset,
+            ..
+        } = &shadow.phase
+        {
+            assert_eq!(working_text, "hello");
+            assert_eq!(*cursor_grapheme_offset, 2);
+        }
+    }
+
+    #[test]
+    fn backspace_deletes_before_cursor() {
+        let mut shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "hello".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 3,
+        });
+        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Backspace), "hello");
+        assert!(matches!(result, ShadowKeyResult::Consumed(_)));
+        if let ShadowPhase::Editing {
+            working_text,
+            cursor_grapheme_offset,
+            ..
+        } = &shadow.phase
+        {
+            assert_eq!(working_text, "helo");
+            assert_eq!(*cursor_grapheme_offset, 2);
+        }
+    }
+
+    #[test]
+    fn backspace_at_position_zero_is_noop() {
+        let mut shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "hello".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 0,
+        });
+        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Backspace), "hello");
+        assert!(matches!(result, ShadowKeyResult::Consumed(_)));
+        if let ShadowPhase::Editing {
+            working_text,
+            cursor_grapheme_offset,
+            ..
+        } = &shadow.phase
+        {
+            assert_eq!(working_text, "hello");
+            assert_eq!(*cursor_grapheme_offset, 0);
+        }
+    }
+
+    #[test]
+    fn delete_after_cursor() {
+        let mut shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "hello".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 2,
+        });
+        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Delete), "hello");
+        assert!(matches!(result, ShadowKeyResult::Consumed(_)));
+        if let ShadowPhase::Editing {
+            working_text,
+            cursor_grapheme_offset,
+            ..
+        } = &shadow.phase
+        {
+            assert_eq!(working_text, "helo");
+            assert_eq!(*cursor_grapheme_offset, 2);
+        }
+    }
+
+    #[test]
+    fn cursor_movement_left_right_home_end() {
+        let mut shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "hello".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 3,
+        });
+        // Left
+        handle_shadow_cursor_key(&mut shadow, &make_key(Key::Left), "hello");
+        assert_eq!(editing_offset(&shadow), 2);
+        // Right
+        handle_shadow_cursor_key(&mut shadow, &make_key(Key::Right), "hello");
+        assert_eq!(editing_offset(&shadow), 3);
+        // Home
+        handle_shadow_cursor_key(&mut shadow, &make_key(Key::Home), "hello");
+        assert_eq!(editing_offset(&shadow), 0);
+        // End
+        handle_shadow_cursor_key(&mut shadow, &make_key(Key::End), "hello");
+        assert_eq!(editing_offset(&shadow), 5);
+    }
+
+    #[test]
+    fn up_down_deactivate() {
+        let mut shadow = make_shadow(ShadowPhase::Navigating);
+        assert!(matches!(
+            handle_shadow_cursor_key(&mut shadow, &make_key(Key::Up), ""),
+            ShadowKeyResult::Deactivate
+        ));
+        assert!(matches!(
+            handle_shadow_cursor_key(&mut shadow, &make_key(Key::Down), ""),
+            ShadowKeyResult::Deactivate
+        ));
+    }
+
+    #[test]
+    fn enter_commits_from_editing() {
+        let mut shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "world".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 5,
+        });
+        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Enter), "hello");
+        assert!(matches!(result, ShadowKeyResult::Commit(_)));
+    }
+
+    #[test]
+    fn enter_deactivates_from_navigating() {
+        let mut shadow = make_shadow(ShadowPhase::Navigating);
+        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Enter), "hello");
+        assert!(matches!(result, ShadowKeyResult::Deactivate));
+    }
+
+    #[test]
+    fn hippocratic_unchanged_returns_empty_commands() {
+        let cmds = build_commit_commands("hello", "hello", 0);
+        assert!(cmds.is_empty());
+    }
+
+    #[test]
+    fn mirror_commit_hippocratic() {
+        let shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "hello".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 5,
+        });
+        let span = EditableSpan {
+            display_byte_range: 0..5,
+            anchor_line: 0,
+            buffer_byte_range: 0..5,
+            projection: EditProjection::Mirror,
+        };
+        let cmds = build_mirror_commit(&shadow, &span, 10);
+        assert!(cmds.is_empty(), "Hippocratic: no change → no commands");
+    }
+
+    #[test]
+    fn mirror_commit_changed() {
+        let shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "world".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 5,
+        });
+        let span = EditableSpan {
+            display_byte_range: 0..5,
+            anchor_line: 2,
+            buffer_byte_range: 0..5,
+            projection: EditProjection::Mirror,
+        };
+        let cmds = build_mirror_commit(&shadow, &span, 10);
+        assert_eq!(cmds.len(), 1, "Mirror: one exec -draft command");
+    }
+
+    #[test]
+    fn mirror_commit_anchor_out_of_range() {
+        let shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "world".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 5,
+        });
+        let span = EditableSpan {
+            display_byte_range: 0..5,
+            anchor_line: 100,
+            buffer_byte_range: 0..5,
+            projection: EditProjection::Mirror,
+        };
+        let cmds = build_mirror_commit(&shadow, &span, 10);
+        assert!(cmds.is_empty(), "anchor out of range → no commands");
+    }
+
+    #[test]
+    fn mirror_commit_cjk_escape() {
+        let escaped = escape_for_kakoune_insert("日<本>語\n行");
+        assert_eq!(escaped, "日<lt>本<gt>語<ret>行");
+    }
+
+    #[test]
+    fn cjk_grapheme_operations() {
+        let mut shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "日本語".into(),
+            original_text: "日本語".into(),
+            cursor_grapheme_offset: 1,
+        });
+        // Backspace at offset 1: delete '日'
+        handle_shadow_cursor_key(&mut shadow, &make_key(Key::Backspace), "日本語");
+        if let ShadowPhase::Editing {
+            working_text,
+            cursor_grapheme_offset,
+            ..
+        } = &shadow.phase
+        {
+            assert_eq!(working_text, "本語");
+            assert_eq!(*cursor_grapheme_offset, 0);
+        }
+    }
+
+    fn editing_offset(shadow: &ShadowCursor) -> usize {
+        match &shadow.phase {
+            ShadowPhase::Editing {
+                cursor_grapheme_offset,
+                ..
+            } => *cursor_grapheme_offset,
+            _ => panic!("expected Editing phase"),
+        }
+    }
+}

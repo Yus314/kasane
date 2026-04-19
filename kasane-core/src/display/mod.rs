@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use crate::element::{Element, InteractiveId};
 use crate::protocol::{Atom, Face};
+use crate::state::shadow_cursor::EditableSpan;
 
 /// A buffer line index (0-based).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -178,6 +179,16 @@ pub enum DisplayDirective {
         content: Vec<Atom>,
         priority: i16,
     },
+    /// Insert an editable virtual text line after the given buffer line.
+    ///
+    /// Unlike `InsertAfter`, the user can activate a shadow cursor on this line,
+    /// edit the content locally, and commit the result back to the buffer via
+    /// `exec -draft` (Mirror) or a plugin handler (PluginDefined).
+    EditableVirtualText {
+        after: usize,
+        content: Vec<Atom>,
+        editable_spans: Vec<EditableSpan>,
+    },
 }
 
 // =============================================================================
@@ -186,6 +197,7 @@ pub enum DisplayDirective {
 
 /// All variant names of `DisplayDirective` (sorted).
 pub const ALL_VARIANT_NAMES: &[&str] = &[
+    "EditableVirtualText",
     "Fold",
     "Gutter",
     "Hide",
@@ -203,6 +215,7 @@ pub const DESTRUCTIVE_VARIANTS: &[&str] = &["Hide", "HideInline"];
 
 /// Variants classified as preserving (§10.2 Preserving).
 pub const PRESERVING_VARIANTS: &[&str] = &[
+    "EditableVirtualText",
     "Fold",
     "Gutter",
     "InsertAfter",
@@ -227,6 +240,7 @@ impl DisplayDirective {
             DisplayDirective::StyleInline { .. } => "StyleInline",
             DisplayDirective::StyleLine { .. } => "StyleLine",
             DisplayDirective::VirtualText { .. } => "VirtualText",
+            DisplayDirective::EditableVirtualText { .. } => "EditableVirtualText",
         }
     }
 
@@ -252,7 +266,8 @@ impl DisplayDirective {
             | DisplayDirective::StyleInline { .. } => DirectiveCategory::Inline,
             DisplayDirective::StyleLine { .. }
             | DisplayDirective::Gutter { .. }
-            | DisplayDirective::VirtualText { .. } => DirectiveCategory::Decoration,
+            | DisplayDirective::VirtualText { .. }
+            | DisplayDirective::EditableVirtualText { .. } => DirectiveCategory::Decoration,
         }
     }
 
@@ -269,6 +284,12 @@ pub enum SourceMapping {
     BufferLine(BufferLine),
     /// This display line represents a folded range of buffer lines.
     LineRange(Range<usize>),
+    /// This display line is editable virtual text projected from a buffer line.
+    /// Carries anchor and editable spans for bidirectional mapping.
+    Projected {
+        anchor: BufferLine,
+        spans: Vec<EditableSpan>,
+    },
 }
 
 /// Result of inverse projection: display line → buffer origin.
@@ -285,6 +306,12 @@ pub enum InverseResult {
     Informational {
         representative: BufferLine,
         range: Range<usize>,
+    },
+    /// Projected from a buffer line via editable virtual text.
+    /// Carries anchor and editable spans for bidirectional editing.
+    Projected {
+        anchor: BufferLine,
+        spans: Vec<EditableSpan>,
     },
     /// Display line index out of range.
     OutOfRange,
@@ -320,6 +347,8 @@ pub enum InteractionPolicy {
     ReadOnly,
     /// Skip entirely during navigation.
     Skip,
+    /// Editable virtual text: activates a shadow cursor on interaction.
+    Editable,
 }
 
 /// Content for synthetic (non-buffer) display lines.
@@ -369,6 +398,21 @@ impl DisplayEntry {
         Self {
             source: SourceMapping::LineRange(range),
             interaction: InteractionPolicy::ReadOnly,
+            synthetic: Some(SyntheticContent { atoms }),
+        }
+    }
+
+    /// Editable virtual text entry: Projected source, Editable interaction, synthetic content.
+    ///
+    /// INV-6 guaranteed by construction: `Projected` ↔ `synthetic: Some`.
+    pub fn editable_virtual_text(
+        anchor: BufferLine,
+        atoms: Vec<Atom>,
+        spans: Vec<EditableSpan>,
+    ) -> Self {
+        Self {
+            source: SourceMapping::Projected { anchor, spans },
+            interaction: InteractionPolicy::Editable,
             synthetic: Some(SyntheticContent { atoms }),
         }
     }
@@ -480,6 +524,7 @@ impl DisplayMap {
         // Track which buffer lines are affected by directives
         let mut folded: Vec<Option<(Range<usize>, Vec<Atom>)>> = vec![None; line_count];
         let mut hidden: Vec<bool> = vec![false; line_count];
+        let mut editable_after: Vec<Vec<(Vec<Atom>, Vec<EditableSpan>)>> = vec![vec![]; line_count];
 
         for directive in directives {
             match directive {
@@ -500,7 +545,17 @@ impl DisplayMap {
                         }
                     }
                 }
-                // Non-spatial directives are not handled by DisplayMap
+                DisplayDirective::EditableVirtualText {
+                    after,
+                    content,
+                    editable_spans,
+                } => {
+                    if *after < line_count {
+                        editable_after[*after].push((content.clone(), editable_spans.clone()));
+                    }
+                }
+                // Non-spatial directives (InterLine, Inline, Decoration except EditableVirtualText)
+                // are not handled by DisplayMap
                 _ => {}
             }
         }
@@ -535,6 +590,15 @@ impl DisplayMap {
             let display_idx = entries.len();
             entries.push(DisplayEntry::buffer_line(BufferLine(line)));
             buffer_to_display[line] = Some(display_idx);
+
+            // EditableVirtualText: add editable virtual lines after this buffer line
+            for (atoms, spans) in &editable_after[line] {
+                entries.push(DisplayEntry::editable_virtual_text(
+                    BufferLine(line),
+                    atoms.clone(),
+                    spans.clone(),
+                ));
+            }
         }
 
         let dm = DisplayMap {
@@ -572,6 +636,10 @@ impl DisplayMap {
                 representative: BufferLine(range.start),
                 range: range.clone(),
             },
+            SourceMapping::Projected { anchor, spans } => InverseResult::Projected {
+                anchor: *anchor,
+                spans: spans.clone(),
+            },
         }
     }
 
@@ -604,6 +672,9 @@ impl DisplayMap {
             SourceMapping::LineRange(range) => range
                 .clone()
                 .any(|l| lines_dirty.get(l).copied().unwrap_or(true)),
+            SourceMapping::Projected { anchor, .. } => {
+                lines_dirty.get(anchor.0).copied().unwrap_or(true)
+            }
         }
     }
 
@@ -662,6 +733,9 @@ impl DisplayMap {
                             r.contains(&bl),
                             "INV-1: b2d[{bl}] = {dl} but entries[{dl}] = LineRange({r:?})"
                         ),
+                        SourceMapping::Projected { .. } => {
+                            panic!("INV-3: b2d[{bl}] = {dl} but entries[{dl}] = Projected")
+                        }
                     }
                 }
             }
@@ -711,6 +785,7 @@ impl DisplayMap {
                         }
                         prev_buf = r.end.checked_sub(1);
                     }
+                    SourceMapping::Projected { .. } => {} // INV-3 checked in INV-1 loop
                 }
             }
 
@@ -720,6 +795,7 @@ impl DisplayMap {
                 let range = match &self.entries[dl].source {
                     SourceMapping::BufferLine(bl) => bl.0..bl.0 + 1,
                     SourceMapping::LineRange(r) => r.start..r.end.min(n_buf),
+                    SourceMapping::Projected { .. } => continue,
                 };
                 for bl in range {
                     debug_assert!(
@@ -742,6 +818,12 @@ impl DisplayMap {
                         debug_assert!(
                             entry.synthetic.is_some(),
                             "INV-6: entries[{dl}] = LineRange but synthetic is None"
+                        );
+                    }
+                    SourceMapping::Projected { .. } => {
+                        debug_assert!(
+                            entry.synthetic.is_some(),
+                            "INV-6: entries[{dl}] = Projected but synthetic is None"
                         );
                     }
                 }
@@ -826,6 +908,9 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
                         "INV-1: b2d[{bl}] = {dl} but source = LineRange({r:?})"
                     );
                 }
+                SourceMapping::Projected { .. } => {
+                    panic!("INV-3: b2d[{bl}] = {dl} but source = Projected");
+                }
             }
         }
     }
@@ -863,6 +948,7 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
                 }
                 prev_buf = r.end.checked_sub(1);
             }
+            SourceMapping::Projected { .. } => {}
         }
     }
 
@@ -872,6 +958,7 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
         let range = match &dm.entries[dl].source {
             SourceMapping::BufferLine(bl) => bl.0..bl.0 + 1,
             SourceMapping::LineRange(r) => r.start..r.end.min(n_buf),
+            SourceMapping::Projected { .. } => continue,
         };
         for bl in range {
             assert!(!covered[bl], "INV-4: buffer line {bl} covered twice");
@@ -892,6 +979,12 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
                 assert!(
                     entry.synthetic.is_some(),
                     "INV-6: entries[{dl}] LineRange without synthetic"
+                );
+            }
+            SourceMapping::Projected { .. } => {
+                assert!(
+                    entry.synthetic.is_some(),
+                    "INV-6: entries[{dl}] Projected without synthetic"
                 );
             }
         }
