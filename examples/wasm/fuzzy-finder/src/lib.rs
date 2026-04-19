@@ -374,7 +374,9 @@ kasane_plugin_sdk::define_plugin! {
     },
 
     on_io_event_effects(event) {
-        let IoEvent::Process(pe) = event;
+        let IoEvent::Process(pe) = event else {
+            return effects(vec![]);
+        };
         let job_id = pe.job_id;
         let io_kind = to_io_event_kind(&pe.kind);
 

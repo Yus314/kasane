@@ -67,7 +67,7 @@ pub fn plugin_manifest_toml(name: &str, template: PluginTemplate) -> String {
             &[][..],
         ),
         PluginTemplate::Annotation => (
-            &["annotator"][..],
+            &["display-transform"][..],
             &["buffer-content", "buffer-cursor"][..],
             &[][..],
         ),
@@ -177,8 +177,11 @@ fn annotation_template(_id: &str) -> String {
         active_line: i32 = -1,
     }},
 
-    annotate(line, _ctx) {{
-        (line as i32 == state.active_line).then(|| bg_annotation(face_bg(rgb(40, 40, 50))))
+    display() {{
+        if state.active_line < 0 {{
+            return vec![];
+        }}
+        vec![style_line(state.active_line as u32, face_bg(rgb(40, 40, 50)))]
     }},
 }}
 "#
@@ -336,7 +339,9 @@ fn process_template(_id: &str) -> String {
     }},
 
     on_io_event_effects(event) {{
-        let IoEvent::Process(pe) = event;
+        let IoEvent::Process(pe) = event else {{
+            return effects(vec![]);
+        }};
         match pe.kind {{
             ProcessEventKind::Stdout(data) => {{
                 let text_data = String::from_utf8_lossy(&data);
@@ -506,7 +511,7 @@ mod tests {
             ),
             (
                 PluginTemplate::Annotation,
-                &["manifest:", "annotate", "bg_annotation", "active_line"],
+                &["manifest:", "display", "style_line", "active_line"],
             ),
             (
                 PluginTemplate::Transform,

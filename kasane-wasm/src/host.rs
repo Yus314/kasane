@@ -87,6 +87,9 @@ pub(crate) struct HostState {
     // --- DU-4: Display unit map ---
     pub display_unit_map: Option<kasane_core::display::DisplayUnitMap>,
 
+    // --- v0.25.0: Syntax provider ---
+    pub syntax_provider: Option<std::sync::Arc<dyn kasane_core::syntax::SyntaxProvider>>,
+
     /// Element arena: WASM plugins build elements via host calls, stored here.
     /// Cleared before each `contribute()` call.
     pub elements: Vec<Element>,
@@ -153,6 +156,7 @@ impl Default for HostState {
             theme: kasane_core::render::theme::Theme::default_theme(),
             is_dark: true,
             display_unit_map: None,
+            syntax_provider: None,
             elements: Vec::new(),
             plugin_id: String::new(),
             plugin_tag: PluginTag::UNASSIGNED,
@@ -465,6 +469,39 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
         self.display_unit_map
             .as_ref()
             .map(|dum| dum.unit_count() as u32)
+            .unwrap_or(0)
+    }
+
+    fn get_syntax_generation(&mut self) -> u64 {
+        self.syntax_provider
+            .as_ref()
+            .map(|sp| sp.generation())
+            .unwrap_or(0)
+    }
+
+    fn get_fold_ranges(&mut self) -> Vec<(u32, u32)> {
+        self.syntax_provider
+            .as_ref()
+            .map(|sp| {
+                sp.fold_ranges()
+                    .into_iter()
+                    .map(|r| (r.start as u32, r.end as u32))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn get_scopes_at(&mut self, line: u32, byte_offset: u32) -> Vec<String> {
+        self.syntax_provider
+            .as_ref()
+            .map(|sp| sp.scopes_at(line as usize, byte_offset as usize))
+            .unwrap_or_default()
+    }
+
+    fn get_indent_level(&mut self, line: u32) -> u32 {
+        self.syntax_provider
+            .as_ref()
+            .map(|sp| sp.indent_level(line as usize))
             .unwrap_or(0)
     }
 }
@@ -802,6 +839,34 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
         };
         self.store_element(element)
     }
+
+    fn create_text_panel(
+        &mut self,
+        lines: Vec<Vec<bindings::kasane::plugin::types::Atom>>,
+        scroll_offset: u32,
+        cursor_line: Option<u32>,
+        cursor_col: Option<u32>,
+        line_numbers: bool,
+        wrap: bool,
+    ) -> u32 {
+        let native_lines: Vec<Vec<kasane_core::protocol::Atom>> = lines
+            .into_iter()
+            .map(|line| {
+                line.into_iter()
+                    .map(|a| convert::wit_atom_to_atom(&a))
+                    .collect()
+            })
+            .collect();
+        let cursor = cursor_line.map(|l| (l as usize, cursor_col.unwrap_or(0) as usize));
+        let element = Element::TextPanel {
+            lines: native_lines,
+            scroll_offset: scroll_offset as usize,
+            cursor,
+            line_numbers,
+            wrap,
+        };
+        self.store_element(element)
+    }
 }
 
 impl bindings::kasane::plugin::host_log::Host for HostState {
@@ -830,7 +895,7 @@ impl HostState {
     }
 
     /// Take an element from the arena by handle, replacing it with Empty.
-    fn take_element(&mut self, handle: u32) -> Element {
+    pub(crate) fn take_element(&mut self, handle: u32) -> Element {
         let idx = handle as usize;
         if idx < self.elements.len() {
             std::mem::replace(&mut self.elements[idx], Element::Empty)
@@ -1004,5 +1069,10 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
     // DU-4: Display unit map (synced when buffer content changes)
     if view_deps.intersects(DirtyFlags::BUFFER_CONTENT) {
         host.display_unit_map = state.runtime.display_unit_map.clone();
+    }
+
+    // Syntax provider (synced when buffer content changes)
+    if view_deps.intersects(DirtyFlags::BUFFER_CONTENT) {
+        host.syntax_provider = state.runtime.syntax_provider.clone();
     }
 }

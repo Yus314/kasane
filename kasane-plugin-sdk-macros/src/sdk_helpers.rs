@@ -294,6 +294,27 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 super::kasane::plugin::element_builder::create_scrollable(child, offset, vertical)
             }
 
+            /// Create a text panel element: scrollable rich text area with optional line numbers.
+            ///
+            /// `lines` contains the styled text for each line.
+            /// `scroll_offset` is the number of lines scrolled from the top.
+            /// `cursor` is an optional (line, column) position for highlighting.
+            pub fn text_panel(
+                lines: &[Vec<Atom>],
+                scroll_offset: u32,
+                cursor: Option<(u32, u32)>,
+                line_numbers: bool,
+                wrap: bool,
+            ) -> ElementHandle {
+                let (cursor_line, cursor_col) = match cursor {
+                    Some((l, c)) => (Some(l), Some(c)),
+                    None => (None, None),
+                };
+                super::kasane::plugin::element_builder::create_text_panel(
+                    lines, scroll_offset, cursor_line, cursor_col, line_numbers, wrap,
+                )
+            }
+
             /// Create a `FlexEntry` pairing a child element with a flex weight.
             pub fn flex_entry(child: ElementHandle, flex: f32) -> FlexEntry {
                 FlexEntry { child, flex }
@@ -484,6 +505,78 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                     range_start,
                     range_end,
                     summary: vec![Atom { face, contents: text.to_string() }],
+                })
+            }
+
+            // ----- Unified display directive helpers -----
+
+            /// Style an entire line with a background face.
+            pub fn style_line(line: u32, face: Face) -> DisplayDirective {
+                DisplayDirective::StyleLine(StyleLineDirective {
+                    line, face, z_order: 0,
+                })
+            }
+
+            /// Style a line with a specific z-order for layering.
+            pub fn style_line_z(line: u32, face: Face, z_order: i16) -> DisplayDirective {
+                DisplayDirective::StyleLine(StyleLineDirective {
+                    line, face, z_order,
+                })
+            }
+
+            /// Add a gutter element to a line.
+            pub fn gutter_left(line: u32, content: ElementHandle, priority: i16) -> DisplayDirective {
+                DisplayDirective::Gutter(GutterDirective {
+                    line, side: DisplayGutterSide::Left, content, priority,
+                })
+            }
+
+            /// Add a right gutter element to a line.
+            pub fn gutter_right(line: u32, content: ElementHandle, priority: i16) -> DisplayDirective {
+                DisplayDirective::Gutter(GutterDirective {
+                    line, side: DisplayGutterSide::Right, content, priority,
+                })
+            }
+
+            /// Add virtual text at the end of a line.
+            pub fn virtual_text_eol(line: u32, atoms: Vec<Atom>, priority: i16) -> DisplayDirective {
+                DisplayDirective::VirtualText(VirtualTextDirective {
+                    line, position: DisplayVtPosition::EndOfLine, content: atoms, priority,
+                })
+            }
+
+            /// Insert an element before a line.
+            pub fn insert_before(line: u32, content: ElementHandle, priority: i16) -> DisplayDirective {
+                DisplayDirective::InsertBefore(InterlineDirective {
+                    line, content, priority,
+                })
+            }
+
+            /// Insert an element after a line.
+            pub fn insert_after(line: u32, content: ElementHandle, priority: i16) -> DisplayDirective {
+                DisplayDirective::InsertAfter(InterlineDirective {
+                    line, content, priority,
+                })
+            }
+
+            /// Style an inline byte range on a line.
+            pub fn style_inline(line: u32, byte_start: u32, byte_end: u32, face: Face) -> DisplayDirective {
+                DisplayDirective::StyleInline(StyleInlineDirective {
+                    line, byte_start, byte_end, face,
+                })
+            }
+
+            /// Insert inline content at a byte offset.
+            pub fn insert_inline(line: u32, byte_offset: u32, content: Vec<Atom>) -> DisplayDirective {
+                DisplayDirective::InsertInline(InsertInlineDirective {
+                    line, byte_offset, content, interactive_id: None,
+                })
+            }
+
+            /// Hide an inline byte range on a line.
+            pub fn hide_inline(line: u32, byte_start: u32, byte_end: u32) -> DisplayDirective {
+                DisplayDirective::HideInline(HideInlineDirective {
+                    line, byte_start, byte_end,
                 })
             }
 

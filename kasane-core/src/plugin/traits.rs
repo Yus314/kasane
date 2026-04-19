@@ -57,6 +57,19 @@ pub trait PluginBackend: Any {
         Effects::default()
     }
     fn on_shutdown(&mut self) {}
+
+    /// Serialize plugin state for hot-reload persistence.
+    /// Returns `None` if the plugin has no persistable state.
+    fn persist_state(&self) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Restore plugin state from a previous `persist_state()` call.
+    /// Returns `true` if restoration was successful.
+    fn restore_state(&mut self, _data: &[u8]) -> bool {
+        false
+    }
+
     fn on_state_changed_effects(&mut self, _state: &AppView<'_>, _dirty: DirtyFlags) -> Effects {
         Effects::default()
     }
@@ -375,6 +388,21 @@ pub trait PluginBackend: Any {
 
     /// Return spatial display transformation directives (fold, hide).
     fn display_directives(&self, _state: &AppView<'_>) -> Vec<DisplayDirective> {
+        vec![]
+    }
+
+    /// Whether this plugin uses the unified display handler.
+    ///
+    /// When true, `unified_display()` is called once per frame instead of
+    /// the 6 separate annotation/display methods.
+    fn has_unified_display(&self) -> bool {
+        false
+    }
+
+    /// Return all display directives (all categories) from a unified handler.
+    ///
+    /// Only called when `has_unified_display()` returns true.
+    fn unified_display(&self, _state: &AppView<'_>) -> Vec<DisplayDirective> {
         vec![]
     }
 

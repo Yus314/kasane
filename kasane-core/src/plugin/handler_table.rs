@@ -188,6 +188,8 @@ pub(crate) type ErasedContentAnnotationHandler = Box<
 pub(crate) type ErasedRenderOrnamentHandler = Box<
     dyn Fn(&dyn PluginState, &AppView<'_>, &RenderOrnamentContext) -> OrnamentBatch + Send + Sync,
 >;
+pub(crate) type ErasedUnifiedDisplayHandler =
+    Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> Vec<DisplayDirective> + Send + Sync>;
 pub(crate) type ErasedMenuTransformHandler = Box<
     dyn Fn(&dyn PluginState, &[Atom], usize, bool, &AppView<'_>) -> Option<Vec<Atom>> + Send + Sync,
 >;
@@ -382,6 +384,7 @@ pub(crate) struct HandlerTable {
     pub(crate) projection_entries: Vec<ProjectionEntry>,
     pub(crate) content_annotation_handler: Option<ErasedContentAnnotationHandler>,
     pub(crate) render_ornament_handler: Option<ErasedRenderOrnamentHandler>,
+    pub(crate) unified_display_handler: Option<ErasedUnifiedDisplayHandler>,
     pub(crate) menu_transform_handler: Option<ErasedMenuTransformHandler>,
 
     // --- Navigation (DU-4) ---
@@ -446,6 +449,7 @@ impl HandlerTable {
             projection_entries: Vec::new(),
             content_annotation_handler: None,
             render_ornament_handler: None,
+            unified_display_handler: None,
             menu_transform_handler: None,
             navigation_policy_handler: None,
             navigation_action_handler: None,
@@ -493,16 +497,19 @@ impl HandlerTable {
         if self.transform_handler.is_some() {
             caps |= PluginCapabilities::TRANSFORMER;
         }
-        if self.has_annotation_handlers() {
+        if self.has_annotation_handlers() || self.unified_display_handler.is_some() {
             caps |= PluginCapabilities::ANNOTATOR;
         }
         if self.overlay_handler.is_some() {
             caps |= PluginCapabilities::OVERLAY;
         }
-        if self.display_handler.is_some() || !self.projection_entries.is_empty() {
+        if self.display_handler.is_some()
+            || self.unified_display_handler.is_some()
+            || !self.projection_entries.is_empty()
+        {
             caps |= PluginCapabilities::DISPLAY_TRANSFORM;
         }
-        if self.content_annotation_handler.is_some() {
+        if self.content_annotation_handler.is_some() || self.unified_display_handler.is_some() {
             caps |= PluginCapabilities::CONTENT_ANNOTATOR;
         }
         if self.render_ornament_handler.is_some() {

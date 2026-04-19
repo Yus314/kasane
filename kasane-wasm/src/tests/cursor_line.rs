@@ -24,20 +24,23 @@ fn highlight_active_line() {
     state.observed.cursor_pos.line = 3;
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
-    let ctx = default_annotate_ctx();
-    let ann = plugin.annotate_line_with_ctx(3, &AppView::new(&state), &ctx);
-    assert!(ann.is_some());
-    let ann = ann.unwrap();
-    assert!(ann.background.is_some());
-    let bg = ann.background.unwrap();
-    assert_eq!(
-        bg.face.bg,
-        Color::Rgb {
-            r: 40,
-            g: 40,
-            b: 50
+    assert!(plugin.has_unified_display());
+    let directives = plugin.unified_display(&AppView::new(&state));
+    assert_eq!(directives.len(), 1);
+    match &directives[0] {
+        DisplayDirective::StyleLine { line, face, .. } => {
+            assert_eq!(*line, 3);
+            assert_eq!(
+                face.bg,
+                Color::Rgb {
+                    r: 40,
+                    g: 40,
+                    b: 50
+                }
+            );
         }
-    );
+        other => panic!("expected StyleLine, got {:?}", other),
+    }
 }
 
 #[test]
@@ -47,54 +50,47 @@ fn no_highlight_on_other_lines() {
     state.observed.cursor_pos.line = 3;
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
-    let ctx = default_annotate_ctx();
-    assert!(
-        plugin
-            .annotate_line_with_ctx(0, &AppView::new(&state), &ctx)
-            .is_none()
-    );
-    assert!(
-        plugin
-            .annotate_line_with_ctx(2, &AppView::new(&state), &ctx)
-            .is_none()
-    );
-    assert!(
-        plugin
-            .annotate_line_with_ctx(4, &AppView::new(&state), &ctx)
-            .is_none()
-    );
+    let directives = plugin.unified_display(&AppView::new(&state));
+    // Should only contain line 3
+    for d in &directives {
+        match d {
+            DisplayDirective::StyleLine { line, .. } => assert_eq!(*line, 3),
+            other => panic!("expected StyleLine, got {:?}", other),
+        }
+    }
 }
 
 #[test]
 fn tracks_cursor_movement() {
     let mut plugin = load_cursor_line_plugin();
     let mut state = AppState::default();
-    let ctx = default_annotate_ctx();
 
     state.observed.cursor_pos.line = 0;
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
+    let directives = plugin.unified_display(&AppView::new(&state));
     assert!(
-        plugin
-            .annotate_line_with_ctx(0, &AppView::new(&state), &ctx)
-            .is_some()
+        directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::StyleLine { line: 0, .. }))
     );
     assert!(
-        plugin
-            .annotate_line_with_ctx(5, &AppView::new(&state), &ctx)
-            .is_none()
+        !directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::StyleLine { line: 5, .. }))
     );
 
     state.observed.cursor_pos.line = 5;
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
+    let directives = plugin.unified_display(&AppView::new(&state));
     assert!(
-        plugin
-            .annotate_line_with_ctx(0, &AppView::new(&state), &ctx)
-            .is_none()
+        !directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::StyleLine { line: 0, .. }))
     );
     assert!(
-        plugin
-            .annotate_line_with_ctx(5, &AppView::new(&state), &ctx)
-            .is_some()
+        directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::StyleLine { line: 5, .. }))
     );
 }
 

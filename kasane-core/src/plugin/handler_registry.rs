@@ -1027,6 +1027,38 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             super::handler_table::DisplayRecoveryStatus::Witnessed(witness);
     }
 
+    /// Register a unified display handler that returns all directive categories.
+    ///
+    /// The unified handler replaces the 6 separate annotation/display handlers
+    /// (gutter, background, inline, virtual text, content annotation, display).
+    /// The framework partitions the returned directives by category and routes
+    /// each to the correct resolution path.
+    ///
+    /// If the handler may emit `Hide` or `HideInline` directives, the
+    /// recovery status is set to `Unwitnessed`.
+    pub fn on_display_unified(
+        &mut self,
+        handler: impl Fn(&S, &AppView<'_>) -> Vec<DisplayDirective> + Send + Sync + 'static,
+    ) {
+        register_view!(self, unified_display_handler, handler, app);
+        self.table.recovery.display = super::handler_table::DisplayRecoveryStatus::Unwitnessed;
+    }
+
+    /// Unified display handler that cannot emit destructive directives (compile-time safe).
+    pub fn on_display_unified_safe(
+        &mut self,
+        handler: impl Fn(&S, &AppView<'_>) -> Vec<super::SafeDisplayDirective> + Send + Sync + 'static,
+    ) {
+        self.table.unified_display_handler = Some(Box::new(move |state, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, app).into_iter().map(Into::into).collect()
+        }));
+        self.table.recovery.display = super::handler_table::DisplayRecoveryStatus::NonDestructive;
+    }
+
     /// Whether this plugin's display directives satisfy Visual Faithfulness (§10.2a).
     pub fn is_display_recoverable(&self) -> bool {
         self.table.recovery.is_visually_faithful()
@@ -1940,5 +1972,55 @@ mod tests {
     fn no_handlers_is_input_transparent() {
         let registry = HandlerRegistry::<TestState>::new();
         assert!(registry.is_input_transparent());
+    }
+
+    // =========================================================================
+    // Unified display handler tests (Phase 1B.2)
+    // =========================================================================
+
+    #[test]
+    fn on_display_unified_sets_display_transform_capability() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_display_unified(|_state, _app| vec![]);
+        let table = registry.into_table();
+        assert!(
+            table
+                .capabilities()
+                .contains(PluginCapabilities::DISPLAY_TRANSFORM)
+        );
+    }
+
+    #[test]
+    fn on_display_unified_sets_annotator_capability() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_display_unified(|_state, _app| vec![]);
+        let table = registry.into_table();
+        assert!(table.capabilities().contains(PluginCapabilities::ANNOTATOR));
+    }
+
+    #[test]
+    fn on_display_unified_sets_content_annotator_capability() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_display_unified(|_state, _app| vec![]);
+        let table = registry.into_table();
+        assert!(
+            table
+                .capabilities()
+                .contains(PluginCapabilities::CONTENT_ANNOTATOR)
+        );
+    }
+
+    #[test]
+    fn on_display_unified_safe_is_recoverable() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_display_unified_safe(|_state, _app| vec![]);
+        assert!(registry.is_display_recoverable());
+    }
+
+    #[test]
+    fn on_display_unified_is_not_recoverable() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_display_unified(|_state, _app| vec![]);
+        assert!(!registry.is_display_recoverable());
     }
 }

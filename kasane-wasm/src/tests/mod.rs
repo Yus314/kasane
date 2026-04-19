@@ -2,8 +2,9 @@ use kasane_core::element::{Direction, Element, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    AnnotateContext, AppView, Command, ContribSizeHint, ContributeContext, Contribution, IoEvent,
-    OverlayContext, PluginBackend, PluginId, PluginRuntime, ProcessEvent, SlotId,
+    AnnotateContext, AppView, Command, ContribSizeHint, ContributeContext, Contribution,
+    DisplayDirective, IoEvent, OverlayContext, PluginBackend, PluginId, PluginRuntime,
+    ProcessEvent, SlotId,
 };
 use kasane_core::protocol::Color;
 use kasane_core::state::{AppState, DirtyFlags};

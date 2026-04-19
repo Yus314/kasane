@@ -59,6 +59,7 @@ struct WasmPluginShared {
     subscribe_topics: Vec<String>,
     extensions_consumed: Vec<String>,
     extension_defs: Vec<kasane_core::plugin::extension_point::ExtensionDefinition>,
+    has_unified_display_export: bool,
 }
 
 impl WasmPluginShared {
@@ -396,6 +397,9 @@ impl WasmPlugin {
             _ => Vec::new(),
         };
 
+        // Probe whether the plugin exports the unified `display` function.
+        let has_unified_display_export = plugin_api.call_display(&mut store).is_ok();
+
         Self {
             shared: Arc::new(WasmPluginShared {
                 runtime: Mutex::new(WasmPluginRuntime { store, instance }),
@@ -412,6 +416,7 @@ impl WasmPlugin {
                 subscribe_topics,
                 extensions_consumed,
                 extension_defs,
+                has_unified_display_export,
             }),
             key_map,
             cached_projection_descriptors,
@@ -466,6 +471,9 @@ impl WasmPlugin {
             _ => Vec::new(),
         };
 
+        // Probe whether the plugin exports the unified `display` function.
+        let has_unified_display_export = plugin_api.call_display(&mut store).is_ok();
+
         Self {
             shared: Arc::new(WasmPluginShared {
                 runtime: Mutex::new(WasmPluginRuntime { store, instance }),
@@ -482,6 +490,7 @@ impl WasmPlugin {
                 subscribe_topics: Vec::new(),
                 extensions_consumed: Vec::new(),
                 extension_defs: Vec::new(),
+                has_unified_display_export,
             }),
             key_map,
             cached_projection_descriptors,
@@ -527,6 +536,39 @@ impl PluginBackend for WasmPlugin {
                 );
             }
         });
+    }
+
+    fn persist_state(&self) -> Option<Vec<u8>> {
+        self.shared.with_runtime(|runtime| {
+            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+            match plugin_api.call_persist_state(&mut runtime.store) {
+                Ok(data) if !data.is_empty() => Some(data),
+                Ok(_) => None,
+                Err(e) => {
+                    tracing::warn!(
+                        "WASM plugin {}.persist_state failed: {e}",
+                        self.shared.plugin_id.0
+                    );
+                    None
+                }
+            }
+        })
+    }
+
+    fn restore_state(&mut self, data: &[u8]) -> bool {
+        self.shared.with_runtime(|runtime| {
+            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+            match plugin_api.call_restore_state(&mut runtime.store, data) {
+                Ok(success) => success,
+                Err(e) => {
+                    tracing::warn!(
+                        "WASM plugin {}.restore_state failed: {e}",
+                        self.shared.plugin_id.0
+                    );
+                    false
+                }
+            }
+        })
     }
 
     fn on_active_session_ready_effects(&mut self, state: &AppView<'_>) -> Effects {
@@ -1062,8 +1104,29 @@ impl PluginBackend for WasmPlugin {
     fn display_directives(&self, state: &AppView<'_>) -> Vec<DisplayDirective> {
         self.shared.call_synced(state, "display_directives", |rt| {
             let api = rt.instance.kasane_plugin_plugin_api();
-            Ok(convert::wit_display_directives_to_directives(
-                &api.call_display_directives(&mut rt.store)?,
+            let wit_directives = api.call_display_directives(&mut rt.store)?;
+            let plugin_tag = rt.store.data().plugin_tag;
+            Ok(convert::wit_display_directives_to_directives_with_resolver(
+                &wit_directives,
+                plugin_tag,
+                &mut |handle| rt.store.data_mut().take_element(handle),
+            ))
+        })
+    }
+
+    fn has_unified_display(&self) -> bool {
+        self.shared.has_unified_display_export
+    }
+
+    fn unified_display(&self, state: &AppView<'_>) -> Vec<DisplayDirective> {
+        self.shared.call_synced(state, "display", |rt| {
+            let api = rt.instance.kasane_plugin_plugin_api();
+            let wit_directives = api.call_display(&mut rt.store)?;
+            let plugin_tag = rt.store.data().plugin_tag;
+            Ok(convert::wit_display_directives_to_directives_with_resolver(
+                &wit_directives,
+                plugin_tag,
+                &mut |handle| rt.store.data_mut().take_element(handle),
             ))
         })
     }
@@ -1081,8 +1144,12 @@ impl PluginBackend for WasmPlugin {
         self.shared
             .call_synced(state, "projection_directives", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
-                Ok(convert::wit_display_directives_to_directives(
-                    &api.call_projection_directives(&mut rt.store, &id_str)?,
+                let wit_directives = api.call_projection_directives(&mut rt.store, &id_str)?;
+                let plugin_tag = rt.store.data().plugin_tag;
+                Ok(convert::wit_display_directives_to_directives_with_resolver(
+                    &wit_directives,
+                    plugin_tag,
+                    &mut |handle| rt.store.data_mut().take_element(handle),
                 ))
             })
     }

@@ -6,9 +6,9 @@ kasane_plugin_sdk::define_plugin! {
         active_line: i32 = -1,
     },
 
-    annotate(line, _ctx) {
-        if line as i32 != state.active_line {
-            return None;
+    display() {
+        if state.active_line < 0 {
+            return vec![];
         }
         let bg = theme_face_or(
             "cursor.line.bg",
@@ -18,6 +18,6 @@ kasane_plugin_sdk::define_plugin! {
                 face_bg(rgb(220, 220, 235))
             },
         );
-        Some(bg_annotation(bg))
+        vec![style_line(state.active_line as u32, bg)]
     },
 }

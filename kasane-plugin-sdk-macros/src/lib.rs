@@ -104,6 +104,7 @@ pub fn kasane_generate(input: TokenStream) -> TokenStream {
 /// - `on_workspace_changed(snapshot) { ... }` → `fn on_workspace_changed()`
 /// - `annotate(line, ctx) { ... }` → `fn annotate_line()`
 /// - `display_directives() { ... }` → `fn display_directives() -> Vec<DisplayDirective>`
+/// - `display() { ... }` → `fn display() -> Vec<DisplayDirective>` (unified display, all categories)
 /// - `transform(target, subject, ctx) { ... }` → `fn transform()`
 /// - `transform_priority: expr` → `fn transform_priority()`
 /// - `overlay(ctx) { ... }` → `fn contribute_overlay_v2()`

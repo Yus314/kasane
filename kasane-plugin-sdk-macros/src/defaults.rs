@@ -112,9 +112,12 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "invoke_action",
         "navigation_policy",
         "on_navigation_action",
+        "display",
         "publish_value",
         "on_subscription",
         "evaluate_extension",
+        "persist_state",
+        "restore_state",
     ]
     .into_iter()
     .collect()
@@ -202,6 +205,16 @@ pub(crate) fn generate_defaults(
     add_default!(
         "on_shutdown",
         quote! { fn on_shutdown() -> Vec<Command> { vec![] } }
+    );
+
+    add_default!(
+        "persist_state",
+        quote! { fn persist_state() -> Vec<u8> { vec![] } }
+    );
+
+    add_default!(
+        "restore_state",
+        quote! { fn restore_state(_data: Vec<u8>) -> bool { false } }
     );
 
     add_default!(
@@ -327,6 +340,15 @@ pub(crate) fn generate_defaults(
         "display_directives",
         quote! {
             fn display_directives() -> Vec<DisplayDirective> {
+                vec![]
+            }
+        }
+    );
+
+    add_default!(
+        "display",
+        quote! {
+            fn display() -> Vec<DisplayDirective> {
                 vec![]
             }
         }
@@ -651,7 +673,10 @@ pub(crate) fn generate_defaults(
             caps |= 1 << 15;
         }
         // ANNOTATOR = 1 << 16
-        if existing.contains("annotate_line") || existing.contains("contribute_line") {
+        if existing.contains("annotate_line")
+            || existing.contains("contribute_line")
+            || existing.contains("display")
+        {
             caps |= 1 << 16;
         }
         // IO_HANDLER = 1 << 17
@@ -659,7 +684,7 @@ pub(crate) fn generate_defaults(
             caps |= 1 << 17;
         }
         // DISPLAY_TRANSFORM = 1 << 18
-        if existing.contains("display_directives") {
+        if existing.contains("display_directives") || existing.contains("display") {
             caps |= 1 << 18;
         }
         // SCROLL_POLICY = 1 << 19
@@ -681,6 +706,10 @@ pub(crate) fn generate_defaults(
         // RENDER_ORNAMENT = 1 << 24
         if existing.contains("render_ornaments") {
             caps |= 1 << 24;
+        }
+        // CONTENT_ANNOTATOR = 1 << 25
+        if existing.contains("display") {
+            caps |= 1 << 25;
         }
 
         let caps_literal = caps;

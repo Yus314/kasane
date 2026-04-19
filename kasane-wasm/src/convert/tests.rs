@@ -891,6 +891,7 @@ fn convert_io_event_process_stdout() {
                 _ => panic!("expected Stdout kind"),
             }
         }
+        _ => panic!("expected Process variant"),
     }
 }
 
@@ -906,6 +907,7 @@ fn convert_io_event_process_stderr() {
             assert_eq!(pe.job_id, 7);
             assert!(matches!(pe.kind, wit::ProcessEventKind::Stderr(ref d) if d == b"err"));
         }
+        _ => panic!("expected Process variant"),
     }
 }
 
@@ -921,6 +923,7 @@ fn convert_io_event_process_exited() {
             assert_eq!(pe.job_id, 1);
             assert!(matches!(pe.kind, wit::ProcessEventKind::Exited(127)));
         }
+        _ => panic!("expected Process variant"),
     }
 }
 
@@ -941,6 +944,7 @@ fn convert_io_event_process_spawn_failed() {
                 _ => panic!("expected SpawnFailed kind"),
             }
         }
+        _ => panic!("expected Process variant"),
     }
 }
 
@@ -970,6 +974,7 @@ fn convert_io_event_roundtrip_preserves_job_id() {
             let wit_ev = io_event_to_wit(event);
             match wit_ev {
                 wit::IoEvent::Process(pe) => assert_eq!(pe.job_id, job_id),
+                _ => panic!("expected Process variant"),
             }
         }
     }

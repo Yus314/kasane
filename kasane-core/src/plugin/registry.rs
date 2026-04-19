@@ -2,7 +2,10 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use crate::display::{DirectiveStabilityMonitor, DisplayMap, DisplayMapRef};
+use crate::display::{
+    CategorizedDirectives, DirectiveSet, DirectiveStabilityMonitor, DisplayMap, DisplayMapRef,
+    partition_by_category,
+};
 use crate::element::{Element, FlexChild, InteractiveId, PluginTag};
 use crate::input::{ChordState, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -80,6 +83,14 @@ pub struct PluginRuntime {
 pub struct PluginView<'a> {
     slots: &'a [PluginSlot],
     directive_stability: &'a RefCell<DirectiveStabilityMonitor>,
+    /// Lazy per-plugin cache for unified display results.
+    ///
+    /// For plugins with `has_unified_display() == true`, the first collection
+    /// method to access a plugin populates this cache with the partitioned
+    /// result of `unified_display()`. Subsequent collection methods (spatial,
+    /// annotation, content annotation) read from the cache instead of calling
+    /// the plugin again.
+    pub(crate) unified_cache: RefCell<Vec<Option<CategorizedDirectives>>>,
 }
 
 pub enum KeyDispatchResult {
@@ -125,9 +136,11 @@ impl PluginRuntime {
 
     /// Borrow an immutable view for the render phase.
     pub fn view(&self) -> PluginView<'_> {
+        let slot_count = self.slots.len();
         PluginView {
             slots: &self.slots,
             directive_stability: &self.directive_stability,
+            unified_cache: RefCell::new(vec![None; slot_count]),
         }
     }
 
@@ -407,14 +420,26 @@ impl PluginRuntime {
         app: &AppView<'_>,
     ) -> EffectsBatch {
         let id = plugin.id();
-        // Shut down old plugin if present
-        if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
+        // Persist state from old plugin before shutdown
+        let persisted = if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
+            let state_data = self.slots[pos].backend.persist_state();
             self.slots[pos].backend.on_shutdown();
-        }
+            state_data
+        } else {
+            None
+        };
         // register_backend handles replacement or insertion
         self.register_backend(plugin);
-        // Init the new plugin
+        // Init the new plugin, then restore persisted state
         if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
+            if let Some(data) = persisted
+                && !self.slots[pos].backend.restore_state(&data)
+            {
+                tracing::debug!(
+                    plugin_id = %id.0,
+                    "state restore failed (schema change?), starting fresh"
+                );
+            }
             let mut batch = EffectsBatch::default();
             batch
                 .effects
@@ -1009,7 +1034,46 @@ impl ContributionCache {
     }
 }
 
+/// Convert `display::GutterSide` to `plugin::GutterSide`.
+fn display_gutter_to_plugin(side: crate::display::GutterSide) -> GutterSide {
+    match side {
+        crate::display::GutterSide::Left => GutterSide::Left,
+        crate::display::GutterSide::Right => GutterSide::Right,
+    }
+}
+
 impl<'a> PluginView<'a> {
+    /// Ensure the unified display cache is populated for the given plugin slot.
+    ///
+    /// Returns `true` if the plugin uses unified display (cache is valid).
+    /// Returns `false` for legacy plugins.
+    fn ensure_unified_cached(&self, idx: usize, state: &AppView<'_>) -> bool {
+        let slot = &self.slots[idx];
+        if !slot.backend.has_unified_display() {
+            return false;
+        }
+
+        {
+            let cache = self.unified_cache.borrow();
+            if cache[idx].is_some() {
+                return true;
+            }
+        }
+
+        let directives = slot.backend.unified_display(state);
+        let plugin_id = slot.backend.id();
+        let priority = slot.backend.display_directive_priority();
+
+        let mut set = DirectiveSet::default();
+        for d in directives {
+            set.push(d, priority, plugin_id.clone());
+        }
+
+        let categorized = partition_by_category(&set);
+        self.unified_cache.borrow_mut()[idx] = Some(categorized);
+        true
+    }
+
     /// Returns true if any plugin needs its view contributions re-collected.
     pub fn any_needs_recollect(&self) -> bool {
         self.slots.iter().any(|s| s.needs_recollect)
@@ -1335,6 +1399,10 @@ impl<'a> PluginView<'a> {
     }
 
     /// Collect annotations from all annotating plugins for visible lines.
+    ///
+    /// For unified display plugins, Decoration and Inline category directives
+    /// are pre-indexed by line from the unified cache, avoiding per-line plugin
+    /// calls. Legacy plugins are called per-line as before.
     pub fn collect_annotations(
         &self,
         state: &AppView<'_>,
@@ -1364,20 +1432,166 @@ impl<'a> PluginView<'a> {
             vec![None; line_count];
         let mut virtual_texts: Vec<Option<Vec<crate::protocol::Atom>>> = vec![None; line_count];
 
-        // Partition annotators by decomposition support
-        let annotator_slots: Vec<&PluginSlot> = self
+        // Phase 1: Pre-index unified plugin decoration/inline by line.
+        // This converts O(lines × plugins) plugin calls into O(total_directives).
+        let mut uni_left: std::collections::HashMap<usize, Vec<(i16, PluginId, Element)>> =
+            std::collections::HashMap::new();
+        let mut uni_right: std::collections::HashMap<usize, Vec<(i16, PluginId, Element)>> =
+            std::collections::HashMap::new();
+        let mut uni_bg: std::collections::HashMap<usize, Vec<(BackgroundLayer, PluginId)>> =
+            std::collections::HashMap::new();
+        let mut uni_vt: std::collections::HashMap<
+            usize,
+            Vec<(i16, PluginId, Vec<crate::protocol::Atom>)>,
+        > = std::collections::HashMap::new();
+        let mut uni_inline: std::collections::HashMap<usize, Vec<crate::render::InlineOp>> =
+            std::collections::HashMap::new();
+
+        for (idx, slot) in self.slots.iter().enumerate() {
+            if !slot.capabilities.contains(PluginCapabilities::ANNOTATOR) {
+                continue;
+            }
+            if !self.ensure_unified_cached(idx, state) {
+                continue;
+            }
+
+            let cache = self.unified_cache.borrow();
+            let cat = cache[idx].as_ref().unwrap();
+            let pid = slot.backend.id();
+
+            for td in &cat.decoration {
+                match &td.directive {
+                    crate::display::DisplayDirective::StyleLine {
+                        line,
+                        face,
+                        z_order,
+                    } if *line < line_count => {
+                        uni_bg.entry(*line).or_default().push((
+                            BackgroundLayer {
+                                face: *face,
+                                z_order: *z_order,
+                                blend: super::context::BlendMode::Opaque,
+                            },
+                            pid.clone(),
+                        ));
+                        has_bg = true;
+                    }
+                    crate::display::DisplayDirective::Gutter {
+                        line,
+                        side,
+                        content,
+                        priority,
+                    } if *line < line_count => {
+                        let parts = match display_gutter_to_plugin(*side) {
+                            GutterSide::Left => {
+                                has_left = true;
+                                uni_left.entry(*line).or_default()
+                            }
+                            GutterSide::Right => {
+                                has_right = true;
+                                uni_right.entry(*line).or_default()
+                            }
+                        };
+                        parts.push((*priority, pid.clone(), content.clone()));
+                    }
+                    crate::display::DisplayDirective::VirtualText {
+                        line,
+                        content,
+                        priority,
+                        ..
+                    } if *line < line_count => {
+                        if !content.is_empty() {
+                            uni_vt.entry(*line).or_default().push((
+                                *priority,
+                                pid.clone(),
+                                content.clone(),
+                            ));
+                            has_virtual_text = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            for td in &cat.inline {
+                match &td.directive {
+                    crate::display::DisplayDirective::InsertInline {
+                        line,
+                        byte_offset,
+                        content,
+                        ..
+                    } if *line < line_count => {
+                        uni_inline.entry(*line).or_default().push(
+                            crate::render::InlineOp::Insert {
+                                at: *byte_offset,
+                                content: content.clone(),
+                            },
+                        );
+                        has_inline = true;
+                    }
+                    crate::display::DisplayDirective::HideInline { line, byte_range }
+                        if *line < line_count =>
+                    {
+                        uni_inline
+                            .entry(*line)
+                            .or_default()
+                            .push(crate::render::InlineOp::Hide {
+                                range: byte_range.clone(),
+                            });
+                        has_inline = true;
+                    }
+                    crate::display::DisplayDirective::StyleInline {
+                        line,
+                        byte_range,
+                        face,
+                    } if *line < line_count => {
+                        uni_inline
+                            .entry(*line)
+                            .or_default()
+                            .push(crate::render::InlineOp::Style {
+                                range: byte_range.clone(),
+                                face: *face,
+                            });
+                        has_inline = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Phase 2: Partition legacy annotators (non-unified).
+        let legacy_annotator_slots: Vec<(usize, &PluginSlot)> = self
             .slots
             .iter()
-            .filter(|s| s.capabilities.contains(PluginCapabilities::ANNOTATOR))
+            .enumerate()
+            .filter(|(idx, s)| {
+                s.capabilities.contains(PluginCapabilities::ANNOTATOR)
+                    && self.unified_cache.borrow()[*idx].is_none()
+            })
             .collect();
 
         for line in 0..line_count {
-            let mut left_parts: Vec<(i16, PluginId, Element)> = Vec::new();
-            let mut right_parts: Vec<(i16, PluginId, Element)> = Vec::new();
-            let mut bg_layers: Vec<(BackgroundLayer, PluginId)> = Vec::new();
-            let mut vt_parts: Vec<(i16, PluginId, Vec<crate::protocol::Atom>)> = Vec::new();
+            // Start with unified entries for this line
+            let mut left_parts = uni_left.remove(&line).unwrap_or_default();
+            let mut right_parts = uni_right.remove(&line).unwrap_or_default();
+            let mut bg_layers = uni_bg.remove(&line).unwrap_or_default();
+            let mut vt_parts = uni_vt.remove(&line).unwrap_or_default();
 
-            for slot in &annotator_slots {
+            // Build inline decoration from unified ops
+            if let Some(mut ops) = uni_inline.remove(&line) {
+                ops.sort_by_key(|op| op.sort_key());
+                if inline_decorations[line].is_some() {
+                    tracing::warn!(
+                        line,
+                        "multiple plugins provide inline decoration for same line; first wins"
+                    );
+                } else {
+                    inline_decorations[line] = Some(crate::render::InlineDecoration::new(ops));
+                    has_inline = true;
+                }
+            }
+
+            for (_slot_idx, slot) in &legacy_annotator_slots {
                 let pid = slot.backend.id();
 
                 if slot.backend.has_decomposed_annotations() {
@@ -1608,17 +1822,14 @@ impl<'a> PluginView<'a> {
     /// The resulting `DirectiveSet` forms a commutative monoid (see `compose::Composable`):
     /// plugin evaluation order does not affect the resolved output.
     ///
-    /// Projection-aware: plugins that define projections only emit directives for
-    /// their active projections. Legacy `display_directives()` is only called for
-    /// plugins that do NOT define projections.
-    fn collect_tagged_display_directives(
-        &self,
-        state: &AppView<'_>,
-    ) -> crate::display::DirectiveSet {
-        let mut set = crate::display::DirectiveSet::default();
+    /// Unified-aware: plugins with `has_unified_display()` contribute their
+    /// spatial directives from the unified cache. Legacy plugins use
+    /// `display_directives()` / `projection_directives()` as before.
+    fn collect_tagged_display_directives(&self, state: &AppView<'_>) -> DirectiveSet {
+        let mut set = DirectiveSet::default();
         let projection_policy = state.projection_policy();
 
-        for slot in self.slots.iter() {
+        for (idx, slot) in self.slots.iter().enumerate() {
             if !slot
                 .capabilities
                 .contains(PluginCapabilities::DISPLAY_TRANSFORM)
@@ -1626,6 +1837,18 @@ impl<'a> PluginView<'a> {
                 continue;
             }
 
+            // Unified path: pull spatial from cache
+            if self.ensure_unified_cached(idx, state) {
+                let cache = self.unified_cache.borrow();
+                if let Some(cat) = &cache[idx] {
+                    for td in &cat.spatial {
+                        set.push(td.directive.clone(), td.priority, td.plugin_id.clone());
+                    }
+                }
+                continue;
+            }
+
+            // Legacy path
             let has_projections = !slot.backend.projection_descriptors().is_empty();
 
             // Legacy display handlers: only if plugin does NOT define projections
@@ -1661,33 +1884,82 @@ impl<'a> PluginView<'a> {
 
     /// Collect content annotations from all plugins with CONTENT_ANNOTATOR capability.
     ///
-    /// Returns a sorted, deduplicated vec of `ContentAnnotation` items.
+    /// For unified display plugins, InterLine category directives (InsertBefore,
+    /// InsertAfter) are converted from the unified cache. Legacy plugins use
+    /// `content_annotations()` as before. Results are merged via monoidal
+    /// composition.
     pub fn collect_content_annotations(
         &self,
         state: &AppView<'_>,
         ctx: &crate::plugin::AnnotateContext,
     ) -> Vec<crate::display::ContentAnnotation> {
         use super::compose::{Composable, ContentAnnotationSet};
+        use crate::display::content_annotation::{ContentAnchor, ContentAnnotation};
 
         if !self.has_capability(PluginCapabilities::CONTENT_ANNOTATOR) {
             return Vec::new();
         }
 
-        self.slots
-            .iter()
-            .filter(|slot| {
-                slot.capabilities
-                    .contains(PluginCapabilities::CONTENT_ANNOTATOR)
-            })
-            .fold(ContentAnnotationSet::empty(), |acc, slot| {
-                let annotations = slot.backend.content_annotations(state, ctx);
-                if annotations.is_empty() {
-                    acc
-                } else {
-                    acc.compose(ContentAnnotationSet::from_vec(annotations))
+        let mut result = ContentAnnotationSet::empty();
+
+        for (idx, slot) in self.slots.iter().enumerate() {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::CONTENT_ANNOTATOR)
+            {
+                continue;
+            }
+
+            // Unified path: convert InterLine directives to ContentAnnotation
+            if self.ensure_unified_cached(idx, state) {
+                let cache = self.unified_cache.borrow();
+                if let Some(cat) = &cache[idx] {
+                    let pid = slot.backend.id();
+                    let mut converted = Vec::new();
+                    for td in &cat.interline {
+                        match &td.directive {
+                            crate::display::DisplayDirective::InsertBefore {
+                                line,
+                                content,
+                                priority,
+                            } => {
+                                converted.push(ContentAnnotation {
+                                    anchor: ContentAnchor::InsertBefore(*line),
+                                    element: content.clone(),
+                                    plugin_id: pid.clone(),
+                                    priority: *priority,
+                                });
+                            }
+                            crate::display::DisplayDirective::InsertAfter {
+                                line,
+                                content,
+                                priority,
+                            } => {
+                                converted.push(ContentAnnotation {
+                                    anchor: ContentAnchor::InsertAfter(*line),
+                                    element: content.clone(),
+                                    plugin_id: pid.clone(),
+                                    priority: *priority,
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !converted.is_empty() {
+                        result = result.compose(ContentAnnotationSet::from_vec(converted));
+                    }
                 }
-            })
-            .into_vec()
+                continue;
+            }
+
+            // Legacy path
+            let annotations = slot.backend.content_annotations(state, ctx);
+            if !annotations.is_empty() {
+                result = result.compose(ContentAnnotationSet::from_vec(annotations));
+            }
+        }
+
+        result.into_vec()
     }
 
     /// Collect overlay contributions with collision-avoidance context.

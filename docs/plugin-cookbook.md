@@ -216,7 +216,7 @@ kasane_plugin_sdk::define_plugin! {
     },
 
     on_io_event(event) {
-        let IoEvent::Process(pe) = event;
+        let IoEvent::Process(pe) = event else { return Effects::default(); };
         if pe.job_id != state.job_id { return Effects::default(); }
 
         match pe.kind {

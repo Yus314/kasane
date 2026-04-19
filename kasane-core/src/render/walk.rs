@@ -83,6 +83,17 @@ pub(crate) trait PaintVisitor {
     /// Render an Image element. TUI: text placeholder. GPU: DrawImage command.
     fn visit_image(&mut self, source: &ImageSource, fit: ImageFit, opacity: f32, area: Rect);
 
+    /// Render a TextPanel element (plugin-owned scrollable text area).
+    fn visit_text_panel(
+        &mut self,
+        lines: &[Vec<Atom>],
+        scroll_offset: usize,
+        cursor: Option<(usize, usize)>,
+        line_numbers: bool,
+        wrap: bool,
+        area: Rect,
+    );
+
     /// Pre-visit for Scrollable: set up clip region (GPU only).
     fn visit_scrollable_pre(&mut self, area: Rect);
 
@@ -135,6 +146,15 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
                 inline_decorations.as_ref().map(|v| v.as_slice()),
                 virtual_text.as_ref().map(|v| v.as_slice()),
             );
+        }
+        Element::TextPanel {
+            lines,
+            scroll_offset,
+            cursor,
+            line_numbers,
+            wrap,
+        } => {
+            visitor.visit_text_panel(lines, *scroll_offset, *cursor, *line_numbers, *wrap, area);
         }
         Element::Empty => {}
         Element::Image {
@@ -371,6 +391,73 @@ impl PaintVisitor for GridPaintVisitor<'_> {
             // Title on top border
             if let Some(title_atoms) = info.title {
                 paint_border_title(self.grid, &info.area, &border_face, title_atoms);
+            }
+        }
+    }
+
+    fn visit_text_panel(
+        &mut self,
+        lines: &[Vec<Atom>],
+        scroll_offset: usize,
+        cursor: Option<(usize, usize)>,
+        line_numbers: bool,
+        _wrap: bool,
+        area: Rect,
+    ) {
+        let gutter_w = if line_numbers {
+            let digits = (lines.len().max(1) as f64).log10().floor() as u16 + 1;
+            digits + 1 // +1 for separator space
+        } else {
+            0
+        };
+        let content_x = area.x + gutter_w;
+        let content_w = area.w.saturating_sub(gutter_w);
+
+        let gutter_face = Face {
+            fg: crate::protocol::Color::Rgb {
+                r: 120,
+                g: 120,
+                b: 120,
+            },
+            ..Face::default()
+        };
+
+        for row in 0..area.h {
+            let line_idx = scroll_offset + row as usize;
+            let y = area.y + row;
+
+            if line_numbers && line_idx < lines.len() {
+                let num_str = format!("{:>width$} ", line_idx + 1, width = (gutter_w - 1) as usize);
+                paint_text(
+                    self.grid,
+                    &Rect {
+                        x: area.x,
+                        y,
+                        w: gutter_w,
+                        h: 1,
+                    },
+                    &num_str,
+                    &gutter_face,
+                );
+            }
+
+            if line_idx < lines.len() {
+                self.grid
+                    .put_line_with_base(y, content_x, &lines[line_idx], content_w, None);
+                // Cursor highlight
+                if let Some((cl, _cc)) = cursor
+                    && cl == line_idx
+                {
+                    let cursor_face = Face {
+                        bg: crate::protocol::Color::Rgb {
+                            r: 40,
+                            g: 40,
+                            b: 60,
+                        },
+                        ..Face::default()
+                    };
+                    self.grid.fill_region(y, content_x, content_w, &cursor_face);
+                }
             }
         }
     }
@@ -665,6 +752,97 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     border_face,
                     elevated: info.shadow,
                 });
+            }
+        }
+    }
+
+    fn visit_text_panel(
+        &mut self,
+        lines: &[Vec<Atom>],
+        scroll_offset: usize,
+        cursor: Option<(usize, usize)>,
+        line_numbers: bool,
+        _wrap: bool,
+        area: Rect,
+    ) {
+        let cs = self.cell_size;
+        let gutter_w = if line_numbers {
+            let digits = (lines.len().max(1) as f64).log10().floor() as u16 + 1;
+            digits + 1
+        } else {
+            0
+        };
+        let content_x = area.x + gutter_w;
+        let content_w = area.w.saturating_sub(gutter_w);
+
+        let gutter_face = Face {
+            fg: crate::protocol::Color::Rgb {
+                r: 120,
+                g: 120,
+                b: 120,
+            },
+            ..Face::default()
+        };
+
+        for row in 0..area.h {
+            let line_idx = scroll_offset + row as usize;
+            let y = area.y + row;
+
+            if line_numbers && line_idx < lines.len() {
+                let num_str = format!("{:>width$} ", line_idx + 1, width = (gutter_w - 1) as usize);
+                let gutter_area = Rect {
+                    x: area.x,
+                    y,
+                    w: gutter_w,
+                    h: 1,
+                };
+                let pr = to_pixel_rect(&gutter_area, cs);
+                let gutter_atoms = resolve_atoms(
+                    &[Atom {
+                        face: gutter_face,
+                        contents: num_str.into(),
+                    }],
+                    None,
+                );
+                self.out.push(DrawCommand::DrawAtoms {
+                    pos: PixelPos { x: pr.x, y: pr.y },
+                    atoms: gutter_atoms,
+                    max_width: pr.w,
+                });
+            }
+
+            if line_idx < lines.len() {
+                let line_area = Rect {
+                    x: content_x,
+                    y,
+                    w: content_w,
+                    h: 1,
+                };
+                let pr = to_pixel_rect(&line_area, cs);
+                let resolved = resolve_atoms(&lines[line_idx], None);
+                self.out.push(DrawCommand::DrawAtoms {
+                    pos: PixelPos { x: pr.x, y: pr.y },
+                    atoms: resolved,
+                    max_width: pr.w,
+                });
+
+                if let Some((cl, _cc)) = cursor
+                    && cl == line_idx
+                {
+                    let cursor_pr = to_pixel_rect(&line_area, cs);
+                    self.out.push(DrawCommand::FillRect {
+                        rect: cursor_pr,
+                        face: Face {
+                            bg: crate::protocol::Color::Rgb {
+                                r: 40,
+                                g: 40,
+                                b: 60,
+                            },
+                            ..Face::default()
+                        },
+                        elevated: false,
+                    });
+                }
             }
         }
     }
@@ -1631,5 +1809,176 @@ mod tests {
                 assert_eq!(text, "│");
             }
         }
+    }
+
+    #[test]
+    fn text_panel_paints_visible_lines() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let lines: Vec<Vec<Atom>> = vec![
+            vec![Atom {
+                face: Face::default(),
+                contents: "hello".into(),
+            }],
+            vec![Atom {
+                face: Face::default(),
+                contents: "world".into(),
+            }],
+            vec![Atom {
+                face: Face::default(),
+                contents: "third".into(),
+            }],
+        ];
+        let el = Element::text_panel(lines);
+        let area = root_area(20, 3);
+        let layout = place(&el, area, &state);
+
+        let mut grid = CellGrid::new(20, 3);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
+
+        // First line should start with "hello"
+        let cell = grid.get(0, 0).unwrap();
+        assert_eq!(cell.grapheme.as_str(), "h");
+        let cell = grid.get(0, 1).unwrap();
+        assert_eq!(cell.grapheme.as_str(), "w");
+        let cell = grid.get(0, 2).unwrap();
+        assert_eq!(cell.grapheme.as_str(), "t");
+    }
+
+    #[test]
+    fn text_panel_scroll_offset() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let lines: Vec<Vec<Atom>> = vec![
+            vec![Atom {
+                face: Face::default(),
+                contents: "line0".into(),
+            }],
+            vec![Atom {
+                face: Face::default(),
+                contents: "line1".into(),
+            }],
+            vec![Atom {
+                face: Face::default(),
+                contents: "line2".into(),
+            }],
+            vec![Atom {
+                face: Face::default(),
+                contents: "line3".into(),
+            }],
+        ];
+        let el = Element::TextPanel {
+            lines,
+            scroll_offset: 2,
+            cursor: None,
+            line_numbers: false,
+            wrap: false,
+        };
+        let area = root_area(20, 2);
+        let layout = place(&el, area, &state);
+
+        let mut grid = CellGrid::new(20, 2);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
+
+        // Row 0 should show "line2", row 1 should show "line3"
+        let cell = grid.get(4, 0).unwrap();
+        assert_eq!(cell.grapheme.as_str(), "2");
+        let cell = grid.get(4, 1).unwrap();
+        assert_eq!(cell.grapheme.as_str(), "3");
+    }
+
+    #[test]
+    fn text_panel_with_line_numbers() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let lines: Vec<Vec<Atom>> = vec![
+            vec![Atom {
+                face: Face::default(),
+                contents: "abc".into(),
+            }],
+            vec![Atom {
+                face: Face::default(),
+                contents: "def".into(),
+            }],
+        ];
+        let el = Element::TextPanel {
+            lines,
+            scroll_offset: 0,
+            cursor: None,
+            line_numbers: true,
+            wrap: false,
+        };
+        let area = root_area(20, 2);
+        let layout = place(&el, area, &state);
+
+        let mut grid = CellGrid::new(20, 2);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
+
+        // Line numbers should appear: "1 " then "2 "
+        let cell = grid.get(0, 0).unwrap();
+        assert_eq!(cell.grapheme.as_str(), "1");
+        let cell = grid.get(0, 1).unwrap();
+        assert_eq!(cell.grapheme.as_str(), "2");
+        // Content should be offset by gutter width (1 digit + 1 space = 2)
+        let cell = grid.get(2, 0).unwrap();
+        assert_eq!(cell.grapheme.as_str(), "a");
+    }
+
+    #[test]
+    fn text_panel_gpu_emits_draw_commands() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let cs = default_cell_size();
+        let lines: Vec<Vec<Atom>> = vec![
+            vec![Atom {
+                face: Face::default(),
+                contents: "hello".into(),
+            }],
+            vec![Atom {
+                face: Face::default(),
+                contents: "world".into(),
+            }],
+        ];
+        let el = Element::text_panel(lines);
+        let area = root_area(20, 2);
+        let layout = place(&el, area, &state);
+
+        let commands = walk_paint_scene(&el, &layout, &state, &theme, cs, CursorStyle::Block);
+        let atom_cmds: Vec<_> = commands
+            .iter()
+            .filter(|c| matches!(c, DrawCommand::DrawAtoms { .. }))
+            .collect();
+        assert_eq!(
+            atom_cmds.len(),
+            2,
+            "should emit one DrawAtoms per visible line"
+        );
     }
 }

@@ -302,10 +302,11 @@ kasane_plugin_sdk::define_plugin! {
         Some(vec![Command::SendKeys(kak_keys)])
     },
 
-    annotate(line, _ctx) {
-        let cl = state.color_lines.get(&(line as usize))?;
-        let swatch = build_swatch(&cl.colors);
-        Some(gutter_annotation(swatch, 0))
+    display() {
+        state.color_lines.iter().map(|(&line_idx, cl)| {
+            let swatch = build_swatch(&cl.colors);
+            gutter_left(line_idx as u32, swatch, 0)
+        }).collect()
     },
 
     overlay(ctx) {

@@ -31,12 +31,13 @@ fn detects_colors_in_line() {
     let state = make_state_with_lines(&["#ff0000"]);
     apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
-    let ctx = default_annotate_ctx();
-    let ann = plugin.annotate_line_with_ctx(0, &AppView::new(&state), &ctx);
-    assert!(ann.is_some());
-    let ann = ann.unwrap();
-    assert!(ann.left_gutter.is_some());
-    assert!(ann.background.is_none());
+    assert!(plugin.has_unified_display());
+    let directives = plugin.unified_display(&AppView::new(&state));
+    assert_eq!(directives.len(), 1);
+    assert!(matches!(
+        &directives[0],
+        DisplayDirective::Gutter { line: 0, .. }
+    ));
 }
 
 #[test]
@@ -45,12 +46,8 @@ fn no_decoration_without_colors() {
     let state = make_state_with_lines(&["no colors here"]);
     apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
-    let ctx = default_annotate_ctx();
-    assert!(
-        plugin
-            .annotate_line_with_ctx(0, &AppView::new(&state), &ctx)
-            .is_none()
-    );
+    let directives = plugin.unified_display(&AppView::new(&state));
+    assert!(directives.is_empty());
 }
 
 #[test]

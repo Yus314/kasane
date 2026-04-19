@@ -91,6 +91,8 @@ interface types {
         spawn-pane-client(spawn-pane-client-config),
         close-pane-client(string),
         workspace-command(workspace-cmd),
+        http-request(http-request-config),
+        cancel-http-request(u64),
     }
 
     record spawn-pane-client-config {
@@ -270,8 +272,20 @@ interface types {
     }
 
     variant display-directive {
+        // Spatial
         fold(fold-directive),
         hide(hide-directive),
+        // InterLine
+        insert-before(interline-directive),
+        insert-after(interline-directive),
+        // Inline
+        insert-inline(insert-inline-directive),
+        hide-inline(hide-inline-directive),
+        style-inline(style-inline-directive),
+        // Decoration
+        style-line(style-line-directive),
+        gutter(gutter-directive),
+        virtual-text(virtual-text-directive),
     }
 
     record fold-directive {
@@ -283,6 +297,59 @@ interface types {
     record hide-directive {
         range-start: u32,
         range-end: u32,
+    }
+
+    // --- Unified display directive records (Phase 1B.4) ---
+
+    record interline-directive {
+        line: u32,
+        content: element-handle,
+        priority: s16,
+    }
+
+    record insert-inline-directive {
+        line: u32,
+        byte-offset: u32,
+        content: list<atom>,
+        /// None = not interactive. Some(id) = clickable with interactive ID.
+        interactive-id: option<u64>,
+    }
+
+    record hide-inline-directive {
+        line: u32,
+        byte-start: u32,
+        byte-end: u32,
+    }
+
+    record style-inline-directive {
+        line: u32,
+        byte-start: u32,
+        byte-end: u32,
+        face: face,
+    }
+
+    record style-line-directive {
+        line: u32,
+        face: face,
+        z-order: s16,
+    }
+
+    enum display-gutter-side { left, right }
+
+    record gutter-directive {
+        line: u32,
+        side: display-gutter-side,
+        content: element-handle,
+        priority: s16,
+    }
+
+    enum display-vt-position { end-of-line, right-aligned }
+
+    record virtual-text-directive {
+        line: u32,
+        position: display-vt-position,
+        content: list<atom>,
+        priority: s16,
     }
 
     // --- Projection Mode types ---
@@ -775,9 +842,66 @@ interface types {
         kind: process-event-kind,
     }
 
+    /// HTTP response (buffered mode).
+    record http-response {
+        job-id: u64,
+        status: u16,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+    }
+
+    /// A chunk of streaming data (chunked mode).
+    record http-chunk {
+        job-id: u64,
+        data: list<u8>,
+    }
+
+    /// HTTP request error.
+    record http-error {
+        job-id: u64,
+        error: string,
+    }
+
+    /// Events from an HTTP request.
+    variant http-event {
+        response(http-response),
+        chunk(http-chunk),
+        stream-end(u64),
+        error(http-error),
+    }
+
+    /// HTTP request method.
+    enum http-method {
+        get,
+        post,
+        put,
+        delete,
+        patch,
+        head,
+    }
+
+    /// Whether to buffer the entire response or stream chunks.
+    enum streaming-mode {
+        buffered,
+        chunked,
+    }
+
+    /// Configuration for an HTTP request.
+    record http-request-config {
+        job-id: u64,
+        url: string,
+        method: http-method,
+        headers: list<tuple<string, string>>,
+        body: option<list<u8>>,
+        timeout-ms: u32,
+        idle-timeout-ms: u32,
+        streaming: streaming-mode,
+    }
+
     /// I/O event delivered to plugins.
     variant io-event {
         process(process-event),
+        http(http-event),
     }
 
     record spawn-process-config {
@@ -1049,6 +1173,24 @@ interface host-state {
     /// Get the total number of display units.
     /// Returns 0 if no display transforms are active.
     get-display-unit-count: func() -> u32;
+
+    // --- v0.25.0: Syntax provider queries ---
+
+    /// Get the syntax tree generation counter.
+    /// Returns 0 when no syntax provider is active.
+    get-syntax-generation: func() -> u64;
+
+    /// Get foldable line ranges from the syntax tree.
+    /// Each pair is (start-line, end-line-exclusive).
+    get-fold-ranges: func() -> list<tuple<u32, u32>>;
+
+    /// Get the scope stack at a given position.
+    /// Returns empty list when no syntax provider is active.
+    get-scopes-at: func(line: u32, byte-offset: u32) -> list<string>;
+
+    /// Get the indentation level of a line (in indent units, not spaces).
+    /// Returns 0 when no syntax provider is active.
+    get-indent-level: func(line: u32) -> u32;
 }
 
 /// Host-provided functions for building Element trees.
@@ -1114,6 +1256,13 @@ interface element-builder {
     /// Create an image element. Size is in cells (width, height).
     create-image: func(source: image-source, width: u16, height: u16,
                        fit: image-fit, opacity: f32) -> element-handle;
+
+    // --- v0.25.0: TextPanel element ---
+
+    /// Create a text panel element: scrollable rich text area with optional line numbers.
+    create-text-panel: func(lines: list<list<atom>>, scroll-offset: u32,
+                            cursor-line: option<u32>, cursor-col: option<u32>,
+                            line-numbers: bool, wrap: bool) -> element-handle;
 }
 
 interface plugin-api {
@@ -1122,7 +1271,9 @@ interface plugin-api {
                slot-id, contribute-context, contribution, transform-target, transform-subject, transform-context,
                element-patch-op,
                annotate-context, line-annotation, overlay-context, overlay-contribution,
-               display-directive, workspace-snapshot, key-handle-result,
+               display-directive, interline-directive, insert-inline-directive, hide-inline-directive, style-inline-directive,
+               style-line-directive, display-gutter-side, gutter-directive, display-vt-position, virtual-text-directive,
+               workspace-snapshot, key-handle-result,
                capability, plugin-authority, io-event, surface-view-context,
                surface-event-context, surface-event, surface-descriptor,
                default-scroll-candidate, scroll-policy-result,
@@ -1143,6 +1294,14 @@ interface plugin-api {
     /// Typed bootstrap effects (redraw-only).
     on-init-effects: func() -> bootstrap-effects;
     on-shutdown: func() -> list<command>;
+
+    /// Serialize plugin state for hot-reload persistence.
+    /// Returns empty list if no persistable state.
+    persist-state: func() -> list<u8>;
+
+    /// Restore plugin state from a previous persist-state call.
+    /// Returns true if restoration succeeded.
+    restore-state: func(data: list<u8>) -> bool;
 
     /// Typed active-session-ready startup effects.
     on-active-session-ready-effects: func() -> session-ready-effects;
@@ -1280,6 +1439,13 @@ interface plugin-api {
 
     /// Priority for transform chain ordering.
     transform-priority: func() -> s16;
+
+    /// Return all display directives for the current frame (unified display).
+    ///
+    /// Replaces the separate `annotate-line` and `display-directives` exports.
+    /// Plugins return directives from all 4 categories (Spatial, InterLine,
+    /// Inline, Decoration) in a single call.
+    display: func() -> list<display-directive>;
 
     /// Annotate a buffer line (replaces contribute-line).
     annotate-line: func(line: u32, ctx: annotate-context) -> option<line-annotation>;

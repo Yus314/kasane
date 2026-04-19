@@ -29,6 +29,20 @@ impl TaggedDirective {
         let (variant, anchor) = match &self.directive {
             DisplayDirective::Hide { range } => (0, range.start),
             DisplayDirective::Fold { range, .. } => (1, range.start),
+            DisplayDirective::InsertBefore { line, .. } => (2, *line),
+            DisplayDirective::InsertAfter { line, .. } => (3, *line),
+            DisplayDirective::InsertInline {
+                line, byte_offset, ..
+            } => (4, *line + *byte_offset),
+            DisplayDirective::HideInline {
+                line, byte_range, ..
+            } => (5, *line + byte_range.start),
+            DisplayDirective::StyleInline {
+                line, byte_range, ..
+            } => (6, *line + byte_range.start),
+            DisplayDirective::StyleLine { line, .. } => (7, *line),
+            DisplayDirective::Gutter { line, .. } => (8, *line),
+            DisplayDirective::VirtualText { line, .. } => (9, *line),
         };
         (self.priority, &self.plugin_id, variant, anchor)
     }
@@ -78,6 +92,8 @@ pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
             DisplayDirective::Hide { range } => {
                 hides.push(range.clone());
             }
+            // Non-spatial directives are not resolved here
+            _ => {}
         }
     }
 
@@ -181,10 +197,7 @@ pub fn partition_directives(set: &DirectiveSet) -> Vec<DirectiveGroup> {
         .iter()
         .enumerate()
         .map(|(i, td)| {
-            let range = match &td.directive {
-                DisplayDirective::Fold { range, .. } => range.clone(),
-                DisplayDirective::Hide { range } => range.clone(),
-            };
+            let range = directive_bounding_range(&td.directive);
             (range, i)
         })
         .collect();
@@ -216,17 +229,7 @@ pub fn partition_directives(set: &DirectiveSet) -> Vec<DirectiveGroup> {
             for td in &directives {
                 td.sort_key().hash(&mut hasher);
                 // Hash the directive content for change detection
-                match &td.directive {
-                    DisplayDirective::Fold { range, summary } => {
-                        range.start.hash(&mut hasher);
-                        range.end.hash(&mut hasher);
-                        summary.len().hash(&mut hasher);
-                    }
-                    DisplayDirective::Hide { range } => {
-                        range.start.hash(&mut hasher);
-                        range.end.hash(&mut hasher);
-                    }
-                }
+                hash_directive(&td.directive, &mut hasher);
             }
             let hash = hasher.finish();
             DirectiveGroup {
@@ -279,4 +282,123 @@ pub fn resolve_incremental(
 
     cache.entries = new_entries;
     result
+}
+
+// =============================================================================
+// Category partitioning
+// =============================================================================
+
+use super::DirectiveCategory;
+
+/// Directives partitioned by category.
+#[derive(Debug, Clone, Default)]
+pub struct CategorizedDirectives {
+    pub spatial: Vec<TaggedDirective>,
+    pub interline: Vec<TaggedDirective>,
+    pub inline: Vec<TaggedDirective>,
+    pub decoration: Vec<TaggedDirective>,
+}
+
+/// Partition a `DirectiveSet` into per-category buckets.
+///
+/// This is the first step of unified display collection: a single call to
+/// `on_display()` returns directives of mixed categories, and this function
+/// routes each to the correct resolution path.
+pub fn partition_by_category(set: &DirectiveSet) -> CategorizedDirectives {
+    let mut result = CategorizedDirectives::default();
+    for td in &set.directives {
+        match td.directive.category() {
+            DirectiveCategory::Spatial => result.spatial.push(td.clone()),
+            DirectiveCategory::InterLine => result.interline.push(td.clone()),
+            DirectiveCategory::Inline => result.inline.push(td.clone()),
+            DirectiveCategory::Decoration => result.decoration.push(td.clone()),
+        }
+    }
+    result
+}
+
+// =============================================================================
+// Internal helpers
+// =============================================================================
+
+/// Extract the bounding range for any directive variant.
+///
+/// Used by `partition_directives()` for spatial grouping.
+fn directive_bounding_range(d: &DisplayDirective) -> Range<usize> {
+    match d {
+        DisplayDirective::Fold { range, .. } | DisplayDirective::Hide { range } => range.clone(),
+        DisplayDirective::InsertBefore { line, .. }
+        | DisplayDirective::InsertAfter { line, .. }
+        | DisplayDirective::InsertInline { line, .. }
+        | DisplayDirective::HideInline { line, .. }
+        | DisplayDirective::StyleInline { line, .. }
+        | DisplayDirective::StyleLine { line, .. }
+        | DisplayDirective::Gutter { line, .. }
+        | DisplayDirective::VirtualText { line, .. } => *line..*line + 1,
+    }
+}
+
+/// Hash directive content for change detection in incremental resolve.
+fn hash_directive(d: &DisplayDirective, hasher: &mut impl std::hash::Hasher) {
+    use std::hash::Hash;
+    // Discriminant tag
+    std::mem::discriminant(d).hash(hasher);
+    match d {
+        DisplayDirective::Fold { range, summary } => {
+            range.start.hash(hasher);
+            range.end.hash(hasher);
+            summary.len().hash(hasher);
+        }
+        DisplayDirective::Hide { range } => {
+            range.start.hash(hasher);
+            range.end.hash(hasher);
+        }
+        DisplayDirective::InsertBefore { line, priority, .. }
+        | DisplayDirective::InsertAfter { line, priority, .. } => {
+            line.hash(hasher);
+            priority.hash(hasher);
+        }
+        DisplayDirective::InsertInline {
+            line, byte_offset, ..
+        } => {
+            line.hash(hasher);
+            byte_offset.hash(hasher);
+        }
+        DisplayDirective::HideInline { line, byte_range } => {
+            line.hash(hasher);
+            byte_range.start.hash(hasher);
+            byte_range.end.hash(hasher);
+        }
+        DisplayDirective::StyleInline {
+            line, byte_range, ..
+        } => {
+            line.hash(hasher);
+            byte_range.start.hash(hasher);
+            byte_range.end.hash(hasher);
+        }
+        DisplayDirective::StyleLine { line, z_order, .. } => {
+            line.hash(hasher);
+            z_order.hash(hasher);
+        }
+        DisplayDirective::Gutter {
+            line,
+            side,
+            priority,
+            ..
+        } => {
+            line.hash(hasher);
+            side.hash(hasher);
+            priority.hash(hasher);
+        }
+        DisplayDirective::VirtualText {
+            line,
+            position,
+            priority,
+            ..
+        } => {
+            line.hash(hasher);
+            position.hash(hasher);
+            priority.hash(hasher);
+        }
+    }
 }

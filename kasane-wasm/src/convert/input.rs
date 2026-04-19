@@ -3,7 +3,7 @@ use kasane_core::input::{
     ChordBinding, CompiledKeyMap, DropEvent, Key, KeyBinding, KeyEvent, KeyGroup, KeyPattern,
     KeyResponse, Modifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use kasane_core::plugin::{Command, IoEvent, ProcessEvent};
+use kasane_core::plugin::{Command, HttpEvent, IoEvent, ProcessEvent};
 use kasane_core::scroll::{
     DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,
     ScrollPlan, ScrollPolicyResult,
@@ -12,6 +12,32 @@ use kasane_core::scroll::{
 pub(crate) fn io_event_to_wit(event: &IoEvent) -> wit::IoEvent {
     match event {
         IoEvent::Process(pe) => wit::IoEvent::Process(process_event_to_wit(pe)),
+        IoEvent::Http(he) => wit::IoEvent::Http(http_event_to_wit(he)),
+    }
+}
+
+fn http_event_to_wit(he: &HttpEvent) -> wit::HttpEvent {
+    match he {
+        HttpEvent::Response {
+            job_id,
+            status,
+            headers,
+            body,
+        } => wit::HttpEvent::Response(wit::HttpResponse {
+            job_id: *job_id,
+            status: *status,
+            headers: headers.clone(),
+            body: body.clone(),
+        }),
+        HttpEvent::Chunk { job_id, data } => wit::HttpEvent::Chunk(wit::HttpChunk {
+            job_id: *job_id,
+            data: data.clone(),
+        }),
+        HttpEvent::StreamEnd { job_id } => wit::HttpEvent::StreamEnd(*job_id),
+        HttpEvent::Error { job_id, error } => wit::HttpEvent::Error(wit::HttpError {
+            job_id: *job_id,
+            error: error.clone(),
+        }),
     }
 }
 

@@ -839,95 +839,49 @@ kasane_plugin_sdk::define_plugin! {
         Effects::default()
     },
 
-    annotate(line, _ctx) {
+    display() {
         if !__setting_enabled() {
-            return None;
+            return vec![];
         }
 
         let mode = PromptMode::from_u8(state.mode);
+        let mut directives: Vec<DisplayDirective> = Vec::new();
 
         // ---- Phase 1 & 3: Active mode — regex match + verdict highlights ----
         if mode.is_active() {
-            let mut ops: Vec<InlineOp> = Vec::new();
-
-            if let Some(matches) = state.match_lines.get(&line) {
-                let f = match_face_for_mode(mode);
+            let f = match_face_for_mode(mode);
+            for (&line, matches) in &state.match_lines {
                 for &(start, end) in matches {
-                    ops.push(InlineOp::StyleRange(StyleRangeOp {
-                        start,
-                        end,
-                        face: f,
-                    }));
+                    directives.push(style_inline(line, start, end, f));
                 }
             }
 
             if mode.is_set_operation() {
-                let l = line as i32;
                 for v in &state.selection_verdicts {
-                    if v.line == l {
-                        ops.push(InlineOp::StyleRange(StyleRangeOp {
-                            start: v.start_col,
-                            end: v.end_col,
-                            face: verdict_face(mode, v.matches),
-                        }));
-                    }
+                    directives.push(style_inline(
+                        v.line as u32,
+                        v.start_col,
+                        v.end_col,
+                        verdict_face(mode, v.matches),
+                    ));
                 }
             }
-
-            if ops.is_empty() {
-                return None;
-            }
-
-            return Some(LineAnnotation {
-                left_gutter: None,
-                right_gutter: None,
-                background: None,
-                priority: 50,
-                inline: Some(InlineDecoration { ops }),
-                virtual_text: vec![],
-            });
         }
 
         // ---- Phase 2: Inactive mode — diff highlights ----
-        if state.diff_active {
-            let l = line as i32;
-            let mut ops: Vec<InlineOp> = Vec::new();
-
+        if !mode.is_active() && state.diff_active {
             for &(dl, dc) in &state.diff_added {
-                if dl == l {
-                    let col = dc.max(0) as u32;
-                    ops.push(InlineOp::StyleRange(StyleRangeOp {
-                        start: col,
-                        end: col + 1,
-                        face: diff_added_face(),
-                    }));
-                }
+                let col = dc.max(0) as u32;
+                directives.push(style_inline(dl as u32, col, col + 1, diff_added_face()));
             }
 
             for &(dl, dc) in &state.diff_removed {
-                if dl == l {
-                    let col = dc.max(0) as u32;
-                    ops.push(InlineOp::StyleRange(StyleRangeOp {
-                        start: col,
-                        end: col + 1,
-                        face: diff_removed_face(),
-                    }));
-                }
-            }
-
-            if !ops.is_empty() {
-                return Some(LineAnnotation {
-                    left_gutter: None,
-                    right_gutter: None,
-                    background: None,
-                    priority: 40,
-                    inline: Some(InlineDecoration { ops }),
-                    virtual_text: vec![],
-                });
+                let col = dc.max(0) as u32;
+                directives.push(style_inline(dl as u32, col, col + 1, diff_removed_face()));
             }
         }
 
-        None
+        directives
     },
 
     slots {

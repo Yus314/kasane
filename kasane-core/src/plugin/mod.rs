@@ -6,6 +6,7 @@ pub mod channel;
 mod command;
 pub mod compose;
 mod context;
+pub mod debug_overlay;
 pub mod diagnostics;
 pub mod effect_footprint;
 mod effects;
@@ -60,7 +61,9 @@ pub use provider::{
 
 // Re-export io module types
 pub use io::{
-    IoEvent, NullProcessDispatcher, ProcessDispatcher, ProcessEvent, ProcessEventSink, StdinMode,
+    HttpDispatcher, HttpEvent, HttpMethod, HttpRequestConfig, IoEvent, NullHttpDispatcher,
+    NullProcessDispatcher, ProcessDispatcher, ProcessEvent, ProcessEventSink, StdinMode,
+    StreamingMode,
 };
 
 // Re-export context module
@@ -171,6 +174,7 @@ bitflags! {
         const DYNAMIC_SURFACE = 1 << 0;
         const PTY_PROCESS     = 1 << 1;
         const WORKSPACE       = 1 << 2;
+        const HTTP_REQUEST    = 1 << 3;
     }
 }
 

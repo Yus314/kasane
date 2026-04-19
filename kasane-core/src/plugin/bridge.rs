@@ -317,8 +317,9 @@ impl PluginBackend for PluginBridge {
 
     fn on_io_event_effects(&mut self, event: &IoEvent, app: &AppView<'_>) -> Effects {
         // Route process events through active task handles first.
-        let IoEvent::Process(proc_event) = event;
-        if let Some(effects) = self.try_process_task_event(proc_event, app) {
+        if let IoEvent::Process(proc_event) = event
+            && let Some(effects) = self.try_process_task_event(proc_event, app)
+        {
             return effects;
         }
 
@@ -737,6 +738,18 @@ impl PluginBackend for PluginBridge {
 
     fn display_directives(&self, app: &AppView<'_>) -> Vec<DisplayDirective> {
         if let Some(handler) = &self.table.display_handler {
+            handler(&*self.state, app)
+        } else {
+            vec![]
+        }
+    }
+
+    fn has_unified_display(&self) -> bool {
+        self.table.unified_display_handler.is_some()
+    }
+
+    fn unified_display(&self, app: &AppView<'_>) -> Vec<DisplayDirective> {
+        if let Some(handler) = &self.table.unified_display_handler {
             handler(&*self.state, app)
         } else {
             vec![]

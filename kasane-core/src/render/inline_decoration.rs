@@ -19,7 +19,7 @@ pub enum InlineOp {
 impl InlineOp {
     /// Unified sort key: (position, variant_order).
     /// Insert (0) sorts before Style/Hide (1) at the same position.
-    fn sort_key(&self) -> (usize, u8) {
+    pub fn sort_key(&self) -> (usize, u8) {
         match self {
             InlineOp::Insert { at, .. } => (*at, 0),
             InlineOp::Style { range, .. } | InlineOp::Hide { range } => (range.start, 1),

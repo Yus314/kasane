@@ -24,6 +24,7 @@ pub(crate) struct PluginDef {
     slots: Option<Vec<SlotEntry>>,
     annotate: Option<AnnotateDef>,
     display_directives: Option<proc_macro2::TokenStream>,
+    display: Option<proc_macro2::TokenStream>,
     transform: Option<TransformDef>,
     transform_patch: Option<TransformPatchDef>,
     transform_priority: Option<proc_macro2::TokenStream>,
@@ -58,6 +59,7 @@ struct StateField {
     ty: syn::Type,
     default: syn::Expr,
     bind: Option<BindDef>,
+    persist: bool,
 }
 
 struct BindDef {
@@ -489,6 +491,17 @@ pub(crate) fn define_plugin_impl(
         quote! {}
     };
 
+    let display_method = if let Some(ref body) = def.display {
+        let wrapped = wrap_state_shared(body);
+        quote! {
+            fn display() -> Vec<DisplayDirective> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let transform_method = if let Some(ref tr) = def.transform {
         let target_param = &tr.target_param;
         let element_param = &tr.element_param;
@@ -725,6 +738,52 @@ pub(crate) fn define_plugin_impl(
         fn state_hash() -> u64 { __kasane_auto_state_hash() }
     };
 
+    // persist_state / restore_state: generated from #[persist] fields
+    let persist_methods = if let Some(ref state_def) = def.state {
+        let persist_fields: Vec<_> = state_def.fields.iter().filter(|f| f.persist).collect();
+        if persist_fields.is_empty() {
+            quote! {}
+        } else {
+            let ser_exprs: Vec<_> = persist_fields.iter().map(|f| {
+                let name = &f.name;
+                quote! { state.#name.clone() }
+            }).collect();
+            let field_types: Vec<_> = persist_fields.iter().map(|f| {
+                let ty = &f.ty;
+                quote! { #ty }
+            }).collect();
+            let restore_assigns: Vec<_> = persist_fields.iter().enumerate().map(|(i, f)| {
+                let name = &f.name;
+                let idx = syn::Index::from(i);
+                quote! { state.#name = restored.#idx; }
+            }).collect();
+            quote! {
+                fn persist_state() -> Vec<u8> {
+                    STATE.with(|s| {
+                        let state = s.borrow();
+                        let tuple: ( #( #field_types, )* ) = ( #( #ser_exprs, )* );
+                        rmp_serde::to_vec(&tuple).unwrap_or_default()
+                    })
+                }
+
+                fn restore_state(data: Vec<u8>) -> bool {
+                    STATE.with(|s| {
+                        let restored: ( #( #field_types, )* ) = match rmp_serde::from_slice(&data) {
+                            Ok(v) => v,
+                            Err(_) => return false,
+                        };
+                        let mut state = s.borrow_mut();
+                        #( #restore_assigns )*
+                        state.bump_generation();
+                        true
+                    })
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     // Generate register_capabilities from manifest handler_caps_mask if available.
     // This takes precedence over the auto-inference in #[plugin].
     let register_capabilities_method = if let Some(ref m) = def.manifest {
@@ -809,6 +868,7 @@ pub(crate) fn define_plugin_impl(
             #slots_method
             #annotate_method
             #display_directives_method
+            #display_method
             #transform_method
             #transform_patch_method
             #transform_priority_method
@@ -825,6 +885,7 @@ pub(crate) fn define_plugin_impl(
             #key_map_methods
             #register_capabilities_method
             #state_hash_method
+            #persist_methods
         }
 
         export!(__KasanePlugin);
@@ -982,6 +1043,7 @@ impl syn::parse::Parse for PluginDef {
             slots: None,
             annotate: None,
             display_directives: None,
+            display: None,
             transform: None,
             transform_patch: None,
             transform_priority: None,
@@ -1049,36 +1111,38 @@ impl syn::parse::Parse for PluginDef {
                     syn::braced!(content in input);
                     let mut fields = Vec::new();
                     while !content.is_empty() {
-                        // Parse optional #[bind(expr, on: flag)] attribute
-                        let bind = if content.peek(syn::Token![#]) {
+                        // Parse optional attributes: #[bind(...)], #[persist]
+                        let mut bind = None;
+                        let mut persist = false;
+                        while content.peek(syn::Token![#]) {
                             content.parse::<syn::Token![#]>()?;
                             let attr_content;
                             syn::bracketed!(attr_content in content);
                             let attr_name: syn::Ident = attr_content.parse()?;
-                            if attr_name != "bind" {
+                            if attr_name == "bind" {
+                                let bind_args;
+                                syn::parenthesized!(bind_args in attr_content);
+                                let expr = parse_bind_expr(&bind_args)?;
+                                bind_args.parse::<syn::Token![,]>()?;
+                                let on_kw: syn::Ident = bind_args.parse()?;
+                                if on_kw != "on" {
+                                    return Err(syn::Error::new(
+                                        on_kw.span(),
+                                        "expected `on:` in #[bind(expr, on: flags)]",
+                                    ));
+                                }
+                                bind_args.parse::<syn::Token![:]>()?;
+                                let dirty_flag: proc_macro2::TokenStream = bind_args.parse()?;
+                                bind = Some(BindDef { expr, dirty_flag });
+                            } else if attr_name == "persist" {
+                                persist = true;
+                            } else {
                                 return Err(syn::Error::new(
                                     attr_name.span(),
-                                    "only #[bind(...)] is supported on state fields",
+                                    "only #[bind(...)] and #[persist] are supported on state fields",
                                 ));
                             }
-                            let bind_args;
-                            syn::parenthesized!(bind_args in attr_content);
-                            // Parse: expr, on: flag_expr
-                            let expr = parse_bind_expr(&bind_args)?;
-                            bind_args.parse::<syn::Token![,]>()?;
-                            let on_kw: syn::Ident = bind_args.parse()?;
-                            if on_kw != "on" {
-                                return Err(syn::Error::new(
-                                    on_kw.span(),
-                                    "expected `on:` in #[bind(expr, on: flags)]",
-                                ));
-                            }
-                            bind_args.parse::<syn::Token![:]>()?;
-                            let dirty_flag: proc_macro2::TokenStream = bind_args.parse()?;
-                            Some(BindDef { expr, dirty_flag })
-                        } else {
-                            None
-                        };
+                        }
 
                         let name: syn::Ident = content.parse()?;
                         content.parse::<syn::Token![:]>()?;
@@ -1093,6 +1157,7 @@ impl syn::parse::Parse for PluginDef {
                             ty,
                             default,
                             bind,
+                            persist,
                         });
                     }
                     def.state = Some(StateDef { fields });
@@ -1173,6 +1238,14 @@ impl syn::parse::Parse for PluginDef {
                     let body;
                     syn::braced!(body in input);
                     def.display_directives = Some(body.parse()?);
+                }
+                "display" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let _ = params;
+                    let body;
+                    syn::braced!(body in input);
+                    def.display = Some(body.parse()?);
                 }
                 "transform" => {
                     let params;

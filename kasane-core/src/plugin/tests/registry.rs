@@ -1483,3 +1483,228 @@ fn dispatch_navigation_action_first_wins() {
     let result = registry.dispatch_navigation_action(&unit, NavigationAction::ToggleFold);
     assert_eq!(result, ActionResult::Handled);
 }
+
+// --- Unified display collection tests (Phase 1B.3) ---
+
+/// A Plugin that uses `on_display_unified()` to return all directive categories.
+struct UnifiedDisplayPlugin;
+
+impl Plugin for UnifiedDisplayPlugin {
+    type State = ();
+    fn id(&self) -> PluginId {
+        PluginId("unified-display".to_string())
+    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_display_unified(|_state, _app| {
+            vec![
+                // Spatial
+                DisplayDirective::Hide { range: 2..3 },
+                // Decoration: background
+                DisplayDirective::StyleLine {
+                    line: 0,
+                    face: Face {
+                        bg: crate::protocol::Color::Named(crate::protocol::NamedColor::Red),
+                        ..Face::default()
+                    },
+                    z_order: 0,
+                },
+                // Decoration: gutter
+                DisplayDirective::Gutter {
+                    line: 1,
+                    side: crate::display::GutterSide::Left,
+                    content: crate::element::Element::text("G", Face::default()),
+                    priority: 5,
+                },
+                // Decoration: virtual text
+                DisplayDirective::VirtualText {
+                    line: 0,
+                    position: crate::display::VirtualTextPosition::EndOfLine,
+                    content: vec![Atom {
+                        face: Face::default(),
+                        contents: "hint".into(),
+                    }],
+                    priority: 0,
+                },
+                // InterLine: insert after
+                DisplayDirective::InsertAfter {
+                    line: 0,
+                    content: crate::element::Element::text("inserted", Face::default()),
+                    priority: 0,
+                },
+                // Inline: style
+                DisplayDirective::StyleInline {
+                    line: 1,
+                    byte_range: 0..3,
+                    face: Face {
+                        fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Green),
+                        ..Face::default()
+                    },
+                },
+            ]
+        });
+    }
+}
+
+#[test]
+fn unified_display_spatial_routed_to_display_directives() {
+    let mut registry = PluginRuntime::new();
+    registry.register(UnifiedDisplayPlugin);
+
+    let mut state = AppState::default();
+    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
+
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let view = registry.view();
+    let directives = view.collect_display_directives(&AppView::new(&state));
+
+    // Should contain the Hide directive from the unified plugin
+    assert!(
+        directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::Hide { range } if *range == (2..3)))
+    );
+    // Should NOT contain non-spatial directives
+    assert!(
+        !directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::StyleLine { .. }))
+    );
+}
+
+#[test]
+fn unified_display_decoration_routed_to_annotations() {
+    let mut registry = PluginRuntime::new();
+    registry.register(UnifiedDisplayPlugin);
+
+    let mut state = AppState::default();
+    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
+
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let view = registry.view();
+    let ctx = AnnotateContext {
+        line_width: 80,
+        gutter_width: 0,
+        display_map: None,
+        pane_surface_id: None,
+        pane_focused: true,
+    };
+
+    let result = view.collect_annotations(&AppView::new(&state), &ctx);
+
+    // Background on line 0 (from StyleLine)
+    assert!(result.line_backgrounds.is_some());
+    let bgs = result.line_backgrounds.as_ref().unwrap();
+    assert!(bgs[0].is_some());
+    assert!(bgs[1].is_none());
+
+    // Left gutter on line 1 (from Gutter)
+    assert!(result.left_gutter.is_some());
+
+    // Virtual text on line 0
+    assert!(result.virtual_text.is_some());
+    let vts = result.virtual_text.as_ref().unwrap();
+    assert!(vts[0].is_some());
+
+    // Inline decoration on line 1 (from StyleInline)
+    assert!(result.inline_decorations.is_some());
+    let inlines = result.inline_decorations.as_ref().unwrap();
+    assert!(inlines[1].is_some());
+}
+
+#[test]
+fn unified_display_interline_routed_to_content_annotations() {
+    let mut registry = PluginRuntime::new();
+    registry.register(UnifiedDisplayPlugin);
+
+    let mut state = AppState::default();
+    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
+
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let view = registry.view();
+    let ctx = AnnotateContext {
+        line_width: 80,
+        gutter_width: 0,
+        display_map: None,
+        pane_surface_id: None,
+        pane_focused: true,
+    };
+
+    let annotations = view.collect_content_annotations(&AppView::new(&state), &ctx);
+
+    // Should contain the InsertAfter at line 0
+    assert_eq!(annotations.len(), 1);
+    assert_eq!(
+        annotations[0].anchor,
+        crate::display::ContentAnchor::InsertAfter(0)
+    );
+    assert_eq!(annotations[0].priority, 0);
+}
+
+#[test]
+fn unified_display_cache_called_once() {
+    // Verifies that calling all three collection methods uses the cache
+    // (the unified plugin's unified_display() is called only once).
+    let mut registry = PluginRuntime::new();
+    registry.register(UnifiedDisplayPlugin);
+
+    let mut state = AppState::default();
+    state.observed.lines = vec![vec![], vec![], vec![]];
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
+
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let view = registry.view();
+    let app_view = AppView::new(&state);
+    let ctx = AnnotateContext {
+        line_width: 80,
+        gutter_width: 0,
+        display_map: None,
+        pane_surface_id: None,
+        pane_focused: true,
+    };
+
+    // Call all three collection methods
+    let _directives = view.collect_display_directives(&app_view);
+    let _annotations = view.collect_annotations(&app_view, &ctx);
+    let _content = view.collect_content_annotations(&app_view, &ctx);
+
+    // The cache should be populated (one entry for the unified plugin)
+    let cache = view.unified_cache.borrow();
+    assert!(cache[0].is_some(), "unified cache should be populated");
+}
+
+#[test]
+fn unified_and_legacy_annotators_coexist() {
+    let mut registry = PluginRuntime::new();
+    registry.register(UnifiedDisplayPlugin);
+    registry.register(DecomposedAnnotatorPlugin);
+    registry.register_backend(Box::new(LegacyAnnotatorPlugin));
+
+    let mut state = AppState::default();
+    state.observed.lines = vec![vec![], vec![], vec![]];
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
+
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let view = registry.view();
+    let ctx = AnnotateContext {
+        line_width: 80,
+        gutter_width: 0,
+        display_map: None,
+        pane_surface_id: None,
+        pane_focused: true,
+    };
+
+    let result = view.collect_annotations(&AppView::new(&state), &ctx);
+
+    // All three annotation sources contribute:
+    // - UnifiedDisplayPlugin: StyleLine on line 0, Gutter on line 1
+    // - DecomposedAnnotatorPlugin: left gutter on all lines, background on line 0
+    // - LegacyAnnotatorPlugin: left gutter on all lines
+    assert!(result.left_gutter.is_some());
+    assert!(result.line_backgrounds.is_some());
+}

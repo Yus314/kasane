@@ -2,7 +2,11 @@
 
 use std::collections::BTreeSet;
 
-use crate::display::{self, BufferLine, DisplayDirective, DisplayMap, FoldToggleState};
+use crate::display::{
+    self, BufferLine, DirectiveCategory, DisplayDirective, DisplayMap, FoldToggleState, GutterSide,
+    InlineInteraction, VirtualTextPosition,
+};
+use crate::element::Element;
 use crate::plugin::handler_registry::HandlerRegistry;
 use crate::plugin::safe_directive::SafeDisplayDirective;
 use crate::plugin::{RecoveryMechanism, RecoveryWitness};
@@ -17,7 +21,49 @@ fn make_all_directive_instances() -> Vec<DisplayDirective> {
                 contents: "…".into(),
             }],
         },
+        DisplayDirective::Gutter {
+            line: 0,
+            side: GutterSide::Left,
+            content: Element::Empty,
+            priority: 0,
+        },
         DisplayDirective::Hide { range: 0..1 },
+        DisplayDirective::HideInline {
+            line: 0,
+            byte_range: 0..1,
+        },
+        DisplayDirective::InsertAfter {
+            line: 0,
+            content: Element::Empty,
+            priority: 0,
+        },
+        DisplayDirective::InsertBefore {
+            line: 0,
+            content: Element::Empty,
+            priority: 0,
+        },
+        DisplayDirective::InsertInline {
+            line: 0,
+            byte_offset: 0,
+            content: vec![],
+            interaction: InlineInteraction::None,
+        },
+        DisplayDirective::StyleInline {
+            line: 0,
+            byte_range: 0..1,
+            face: Face::default(),
+        },
+        DisplayDirective::StyleLine {
+            line: 0,
+            face: Face::default(),
+            z_order: 0,
+        },
+        DisplayDirective::VirtualText {
+            line: 0,
+            position: VirtualTextPosition::EndOfLine,
+            content: vec![],
+            priority: 0,
+        },
     ]
 }
 
@@ -60,7 +106,7 @@ fn variant_name_covers_all() {
 
 #[test]
 fn destructive_set_matches_semantics() {
-    assert_eq!(display::DESTRUCTIVE_VARIANTS, &["Hide"]);
+    assert_eq!(display::DESTRUCTIVE_VARIANTS, &["Hide", "HideInline"]);
 }
 
 #[test]
@@ -139,6 +185,47 @@ fn preserving_has_framework_recovery() {
         assert!(
             dm_expanded.buffer_to_display(BufferLine(bl)).is_some(),
             "after toggle, line {bl} must have a display mapping"
+        );
+    }
+}
+
+// =========================================================================
+// Category classification tests
+// =========================================================================
+
+#[test]
+fn every_variant_has_a_category() {
+    for d in make_all_directive_instances() {
+        // Just ensure category() doesn't panic and returns a valid value
+        let _cat = d.category();
+    }
+}
+
+#[test]
+fn spatial_variants_are_fold_and_hide() {
+    for d in make_all_directive_instances() {
+        let is_spatial = d.category() == DirectiveCategory::Spatial;
+        let is_fold_or_hide = matches!(
+            d,
+            DisplayDirective::Fold { .. } | DisplayDirective::Hide { .. }
+        );
+        assert_eq!(
+            is_spatial,
+            is_fold_or_hide,
+            "spatial classification mismatch for {}",
+            d.variant_name()
+        );
+    }
+}
+
+#[test]
+fn is_spatial_matches_category() {
+    for d in make_all_directive_instances() {
+        assert_eq!(
+            d.is_spatial(),
+            d.category() == DirectiveCategory::Spatial,
+            "is_spatial() disagrees with category() for {}",
+            d.variant_name()
         );
     }
 }

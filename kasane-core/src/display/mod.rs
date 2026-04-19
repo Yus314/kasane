@@ -19,7 +19,8 @@ pub mod unit;
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::protocol::Atom;
+use crate::element::{Element, InteractiveId};
+use crate::protocol::{Atom, Face};
 
 /// A buffer line index (0-based).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -41,22 +42,79 @@ pub use projection::{
 };
 // InverseResult is defined in this module (not a submodule re-export).
 pub use resolve::{
-    DirectiveGroup, DirectiveSet, ResolveCache, TaggedDirective, partition_directives, resolve,
-    resolve_incremental,
+    CategorizedDirectives, DirectiveGroup, DirectiveSet, ResolveCache, TaggedDirective,
+    partition_by_category, partition_directives, resolve, resolve_incremental,
 };
 pub use stability::{ContentAnnotationStabilityMonitor, DirectiveStabilityMonitor};
 pub use unit::{
     DisplayUnit, DisplayUnitId, DisplayUnitMap, SemanticRole, SourceStrength, UnitSource,
 };
 
-/// Plugin-declared spatial display transformation directive.
+// =============================================================================
+// Auxiliary types for DisplayDirective
+// =============================================================================
+
+/// Which side of the buffer gutter to place content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GutterSide {
+    Left,
+    Right,
+}
+
+/// Interaction behavior for inline-inserted content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InlineInteraction {
+    /// No interaction — purely decorative.
+    None,
+    /// Clickable region bound to an [`InteractiveId`].
+    Action(InteractiveId),
+}
+
+/// Positioning of virtual text relative to buffer content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VirtualTextPosition {
+    /// Appended at the end of the line (after buffer content).
+    EndOfLine,
+    /// Right-aligned within the viewport.
+    RightAligned,
+}
+
+/// Category of a [`DisplayDirective`] variant.
 ///
-/// Spatial directives perform coordinate compression: they change *which*
-/// buffer lines are visible and *where* they appear. Content insertion
-/// (previously `InsertAfter`/`InsertBefore`) is now handled by
-/// [`ContentAnnotation`] at the Element layer.
+/// Used to partition directives for separate resolution passes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DirectiveCategory {
+    /// Coordinate compression: changes which buffer lines are visible.
+    Spatial,
+    /// Full Element insertion between buffer lines.
+    InterLine,
+    /// Byte-range modifications within a buffer line.
+    Inline,
+    /// Line-level styling, gutter content, and virtual text.
+    Decoration,
+}
+
+// =============================================================================
+// DisplayDirective enum — unified display transformation
+// =============================================================================
+
+/// Plugin-declared display transformation directive.
+///
+/// Ten variants spanning four categories:
+///
+/// | Category | Variants |
+/// |---|---|
+/// | **Spatial** | `Fold`, `Hide` |
+/// | **InterLine** | `InsertBefore`, `InsertAfter` |
+/// | **Inline** | `InsertInline`, `HideInline`, `StyleInline` |
+/// | **Decoration** | `StyleLine`, `Gutter`, `VirtualText` |
+///
+/// The spatial subset performs coordinate compression (changes which buffer
+/// lines are visible and where they appear). Other categories operate at the
+/// element or rendering layer without affecting the buffer→display mapping.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DisplayDirective {
+    // === Spatial ===
     /// Collapse a range of buffer lines into a single summary line.
     Fold {
         range: Range<usize>,
@@ -64,6 +122,62 @@ pub enum DisplayDirective {
     },
     /// Hide a range of buffer lines entirely.
     Hide { range: Range<usize> },
+
+    // === InterLine ===
+    /// Insert a full Element before a buffer line.
+    InsertBefore {
+        line: usize,
+        content: Element,
+        priority: i16,
+    },
+    /// Insert a full Element after a buffer line.
+    InsertAfter {
+        line: usize,
+        content: Element,
+        priority: i16,
+    },
+
+    // === Inline ===
+    /// Insert inline content at a byte offset within a buffer line.
+    InsertInline {
+        line: usize,
+        byte_offset: usize,
+        content: Vec<Atom>,
+        interaction: InlineInteraction,
+    },
+    /// Hide a byte range within a buffer line.
+    HideInline {
+        line: usize,
+        byte_range: Range<usize>,
+    },
+    /// Apply face styling to a byte range within a buffer line.
+    StyleInline {
+        line: usize,
+        byte_range: Range<usize>,
+        face: Face,
+    },
+
+    // === Decoration ===
+    /// Apply a background face to an entire buffer line.
+    StyleLine {
+        line: usize,
+        face: Face,
+        z_order: i16,
+    },
+    /// Add content to the gutter of a buffer line.
+    Gutter {
+        line: usize,
+        side: GutterSide,
+        content: Element,
+        priority: i16,
+    },
+    /// Add virtual text (not part of the buffer) at the end of a line.
+    VirtualText {
+        line: usize,
+        position: VirtualTextPosition,
+        content: Vec<Atom>,
+        priority: i16,
+    },
 }
 
 // =============================================================================
@@ -71,26 +185,80 @@ pub enum DisplayDirective {
 // =============================================================================
 
 /// All variant names of `DisplayDirective` (sorted).
-pub const ALL_VARIANT_NAMES: &[&str] = &["Fold", "Hide"];
+pub const ALL_VARIANT_NAMES: &[&str] = &[
+    "Fold",
+    "Gutter",
+    "Hide",
+    "HideInline",
+    "InsertAfter",
+    "InsertBefore",
+    "InsertInline",
+    "StyleInline",
+    "StyleLine",
+    "VirtualText",
+];
 
 /// Variants classified as destructive (§10.2 Destructive).
-pub const DESTRUCTIVE_VARIANTS: &[&str] = &["Hide"];
+pub const DESTRUCTIVE_VARIANTS: &[&str] = &["Hide", "HideInline"];
 
 /// Variants classified as preserving (§10.2 Preserving).
-pub const PRESERVING_VARIANTS: &[&str] = &["Fold"];
+pub const PRESERVING_VARIANTS: &[&str] = &[
+    "Fold",
+    "Gutter",
+    "InsertAfter",
+    "InsertBefore",
+    "InsertInline",
+    "StyleInline",
+    "StyleLine",
+    "VirtualText",
+];
 
 impl DisplayDirective {
     /// Variant name as a static string (exhaustive — no wildcard).
     pub fn variant_name(&self) -> &'static str {
         match self {
             DisplayDirective::Fold { .. } => "Fold",
+            DisplayDirective::Gutter { .. } => "Gutter",
             DisplayDirective::Hide { .. } => "Hide",
+            DisplayDirective::HideInline { .. } => "HideInline",
+            DisplayDirective::InsertAfter { .. } => "InsertAfter",
+            DisplayDirective::InsertBefore { .. } => "InsertBefore",
+            DisplayDirective::InsertInline { .. } => "InsertInline",
+            DisplayDirective::StyleInline { .. } => "StyleInline",
+            DisplayDirective::StyleLine { .. } => "StyleLine",
+            DisplayDirective::VirtualText { .. } => "VirtualText",
         }
     }
 
     /// Whether this directive is destructive (removes buffer content from display).
     pub const fn is_destructive(&self) -> bool {
-        matches!(self, DisplayDirective::Hide { .. })
+        matches!(
+            self,
+            DisplayDirective::Hide { .. } | DisplayDirective::HideInline { .. }
+        )
+    }
+
+    /// Category of this directive.
+    pub const fn category(&self) -> DirectiveCategory {
+        match self {
+            DisplayDirective::Fold { .. } | DisplayDirective::Hide { .. } => {
+                DirectiveCategory::Spatial
+            }
+            DisplayDirective::InsertBefore { .. } | DisplayDirective::InsertAfter { .. } => {
+                DirectiveCategory::InterLine
+            }
+            DisplayDirective::InsertInline { .. }
+            | DisplayDirective::HideInline { .. }
+            | DisplayDirective::StyleInline { .. } => DirectiveCategory::Inline,
+            DisplayDirective::StyleLine { .. }
+            | DisplayDirective::Gutter { .. }
+            | DisplayDirective::VirtualText { .. } => DirectiveCategory::Decoration,
+        }
+    }
+
+    /// Whether this is a spatial directive (affects buffer→display mapping).
+    pub const fn is_spatial(&self) -> bool {
+        matches!(self.category(), DirectiveCategory::Spatial)
     }
 }
 
@@ -332,6 +500,8 @@ impl DisplayMap {
                         }
                     }
                 }
+                // Non-spatial directives are not handled by DisplayMap
+                _ => {}
             }
         }
 

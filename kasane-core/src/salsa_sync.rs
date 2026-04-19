@@ -444,6 +444,32 @@ pub fn sync_content_annotations(
         .to(annotations);
 }
 
+/// Unified display synchronization: collects spatial directives, annotations,
+/// and content annotations in a single coordinated pass.
+///
+/// For plugins that use `has_unified_display()`, this ensures `unified_display()`
+/// is called only once (via lazy caching in `PluginView`), with the result
+/// partitioned across the spatial, annotation, and content annotation Salsa inputs.
+///
+/// Call this after `prepare_plugin_cache()` instead of calling
+/// `sync_display_directives()`, `sync_plugin_contributions()`, and
+/// `sync_content_annotations()` separately.
+pub fn sync_unified_display(
+    db: &mut KasaneDatabase,
+    state: &AppState,
+    registry: &PluginView<'_>,
+    inputs: &mut SalsaInputHandles,
+) {
+    // Step 1: Spatial directives (display map depends on these)
+    sync_display_directives(db, state, registry, inputs);
+
+    // Step 2: Annotations (depends on display map from step 1)
+    sync_plugin_contributions(db, state, registry, inputs);
+
+    // Step 3: Content annotations (depends on display map)
+    sync_content_annotations(db, state, registry, inputs);
+}
+
 /// Synchronize transform patches from TRANSFORMER plugins into Salsa.
 ///
 /// Collects patches for Buffer and StatusBar targets. When all patches for a

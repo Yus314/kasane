@@ -24,7 +24,7 @@ pub use crate::plugin::{
     SurfaceOrnAnchor, SurfaceOrnKind, Topic, TopicBus, TopicId, TransformContext,
     TransformDescriptor, TransformScope, TransformSubject, TransformTarget, TransparentCommand,
     TransparentEffects, TransparentKeyResult, UnitSource, VirtualTextItem, builtin_plugin,
-    host_plugin, host_plugin_with_provider,
+    debug_overlay::DebugOverlayPlugin, host_plugin, host_plugin_with_provider,
 };
 
 // Element tree
