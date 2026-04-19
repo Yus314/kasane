@@ -86,6 +86,7 @@ pub fn hit_test(element: &Element, layout: &LayoutResult, x: u16, y: u16) -> Opt
         | Element::BufferRef { .. }
         | Element::SlotPlaceholder { .. }
         | Element::Image { .. }
+        | Element::TextPanel { .. }
         | Element::Empty => None,
     }
 }

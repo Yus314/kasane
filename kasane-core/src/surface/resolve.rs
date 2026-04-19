@@ -385,6 +385,7 @@ fn collect_resolved_slot_areas(
         | Element::StyledLine(..)
         | Element::SlotPlaceholder { .. }
         | Element::Image { .. }
+        | Element::TextPanel { .. }
         | Element::Empty
         | Element::BufferRef { .. } => {}
     }
@@ -409,6 +410,7 @@ fn contains_slot_placeholder(element: &Element) -> bool {
         Element::Text(..)
         | Element::StyledLine(..)
         | Element::Image { .. }
+        | Element::TextPanel { .. }
         | Element::Empty
         | Element::BufferRef { .. } => false,
     }
@@ -481,6 +483,7 @@ impl SlotScanner<'_> {
             Element::Text(..)
             | Element::StyledLine(..)
             | Element::Image { .. }
+            | Element::TextPanel { .. }
             | Element::Empty
             | Element::BufferRef { .. } => {}
         }
@@ -693,6 +696,7 @@ fn substitute_slots(
         Element::Text(..)
         | Element::StyledLine(..)
         | Element::Image { .. }
+        | Element::TextPanel { .. }
         | Element::Empty
         | Element::BufferRef { .. } => element,
     }
@@ -735,6 +739,7 @@ fn validate_contribution_tree(
         Element::Text(..)
         | Element::StyledLine(..)
         | Element::Image { .. }
+        | Element::TextPanel { .. }
         | Element::Empty
         | Element::BufferRef { .. } => Ok(()),
     }

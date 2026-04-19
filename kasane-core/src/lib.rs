@@ -20,6 +20,7 @@ pub mod scroll;
 pub mod session;
 pub mod state;
 pub mod surface;
+pub mod syntax;
 #[doc(hidden)]
 pub mod test_support;
 #[cfg(test)]

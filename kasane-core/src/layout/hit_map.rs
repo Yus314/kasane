@@ -100,6 +100,7 @@ fn collect_interactive(
         | Element::BufferRef { .. }
         | Element::SlotPlaceholder { .. }
         | Element::Image { .. }
+        | Element::TextPanel { .. }
         | Element::Empty => {}
     }
 }

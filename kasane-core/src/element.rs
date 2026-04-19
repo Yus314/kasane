@@ -485,6 +485,19 @@ pub enum Element {
         fit: ImageFit,
         opacity: f32,
     },
+    /// Plugin-owned rich text panel with scrolling and optional line numbers.
+    TextPanel {
+        /// Lines of styled text to display.
+        lines: Vec<Line>,
+        /// Vertical scroll offset (number of lines scrolled from top).
+        scroll_offset: usize,
+        /// Optional cursor position (line, column) for highlighting.
+        cursor: Option<(usize, usize)>,
+        /// Whether to display line numbers in a left gutter.
+        line_numbers: bool,
+        /// Whether to wrap long lines (false = truncate).
+        wrap: bool,
+    },
     /// Zero-copy buffer reference: renders lines[line_range] from AppState.
     BufferRef {
         line_range: Range<usize>,
@@ -574,6 +587,16 @@ impl Element {
             size: (width, height),
             fit: ImageFit::default(),
             opacity: 1.0,
+        }
+    }
+
+    pub fn text_panel(lines: Vec<Line>) -> Self {
+        Element::TextPanel {
+            lines,
+            scroll_offset: 0,
+            cursor: None,
+            line_numbers: false,
+            wrap: false,
         }
     }
 

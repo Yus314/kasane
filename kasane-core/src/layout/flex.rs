@@ -81,6 +81,24 @@ pub fn measure(element: &Element, constraints: Constraints, state: &AppState) ->
             width: size.0.clamp(constraints.min_width, constraints.max_width),
             height: size.1.clamp(constraints.min_height, constraints.max_height),
         },
+        Element::TextPanel {
+            lines,
+            line_numbers,
+            ..
+        } => {
+            let gutter_w = if *line_numbers {
+                // digits for max line number + 1 separator
+                let digits = (lines.len().max(1) as f64).log10().floor() as u16 + 1;
+                digits + 1
+            } else {
+                0
+            };
+            let h = (lines.len() as u16).clamp(constraints.min_height, constraints.max_height);
+            Size {
+                width: constraints.max_width.max(gutter_w),
+                height: h,
+            }
+        }
         Element::SlotPlaceholder { .. } => {
             debug_assert!(false, "unresolved SlotPlaceholder reached layout::measure");
             Size {
@@ -225,6 +243,7 @@ pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
         | Element::BufferRef { .. }
         | Element::SlotPlaceholder { .. }
         | Element::Image { .. }
+        | Element::TextPanel { .. }
         | Element::Empty => LayoutResult {
             area,
             children: vec![],
@@ -908,6 +927,72 @@ mod tests {
             5,
         );
         let area = root_area(80, 24);
+        let result = place(&el, area, &state);
+        assert_eq!(result.area, area);
+        assert!(result.children.is_empty());
+    }
+
+    #[test]
+    fn test_measure_text_panel() {
+        let state = default_state();
+        let lines: Vec<Vec<crate::protocol::Atom>> = (0..10)
+            .map(|i| {
+                vec![crate::protocol::Atom {
+                    face: Face::default(),
+                    contents: format!("line {i}").into(),
+                }]
+            })
+            .collect();
+        let el = Element::text_panel(lines);
+        let size = measure(&el, Constraints::loose(80, 24), &state);
+        assert_eq!(size.width, 80);
+        assert_eq!(size.height, 10);
+    }
+
+    #[test]
+    fn test_measure_text_panel_clamped_height() {
+        let state = default_state();
+        let lines: Vec<Vec<crate::protocol::Atom>> = (0..50)
+            .map(|i| {
+                vec![crate::protocol::Atom {
+                    face: Face::default(),
+                    contents: format!("line {i}").into(),
+                }]
+            })
+            .collect();
+        let el = Element::text_panel(lines);
+        let size = measure(&el, Constraints::loose(80, 24), &state);
+        assert_eq!(size.height, 24); // clamped to max
+    }
+
+    #[test]
+    fn test_measure_text_panel_with_line_numbers() {
+        let state = default_state();
+        let lines: Vec<Vec<crate::protocol::Atom>> = (0..100)
+            .map(|i| {
+                vec![crate::protocol::Atom {
+                    face: Face::default(),
+                    contents: format!("line {i}").into(),
+                }]
+            })
+            .collect();
+        let el = Element::TextPanel {
+            lines,
+            scroll_offset: 0,
+            cursor: None,
+            line_numbers: true,
+            wrap: false,
+        };
+        let size = measure(&el, Constraints::loose(80, 24), &state);
+        assert_eq!(size.width, 80); // still fills width
+        assert_eq!(size.height, 24); // clamped
+    }
+
+    #[test]
+    fn test_place_text_panel_leaf() {
+        let state = default_state();
+        let el = Element::text_panel(vec![]);
+        let area = root_area(40, 10);
         let result = place(&el, area, &state);
         assert_eq!(result.area, area);
         assert!(result.children.is_empty());

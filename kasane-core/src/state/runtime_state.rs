@@ -9,13 +9,14 @@ use std::sync::Arc;
 use crate::display::segment_map::SegmentMap;
 use crate::display::{DisplayMapRef, DisplayUnitMap, ProjectionDescriptor};
 use crate::layout::HitMap;
+use crate::syntax::SyntaxProvider;
 
 use super::DragState;
 
 /// Ephemeral runtime state.
 ///
 /// Every field here carries `#[epistemic(runtime)]` semantics.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RuntimeState {
     pub focused: bool,
     pub drag: DragState,
@@ -33,6 +34,27 @@ pub struct RuntimeState {
     pub segment_map: Option<Arc<SegmentMap>>,
     /// Available projection descriptors from all registered plugins.
     pub available_projections: Vec<ProjectionDescriptor>,
+    /// Syntax analysis provider for the current buffer (e.g., tree-sitter).
+    pub syntax_provider: Option<Arc<dyn SyntaxProvider>>,
+}
+
+impl std::fmt::Debug for RuntimeState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RuntimeState")
+            .field("focused", &self.focused)
+            .field("drag", &self.drag)
+            .field("cols", &self.cols)
+            .field("rows", &self.rows)
+            .field("display_scroll_offset", &self.display_scroll_offset)
+            .field(
+                "syntax_provider",
+                &self
+                    .syntax_provider
+                    .as_ref()
+                    .map(|sp| format!("SyntaxProvider(gen={})", sp.generation())),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for RuntimeState {
@@ -48,6 +70,7 @@ impl Default for RuntimeState {
             display_unit_map: None,
             segment_map: None,
             available_projections: Vec::new(),
+            syntax_provider: None,
         }
     }
 }
