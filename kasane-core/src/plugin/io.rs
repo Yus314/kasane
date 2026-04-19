@@ -10,7 +10,75 @@ use super::PluginId;
 #[derive(Debug, Clone)]
 pub enum IoEvent {
     Process(ProcessEvent),
-    // Future: Http(HttpResponse), FileWatch(FileWatchEvent)
+    Http(HttpEvent),
+}
+
+/// Events from an HTTP request initiated by a plugin.
+#[derive(Debug, Clone)]
+pub enum HttpEvent {
+    /// Complete response received (buffered mode).
+    Response {
+        job_id: u64,
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    },
+    /// A chunk of streaming data received (chunked mode).
+    Chunk { job_id: u64, data: Vec<u8> },
+    /// Streaming response complete (chunked mode).
+    StreamEnd { job_id: u64 },
+    /// Request failed or was cancelled.
+    Error { job_id: u64, error: String },
+}
+
+/// HTTP request method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpMethod {
+    Get,
+    Post,
+    Put,
+    Delete,
+    Patch,
+    Head,
+}
+
+/// Whether to buffer the entire response or stream chunks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamingMode {
+    /// Collect the entire response body before delivering.
+    Buffered,
+    /// Deliver each chunk as it arrives via `HttpEvent::Chunk`.
+    Chunked,
+}
+
+/// Configuration for an HTTP request.
+#[derive(Debug, Clone)]
+pub struct HttpRequestConfig {
+    pub url: String,
+    pub method: HttpMethod,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<Vec<u8>>,
+    /// Connection + response timeout in milliseconds.
+    pub timeout_ms: u32,
+    /// Idle timeout between chunks in milliseconds (streaming only).
+    pub idle_timeout_ms: u32,
+    pub streaming: StreamingMode,
+}
+
+/// Abstraction for dispatching HTTP requests from the event loop.
+///
+/// kasane-core uses this trait so it doesn't depend on reqwest or tokio directly.
+pub trait HttpDispatcher {
+    fn request(&mut self, plugin_id: &PluginId, job_id: u64, config: HttpRequestConfig);
+    fn cancel(&mut self, plugin_id: &PluginId, job_id: u64);
+}
+
+/// No-op HttpDispatcher for contexts where HTTP is not available.
+pub struct NullHttpDispatcher;
+
+impl HttpDispatcher for NullHttpDispatcher {
+    fn request(&mut self, _plugin_id: &PluginId, _job_id: u64, _config: HttpRequestConfig) {}
+    fn cancel(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
 }
 
 /// Events from a spawned child process.

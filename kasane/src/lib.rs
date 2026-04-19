@@ -1,6 +1,7 @@
 //! Kasane library: `kasane::run()` entry point, plugin registration, backend selection.
 
 pub mod cli;
+pub mod http_manager;
 mod init_cmd;
 mod locked_wasm_provider;
 pub mod plugin_cmd;
@@ -21,8 +22,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use kasane_core::config::Config;
 use kasane_core::plugin::{
-    PluginFactory, PluginManager, PluginProvider, ProcessDispatcher, ProcessEventSink,
-    StaticPluginProvider, builtin_plugin,
+    HttpDispatcher, PluginFactory, PluginManager, PluginProvider, ProcessDispatcher,
+    ProcessEventSink, StaticPluginProvider, builtin_plugin,
 };
 use kasane_core::session::{SessionManager, SessionSpec};
 
@@ -166,6 +167,11 @@ fn run_inner(
         ))
     };
 
+    let tokio_handle = tokio_rt.handle().clone();
+    let make_http_dispatcher = move |sink: Arc<dyn ProcessEventSink>| -> Box<dyn HttpDispatcher> {
+        Box::new(http_manager::HttpManager::new(tokio_handle.clone(), sink))
+    };
+
     // Daemon mode: separate server (kak -d) and client (kak -c) processes.
     // In -c mode (connecting to an existing session), no daemon is spawned.
     let connect_mode = cli::is_connect_mode(&kak_args);
@@ -202,6 +208,7 @@ fn run_inner(
             session_manager,
             process::spawn_kakoune_for_spec,
             make_dispatcher,
+            make_http_dispatcher,
             plugin_manager,
         ),
         #[cfg(feature = "gui")]
@@ -225,12 +232,14 @@ fn run_inner(
                 session_manager,
                 process::spawn_kakoune_for_spec,
                 make_dispatcher,
+                make_http_dispatcher,
                 plugin_manager,
             )
         }
         #[cfg(not(feature = "gui"))]
         UiMode::Gui => {
             let _ = make_dispatcher;
+            let _ = make_http_dispatcher;
             let _ = plugin_manager;
             eprintln!("GUI support is not included in this binary.");
             eprintln!();

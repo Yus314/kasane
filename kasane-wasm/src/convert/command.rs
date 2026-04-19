@@ -115,6 +115,11 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
         wit::Command::ClosePaneClient(key) => Command::ClosePaneClient {
             pane_key: key.clone(),
         },
+        wit::Command::HttpRequest(config) => Command::HttpRequest {
+            job_id: config.job_id,
+            config: wit_http_request_config_to_config(config),
+        },
+        wit::Command::CancelHttpRequest(job_id) => Command::CancelHttpRequest { job_id: *job_id },
         wit::Command::WorkspaceCommand(ws_cmd) => match ws_cmd {
             wit::WorkspaceCmd::FocusDirection(dir) => {
                 Command::Workspace(kasane_core::workspace::WorkspaceCommand::FocusDirection(
@@ -132,6 +137,31 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
                     delta: config.delta,
                 })
             }
+        },
+    }
+}
+
+fn wit_http_request_config_to_config(
+    config: &wit::HttpRequestConfig,
+) -> kasane_core::plugin::HttpRequestConfig {
+    use kasane_core::plugin::{HttpMethod, StreamingMode};
+    kasane_core::plugin::HttpRequestConfig {
+        url: config.url.clone(),
+        method: match config.method {
+            wit::HttpMethod::Get => HttpMethod::Get,
+            wit::HttpMethod::Post => HttpMethod::Post,
+            wit::HttpMethod::Put => HttpMethod::Put,
+            wit::HttpMethod::Delete => HttpMethod::Delete,
+            wit::HttpMethod::Patch => HttpMethod::Patch,
+            wit::HttpMethod::Head => HttpMethod::Head,
+        },
+        headers: config.headers.clone(),
+        body: config.body.clone(),
+        timeout_ms: config.timeout_ms,
+        idle_timeout_ms: config.idle_timeout_ms,
+        streaming: match config.streaming {
+            wit::StreamingMode::Buffered => StreamingMode::Buffered,
+            wit::StreamingMode::Chunked => StreamingMode::Chunked,
         },
     }
 }

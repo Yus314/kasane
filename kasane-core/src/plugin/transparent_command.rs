@@ -39,9 +39,11 @@ impl TransparentCommand {
     /// All variant names covered by this projection (sorted).
     pub const VARIANT_NAMES: &'static [&'static str] = &[
         "BindSurfaceSession",
+        "CancelHttpRequest",
         "ClosePaneClient",
         "CloseProcessStdin",
         "ExposeVariable",
+        "HttpRequest",
         "InjectInput",
         "KillProcess",
         "PasteClipboard",
@@ -210,6 +212,14 @@ impl TransparentCommand {
 
     pub fn toggle_additive_projection(id: crate::display::ProjectionId) -> Self {
         Self(Command::ToggleAdditiveProjection(id))
+    }
+
+    pub fn http_request(job_id: u64, config: super::io::HttpRequestConfig) -> Self {
+        Self(Command::HttpRequest { job_id, config })
+    }
+
+    pub fn cancel_http_request(job_id: u64) -> Self {
+        Self(Command::CancelHttpRequest { job_id })
     }
 
     pub fn projection_off() -> Self {

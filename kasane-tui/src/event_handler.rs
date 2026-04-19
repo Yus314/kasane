@@ -15,9 +15,9 @@ use kasane_core::event_loop::{
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    AppView, EffectsBatch, IoEvent, PluginDiagnostic, PluginDiagnosticOverlayState, PluginId,
-    PluginManager, PluginRuntime, ProcessDispatcher, ProcessEvent, ProcessEventSink,
-    extract_redraw_flags, report_plugin_diagnostics,
+    AppView, EffectsBatch, HttpDispatcher, HttpEvent, IoEvent, PluginDiagnostic,
+    PluginDiagnosticOverlayState, PluginId, PluginManager, PluginRuntime, ProcessDispatcher,
+    ProcessEvent, ProcessEventSink, extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::CellGrid;
@@ -101,6 +101,7 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub scroll_runtime_session: &'a mut Option<SessionId>,
     pub session_ready_gate: &'a mut SessionReadyGate,
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
+    pub http_dispatcher: &'a mut dyn HttpDispatcher,
     pub plugin_manager: &'a mut PluginManager,
     pub diagnostic_overlay: &'a mut PluginDiagnosticOverlayState,
     /// Names of currently registered per-widget plugins (for hot-reload diffing).
@@ -314,17 +315,31 @@ where
                 &io_event,
                 &AppView::new(ctx.state),
             );
-            // Free per-plugin process count slot when a job finishes
-            let IoEvent::Process(ref pe) = io_event;
-            let finished_job = match pe {
-                ProcessEvent::Exited { job_id, .. } | ProcessEvent::SpawnFailed { job_id, .. } => {
-                    Some(*job_id)
+            // Free per-plugin count slot when a job finishes
+            match &io_event {
+                IoEvent::Process(pe) => {
+                    let finished_job = match pe {
+                        ProcessEvent::Exited { job_id, .. }
+                        | ProcessEvent::SpawnFailed { job_id, .. } => Some(*job_id),
+                        _ => None,
+                    };
+                    if let Some(job_id) = finished_job {
+                        ctx.process_dispatcher
+                            .remove_finished_job(&plugin_id, job_id);
+                    }
                 }
-                _ => None,
-            };
-            if let Some(job_id) = finished_job {
-                ctx.process_dispatcher
-                    .remove_finished_job(&plugin_id, job_id);
+                IoEvent::Http(he) => {
+                    // Terminal HTTP events: Response (buffered), StreamEnd, Error
+                    let finished_job = match he {
+                        HttpEvent::Response { job_id, .. }
+                        | HttpEvent::StreamEnd { job_id }
+                        | HttpEvent::Error { job_id, .. } => Some(*job_id),
+                        HttpEvent::Chunk { .. } => None,
+                    };
+                    if let Some(job_id) = finished_job {
+                        ctx.http_dispatcher.cancel(&plugin_id, job_id);
+                    }
+                }
             }
             event_result_from_runtime_batch(batch, Some(plugin_id))
         }
@@ -781,6 +796,7 @@ where
             session_ready_gate: Some(&mut *ctx.session_ready_gate),
             scroll_plan_sink: &mut |plan| scroll_runtime.enqueue(plan),
             process_dispatcher: ctx.process_dispatcher,
+            http_dispatcher: ctx.http_dispatcher,
             workspace_changed: &mut workspace_changed,
             scroll_amount: ctx.scroll_amount,
         };

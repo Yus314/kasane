@@ -23,8 +23,9 @@ use kasane_core::event_loop::{
 use kasane_core::input::{InputEvent, resolve_text_input_target};
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    AppView, Command, IoEvent, PluginDiagnosticOverlayState, PluginManager, PluginRuntime,
-    ProcessDispatcher, ProcessEvent, extract_redraw_flags, report_plugin_diagnostics,
+    AppView, Command, HttpDispatcher, HttpEvent, IoEvent, PluginDiagnosticOverlayState,
+    PluginManager, PluginRuntime, ProcessDispatcher, ProcessEvent, extract_redraw_flags,
+    report_plugin_diagnostics,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::{RenderResult, SceneCache};
@@ -110,6 +111,8 @@ where
 
     // Process dispatcher for plugin process execution
     process_dispatcher: Box<dyn ProcessDispatcher>,
+    // HTTP dispatcher for plugin HTTP requests
+    http_dispatcher: Box<dyn HttpDispatcher>,
 
     // Salsa database
     salsa_db: KasaneDatabase,
@@ -122,6 +125,7 @@ where
     W: Write + Send + 'static,
     C: Send + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Config,
         mut session_manager: SessionManager<R, W, C>,
@@ -130,6 +134,7 @@ where
         plugin_manager: &mut PluginManager,
         registry: PluginRuntime,
         process_dispatcher: Box<dyn ProcessDispatcher>,
+        http_dispatcher: Box<dyn HttpDispatcher>,
     ) -> Result<Self> {
         let scroll_amount = config.scroll.lines_per_scroll;
 
@@ -249,6 +254,7 @@ where
             event_proxy: event_proxy.clone(),
             gui_sink,
             process_dispatcher,
+            http_dispatcher,
             salsa_db,
             salsa_handles,
         })
@@ -508,16 +514,30 @@ where
                         &io_event,
                         &AppView::new(&self.state),
                     );
-                    // Free per-plugin process count slot when a job finishes
-                    let IoEvent::Process(ref pe) = io_event;
-                    let finished_job = match pe {
-                        ProcessEvent::Exited { job_id, .. }
-                        | ProcessEvent::SpawnFailed { job_id, .. } => Some(*job_id),
-                        _ => None,
-                    };
-                    if let Some(job_id) = finished_job {
-                        self.process_dispatcher
-                            .remove_finished_job(&plugin_id, job_id);
+                    // Free per-plugin count slot when a job finishes
+                    match &io_event {
+                        IoEvent::Process(pe) => {
+                            let finished_job = match pe {
+                                ProcessEvent::Exited { job_id, .. }
+                                | ProcessEvent::SpawnFailed { job_id, .. } => Some(*job_id),
+                                _ => None,
+                            };
+                            if let Some(job_id) = finished_job {
+                                self.process_dispatcher
+                                    .remove_finished_job(&plugin_id, job_id);
+                            }
+                        }
+                        IoEvent::Http(he) => {
+                            let finished_job = match he {
+                                HttpEvent::Response { job_id, .. }
+                                | HttpEvent::StreamEnd { job_id }
+                                | HttpEvent::Error { job_id, .. } => Some(*job_id),
+                                HttpEvent::Chunk { .. } => None,
+                            };
+                            if let Some(job_id) = finished_job {
+                                self.http_dispatcher.cancel(&plugin_id, job_id);
+                            }
+                        }
                     }
                     if self.apply_runtime_batch(batch, Some(&plugin_id)) {
                         event_loop.exit();
@@ -734,6 +754,7 @@ where
                 session_ready_gate: Some(&mut self.session_ready_gate),
                 scroll_plan_sink: &mut |plan| scroll_runtime.enqueue(plan),
                 process_dispatcher: &mut *self.process_dispatcher,
+                http_dispatcher: &mut *self.http_dispatcher,
                 workspace_changed: &mut workspace_changed,
                 scroll_amount: self.scroll_amount,
             };

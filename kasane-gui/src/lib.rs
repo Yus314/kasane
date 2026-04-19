@@ -99,6 +99,9 @@ pub fn run_gui<R, W, C>(
     create_process_dispatcher: impl FnOnce(
         Arc<dyn ProcessEventSink>,
     ) -> Box<dyn kasane_core::plugin::ProcessDispatcher>,
+    create_http_dispatcher: impl FnOnce(
+        Arc<dyn ProcessEventSink>,
+    ) -> Box<dyn kasane_core::plugin::HttpDispatcher>,
     mut plugin_manager: PluginManager,
 ) -> Result<()>
 where
@@ -129,7 +132,8 @@ where
     let registry = kasane_core::plugin::PluginRuntime::new();
     // Process dispatcher for plugin-spawned processes
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(GuiProcessEventSink(proxy.clone()));
-    let process_dispatcher = create_process_dispatcher(process_sink);
+    let process_dispatcher = create_process_dispatcher(Arc::clone(&process_sink));
+    let http_dispatcher = create_http_dispatcher(process_sink);
 
     // Kakoune reader thread: forward JSON-RPC messages into the winit event loop
     let gui_sink = GuiEventSink(proxy.clone());
@@ -143,6 +147,7 @@ where
         &mut plugin_manager,
         registry,
         process_dispatcher,
+        http_dispatcher,
     )?;
     event_loop.run_app(&mut app_handler)?;
     Ok(())

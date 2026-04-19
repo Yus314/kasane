@@ -201,6 +201,9 @@ pub(super) fn handle_deferred_commands_inner(
             | Command::InjectInput(_) => {
                 handle_session_pane_command(cmd, ctx, command_source_plugin, depth)
             }
+            Command::HttpRequest { .. } | Command::CancelHttpRequest { .. } => {
+                handle_http_command(cmd, ctx, command_source_plugin, depth)
+            }
             Command::StartProcessTask { .. } => {
                 handle_start_process_task(cmd, ctx, command_source_plugin, depth)
             }
@@ -737,6 +740,53 @@ fn handle_session_pane_command(
                 );
             } else if dispatch_input_event(ctx, input_event, depth) {
                 return Some(true);
+            }
+        }
+        _ => unreachable!(),
+    }
+    Some(false)
+}
+
+/// Handle HTTP request lifecycle commands: issue and cancel HTTP requests.
+fn handle_http_command(
+    cmd: Command,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+    depth: usize,
+) -> Option<bool> {
+    match cmd {
+        Command::HttpRequest { job_id, config } => {
+            if let Some(plugin_id) = command_source_plugin {
+                if !ctx
+                    .registry
+                    .plugin_has_authority(plugin_id, PluginAuthorities::HTTP_REQUEST)
+                {
+                    tracing::warn!(
+                        plugin = plugin_id.0.as_str(),
+                        "HttpRequest denied: HTTP_REQUEST authority not granted"
+                    );
+                    let fail_event =
+                        crate::plugin::IoEvent::Http(crate::plugin::HttpEvent::Error {
+                            job_id,
+                            error: "HTTP_REQUEST authority not granted".to_string(),
+                        });
+                    let batch = ctx.registry.deliver_io_event_batch(
+                        plugin_id,
+                        &fail_event,
+                        &AppView::new(ctx.state),
+                    );
+                    if super::dispatch::apply_runtime_batch(batch, ctx, Some(plugin_id), depth + 1)
+                    {
+                        return Some(true);
+                    }
+                } else {
+                    ctx.http_dispatcher.request(plugin_id, job_id, config);
+                }
+            }
+        }
+        Command::CancelHttpRequest { job_id } => {
+            if let Some(plugin_id) = command_source_plugin {
+                ctx.http_dispatcher.cancel(plugin_id, job_id);
             }
         }
         _ => unreachable!(),

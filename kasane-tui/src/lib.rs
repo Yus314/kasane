@@ -22,8 +22,9 @@ use kasane_core::event_loop::{
     sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::plugin::{
-    AppView, CommandResult, PluginDiagnosticOverlayState, PluginManager, PluginRuntime,
-    ProcessDispatcher, ProcessEventSink, execute_commands, report_plugin_diagnostics,
+    AppView, CommandResult, HttpDispatcher, PluginDiagnosticOverlayState, PluginManager,
+    PluginRuntime, ProcessDispatcher, ProcessEventSink, execute_commands,
+    report_plugin_diagnostics,
 };
 use kasane_core::render::{CellGrid, ImageProtocol, ImageRequest};
 use kasane_core::render::{RenderPipelineOptions, render_pipeline_cached};
@@ -91,6 +92,7 @@ pub fn run_tui<R, W, C>(
     mut session_manager: SessionManager<R, W, C>,
     spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
     create_process_dispatcher: impl FnOnce(Arc<dyn ProcessEventSink>) -> Box<dyn ProcessDispatcher>,
+    create_http_dispatcher: impl FnOnce(Arc<dyn ProcessEventSink>) -> Box<dyn HttpDispatcher>,
     mut plugin_manager: PluginManager,
 ) -> Result<()>
 where
@@ -331,9 +333,10 @@ where
     let mut scroll_runtime = ScrollRuntime::default();
     let mut scroll_runtime_session = session_manager.active_session_id();
 
-    // Process dispatcher for plugin-spawned processes
+    // Process and HTTP dispatchers for plugin-spawned processes and HTTP requests
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(TuiProcessEventSink(tx.clone()));
-    let mut process_dispatcher = create_process_dispatcher(process_sink);
+    let mut process_dispatcher = create_process_dispatcher(Arc::clone(&process_sink));
+    let mut http_dispatcher = create_http_dispatcher(process_sink);
 
     let init_batch = registry.init_all_batch(&AppView::new(&state));
     let mut session_ready_gate = SessionReadyGate::default();
@@ -455,6 +458,7 @@ where
                 scroll_runtime_session: &mut scroll_runtime_session,
                 session_ready_gate: &mut session_ready_gate,
                 process_dispatcher: &mut *process_dispatcher,
+                http_dispatcher: &mut *http_dispatcher,
                 plugin_manager: &mut plugin_manager,
                 diagnostic_overlay: &mut diagnostic_overlay,
                 widget_names: &mut widget_names,

@@ -341,8 +341,7 @@ pub fn sync_salsa_for_render(
 ) {
     crate::salsa_sync::sync_inputs_from_state(db, state, handles);
     let view = registry.view();
-    crate::salsa_sync::sync_display_directives(db, state, &view, handles);
-    crate::salsa_sync::sync_plugin_contributions(db, state, &view, handles);
+    crate::salsa_sync::sync_unified_display(db, state, &view, handles);
     crate::salsa_sync::sync_transform_patches(db, state, &view, handles);
 }
 

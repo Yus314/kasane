@@ -14,7 +14,7 @@ use crate::surface::SurfacePlacementRequest;
 use crate::workspace::{Placement, WorkspaceCommand};
 
 use super::PluginId;
-use super::io::StdinMode;
+use super::io::{HttpRequestConfig, StdinMode};
 use super::setting::SettingValue;
 
 // =============================================================================
@@ -67,6 +67,8 @@ bitflags! {
         const THEME               = 1 << 12;
         /// Exposes a variable to the widget system (ExposeVariable).
         const VARIABLE            = 1 << 13;
+        /// Manages HTTP requests (HttpRequest, CancelHttpRequest).
+        const HTTP_MANAGEMENT     = 1 << 14;
 
         /// Categories that trigger cascade re-entry into the event loop.
         /// Used for transitive footprint computation.
@@ -236,6 +238,15 @@ pub enum Command {
         name: String,
         value: crate::widget::types::Value,
     },
+    /// Issue an HTTP request. The response is delivered via `IoEvent::Http`.
+    HttpRequest {
+        job_id: u64,
+        config: HttpRequestConfig,
+    },
+    /// Cancel an in-flight HTTP request.
+    CancelHttpRequest {
+        job_id: u64,
+    },
     /// Set (or clear) the active structural projection.
     SetStructuralProjection(Option<crate::display::ProjectionId>),
     /// Toggle an additive projection on/off.
@@ -252,10 +263,12 @@ impl Command {
     /// All variant names of this enum.
     pub const ALL_VARIANT_NAMES: &'static [&'static str] = &[
         "BindSurfaceSession",
+        "CancelHttpRequest",
         "ClosePaneClient",
         "CloseProcessStdin",
         "EditBuffer",
         "ExposeVariable",
+        "HttpRequest",
         "InjectInput",
         "InsertText",
         "KillProcess",
@@ -345,6 +358,8 @@ impl Command {
             Command::UnbindSurfaceSession { .. } => false,
             Command::StartProcessTask { .. } => false,
             Command::ExposeVariable { .. } => false,
+            Command::HttpRequest { .. } => false,
+            Command::CancelHttpRequest { .. } => false,
             Command::SetStructuralProjection(_) => false,
             Command::ToggleAdditiveProjection(_) => false,
             Command::ProjectionOff => false,
@@ -386,6 +401,8 @@ impl Command {
             Command::BindSurfaceSession { .. } => false,
             Command::UnbindSurfaceSession { .. } => false,
             Command::StartProcessTask { .. } => false,
+            Command::HttpRequest { .. } => false,
+            Command::CancelHttpRequest { .. } => false,
             Command::ExposeVariable { .. } => false,
             Command::SetStructuralProjection(_) => true,
             Command::ToggleAdditiveProjection(_) => true,
@@ -425,6 +442,8 @@ impl Command {
             Command::ClosePaneClient { .. } => true,
             Command::BindSurfaceSession { .. } => true,
             Command::UnbindSurfaceSession { .. } => true,
+            Command::HttpRequest { .. } => true,
+            Command::CancelHttpRequest { .. } => true,
             Command::StartProcessTask { .. } => true,
             Command::ExposeVariable { .. } => true,
             Command::SetStructuralProjection(_) => true,
@@ -467,6 +486,8 @@ impl Command {
             Command::Quit => EffectCategory::QUIT,
             Command::PasteClipboard => EffectCategory::CLIPBOARD,
             Command::RegisterThemeTokens(_) => EffectCategory::THEME,
+            Command::HttpRequest { .. } => EffectCategory::HTTP_MANAGEMENT,
+            Command::CancelHttpRequest { .. } => EffectCategory::HTTP_MANAGEMENT,
             Command::ExposeVariable { .. } => EffectCategory::VARIABLE,
             Command::SetStructuralProjection(_) => EffectCategory::CONFIG_MUTATION,
             Command::ToggleAdditiveProjection(_) => EffectCategory::CONFIG_MUTATION,
@@ -505,6 +526,8 @@ impl Command {
             Command::BindSurfaceSession { .. } => "BindSurfaceSession",
             Command::UnbindSurfaceSession { .. } => "UnbindSurfaceSession",
             Command::StartProcessTask { .. } => "StartProcessTask",
+            Command::HttpRequest { .. } => "HttpRequest",
+            Command::CancelHttpRequest { .. } => "CancelHttpRequest",
             Command::ExposeVariable { .. } => "ExposeVariable",
             Command::SetStructuralProjection(_) => "SetStructuralProjection",
             Command::ToggleAdditiveProjection(_) => "ToggleAdditiveProjection",
@@ -583,6 +606,8 @@ pub fn execute_commands(
             | Command::CloseProcessStdin { .. }
             | Command::KillProcess { .. }
             | Command::ResizePty { .. }
+            | Command::HttpRequest { .. }
+            | Command::CancelHttpRequest { .. }
             | Command::InjectInput(_)
             | Command::SpawnPaneClient { .. }
             | Command::ClosePaneClient { .. }

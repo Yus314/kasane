@@ -122,6 +122,7 @@ impl PluginBackend for IoHandlerPlugin {
                     Effects::default()
                 }
             },
+            IoEvent::Http(_) => Effects::default(),
         }
     }
 }

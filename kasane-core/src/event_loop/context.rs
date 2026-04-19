@@ -3,7 +3,8 @@
 use crate::clipboard::SystemClipboard;
 use crate::layout::Rect;
 use crate::plugin::{
-    AppView, IoEvent, PluginAuthorities, PluginId, PluginRuntime, ProcessDispatcher, ProcessEvent,
+    AppView, HttpDispatcher, IoEvent, PluginAuthorities, PluginId, PluginRuntime,
+    ProcessDispatcher, ProcessEvent,
 };
 use crate::scroll::ScrollPlan;
 use crate::state::{AppState, DirtyFlags};
@@ -29,6 +30,7 @@ pub struct DeferredContext<'a> {
     pub session_ready_gate: Option<&'a mut SessionReadyGate>,
     pub scroll_plan_sink: &'a mut dyn FnMut(ScrollPlan),
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
+    pub http_dispatcher: &'a mut dyn HttpDispatcher,
     pub workspace_changed: &'a mut bool,
     /// Scroll quantum (lines per scroll event), needed for injected input re-dispatch.
     pub scroll_amount: i32,
