@@ -1,0 +1,18 @@
+[package]
+name = "kasane-wasm-selection-algebra"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+kasane-plugin-sdk = { path = "../../../kasane-plugin-sdk" }
+wit-bindgen = "0.53"
+regex-lite = "0.1"
+
+[profile.release]
+opt-level = "s"
+lto = true

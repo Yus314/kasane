@@ -1,0 +1,19 @@
+[plugin]
+id = "selection_algebra"
+abi_version = "0.25.0"
+
+[handlers]
+flags = ["annotator", "contributor", "overlay", "input-handler"]
+
+[view]
+deps = ["status", "buffer-content", "buffer-cursor", "settings"]
+
+[settings.enabled]
+type = "bool"
+default = true
+description = "Enable visual selection algebra preview"
+
+[settings.diff_fade_ms]
+type = "integer"
+default = 2000
+description = "Milliseconds before selection diff highlight fades (0 = manual clear only)"
