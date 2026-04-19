@@ -799,6 +799,62 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 consumed_redraw()
             }
 
+            // ----- HTTP request helpers -----
+
+            /// Build a simple HTTP GET command.
+            pub fn http_get(job_id: u64, url: &str) -> Command {
+                Command::HttpRequest(HttpRequestConfig {
+                    job_id,
+                    url: url.to_string(),
+                    method: HttpMethod::Get,
+                    headers: vec![],
+                    body: None,
+                    timeout_ms: 30_000,
+                    idle_timeout_ms: 0,
+                    streaming: StreamingMode::Buffered,
+                })
+            }
+
+            /// Build an HTTP POST command with a body.
+            pub fn http_post(job_id: u64, url: &str, body: Vec<u8>) -> Command {
+                Command::HttpRequest(HttpRequestConfig {
+                    job_id,
+                    url: url.to_string(),
+                    method: HttpMethod::Post,
+                    headers: vec![],
+                    body: Some(body),
+                    timeout_ms: 30_000,
+                    idle_timeout_ms: 0,
+                    streaming: StreamingMode::Buffered,
+                })
+            }
+
+            /// Build an HTTP POST command with a JSON body.
+            ///
+            /// Automatically sets `Content-Type: application/json`.
+            pub fn http_post_json(job_id: u64, url: &str, json_body: &str) -> Command {
+                Command::HttpRequest(HttpRequestConfig {
+                    job_id,
+                    url: url.to_string(),
+                    method: HttpMethod::Post,
+                    headers: vec![("content-type".to_string(), "application/json".to_string())],
+                    body: Some(json_body.as_bytes().to_vec()),
+                    timeout_ms: 30_000,
+                    idle_timeout_ms: 0,
+                    streaming: StreamingMode::Buffered,
+                })
+            }
+
+            /// Build an HTTP request command from a full configuration.
+            pub fn http_request(config: HttpRequestConfig) -> Command {
+                Command::HttpRequest(config)
+            }
+
+            /// Build a cancel-HTTP-request command.
+            pub fn cancel_http(job_id: u64) -> Command {
+                Command::CancelHttpRequest(job_id)
+            }
+
             // --- WIT → SDK event conversion ---
 
             /// Convert WIT ProcessEventKind to SDK IoEventKind.

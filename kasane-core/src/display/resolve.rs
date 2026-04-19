@@ -318,6 +318,218 @@ pub fn partition_by_category(set: &DirectiveSet) -> CategorizedDirectives {
 }
 
 // =============================================================================
+// Inline directive resolution
+// =============================================================================
+
+use std::collections::HashMap;
+
+use crate::protocol::Face;
+use crate::render::inline_decoration::{InlineDecoration, InlineOp};
+
+/// Resolve inline directives from multiple plugins into per-line `InlineDecoration`.
+///
+/// Rules:
+/// - **StyleInline overlap**: overlapping byte ranges from multiple plugins are
+///   split at boundaries. Faces are resolved by layering higher-priority
+///   plugins' faces over lower-priority ones via `resolve_face()`.
+/// - **HideInline**: merged into the final ops. If a Hide overlaps a Style,
+///   Hide wins (hidden content cannot be styled).
+/// - **InsertInline**: sorted by `(byte_offset, priority)` and emitted as-is.
+///
+/// Guarantees INV-INLINE-1 (sorted by sort_key) and INV-INLINE-2 (non-overlapping
+/// range-based ops) on the output.
+pub fn resolve_inline(directives: &[TaggedDirective]) -> HashMap<usize, InlineDecoration> {
+    // Group by line
+    let mut per_line: HashMap<usize, Vec<&TaggedDirective>> = HashMap::new();
+    for td in directives {
+        let line = match &td.directive {
+            DisplayDirective::InsertInline { line, .. }
+            | DisplayDirective::HideInline { line, .. }
+            | DisplayDirective::StyleInline { line, .. } => *line,
+            _ => continue,
+        };
+        per_line.entry(line).or_default().push(td);
+    }
+
+    let mut result = HashMap::new();
+    for (line, tds) in per_line {
+        let ops = resolve_inline_line(&tds);
+        if !ops.is_empty() {
+            result.insert(line, InlineDecoration::new(ops));
+        }
+    }
+    result
+}
+
+/// Resolve inline directives for a single line.
+fn resolve_inline_line(directives: &[&TaggedDirective]) -> Vec<InlineOp> {
+    let mut inserts: Vec<(usize, i16, &TaggedDirective)> = Vec::new();
+    let mut styles: Vec<(Range<usize>, Face, i16, &PluginId)> = Vec::new();
+    let mut hides: Vec<Range<usize>> = Vec::new();
+
+    for td in directives {
+        match &td.directive {
+            DisplayDirective::InsertInline { byte_offset, .. } => {
+                inserts.push((*byte_offset, td.priority, td));
+            }
+            DisplayDirective::StyleInline {
+                byte_range, face, ..
+            } => {
+                styles.push((byte_range.clone(), *face, td.priority, &td.plugin_id));
+            }
+            DisplayDirective::HideInline { byte_range, .. } => {
+                hides.push(byte_range.clone());
+            }
+            _ => {}
+        }
+    }
+
+    // Sort inserts by (byte_offset, priority desc, plugin_id) for determinism
+    inserts.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+
+    // Merge hidden ranges into a sorted, non-overlapping set
+    let hidden = merge_ranges(&mut hides);
+
+    // Resolve overlapping StyleInline into non-overlapping segments
+    let resolved_styles = resolve_style_overlaps(&styles, &hidden);
+
+    // Merge all ops into a single sorted vec
+    let mut ops: Vec<InlineOp> = Vec::new();
+
+    // Add Inserts (filtering out those inside hidden ranges)
+    for (offset, _priority, td) in &inserts {
+        if let DisplayDirective::InsertInline { content, .. } = &td.directive {
+            // InsertInline inside a Hide is still emitted (S1 semantics) — keep it
+            ops.push(InlineOp::Insert {
+                at: *offset,
+                content: content.clone(),
+            });
+        }
+    }
+
+    // Add Hide ops
+    for range in &hidden {
+        ops.push(InlineOp::Hide {
+            range: range.clone(),
+        });
+    }
+
+    // Add resolved Style ops
+    for (range, face) in &resolved_styles {
+        ops.push(InlineOp::Style {
+            range: range.clone(),
+            face: *face,
+        });
+    }
+
+    // Sort by sort_key to satisfy INV-INLINE-1
+    ops.sort_by_key(|op| op.sort_key());
+
+    ops
+}
+
+/// Merge a list of ranges into sorted, non-overlapping ranges.
+fn merge_ranges(ranges: &mut [Range<usize>]) -> Vec<Range<usize>> {
+    if ranges.is_empty() {
+        return Vec::new();
+    }
+    ranges.sort_by_key(|r| r.start);
+    let mut merged: Vec<Range<usize>> = Vec::new();
+    for r in ranges.iter() {
+        if let Some(last) = merged.last_mut()
+            && r.start <= last.end
+        {
+            last.end = last.end.max(r.end);
+        } else {
+            merged.push(r.clone());
+        }
+    }
+    merged
+}
+
+/// Resolve overlapping StyleInline directives into non-overlapping segments.
+///
+/// Uses a sweep-line approach: collect all boundary points, sort them, then
+/// for each segment between consecutive boundaries, layer the applicable
+/// styles by priority (higher priority = applied last via resolve_face).
+fn resolve_style_overlaps(
+    styles: &[(Range<usize>, Face, i16, &PluginId)],
+    hidden: &[Range<usize>],
+) -> Vec<(Range<usize>, Face)> {
+    if styles.is_empty() {
+        return Vec::new();
+    }
+
+    // Collect all boundary points
+    let mut points = std::collections::BTreeSet::new();
+    for (range, _, _, _) in styles {
+        points.insert(range.start);
+        points.insert(range.end);
+    }
+    // Also split at hidden boundaries to exclude hidden regions
+    for range in hidden {
+        points.insert(range.start);
+        points.insert(range.end);
+    }
+
+    let points: Vec<usize> = points.into_iter().collect();
+    let mut result = Vec::new();
+
+    for window in points.windows(2) {
+        let seg_start = window[0];
+        let seg_end = window[1];
+        if seg_start >= seg_end {
+            continue;
+        }
+
+        // Skip if this segment is inside a hidden range
+        if hidden
+            .iter()
+            .any(|h| h.start <= seg_start && seg_end <= h.end)
+        {
+            continue;
+        }
+
+        // Collect all styles that cover this segment, sorted by priority ascending
+        let mut applicable: Vec<(i16, &PluginId, Face)> = styles
+            .iter()
+            .filter(|(range, _, _, _)| range.start <= seg_start && seg_end <= range.end)
+            .map(|(_, face, priority, plugin_id)| (*priority, *plugin_id, *face))
+            .collect();
+
+        if applicable.is_empty() {
+            continue;
+        }
+
+        // Sort by priority ascending, then plugin_id — lower priority is base
+        applicable.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(b.1)));
+
+        // Layer faces: start from lowest priority, resolve each subsequent face over it
+        let mut merged_face = applicable[0].2;
+        for &(_, _, face) in &applicable[1..] {
+            merged_face = crate::protocol::resolve_face(&face, &merged_face);
+        }
+
+        result.push((seg_start..seg_end, merged_face));
+    }
+
+    // Merge adjacent segments with the same face
+    let mut merged: Vec<(Range<usize>, Face)> = Vec::new();
+    for (range, face) in result {
+        if let Some(last) = merged.last_mut()
+            && last.0.end == range.start
+            && last.1 == face
+        {
+            last.0.end = range.end;
+        } else {
+            merged.push((range, face));
+        }
+    }
+
+    merged
+}
+
+// =============================================================================
 // Internal helpers
 // =============================================================================
 

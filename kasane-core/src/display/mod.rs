@@ -43,7 +43,7 @@ pub use projection::{
 // InverseResult is defined in this module (not a submodule re-export).
 pub use resolve::{
     CategorizedDirectives, DirectiveGroup, DirectiveSet, ResolveCache, TaggedDirective,
-    partition_by_category, partition_directives, resolve, resolve_incremental,
+    partition_by_category, partition_directives, resolve, resolve_incremental, resolve_inline,
 };
 pub use stability::{ContentAnnotationStabilityMonitor, DirectiveStabilityMonitor};
 pub use unit::{

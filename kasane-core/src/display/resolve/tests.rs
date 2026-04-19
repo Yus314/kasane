@@ -239,6 +239,216 @@ fn resolve_fold_hide_disjoint_both_kept() {
     assert_eq!(hide_count, 1);
 }
 
+// --- resolve_inline tests ---
+
+#[test]
+fn resolve_inline_empty() {
+    let result = super::resolve_inline(&[]);
+    assert!(result.is_empty());
+}
+
+#[test]
+fn resolve_inline_single_style() {
+    use crate::protocol::Color;
+    let face = Face {
+        fg: Color::Named(crate::protocol::NamedColor::Red),
+        ..Face::default()
+    };
+    let td = TaggedDirective {
+        directive: DisplayDirective::StyleInline {
+            line: 5,
+            byte_range: 3..8,
+            face,
+        },
+        priority: 0,
+        plugin_id: pid("a"),
+    };
+    let result = super::resolve_inline(&[td]);
+    assert_eq!(result.len(), 1);
+    let deco = &result[&5];
+    assert_eq!(deco.ops().len(), 1);
+    match &deco.ops()[0] {
+        crate::render::inline_decoration::InlineOp::Style { range, face: f } => {
+            assert_eq!(range, &(3..8));
+            assert_eq!(f.fg, Color::Named(crate::protocol::NamedColor::Red));
+        }
+        _ => panic!("expected Style op"),
+    }
+}
+
+#[test]
+fn resolve_inline_overlapping_styles_split() {
+    use crate::protocol::Color;
+    let red_face = Face {
+        fg: Color::Named(crate::protocol::NamedColor::Red),
+        ..Face::default()
+    };
+    let blue_face = Face {
+        bg: Color::Named(crate::protocol::NamedColor::Blue),
+        ..Face::default()
+    };
+    // Plugin "a" styles 2..8, plugin "b" styles 5..12. Overlap at 5..8.
+    let tds = vec![
+        TaggedDirective {
+            directive: DisplayDirective::StyleInline {
+                line: 0,
+                byte_range: 2..8,
+                face: red_face,
+            },
+            priority: 0,
+            plugin_id: pid("a"),
+        },
+        TaggedDirective {
+            directive: DisplayDirective::StyleInline {
+                line: 0,
+                byte_range: 5..12,
+                face: blue_face,
+            },
+            priority: 10,
+            plugin_id: pid("b"),
+        },
+    ];
+    let result = super::resolve_inline(&tds);
+    let deco = &result[&0];
+    // Should have 3 segments: [2..5] red only, [5..8] red+blue merged, [8..12] blue only
+    let ops = deco.ops();
+    assert_eq!(ops.len(), 3, "expected 3 style segments, got {:?}", ops);
+
+    // Verify non-overlapping ranges (INV-INLINE-2)
+    let mut prev_end = 0;
+    for op in ops {
+        if let crate::render::inline_decoration::InlineOp::Style { range, .. } = op {
+            assert!(
+                range.start >= prev_end,
+                "overlapping range: prev_end={prev_end}, start={}",
+                range.start
+            );
+            prev_end = range.end;
+        }
+    }
+}
+
+#[test]
+fn resolve_inline_hide_suppresses_style() {
+    use crate::protocol::Color;
+    let face = Face {
+        fg: Color::Named(crate::protocol::NamedColor::Red),
+        ..Face::default()
+    };
+    // Style 2..10, Hide 4..7 — style should be split around the hidden region
+    let tds = vec![
+        TaggedDirective {
+            directive: DisplayDirective::StyleInline {
+                line: 0,
+                byte_range: 2..10,
+                face,
+            },
+            priority: 0,
+            plugin_id: pid("a"),
+        },
+        TaggedDirective {
+            directive: DisplayDirective::HideInline {
+                line: 0,
+                byte_range: 4..7,
+            },
+            priority: 0,
+            plugin_id: pid("b"),
+        },
+    ];
+    let result = super::resolve_inline(&tds);
+    let deco = &result[&0];
+    let ops = deco.ops();
+
+    // Should have: Style{2..4}, Hide{4..7}, Style{7..10}
+    let style_count = ops
+        .iter()
+        .filter(|o| matches!(o, crate::render::inline_decoration::InlineOp::Style { .. }))
+        .count();
+    let hide_count = ops
+        .iter()
+        .filter(|o| matches!(o, crate::render::inline_decoration::InlineOp::Hide { .. }))
+        .count();
+    assert_eq!(style_count, 2);
+    assert_eq!(hide_count, 1);
+}
+
+#[test]
+fn resolve_inline_insert_ordering() {
+    use crate::protocol::Color;
+    let red_face = Face {
+        fg: Color::Named(crate::protocol::NamedColor::Red),
+        ..Face::default()
+    };
+    let tds = vec![
+        TaggedDirective {
+            directive: DisplayDirective::InsertInline {
+                line: 0,
+                byte_offset: 5,
+                content: vec![Atom {
+                    face: red_face,
+                    contents: "X".into(),
+                }],
+                interaction: crate::display::InlineInteraction::None,
+            },
+            priority: 0,
+            plugin_id: pid("a"),
+        },
+        TaggedDirective {
+            directive: DisplayDirective::InsertInline {
+                line: 0,
+                byte_offset: 5,
+                content: vec![Atom {
+                    face: Face::default(),
+                    contents: "Y".into(),
+                }],
+                interaction: crate::display::InlineInteraction::None,
+            },
+            priority: 10,
+            plugin_id: pid("b"),
+        },
+    ];
+    let result = super::resolve_inline(&tds);
+    let deco = &result[&0];
+    let ops = deco.ops();
+    assert_eq!(ops.len(), 2);
+    // Higher priority first (priority desc sort)
+    match &ops[0] {
+        crate::render::inline_decoration::InlineOp::Insert { content, .. } => {
+            assert_eq!(content[0].contents.as_str(), "Y");
+        }
+        _ => panic!("expected Insert"),
+    }
+}
+
+#[test]
+fn resolve_inline_multi_line() {
+    let face = Face::default();
+    let tds = vec![
+        TaggedDirective {
+            directive: DisplayDirective::StyleInline {
+                line: 0,
+                byte_range: 0..5,
+                face,
+            },
+            priority: 0,
+            plugin_id: pid("a"),
+        },
+        TaggedDirective {
+            directive: DisplayDirective::StyleInline {
+                line: 3,
+                byte_range: 2..7,
+                face,
+            },
+            priority: 0,
+            plugin_id: pid("a"),
+        },
+    ];
+    let result = super::resolve_inline(&tds);
+    assert_eq!(result.len(), 2);
+    assert!(result.contains_key(&0));
+    assert!(result.contains_key(&3));
+}
+
 // --- Phase 5: proptest for resolve → build pipeline ---
 
 fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirective> {

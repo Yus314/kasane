@@ -1,12 +1,30 @@
+use std::ops::Range;
+
 use super::Rect;
 use super::flex::LayoutResult;
 use crate::element::{Element, InteractiveId};
+
+/// Cell-level hit entry for inline interactive content within buffer lines.
+///
+/// Unlike element-level `(Rect, InteractiveId)` entries, cell entries track
+/// interactive regions at the character column granularity, used for
+/// `InlineInteraction::Action` on `InsertInline` directives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CellHitEntry {
+    /// Display row (0-based).
+    pub line: u16,
+    /// Column range (exclusive end) within the display row.
+    pub col_range: Range<u16>,
+    /// The interactive ID bound to this inline region.
+    pub id: InteractiveId,
+}
 
 /// Flat map of interactive regions for efficient mouse hit testing.
 /// Entries are stored in depth-first order (deepest/topmost last).
 #[derive(Debug, Clone)]
 pub struct HitMap {
     entries: Vec<(Rect, InteractiveId)>,
+    cell_entries: Vec<CellHitEntry>,
 }
 
 impl Default for HitMap {
@@ -19,6 +37,7 @@ impl HitMap {
     pub fn new() -> Self {
         HitMap {
             entries: Vec::new(),
+            cell_entries: Vec::new(),
         }
     }
 
@@ -27,7 +46,26 @@ impl HitMap {
     }
 
     /// Hit test returning both the InteractiveId and its bounding Rect.
+    ///
+    /// Checks element-level entries first (reverse order, topmost wins),
+    /// then falls back to cell-level entries for inline interactive regions.
     pub fn test_with_rect(&self, x: u16, y: u16) -> Option<(InteractiveId, Rect)> {
+        // Check cell entries first — inline interactive content is more specific
+        if let Some(entry) = self
+            .cell_entries
+            .iter()
+            .rev()
+            .find(|e| y == e.line && x >= e.col_range.start && x < e.col_range.end)
+        {
+            let rect = Rect {
+                x: entry.col_range.start,
+                y: entry.line,
+                w: entry.col_range.end - entry.col_range.start,
+                h: 1,
+            };
+            return Some((entry.id, rect));
+        }
+
         // Reverse iterate: last entry is topmost overlay
         self.entries.iter().rev().find_map(|(rect, id)| {
             if x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h {
@@ -37,13 +75,26 @@ impl HitMap {
             }
         })
     }
+
+    /// Add a cell-level hit entry for inline interactive content.
+    pub fn push_cell_entry(&mut self, entry: CellHitEntry) {
+        self.cell_entries.push(entry);
+    }
+
+    /// Access cell-level entries (for testing/inspection).
+    pub fn cell_entries(&self) -> &[CellHitEntry] {
+        &self.cell_entries
+    }
 }
 
 /// Walk the element tree and collect all Interactive element bounding rects.
 pub fn build_hit_map(element: &Element, layout: &LayoutResult) -> HitMap {
     let mut entries = Vec::new();
     collect_interactive(element, layout, &mut entries);
-    HitMap { entries }
+    HitMap {
+        entries,
+        cell_entries: Vec::new(),
+    }
 }
 
 fn collect_interactive(
@@ -175,6 +226,55 @@ mod tests {
         assert_eq!(map.test(0, 0), Some(InteractiveId::framework(2)));
         // Outside overlay but inside base → base's ID
         assert_eq!(map.test(10, 0), Some(InteractiveId::framework(1)));
+    }
+
+    #[test]
+    fn test_cell_hit_entry_basic() {
+        let state = default_state();
+        let el = Element::text("plain text", Face::default());
+        let area = root_area(20, 5);
+        let layout = place(&el, area, &state);
+        let mut map = build_hit_map(&el, &layout);
+
+        // Add a cell entry for columns 5..10 on line 2
+        map.push_cell_entry(super::CellHitEntry {
+            line: 2,
+            col_range: 5..10,
+            id: InteractiveId::framework(99),
+        });
+
+        // Hit inside cell entry
+        assert_eq!(map.test(5, 2), Some(InteractiveId::framework(99)));
+        assert_eq!(map.test(9, 2), Some(InteractiveId::framework(99)));
+        // Miss outside
+        assert!(map.test(4, 2).is_none());
+        assert!(map.test(10, 2).is_none());
+        assert!(map.test(5, 3).is_none());
+    }
+
+    #[test]
+    fn test_cell_hit_entry_priority_over_element() {
+        let state = default_state();
+        // Create an interactive element covering the entire area
+        let el = Element::Interactive {
+            child: Box::new(Element::text("click", Face::default())),
+            id: InteractiveId::framework(1),
+        };
+        let area = root_area(20, 5);
+        let layout = place(&el, area, &state);
+        let mut map = build_hit_map(&el, &layout);
+
+        // Add a cell entry that overlaps the element area
+        map.push_cell_entry(super::CellHitEntry {
+            line: 0,
+            col_range: 3..8,
+            id: InteractiveId::framework(2),
+        });
+
+        // Cell entry should win within its range
+        assert_eq!(map.test(5, 0), Some(InteractiveId::framework(2)));
+        // Element entry should win outside the cell range
+        assert_eq!(map.test(0, 0), Some(InteractiveId::framework(1)));
     }
 
     #[test]
