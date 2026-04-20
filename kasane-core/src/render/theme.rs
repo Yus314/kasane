@@ -83,6 +83,32 @@ impl Theme {
             },
         );
 
+        // Gutter line numbers (TextPanel)
+        map.insert(
+            StyleToken::GUTTER_LINE_NUMBER,
+            Face {
+                fg: Color::Rgb {
+                    r: 120,
+                    g: 120,
+                    b: 120,
+                },
+                ..Face::default()
+            },
+        );
+
+        // TextPanel cursor highlight
+        map.insert(
+            StyleToken::TEXT_PANEL_CURSOR,
+            Face {
+                bg: Color::Rgb {
+                    r: 40,
+                    g: 40,
+                    b: 60,
+                },
+                ..Face::default()
+            },
+        );
+
         // Shadow
         map.insert(
             StyleToken::SHADOW,

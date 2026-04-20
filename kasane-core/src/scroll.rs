@@ -110,13 +110,13 @@ pub const fn is_scroll_event(mouse: &MouseEvent) -> bool {
     )
 }
 
-pub const fn selection_scroll_edge_line(rows: u16, mouse: &MouseEvent) -> Option<u32> {
+pub fn selection_scroll_edge_line(rows: u16, mouse: &MouseEvent, edge_margin: u16) -> Option<u32> {
     if !is_scroll_event(mouse) {
         return None;
     }
     Some(match mouse.kind {
         MouseEventKind::ScrollUp => 0,
-        _ => rows.saturating_sub(2) as u32,
+        _ => rows.saturating_sub(edge_margin) as u32,
     })
 }
 
@@ -146,13 +146,14 @@ pub fn consume_info_scroll(state: &mut AppState, mouse: &MouseEvent, hit_map: &H
         .sum::<u16>();
     let visible_h = rect.h.saturating_sub(2).max(1);
 
+    let step = state.config.info_scroll_step;
     match mouse.kind {
         MouseEventKind::ScrollUp => {
-            info.scroll_offset = info.scroll_offset.saturating_sub(3);
+            info.scroll_offset = info.scroll_offset.saturating_sub(step);
         }
         MouseEventKind::ScrollDown => {
             let max_offset = content_h.saturating_sub(visible_h);
-            info.scroll_offset = (info.scroll_offset + 3).min(max_offset);
+            info.scroll_offset = (info.scroll_offset + step).min(max_offset);
         }
         _ => return false,
     }
@@ -305,7 +306,11 @@ pub fn dispatch_legacy_mouse_scroll<E: PluginEffects>(
 
         if let Some(candidate) = default_scroll_candidate(mouse, scroll_amount) {
             let mut requests = requests_from_policy_result(fallback_scroll_policy(candidate));
-            if let Some(edge_line) = selection_scroll_edge_line(state.runtime.rows, mouse) {
+            if let Some(edge_line) = selection_scroll_edge_line(
+                state.runtime.rows,
+                mouse,
+                state.config.scroll_edge_margin,
+            ) {
                 requests.push(KasaneRequest::MouseMove {
                     line: edge_line,
                     column: mouse.column,

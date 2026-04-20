@@ -39,6 +39,40 @@ pub use scene::{CellSize, DrawCommand, PixelPos, PixelRect, ResolvedAtom, SceneC
 pub use visual_hints::VisualHints;
 
 // ---------------------------------------------------------------------------
+// RenderPolicy — configurable character rendering rules
+// ---------------------------------------------------------------------------
+
+/// Policy for rendering special characters (newlines, control chars, truncation).
+///
+/// Allows configuration of how the rendering pipeline represents characters
+/// that cannot be displayed as-is. The default implementation matches the
+/// historical hardcoded behavior.
+pub trait RenderPolicy {
+    /// Replacement string for newline characters in the grid.
+    fn render_newline(&self) -> &str {
+        " "
+    }
+    /// Replacement for a control character. Return `None` to skip it.
+    fn render_control_char(&self, _c: char) -> Option<&str> {
+        None
+    }
+    /// String appended when content is truncated to fit.
+    fn render_truncation(&self) -> &str {
+        "\u{2026}"
+    }
+    /// Replacement for a zero-width grapheme cluster. Return `None` to skip it.
+    fn render_zero_width(&self, _s: &str) -> Option<&str> {
+        None
+    }
+}
+
+/// Default render policy matching historical hardcoded behavior.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DefaultRenderPolicy;
+
+impl RenderPolicy for DefaultRenderPolicy {}
+
+// ---------------------------------------------------------------------------
 // Image protocol types
 // ---------------------------------------------------------------------------
 

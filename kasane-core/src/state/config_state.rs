@@ -31,6 +31,18 @@ pub struct ConfigState {
     /// Typed per-plugin settings (schema-validated, from manifest + config.toml).
     pub plugin_settings: HashMap<PluginId, HashMap<String, SettingValue>>,
     pub secondary_blend_ratio: f32,
+    /// Vertical split divider character (default: "│").
+    pub divider_vertical: String,
+    /// Horizontal split divider character (default: "─").
+    pub divider_horizontal: String,
+    /// Scroll edge margin: selection scroll stops this many rows from the edge (default: 2).
+    pub scroll_edge_margin: u16,
+    /// Info popup scroll step in lines per scroll event (default: 3).
+    pub info_scroll_step: u16,
+    /// Replacement string for newline characters in the grid (default: " ").
+    pub newline_display: String,
+    /// String appended when content is truncated to fit (default: "…").
+    pub truncation_char: String,
     pub theme: Theme,
     /// Core fold toggle state: tracks which fold ranges are currently expanded.
     pub fold_toggle_state: FoldToggleState,
@@ -53,6 +65,12 @@ impl Default for ConfigState {
             plugin_config: HashMap::new(),
             plugin_settings: HashMap::new(),
             secondary_blend_ratio: 0.4,
+            divider_vertical: "\u{2502}".to_string(),   // │
+            divider_horizontal: "\u{2500}".to_string(), // ─
+            scroll_edge_margin: 2,
+            info_scroll_step: 3,
+            newline_display: " ".to_string(),
+            truncation_char: "\u{2026}".to_string(), // …
             theme: Theme::default_theme(),
             fold_toggle_state: FoldToggleState::default(),
             projection_policy: ProjectionPolicyState::default(),

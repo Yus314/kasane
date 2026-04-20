@@ -484,28 +484,25 @@ fn update_inner<E: PluginEffects>(
                                         ..suppressed
                                     };
                                 }
-                                ActionResult::Pass => {
-                                    // Built-in fallback: fold toggle
-                                    if let NavigationAction::ToggleFold = &action
-                                        && let UnitSource::LineRange(ref range) = unit.source
+                                ActionResult::ToggleFold(range) => {
+                                    // Per-projection fold state scoping
+                                    if let Some(active_id) =
+                                        state.config.projection_policy.active_structural()
                                     {
-                                        // Per-projection fold state scoping
-                                        if let Some(active_id) =
-                                            state.config.projection_policy.active_structural()
-                                        {
-                                            state
-                                                .config
-                                                .projection_policy
-                                                .fold_state_for_mut(&active_id.clone())
-                                                .toggle(range);
-                                        } else {
-                                            state.config.fold_toggle_state.toggle(range);
-                                        }
-                                        return UpdateResult {
-                                            flags: DirtyFlags::BUFFER_CONTENT,
-                                            ..suppressed
-                                        };
+                                        state
+                                            .config
+                                            .projection_policy
+                                            .fold_state_for_mut(&active_id.clone())
+                                            .toggle(&range);
+                                    } else {
+                                        state.config.fold_toggle_state.toggle(&range);
                                     }
+                                    return UpdateResult {
+                                        flags: DirtyFlags::BUFFER_CONTENT,
+                                        ..suppressed
+                                    };
+                                }
+                                ActionResult::Pass => {
                                     // Built-in fallback: shadow cursor activation
                                     if let NavigationAction::ActivateShadowCursor = &action
                                         && let UnitSource::ProjectedLine { anchor, spans: _ } =

@@ -23,6 +23,12 @@ use super::{Workspace, WorkspaceNode};
 pub struct SavedLayout {
     pub root: SavedNode,
     pub focused_key: Option<String>,
+    /// Plugin-specific data collected during workspace save.
+    ///
+    /// Each plugin can persist arbitrary JSON data keyed by its plugin ID.
+    /// This data is distributed back to plugins during workspace restore.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub plugin_data: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -99,7 +105,11 @@ pub fn project(
         .descriptor(workspace.focused())
         .map(|d| d.surface_key.to_string());
 
-    Some(SavedLayout { root, focused_key })
+    Some(SavedLayout {
+        root,
+        focused_key,
+        plugin_data: HashMap::new(),
+    })
 }
 
 fn project_node(
@@ -766,6 +776,7 @@ mod tests {
     #[test]
     fn test_serialization_round_trip() {
         let layout = SavedLayout {
+            plugin_data: HashMap::new(),
             root: SavedNode::Split {
                 direction: SavedSplitDirection::Vertical,
                 ratio: 0.4,
@@ -868,6 +879,7 @@ mod tests {
                 buffer_name: None,
             },
             focused_key: None,
+            plugin_data: HashMap::new(),
         };
         assert!(plan_restore(saved).is_none());
     }
@@ -876,6 +888,7 @@ mod tests {
     #[test]
     fn test_plan_restore_collects_panes() {
         let saved = SavedLayout {
+            plugin_data: HashMap::new(),
             root: SavedNode::Split {
                 direction: SavedSplitDirection::Vertical,
                 ratio: 0.5,

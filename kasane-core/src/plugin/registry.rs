@@ -403,6 +403,37 @@ impl PluginRuntime {
         }
     }
 
+    /// Collect workspace save data from all plugins.
+    ///
+    /// Returns a map of plugin ID → JSON data for plugins that have
+    /// workspace-persistent state. The caller should embed this in
+    /// `SavedLayout::plugin_data` before writing to disk.
+    pub fn collect_workspace_data(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        let mut data = std::collections::HashMap::new();
+        for slot in &self.slots {
+            if let Some(value) = slot.backend.workspace_save() {
+                data.insert(slot.backend.id().0.clone(), value);
+            }
+        }
+        data
+    }
+
+    /// Distribute workspace restore data to plugins.
+    ///
+    /// For each entry in `plugin_data`, the corresponding plugin's
+    /// `workspace_restore()` method is called with the saved data.
+    pub fn distribute_workspace_data(
+        &mut self,
+        plugin_data: &std::collections::HashMap<String, serde_json::Value>,
+    ) {
+        for slot in &mut self.slots {
+            let id = slot.backend.id().0.clone();
+            if let Some(data) = plugin_data.get(&id) {
+                slot.backend.workspace_restore(data);
+            }
+        }
+    }
+
     /// Shut down all plugins. Call before application exit.
     pub fn shutdown_all(&mut self) {
         for slot in &mut self.slots {
@@ -1963,6 +1994,10 @@ impl<'a> PluginView<'a> {
     }
 
     /// Collect overlay contributions with collision-avoidance context.
+    ///
+    /// Iterates plugins one at a time, accumulating previously-contributed
+    /// overlay rects in `OverlayContext::existing_overlays` so each plugin
+    /// can position itself to avoid prior overlays.
     pub fn collect_overlays_with_ctx(
         &self,
         state: &AppView<'_>,
@@ -1970,23 +2005,99 @@ impl<'a> PluginView<'a> {
     ) -> Vec<OverlayContribution> {
         use super::compose::{Composable, OverlaySet};
 
-        self.slots
-            .iter()
-            .filter_map(|slot| {
-                if (slot.capabilities.contains(PluginCapabilities::CONTRIBUTOR)
-                    || slot.capabilities.contains(PluginCapabilities::OVERLAY))
-                    && let Some(mut oc) = slot.backend.contribute_overlay_with_ctx(state, ctx)
-                {
-                    oc.plugin_id = slot.backend.id();
-                    Some(oc)
-                } else {
-                    None
+        let mut running_ctx = ctx.clone();
+        let mut result = OverlaySet::empty();
+        for slot in self.slots {
+            if !(slot.capabilities.contains(PluginCapabilities::CONTRIBUTOR)
+                || slot.capabilities.contains(PluginCapabilities::OVERLAY))
+            {
+                continue;
+            }
+            if let Some(mut oc) = slot
+                .backend
+                .contribute_overlay_with_ctx(state, &running_ctx)
+            {
+                oc.plugin_id = slot.backend.id();
+                // Record this overlay's rect for subsequent plugins' avoidance.
+                if let Some(rect) = overlay_anchor_rect(&oc.anchor) {
+                    running_ctx.existing_overlays.push(rect);
                 }
-            })
-            .fold(OverlaySet::empty(), |acc, oc| {
-                acc.compose(OverlaySet::from_vec(vec![oc]))
-            })
-            .into_vec()
+                result = result.compose(OverlaySet::from_vec(vec![oc]));
+            }
+        }
+        result.into_vec()
+    }
+
+    /// Resolve the display scroll offset via plugin override (first-wins).
+    ///
+    /// Iterates plugins with `SCROLL_OFFSET` capability. The first plugin
+    /// returning `Some` wins. Falls back to `default_offset`.
+    pub fn resolve_display_scroll_offset(
+        &self,
+        cursor_display_y: usize,
+        viewport_height: usize,
+        default_offset: usize,
+        state: &AppView<'_>,
+    ) -> usize {
+        for slot in self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::SCROLL_OFFSET)
+            {
+                continue;
+            }
+            if let Some(offset) = slot.backend.compute_display_scroll_offset(
+                cursor_display_y,
+                viewport_height,
+                default_offset,
+                state,
+            ) {
+                return offset;
+            }
+        }
+        default_offset
+    }
+
+    /// Resolve a custom menu overlay via plugin renderer (first-wins).
+    ///
+    /// Iterates plugins with `MENU_RENDERER` capability. The first plugin
+    /// returning `Some` wins. Returns `None` if no plugin provides a custom menu.
+    pub fn resolve_menu_overlay(&self, state: &AppView<'_>) -> Option<crate::element::Overlay> {
+        for slot in self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::MENU_RENDERER)
+            {
+                continue;
+            }
+            if let Some(overlay) = slot.backend.render_menu_overlay(state) {
+                return Some(overlay);
+            }
+        }
+        None
+    }
+
+    /// Resolve custom info overlays via plugin renderer (first-wins).
+    ///
+    /// Iterates plugins with `INFO_RENDERER` capability. The first plugin
+    /// returning `Some` wins. Returns `None` if no plugin provides custom info.
+    pub fn resolve_info_overlays(
+        &self,
+        state: &AppView<'_>,
+        avoid: &[crate::layout::Rect],
+    ) -> Option<Vec<crate::element::Overlay>> {
+        for slot in self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::INFO_RENDERER)
+            {
+                continue;
+            }
+            if let Some(overlays) = slot.backend.render_info_overlays(state, avoid) {
+                return Some(overlays);
+            }
+        }
+        None
     }
 
     /// Transform a menu item through all plugins.
@@ -2211,5 +2322,19 @@ pub(crate) fn check_transform_conflicts(
 impl Default for PluginRuntime {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Extract a `Rect` from an `OverlayAnchor` when deterministic without layout.
+fn overlay_anchor_rect(anchor: &crate::element::OverlayAnchor) -> Option<crate::layout::Rect> {
+    match anchor {
+        crate::element::OverlayAnchor::Absolute { x, y, w, h } => Some(crate::layout::Rect {
+            x: *x,
+            y: *y,
+            w: *w,
+            h: *h,
+        }),
+        // Fill and AnchorPoint need layout to determine the final rect.
+        _ => None,
     }
 }

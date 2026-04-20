@@ -783,20 +783,34 @@ fn convert_atom_roundtrip() {
 fn convert_command_schedule_timer() {
     use std::time::Duration;
     let wc = wit::Command::ScheduleTimer(wit::TimerConfig {
+        timer_id: 42,
         delay_ms: 500,
         target_plugin: "my_plugin".into(),
         payload: vec![1, 2, 3],
     });
     match wit_command_to_command(&wc) {
         Command::ScheduleTimer {
+            timer_id,
             delay,
             target,
             payload,
         } => {
+            assert_eq!(timer_id, 42);
             assert_eq!(delay, Duration::from_millis(500));
             assert_eq!(target.0, "my_plugin");
             let bytes = payload.downcast::<Vec<u8>>().unwrap();
             assert_eq!(*bytes, vec![1, 2, 3]);
+        }
+        _ => panic!("unexpected command variant"),
+    }
+}
+
+#[test]
+fn convert_command_cancel_timer() {
+    let wc = wit::Command::CancelTimer(99);
+    match wit_command_to_command(&wc) {
+        Command::CancelTimer { timer_id } => {
+            assert_eq!(timer_id, 99);
         }
         _ => panic!("unexpected command variant"),
     }

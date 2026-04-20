@@ -23,9 +23,13 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
             value: entry.value.clone(),
         },
         wit::Command::ScheduleTimer(tc) => Command::ScheduleTimer {
+            timer_id: tc.timer_id,
             delay: Duration::from_millis(tc.delay_ms),
             target: PluginId(tc.target_plugin.clone()),
             payload: Box::new(tc.payload.clone()),
+        },
+        wit::Command::CancelTimer(timer_id) => Command::CancelTimer {
+            timer_id: *timer_id,
         },
         wit::Command::PluginMessage(mc) => Command::PluginMessage {
             target: PluginId(mc.target_plugin.clone()),

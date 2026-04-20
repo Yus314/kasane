@@ -23,10 +23,12 @@ pub(super) fn make_all_command_instances() -> Vec<Command> {
         Command::Quit,
         Command::RequestRedraw(DirtyFlags::empty()),
         Command::ScheduleTimer {
+            timer_id: 0,
             delay: Duration::ZERO,
             target: PluginId("test".into()),
             payload: Box::new(()),
         },
+        Command::CancelTimer { timer_id: 0 },
         Command::PluginMessage {
             target: PluginId("test".into()),
             payload: Box::new(()),

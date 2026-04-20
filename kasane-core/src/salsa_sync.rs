@@ -369,7 +369,7 @@ pub fn sync_plugin_contributions(
         let overlay_ctx = OverlayContext {
             screen_cols: state.runtime.cols,
             screen_rows: state.runtime.rows,
-            menu_rect: None,
+            menu_rect: crate::layout::get_menu_rect(state),
             existing_overlays: vec![],
             focused_surface_id: None,
         };

@@ -9,7 +9,7 @@
 
 use std::any::Any;
 
-use crate::element::{Element, InteractiveId};
+use crate::element::{Element, InteractiveId, Overlay};
 use crate::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::protocol::Atom;
 use crate::render::InlineDecoration;
@@ -67,6 +67,10 @@ pub(crate) type ErasedIoEventHandler = Box<
 >;
 pub(crate) type ErasedWorkspaceChangedHandler =
     Box<dyn Fn(&dyn PluginState, &WorkspaceQuery<'_>) -> Box<dyn PluginState> + Send + Sync>;
+pub(crate) type ErasedWorkspaceSaveHandler =
+    Box<dyn Fn(&dyn PluginState) -> Option<serde_json::Value> + Send + Sync>;
+pub(crate) type ErasedWorkspaceRestoreHandler =
+    Box<dyn Fn(&dyn PluginState, &serde_json::Value) -> Box<dyn PluginState> + Send + Sync>;
 pub(crate) type ErasedShutdownHandler = Box<dyn Fn(&dyn PluginState) + Send + Sync>;
 pub(crate) type ErasedUpdateHandler = Box<
     dyn Fn(&dyn PluginState, &mut dyn Any, &AppView<'_>) -> (Box<dyn PluginState>, Effects)
@@ -192,6 +196,19 @@ pub(crate) type ErasedUnifiedDisplayHandler =
     Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> Vec<DisplayDirective> + Send + Sync>;
 pub(crate) type ErasedMenuTransformHandler = Box<
     dyn Fn(&dyn PluginState, &[Atom], usize, bool, &AppView<'_>) -> Option<Vec<Atom>> + Send + Sync,
+>;
+
+// Scroll offset handler
+pub(crate) type ErasedDisplayScrollOffsetHandler =
+    Box<dyn Fn(&dyn PluginState, usize, usize, usize, &AppView<'_>) -> Option<usize> + Send + Sync>;
+
+// Renderer extension point handlers
+pub(crate) type ErasedMenuRendererHandler =
+    Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> Option<Overlay> + Send + Sync>;
+pub(crate) type ErasedInfoRendererHandler = Box<
+    dyn Fn(&dyn PluginState, &AppView<'_>, &[crate::layout::Rect]) -> Option<Vec<Overlay>>
+        + Send
+        + Sync,
 >;
 
 // Navigation handlers (DU-4)
@@ -362,6 +379,8 @@ pub(crate) struct HandlerTable {
     pub(crate) state_changed_handler: Option<ErasedStateChangedHandler>,
     pub(crate) io_event_handler: Option<ErasedIoEventHandler>,
     pub(crate) workspace_changed_handler: Option<ErasedWorkspaceChangedHandler>,
+    pub(crate) workspace_save_handler: Option<ErasedWorkspaceSaveHandler>,
+    pub(crate) workspace_restore_handler: Option<ErasedWorkspaceRestoreHandler>,
     pub(crate) shutdown_handler: Option<ErasedShutdownHandler>,
     pub(crate) update_handler: Option<ErasedUpdateHandler>,
 
@@ -397,6 +416,13 @@ pub(crate) struct HandlerTable {
     pub(crate) render_ornament_handler: Option<ErasedRenderOrnamentHandler>,
     pub(crate) unified_display_handler: Option<ErasedUnifiedDisplayHandler>,
     pub(crate) menu_transform_handler: Option<ErasedMenuTransformHandler>,
+
+    // --- Scroll Offset ---
+    pub(crate) display_scroll_offset_handler: Option<ErasedDisplayScrollOffsetHandler>,
+
+    // --- Renderer Extension Points ---
+    pub(crate) menu_renderer_handler: Option<ErasedMenuRendererHandler>,
+    pub(crate) info_renderer_handler: Option<ErasedInfoRendererHandler>,
 
     // --- Navigation (DU-4) ---
     pub(crate) navigation_policy_handler: Option<ErasedNavigationPolicyHandler>,
@@ -436,6 +462,8 @@ impl HandlerTable {
             state_changed_handler: None,
             io_event_handler: None,
             workspace_changed_handler: None,
+            workspace_save_handler: None,
+            workspace_restore_handler: None,
             shutdown_handler: None,
             update_handler: None,
             key_handler: None,
@@ -465,6 +493,9 @@ impl HandlerTable {
             render_ornament_handler: None,
             unified_display_handler: None,
             menu_transform_handler: None,
+            display_scroll_offset_handler: None,
+            menu_renderer_handler: None,
+            info_renderer_handler: None,
             navigation_policy_handler: None,
             navigation_action_handler: None,
             virtual_edit_handler: None,
@@ -505,6 +536,15 @@ impl HandlerTable {
         }
         if self.default_scroll_handler.is_some() {
             caps |= PluginCapabilities::SCROLL_POLICY;
+        }
+        if self.display_scroll_offset_handler.is_some() {
+            caps |= PluginCapabilities::SCROLL_OFFSET;
+        }
+        if self.menu_renderer_handler.is_some() {
+            caps |= PluginCapabilities::MENU_RENDERER;
+        }
+        if self.info_renderer_handler.is_some() {
+            caps |= PluginCapabilities::INFO_RENDERER;
         }
         if !self.contribute_handlers.is_empty() {
             caps |= PluginCapabilities::CONTRIBUTOR;

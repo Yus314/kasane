@@ -47,6 +47,12 @@ pub enum ActionResult {
     Handled,
     /// Emit key sequence to Kakoune.
     SendKeys(String),
+    /// Toggle a fold range (expand if collapsed, collapse if expanded).
+    ///
+    /// Returned by `BuiltinFoldPlugin` to signal that the fold toggle should be
+    /// applied to the appropriate fold state (global or per-projection).
+    /// The `update` layer applies the toggle; the plugin makes the decision.
+    ToggleFold(std::ops::Range<usize>),
     /// Not applicable, continue default processing.
     Pass,
 }

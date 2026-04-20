@@ -395,6 +395,16 @@ impl<'a> AppView<'a> {
     pub fn available_projections(&self) -> &[crate::display::ProjectionDescriptor] {
         &self.state.runtime.available_projections
     }
+
+    // =========================================================================
+    // Tier 11: Runtime state
+    // =========================================================================
+
+    /// Whether the user is currently performing a mouse drag.
+    #[inline]
+    pub fn is_dragging(&self) -> bool {
+        !matches!(self.state.runtime.drag, crate::state::DragState::None)
+    }
 }
 
 /// Raw `AppState` access for framework layers (WASM host sync, serialization).

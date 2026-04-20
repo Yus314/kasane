@@ -682,12 +682,14 @@ fn update_resize_with_null_effects_sends_resize_command() {
 #[test]
 fn mouse_press_on_fold_summary_suppressed() {
     use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
+    use crate::input::BuiltinFoldPlugin;
     use std::sync::Arc;
 
     let mut state = Box::new(AppState::default());
     state.runtime.cols = 80;
     state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(BuiltinFoldPlugin));
 
     // Build a non-identity display map with a fold at lines 2..5
     let directives = vec![DisplayDirective::Fold {
@@ -771,12 +773,14 @@ fn mouse_press_on_normal_line_forwards_to_kakoune() {
 #[test]
 fn mouse_click_fold_summary_toggles_fold_state() {
     use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
+    use crate::input::BuiltinFoldPlugin;
     use std::sync::Arc;
 
     let mut state = Box::new(AppState::default());
     state.runtime.cols = 80;
     state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(BuiltinFoldPlugin));
 
     let directives = vec![DisplayDirective::Fold {
         range: 3..7,
@@ -874,13 +878,15 @@ fn fold_toggle_cleared_on_draw() {
 // --- DU-4: Plugin dispatch tests ---
 
 #[test]
-fn fold_summary_click_dispatches_through_null_effects() {
+fn fold_summary_click_dispatches_through_builtin_fold_plugin() {
     use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
+    use crate::input::BuiltinFoldPlugin;
 
     let mut state = Box::new(AppState::default());
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    let mut effects = NullEffects;
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(BuiltinFoldPlugin));
 
     let directives = vec![DisplayDirective::Fold {
         range: 2..5,
@@ -901,9 +907,8 @@ fn fold_summary_click_dispatches_through_null_effects() {
         column: 5,
         modifiers: Modifiers::empty(),
     };
-    let result = update_in_place(&mut state, Msg::Mouse(mouse), &mut effects, 3);
-    // NullEffects returns Pass for dispatch_navigation_action,
-    // so fallback fold toggle should still work
+    let result = update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    // BuiltinFoldPlugin returns ToggleFold for fold summary clicks
     assert!(result.flags.contains(DirtyFlags::BUFFER_CONTENT));
     assert!(state.config.fold_toggle_state.is_expanded(&(2..5)));
 }

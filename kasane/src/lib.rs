@@ -312,6 +312,9 @@ fn build_plugin_manager(
         builtin_plugin("builtin-input", "kasane.builtin.input", || {
             kasane_core::input::BuiltinInputPlugin
         }),
+        builtin_plugin("builtin-fold", "kasane.builtin.fold", || {
+            kasane_core::input::BuiltinFoldPlugin
+        }),
         builtin_plugin(
             "projection-status",
             "kasane.builtin.projection-status",
@@ -477,11 +480,14 @@ mod tests {
                 std::collections::HashMap::new(),
             ))];
         providers.push(Box::new(provider));
-        providers.push(Box::new(StaticPluginProvider::new([builtin_plugin(
-            "builtin-input",
-            "kasane.builtin.input",
-            || kasane_core::input::BuiltinInputPlugin,
-        )])));
+        providers.push(Box::new(StaticPluginProvider::new([
+            builtin_plugin("builtin-input", "kasane.builtin.input", || {
+                kasane_core::input::BuiltinInputPlugin
+            }),
+            builtin_plugin("builtin-fold", "kasane.builtin.fold", || {
+                kasane_core::input::BuiltinFoldPlugin
+            }),
+        ])));
         PluginManager::new(providers)
     }
 

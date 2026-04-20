@@ -799,6 +799,7 @@ kasane_plugin_sdk::define_plugin! {
                         if fade_ms > 0 {
                             state.diff_timer_gen = state.diff_timer_gen.wrapping_add(1);
                             cmds.push(Command::ScheduleTimer(TimerConfig {
+                                timer_id: state.diff_timer_gen as u64,
                                 delay_ms: fade_ms as u64,
                                 target_plugin: "selection_algebra".to_string(),
                                 payload: state.diff_timer_gen.to_le_bytes().to_vec(),

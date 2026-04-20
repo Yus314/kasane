@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::element::{InteractiveId, PluginTag};
+use crate::element::{InteractiveId, Overlay, PluginTag};
 use crate::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{self, DirtyFlags};
@@ -248,6 +248,21 @@ pub trait PluginBackend: Any {
     /// Notification that the workspace layout has changed.
     fn on_workspace_changed(&mut self, _query: &crate::workspace::WorkspaceQuery<'_>) {}
 
+    /// Collect plugin-specific data for workspace persistence.
+    ///
+    /// Called during workspace save. Return `Some(value)` to include
+    /// plugin data in the saved layout file. The data will be passed
+    /// back to `workspace_restore()` when the layout is restored.
+    fn workspace_save(&self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// Restore plugin-specific data from a saved workspace layout.
+    ///
+    /// Called during workspace restore with data previously returned
+    /// by `workspace_save()`.
+    fn workspace_restore(&mut self, _data: &serde_json::Value) {}
+
     // === Contribute ===
 
     /// Contribute an element to a region with layout context and priority.
@@ -440,6 +455,23 @@ pub trait PluginBackend: Any {
         None
     }
 
+    // === Scroll Offset ===
+
+    /// Compute the display scroll offset for the viewport.
+    ///
+    /// Called during rendering when a non-identity DisplayMap is active.
+    /// Return `Some(offset)` to override the default scroll offset, or
+    /// `None` to defer to the next plugin or built-in computation.
+    fn compute_display_scroll_offset(
+        &self,
+        _cursor_display_y: usize,
+        _viewport_height: usize,
+        _default_offset: usize,
+        _state: &AppView<'_>,
+    ) -> Option<usize> {
+        None
+    }
+
     // === Overlay ===
 
     /// Contribute an overlay with collision-avoidance context.
@@ -448,6 +480,30 @@ pub trait PluginBackend: Any {
         _state: &AppView<'_>,
         _ctx: &OverlayContext,
     ) -> Option<OverlayContribution> {
+        None
+    }
+
+    // === Renderer Extension Points ===
+
+    /// Render the menu overlay, replacing the built-in menu renderer.
+    ///
+    /// Return `Some(overlay)` to provide a custom menu rendering, or `None`
+    /// to defer to the next plugin or the built-in renderer. The overlay-level
+    /// transform chain is still applied to the result by the pipeline.
+    fn render_menu_overlay(&self, _state: &AppView<'_>) -> Option<Overlay> {
+        None
+    }
+
+    /// Render info overlays, replacing the built-in info renderer.
+    ///
+    /// Return `Some(overlays)` to provide custom info popup rendering, or `None`
+    /// to defer to the next plugin or the built-in renderer. The overlay-level
+    /// transform chain is still applied to each overlay by the pipeline.
+    fn render_info_overlays(
+        &self,
+        _state: &AppView<'_>,
+        _avoid: &[crate::layout::Rect],
+    ) -> Option<Vec<Overlay>> {
         None
     }
 

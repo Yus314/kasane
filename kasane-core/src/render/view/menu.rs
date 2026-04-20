@@ -114,7 +114,12 @@ fn build_split_item_element(
 
     // 1. Candidate portion: truncate if wider than candidate_col_w
     let cand_atoms = &effective_item[..split.candidate_end];
-    let mut cand_resolved = truncate_atoms(cand_atoms, candidate_col_w, &face);
+    let mut cand_resolved = truncate_atoms(
+        cand_atoms,
+        candidate_col_w,
+        &face,
+        &state.config.truncation_char,
+    );
     // Pad candidate to candidate_col_w
     let cand_w: usize = cand_resolved
         .iter()
@@ -454,7 +459,7 @@ mod tests {
             face: Face::default(),
             contents: "hello".into(),
         }];
-        let result = truncate_atoms(&atoms, 10, &Face::default());
+        let result = truncate_atoms(&atoms, 10, &Face::default(), "\u{2026}");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].contents.as_str(), "hello");
     }
@@ -465,7 +470,7 @@ mod tests {
             face: Face::default(),
             contents: "hello_world_long".into(),
         }];
-        let result = truncate_atoms(&atoms, 8, &Face::default());
+        let result = truncate_atoms(&atoms, 8, &Face::default(), "\u{2026}");
         // Should be truncated to 7 chars + "…"
         let last = result.last().unwrap();
         assert_eq!(last.contents.as_str(), "\u{2026}");
@@ -483,7 +488,7 @@ mod tests {
             face: Face::default(),
             contents: "あいう".into(),
         }];
-        let result = truncate_atoms(&atoms, 5, &Face::default());
+        let result = truncate_atoms(&atoms, 5, &Face::default(), "\u{2026}");
         // Can fit "あい" (4) + "…" (1) = 5
         let total_w: usize = result
             .iter()

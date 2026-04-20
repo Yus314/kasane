@@ -172,6 +172,7 @@ pub(super) fn handle_deferred_commands_inner(
         let quit = match &cmd {
             Command::PluginMessage { .. }
             | Command::ScheduleTimer { .. }
+            | Command::CancelTimer { .. }
             | Command::SetConfig { .. }
             | Command::SetSetting { .. }
             | Command::SetStructuralProjection(_)
@@ -239,11 +240,15 @@ fn handle_inter_plugin_command(
             }
         }
         Command::ScheduleTimer {
+            timer_id,
             delay,
             target,
             payload,
         } => {
-            ctx.timer.schedule_timer(delay, target, payload);
+            ctx.timer.schedule_timer(timer_id, delay, target, payload);
+        }
+        Command::CancelTimer { timer_id } => {
+            ctx.timer.cancel_timer(timer_id);
         }
         Command::SetConfig { key, value } => {
             crate::state::apply_set_config(ctx.state, ctx.dirty, &key, &value);

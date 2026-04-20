@@ -93,6 +93,7 @@ interface types {
         workspace-command(workspace-cmd),
         http-request(http-request-config),
         cancel-http-request(u64),
+        cancel-timer(u64),
     }
 
     record spawn-pane-client-config {
@@ -155,6 +156,7 @@ interface types {
         value: setting-value,
     }
     record timer-config {
+        timer-id: u64,
         delay-ms: u64,
         target-plugin: string,
         payload: list<u8>,
@@ -1191,6 +1193,11 @@ interface host-state {
     /// Get the indentation level of a line (in indent units, not spaces).
     /// Returns 0 when no syntax provider is active.
     get-indent-level: func(line: u32) -> u32;
+
+    // --- Tier 11: Runtime state ---
+
+    /// Whether the user is currently performing a mouse drag.
+    is-dragging: func() -> bool;
 }
 
 /// Host-provided functions for building Element trees.

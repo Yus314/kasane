@@ -28,7 +28,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
 use crate::display::unit::DisplayUnit;
-use crate::element::{Element, InteractiveId};
+use crate::element::{Element, InteractiveId, Overlay};
 use crate::input::{
     ChordBinding, CompiledKeyMap, DropEvent, KeyBinding, KeyEvent, KeyGroup, KeyPattern,
     KeyResponse, MouseEvent,
@@ -265,6 +265,41 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         handler: impl Fn(&S, &WorkspaceQuery<'_>) -> S + Send + Sync + 'static,
     ) {
         register_state_only!(self, workspace_changed_handler, handler, query);
+    }
+
+    /// Register a workspace save handler.
+    ///
+    /// Called during workspace layout save. Return `Some(value)` to persist
+    /// plugin-specific data alongside the layout. The data will be passed
+    /// back to the restore handler when the layout is restored.
+    pub fn on_workspace_save(
+        &mut self,
+        handler: impl Fn(&S) -> Option<serde_json::Value> + Send + Sync + 'static,
+    ) {
+        self.table.workspace_save_handler = Some(Box::new(move |state| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s)
+        }));
+    }
+
+    /// Register a workspace restore handler.
+    ///
+    /// Called during workspace layout restore with data previously returned
+    /// by the save handler.
+    pub fn on_workspace_restore(
+        &mut self,
+        handler: impl Fn(&S, &serde_json::Value) -> S + Send + Sync + 'static,
+    ) {
+        self.table.workspace_restore_handler = Some(Box::new(move |state, data| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            Box::new(handler(s, data)) as Box<dyn PluginState>
+        }));
     }
 
     /// Register a shutdown handler.
@@ -744,6 +779,76 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 .expect("state type mismatch");
             handler(s, candidate, app)
                 .map(|(new_state, result)| (Box::new(new_state) as Box<dyn PluginState>, result))
+        }));
+    }
+
+    /// Register a display scroll offset handler.
+    ///
+    /// Called during rendering when a non-identity DisplayMap is active.
+    /// The handler receives the cursor's display Y coordinate, viewport height,
+    /// the default offset computed by the core algorithm, and the current AppView.
+    /// Return `Some(offset)` to override, or `None` to defer.
+    pub fn on_display_scroll_offset(
+        &mut self,
+        handler: impl Fn(&S, usize, usize, usize, &AppView<'_>) -> Option<usize> + Send + Sync + 'static,
+    ) {
+        self.table.display_scroll_offset_handler = Some(Box::new(
+            move |state, cursor_y, viewport_h, default_off, app| {
+                let s = state
+                    .as_any()
+                    .downcast_ref::<S>()
+                    .expect("state type mismatch");
+                handler(s, cursor_y, viewport_h, default_off, app)
+            },
+        ));
+    }
+
+    // =========================================================================
+    // Renderer extension point handlers
+    // =========================================================================
+
+    /// Register a custom menu overlay renderer.
+    ///
+    /// When registered, this handler is called instead of the built-in menu renderer.
+    /// Return `Some(overlay)` to provide the menu overlay, or `None` to defer
+    /// to the next plugin or the built-in renderer.
+    ///
+    /// The overlay-level transform chain is still applied by the pipeline after
+    /// this handler returns.
+    pub fn on_render_menu_overlay(
+        &mut self,
+        handler: impl Fn(&S, &AppView<'_>) -> Option<Overlay> + Send + Sync + 'static,
+    ) {
+        self.table.menu_renderer_handler = Some(Box::new(move |state, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, app)
+        }));
+    }
+
+    /// Register a custom info overlay renderer.
+    ///
+    /// When registered, this handler is called instead of the built-in info renderer.
+    /// Return `Some(overlays)` to provide the info overlays, or `None` to defer
+    /// to the next plugin or the built-in renderer.
+    ///
+    /// The overlay-level transform chain is still applied by the pipeline after
+    /// this handler returns.
+    pub fn on_render_info_overlays(
+        &mut self,
+        handler: impl Fn(&S, &AppView<'_>, &[crate::layout::Rect]) -> Option<Vec<Overlay>>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.info_renderer_handler = Some(Box::new(move |state, app, avoid| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, app, avoid)
         }));
     }
 

@@ -24,6 +24,22 @@
 pub use kasane_plugin_model::ExtensionPointId;
 use serde::de::DeserializeOwned;
 
+// =============================================================================
+// Well-known extension point IDs
+// =============================================================================
+
+/// Extension point for custom menu overlay rendering.
+///
+/// A plugin implementing `render_menu_overlay()` with `MENU_RENDERER` capability
+/// can completely replace the built-in menu rendering.
+pub const MENU_RENDER: &str = "kasane.menu.render";
+
+/// Extension point for custom info overlay rendering.
+///
+/// A plugin implementing `render_info_overlays()` with `INFO_RENDERER` capability
+/// can completely replace the built-in info popup rendering.
+pub const INFO_RENDER: &str = "kasane.info.render";
+
 use super::channel::ChannelValue;
 use super::{AppView, PluginId, PluginState};
 

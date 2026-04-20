@@ -6,7 +6,7 @@
 
 use std::any::Any;
 
-use crate::element::{Element, InteractiveId, PluginTag};
+use crate::element::{Element, InteractiveId, Overlay, PluginTag};
 use crate::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
@@ -337,6 +337,21 @@ impl PluginBackend for PluginBridge {
     fn on_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
         if let Some(handler) = &self.table.workspace_changed_handler {
             let new_state = handler(&*self.state, query);
+            self.state = new_state;
+            self.check_state_change();
+        }
+    }
+
+    fn workspace_save(&self) -> Option<serde_json::Value> {
+        self.table
+            .workspace_save_handler
+            .as_ref()
+            .and_then(|h| h(&*self.state))
+    }
+
+    fn workspace_restore(&mut self, data: &serde_json::Value) {
+        if let Some(handler) = &self.table.workspace_restore_handler {
+            let new_state = handler(&*self.state, data);
             self.state = new_state;
             self.check_state_change();
         }
@@ -681,6 +696,45 @@ impl PluginBackend for PluginBridge {
             .as_ref()
             .map(|h| h(&*self.state, line, app, ctx))
             .unwrap_or_default()
+    }
+
+    fn compute_display_scroll_offset(
+        &self,
+        cursor_display_y: usize,
+        viewport_height: usize,
+        default_offset: usize,
+        state: &AppView<'_>,
+    ) -> Option<usize> {
+        self.table
+            .display_scroll_offset_handler
+            .as_ref()
+            .and_then(|h| {
+                h(
+                    &*self.state,
+                    cursor_display_y,
+                    viewport_height,
+                    default_offset,
+                    state,
+                )
+            })
+    }
+
+    fn render_menu_overlay(&self, state: &AppView<'_>) -> Option<Overlay> {
+        self.table
+            .menu_renderer_handler
+            .as_ref()
+            .and_then(|h| h(&*self.state, state))
+    }
+
+    fn render_info_overlays(
+        &self,
+        state: &AppView<'_>,
+        avoid: &[crate::layout::Rect],
+    ) -> Option<Vec<Overlay>> {
+        self.table
+            .info_renderer_handler
+            .as_ref()
+            .and_then(|h| h(&*self.state, state, avoid))
     }
 
     fn contribute_overlay_with_ctx(

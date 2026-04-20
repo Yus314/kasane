@@ -84,7 +84,15 @@ impl PluginBackend for TextInputPlugin {
 pub(super) struct NoopTimer;
 
 impl TimerScheduler for NoopTimer {
-    fn schedule_timer(&self, _delay: Duration, _target: PluginId, _payload: Box<dyn Any + Send>) {}
+    fn schedule_timer(
+        &self,
+        _timer_id: u64,
+        _delay: Duration,
+        _target: PluginId,
+        _payload: Box<dyn Any + Send>,
+    ) {
+    }
+    fn cancel_timer(&self, _timer_id: u64) {}
 }
 
 #[derive(Default)]

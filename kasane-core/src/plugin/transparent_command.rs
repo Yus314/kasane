@@ -40,6 +40,7 @@ impl TransparentCommand {
     pub const VARIANT_NAMES: &'static [&'static str] = &[
         "BindSurfaceSession",
         "CancelHttpRequest",
+        "CancelTimer",
         "ClosePaneClient",
         "CloseProcessStdin",
         "ExposeVariable",
@@ -79,12 +80,22 @@ impl TransparentCommand {
         Self(Command::RequestRedraw(flags))
     }
 
-    pub fn schedule_timer(delay: Duration, target: PluginId, payload: Box<dyn Any + Send>) -> Self {
+    pub fn schedule_timer(
+        timer_id: u64,
+        delay: Duration,
+        target: PluginId,
+        payload: Box<dyn Any + Send>,
+    ) -> Self {
         Self(Command::ScheduleTimer {
+            timer_id,
             delay,
             target,
             payload,
         })
+    }
+
+    pub fn cancel_timer(timer_id: u64) -> Self {
+        Self(Command::CancelTimer { timer_id })
     }
 
     pub fn plugin_message(target: PluginId, payload: Box<dyn Any + Send>) -> Self {

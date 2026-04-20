@@ -329,7 +329,7 @@ where
     };
 
     // Timer scheduler for plugin timer events
-    let timer = kasane_core::event_loop::GenericTimerScheduler(tui_sink.clone());
+    let timer = kasane_core::event_loop::GenericTimerScheduler::new(tui_sink.clone());
     let mut scroll_runtime = ScrollRuntime::default();
     let mut scroll_runtime_session = session_manager.active_session_id();
 

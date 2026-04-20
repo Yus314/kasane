@@ -256,7 +256,11 @@ impl NewHarness {
 
         let candidate = default_scroll_candidate(mouse, self.scroll_amount)?;
         let mut commands = self.apply_policy_result(candidate, fallback_scroll_policy(candidate));
-        let edge_line = selection_scroll_edge_line(self.state.runtime.rows, mouse)?;
+        let edge_line = selection_scroll_edge_line(
+            self.state.runtime.rows,
+            mouse,
+            self.state.config.scroll_edge_margin,
+        )?;
         commands.push(Command::SendToKakoune(KasaneRequest::MouseMove {
             line: edge_line,
             column: mouse.column,

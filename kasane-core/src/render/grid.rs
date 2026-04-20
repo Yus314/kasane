@@ -32,6 +32,8 @@ pub struct CellGrid {
     current: Vec<Cell>,
     previous: Vec<Cell>,
     dirty_rows: Vec<bool>,
+    newline_display: CompactString,
+    truncation_char: CompactString,
 }
 
 impl CellGrid {
@@ -43,7 +45,24 @@ impl CellGrid {
             current: vec![Cell::default(); size],
             previous: Vec::new(), // empty means "invalidated — full redraw needed"
             dirty_rows: vec![true; height as usize],
+            newline_display: CompactString::const_new(" "),
+            truncation_char: CompactString::const_new("\u{2026}"),
         }
+    }
+
+    /// Set the replacement string for newline characters.
+    pub fn set_newline_display(&mut self, s: &str) {
+        self.newline_display = CompactString::new(s);
+    }
+
+    /// Set the truncation indicator character.
+    pub fn set_truncation_char(&mut self, s: &str) {
+        self.truncation_char = CompactString::new(s);
+    }
+
+    /// The configured truncation character string.
+    pub fn truncation_char(&self) -> &str {
+        &self.truncation_char
     }
 
     pub fn width(&self) -> u16 {
@@ -152,11 +171,13 @@ impl CellGrid {
                 // for \n, \r, etc. in unicode-width 0.2.x, but they must never
                 // be placed in the grid (printing them would corrupt the terminal).
                 if grapheme == "\n" {
-                    if x + 1 > limit {
+                    let nl = self.newline_display.clone();
+                    let nl_w = UnicodeWidthStr::width(nl.as_str()).max(1) as u16;
+                    if x + nl_w > limit {
                         break;
                     }
-                    self.put_char(x, y, " ", &face);
-                    x += 1;
+                    self.put_char(x, y, &nl, &face);
+                    x += nl_w;
                     continue;
                 }
                 if grapheme.starts_with(|c: char| c.is_control()) {

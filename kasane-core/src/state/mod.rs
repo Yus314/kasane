@@ -11,6 +11,7 @@ pub mod observed;
 pub mod policy;
 pub mod runtime_state;
 pub mod session_state;
+pub(crate) mod setting_registry;
 pub mod shadow_cursor;
 pub mod snapshot;
 #[cfg(test)]
@@ -446,57 +447,30 @@ impl AppState {
 
 /// Apply a SetConfig command to AppState.
 ///
-/// Known keys are dispatched to their respective fields; unknown keys are
-/// stored in `plugin_config` for plugin-defined configuration, or
+/// Known core keys are dispatched through the [`setting_registry`]; unknown
+/// keys are stored in `plugin_config` for plugin-defined configuration, or
 /// `unknown_options` for unknown non-dotted keys from the config path.
 pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str, value: &str) {
-    match key {
-        "shadow_enabled" => {
-            state.config.shadow_enabled = value == "true";
-            *dirty |= DirtyFlags::OPTIONS;
-        }
-        "padding_char" => {
-            state.config.padding_char = value.to_string();
-            *dirty |= DirtyFlags::BUFFER_CONTENT;
-        }
-        "search_dropdown" => {
-            state.config.search_dropdown = value == "true";
-            *dirty |= DirtyFlags::OPTIONS;
-        }
-        "status_at_top" => {
-            state.config.status_at_top = value == "true";
-            *dirty |= DirtyFlags::OPTIONS;
-        }
-        "cursor.secondary_blend" => {
-            if let Ok(ratio) = value.parse::<f32>() {
-                state.config.secondary_blend_ratio = ratio.clamp(0.0, 1.0);
-                *dirty |= DirtyFlags::BUFFER_CONTENT;
-            }
-        }
-        "scrollbar.thumb" => {
-            state.config.scrollbar_thumb = value.to_string();
-            *dirty |= DirtyFlags::MENU_STRUCTURE;
-        }
-        "scrollbar.track" => {
-            state.config.scrollbar_track = value.to_string();
-            *dirty |= DirtyFlags::MENU_STRUCTURE;
-        }
-        _ => {
-            if key.contains('.') {
-                // Plugin-namespaced keys (e.g. "color-preview.opacity")
-                state
-                    .config
-                    .plugin_config
-                    .insert(key.to_string(), value.to_string());
-            } else {
-                state
-                    .observed
-                    .ui_options
-                    .insert(key.to_string(), value.to_string());
-            }
-            *dirty |= DirtyFlags::OPTIONS;
-        }
+    // Try the core setting registry first
+    if let Some(d) = setting_registry::REGISTRY.apply(state, key, value) {
+        *dirty |= d;
+        return;
     }
+
+    // Unknown key: route to plugin config or ui_options
+    if key.contains('.') {
+        // Plugin-namespaced keys (e.g. "color-preview.opacity")
+        state
+            .config
+            .plugin_config
+            .insert(key.to_string(), value.to_string());
+    } else {
+        state
+            .observed
+            .ui_options
+            .insert(key.to_string(), value.to_string());
+    }
+    *dirty |= DirtyFlags::OPTIONS;
 }
 
 /// Apply a SetSetting command to AppState.

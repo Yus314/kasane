@@ -201,15 +201,43 @@ pub trait EventSink: Clone + Send + 'static {
 // ── Generic schedulers ─────────────���────────────────────────────
 
 /// Timer scheduler generic over [`EventSink`].
-pub struct GenericTimerScheduler<E>(pub E);
+pub struct GenericTimerScheduler<E> {
+    sink: E,
+    active_timers: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<u64>>>,
+}
+
+impl<E: EventSink> GenericTimerScheduler<E> {
+    pub fn new(sink: E) -> Self {
+        Self {
+            sink,
+            active_timers: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashSet::new(),
+            )),
+        }
+    }
+}
 
 impl<E: EventSink> TimerScheduler for GenericTimerScheduler<E> {
-    fn schedule_timer(&self, delay: Duration, target: PluginId, payload: Box<dyn Any + Send>) {
-        let sink = self.0.clone();
+    fn schedule_timer(
+        &self,
+        timer_id: u64,
+        delay: Duration,
+        target: PluginId,
+        payload: Box<dyn Any + Send>,
+    ) {
+        let active = self.active_timers.clone();
+        active.lock().unwrap().insert(timer_id);
+        let sink = self.sink.clone();
         std::thread::spawn(move || {
             std::thread::sleep(delay);
-            sink.send_timer(target, payload);
+            if active.lock().unwrap().remove(&timer_id) {
+                sink.send_timer(target, payload);
+            }
         });
+    }
+
+    fn cancel_timer(&self, timer_id: u64) {
+        self.active_timers.lock().unwrap().remove(&timer_id);
     }
 }
 
@@ -233,7 +261,14 @@ impl<E: EventSink> DiagnosticOverlayScheduler for GenericDiagnosticScheduler<E> 
 /// Implementations spawn a background thread that sleeps for `delay` and then
 /// delivers the timer event through the backend's event system.
 pub trait TimerScheduler {
-    fn schedule_timer(&self, delay: Duration, target: PluginId, payload: Box<dyn Any + Send>);
+    fn schedule_timer(
+        &self,
+        timer_id: u64,
+        delay: Duration,
+        target: PluginId,
+        payload: Box<dyn Any + Send>,
+    );
+    fn cancel_timer(&self, timer_id: u64);
 }
 
 /// Backend-owned session lifecycle hooks used by deferred commands.

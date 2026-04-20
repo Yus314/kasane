@@ -114,9 +114,14 @@ pub enum Command {
     RequestRedraw(DirtyFlags),
     /// Schedule a timer that fires after `delay`, delivering `payload` to `target` plugin.
     ScheduleTimer {
+        timer_id: u64,
         delay: Duration,
         target: PluginId,
         payload: Box<dyn Any + Send>,
+    },
+    /// Cancel a previously scheduled timer by ID.
+    CancelTimer {
+        timer_id: u64,
     },
     /// Send a message directly to another plugin.
     PluginMessage {
@@ -264,6 +269,7 @@ impl Command {
     pub const ALL_VARIANT_NAMES: &'static [&'static str] = &[
         "BindSurfaceSession",
         "CancelHttpRequest",
+        "CancelTimer",
         "ClosePaneClient",
         "CloseProcessStdin",
         "EditBuffer",
@@ -360,6 +366,7 @@ impl Command {
             Command::ExposeVariable { .. } => false,
             Command::HttpRequest { .. } => false,
             Command::CancelHttpRequest { .. } => false,
+            Command::CancelTimer { .. } => false,
             Command::SetStructuralProjection(_) => false,
             Command::ToggleAdditiveProjection(_) => false,
             Command::ProjectionOff => false,
@@ -403,6 +410,7 @@ impl Command {
             Command::StartProcessTask { .. } => false,
             Command::HttpRequest { .. } => false,
             Command::CancelHttpRequest { .. } => false,
+            Command::CancelTimer { .. } => false,
             Command::ExposeVariable { .. } => false,
             Command::SetStructuralProjection(_) => true,
             Command::ToggleAdditiveProjection(_) => true,
@@ -444,6 +452,7 @@ impl Command {
             Command::UnbindSurfaceSession { .. } => true,
             Command::HttpRequest { .. } => true,
             Command::CancelHttpRequest { .. } => true,
+            Command::CancelTimer { .. } => true,
             Command::StartProcessTask { .. } => true,
             Command::ExposeVariable { .. } => true,
             Command::SetStructuralProjection(_) => true,
@@ -463,6 +472,7 @@ impl Command {
             Command::EditBuffer { .. } => EffectCategory::KAKOUNE_WRITING,
             Command::PluginMessage { .. } => EffectCategory::PLUGIN_MESSAGE,
             Command::ScheduleTimer { .. } => EffectCategory::TIMER,
+            Command::CancelTimer { .. } => EffectCategory::TIMER,
             Command::InjectInput(_) => EffectCategory::INPUT_INJECTION,
             Command::SpawnProcess { .. } => EffectCategory::PROCESS_MANAGEMENT,
             Command::StartProcessTask { .. } => EffectCategory::PROCESS_MANAGEMENT,
@@ -528,6 +538,7 @@ impl Command {
             Command::StartProcessTask { .. } => "StartProcessTask",
             Command::HttpRequest { .. } => "HttpRequest",
             Command::CancelHttpRequest { .. } => "CancelHttpRequest",
+            Command::CancelTimer { .. } => "CancelTimer",
             Command::ExposeVariable { .. } => "ExposeVariable",
             Command::SetStructuralProjection(_) => "SetStructuralProjection",
             Command::ToggleAdditiveProjection(_) => "ToggleAdditiveProjection",
@@ -608,6 +619,7 @@ pub fn execute_commands(
             | Command::ResizePty { .. }
             | Command::HttpRequest { .. }
             | Command::CancelHttpRequest { .. }
+            | Command::CancelTimer { .. }
             | Command::InjectInput(_)
             | Command::SpawnPaneClient { .. }
             | Command::ClosePaneClient { .. }

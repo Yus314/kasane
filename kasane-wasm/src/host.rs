@@ -84,6 +84,9 @@ pub(crate) struct HostState {
     pub theme: kasane_core::render::theme::Theme,
     pub is_dark: bool,
 
+    // --- Tier 11: Runtime state ---
+    pub is_dragging: bool,
+
     // --- DU-4: Display unit map ---
     pub display_unit_map: Option<kasane_core::display::DisplayUnitMap>,
 
@@ -155,6 +158,7 @@ impl Default for HostState {
             selections: Vec::new(),
             theme: kasane_core::render::theme::Theme::default_theme(),
             is_dark: true,
+            is_dragging: false,
             display_unit_map: None,
             syntax_provider: None,
             elements: Vec::new(),
@@ -503,6 +507,10 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
             .as_ref()
             .map(|sp| sp.indent_level(line as usize))
             .unwrap_or(0)
+    }
+
+    fn is_dragging(&mut self) -> bool {
+        self.is_dragging
     }
 }
 
@@ -936,6 +944,7 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
         CursorMode::Buffer => 0,
         CursorMode::Prompt => 1,
     };
+    host.is_dragging = !matches!(state.runtime.drag, kasane_core::state::DragState::None);
     host.editor_mode = match state.inference.editor_mode {
         kasane_core::state::derived::EditorMode::Normal => 0,
         kasane_core::state::derived::EditorMode::Insert => 1,

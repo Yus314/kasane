@@ -25,8 +25,13 @@ pub(crate) const MAX_DROPDOWN_HEIGHT: u16 = 10;
 /// Truncate a slice of atoms to fit within `max_width` display columns.
 ///
 /// If the content fits, resolves faces against `base_face` and returns as-is.
-/// If it exceeds, truncates at `max_width - 1` and appends "\u{2026}" (U+2026, width 1).
-pub(crate) fn truncate_atoms(atoms: &[Atom], max_width: u16, base_face: &Face) -> Vec<Atom> {
+/// If it exceeds, truncates at `max_width - 1` and appends `truncation_char`.
+pub(crate) fn truncate_atoms(
+    atoms: &[Atom],
+    max_width: u16,
+    base_face: &Face,
+    truncation_char: &str,
+) -> Vec<Atom> {
     let max_w = max_width as usize;
     let total: usize = atoms
         .iter()
@@ -77,10 +82,10 @@ pub(crate) fn truncate_atoms(atoms: &[Atom], max_width: u16, base_face: &Face) -
             break;
         }
     }
-    // Append ellipsis with the base face
+    // Append truncation indicator with the base face
     result.push(Atom {
         face: *base_face,
-        contents: "\u{2026}".into(),
+        contents: truncation_char.into(),
     });
     result
 }

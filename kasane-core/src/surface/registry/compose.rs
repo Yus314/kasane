@@ -89,7 +89,7 @@ impl SurfaceRegistry {
             let overlay_ctx = crate::plugin::OverlayContext {
                 screen_cols: state.runtime.cols,
                 screen_rows: state.runtime.rows,
-                menu_rect: None,
+                menu_rect: crate::layout::get_menu_rect(state),
                 existing_overlays: vec![],
                 focused_surface_id: Some(self.workspace.focused()),
             };
@@ -216,7 +216,7 @@ impl SurfaceRegistry {
         let overlay_ctx = crate::plugin::OverlayContext {
             screen_cols: state.runtime.cols,
             screen_rows: state.runtime.rows,
-            menu_rect: None,
+            menu_rect: crate::layout::get_menu_rect(state),
             existing_overlays: vec![],
             focused_surface_id: Some(self.workspace.focused()),
         };

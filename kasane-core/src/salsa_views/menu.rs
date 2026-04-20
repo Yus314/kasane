@@ -103,7 +103,7 @@ fn build_split_item_element_pure(
 
     // 1. Candidate portion
     let cand_atoms = &item[..split.candidate_end];
-    let mut cand_resolved = truncate_atoms(cand_atoms, candidate_col_w, &face);
+    let mut cand_resolved = truncate_atoms(cand_atoms, candidate_col_w, &face, "\u{2026}");
     let cand_w: usize = cand_resolved
         .iter()
         .map(|a| {

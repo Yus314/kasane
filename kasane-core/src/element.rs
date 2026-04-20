@@ -195,6 +195,8 @@ impl StyleToken {
     pub const SPLIT_DIVIDER: Self = Self(CompactString::const_new("split.divider"));
     pub const SPLIT_DIVIDER_FOCUSED: Self = Self(CompactString::const_new("split.divider.focused"));
     pub const SHADOW: Self = Self(CompactString::const_new("shadow"));
+    pub const GUTTER_LINE_NUMBER: Self = Self(CompactString::const_new("gutter.line_number"));
+    pub const TEXT_PANEL_CURSOR: Self = Self(CompactString::const_new("text_panel.cursor"));
 
     /// Create a custom style token with an arbitrary name.
     pub fn new(name: impl Into<CompactString>) -> Self {

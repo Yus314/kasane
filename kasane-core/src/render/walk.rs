@@ -47,6 +47,10 @@ pub(crate) struct ContainerPaintInfo<'a> {
     pub title: Option<&'a [Atom]>,
     /// Whether this container is a split divider (fill with box-drawing chars).
     pub is_split_divider: bool,
+    /// Vertical divider glyph (from config, default "│").
+    pub divider_vertical: &'a str,
+    /// Horizontal divider glyph (from config, default "─").
+    pub divider_horizontal: &'a str,
 }
 
 /// Visitor trait for painting an Element tree. Implementations diverge only at
@@ -229,6 +233,8 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
                 border_face,
                 title: title.as_deref(),
                 is_split_divider,
+                divider_vertical: &state.config.divider_vertical,
+                divider_horizontal: &state.config.divider_horizontal,
             };
             visitor.visit_container_pre(&info);
             if let Some(child_layout) = layout.children.first() {
@@ -369,11 +375,13 @@ impl PaintVisitor for GridPaintVisitor<'_> {
         if info.is_split_divider {
             if info.area.w == 1 {
                 for y in info.area.y..info.area.y + info.area.h {
-                    self.grid.put_char(info.area.x, y, "│", &info.face);
+                    self.grid
+                        .put_char(info.area.x, y, info.divider_vertical, &info.face);
                 }
             } else {
                 for x in info.area.x..info.area.x + info.area.w {
-                    self.grid.put_char(x, info.area.y, "─", &info.face);
+                    self.grid
+                        .put_char(x, info.area.y, info.divider_horizontal, &info.face);
                 }
             }
         }
@@ -413,14 +421,11 @@ impl PaintVisitor for GridPaintVisitor<'_> {
         let content_x = area.x + gutter_w;
         let content_w = area.w.saturating_sub(gutter_w);
 
-        let gutter_face = Face {
-            fg: crate::protocol::Color::Rgb {
-                r: 120,
-                g: 120,
-                b: 120,
-            },
-            ..Face::default()
-        };
+        let gutter_face = self
+            .theme
+            .get(&StyleToken::GUTTER_LINE_NUMBER)
+            .copied()
+            .unwrap_or_default();
 
         for row in 0..area.h {
             let line_idx = scroll_offset + row as usize;
@@ -448,14 +453,11 @@ impl PaintVisitor for GridPaintVisitor<'_> {
                 if let Some((cl, _cc)) = cursor
                     && cl == line_idx
                 {
-                    let cursor_face = Face {
-                        bg: crate::protocol::Color::Rgb {
-                            r: 40,
-                            g: 40,
-                            b: 60,
-                        },
-                        ..Face::default()
-                    };
+                    let cursor_face = self
+                        .theme
+                        .get(&StyleToken::TEXT_PANEL_CURSOR)
+                        .copied()
+                        .unwrap_or(Face::default());
                     self.grid.fill_region(y, content_x, content_w, &cursor_face);
                 }
             }
@@ -484,6 +486,7 @@ pub(crate) struct ScenePaintVisitor<'a> {
     out: &'a mut Vec<DrawCommand>,
     cell_size: CellSize,
     cursor_style: CursorStyle,
+    theme: &'a Theme,
 }
 
 impl<'a> ScenePaintVisitor<'a> {
@@ -491,11 +494,13 @@ impl<'a> ScenePaintVisitor<'a> {
         out: &'a mut Vec<DrawCommand>,
         cell_size: CellSize,
         cursor_style: CursorStyle,
+        theme: &'a Theme,
     ) -> Self {
         Self {
             out,
             cell_size,
             cursor_style,
+            theme,
         }
     }
 }
@@ -734,7 +739,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             x: info.area.x as f32 * cs.width,
                             y: (info.area.y + row) as f32 * cs.height,
                         },
-                        text: "│".to_string(),
+                        text: info.divider_vertical.to_string(),
                         face: info.face,
                         max_width: cs.width,
                     });
@@ -745,7 +750,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         x: info.area.x as f32 * cs.width,
                         y: info.area.y as f32 * cs.height,
                     },
-                    text: "─".repeat(info.area.w as usize),
+                    text: info.divider_horizontal.repeat(info.area.w as usize),
                     face: info.face,
                     max_width: info.area.w as f32 * cs.width,
                 });
@@ -795,14 +800,11 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         let content_x = area.x + gutter_w;
         let content_w = area.w.saturating_sub(gutter_w);
 
-        let gutter_face = Face {
-            fg: crate::protocol::Color::Rgb {
-                r: 120,
-                g: 120,
-                b: 120,
-            },
-            ..Face::default()
-        };
+        let gutter_face = self
+            .theme
+            .get(&StyleToken::GUTTER_LINE_NUMBER)
+            .copied()
+            .unwrap_or_default();
 
         for row in 0..area.h {
             let line_idx = scroll_offset + row as usize;
@@ -850,16 +852,14 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     && cl == line_idx
                 {
                     let cursor_pr = to_pixel_rect(&line_area, cs);
+                    let cursor_face = self
+                        .theme
+                        .get(&StyleToken::TEXT_PANEL_CURSOR)
+                        .copied()
+                        .unwrap_or_default();
                     self.out.push(DrawCommand::FillRect {
                         rect: cursor_pr,
-                        face: Face {
-                            bg: crate::protocol::Color::Rgb {
-                                r: 40,
-                                g: 40,
-                                b: 60,
-                            },
-                            ..Face::default()
-                        },
+                        face: cursor_face,
                         elevated: false,
                     });
                 }
@@ -913,7 +913,7 @@ pub(crate) fn walk_paint_scene_section(
     cursor_style: CursorStyle,
 ) -> Vec<DrawCommand> {
     let mut commands = Vec::with_capacity(64);
-    let mut visitor = ScenePaintVisitor::new(&mut commands, cell_size, cursor_style);
+    let mut visitor = ScenePaintVisitor::new(&mut commands, cell_size, cursor_style, theme);
     walk_paint(&mut visitor, element, layout, state, theme);
     commands
 }
@@ -929,7 +929,7 @@ pub(crate) fn walk_paint_scene(
     cursor_style: CursorStyle,
 ) -> Vec<DrawCommand> {
     let mut commands = Vec::with_capacity(256);
-    let mut visitor = ScenePaintVisitor::new(&mut commands, cell_size, cursor_style);
+    let mut visitor = ScenePaintVisitor::new(&mut commands, cell_size, cursor_style, theme);
     walk_paint(&mut visitor, element, layout, state, theme);
     commands
 }

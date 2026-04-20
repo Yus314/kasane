@@ -28,28 +28,54 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
     let app_view = AppView::new(state);
     let display_map = registry.collect_display_map(&app_view);
     let menu_overlay = build_menu_section(state, registry);
-    let info_overlays = build_info_section(state, registry);
+    let menu_rect = crate::layout::get_menu_rect(state);
+    // Collect plugin overlays before info so info can avoid them.
     let overlay_ctx = crate::plugin::OverlayContext {
         screen_cols: state.runtime.cols,
         screen_rows: state.runtime.rows,
-        menu_rect: None,
+        menu_rect,
         existing_overlays: vec![],
         focused_surface_id: None,
     };
-    let plugin_overlays: Vec<crate::element::Overlay> = registry
-        .collect_overlays_with_ctx(&app_view, &overlay_ctx)
+    let plugin_overlay_contributions = registry.collect_overlays_with_ctx(&app_view, &overlay_ctx);
+    let plugin_overlay_rects: Vec<crate::layout::Rect> = plugin_overlay_contributions
+        .iter()
+        .filter_map(|oc| match &oc.anchor {
+            crate::element::OverlayAnchor::Absolute { x, y, w, h } => Some(crate::layout::Rect {
+                x: *x,
+                y: *y,
+                w: *w,
+                h: *h,
+            }),
+            _ => None,
+        })
+        .collect();
+    let plugin_overlays: Vec<crate::element::Overlay> = plugin_overlay_contributions
         .into_iter()
         .map(|oc| crate::element::Overlay {
             element: oc.element,
             anchor: oc.anchor,
         })
         .collect();
+    let info_overlays = build_info_section_with_avoid(state, registry, &plugin_overlay_rects);
 
     let buffer_rows = state.available_height() as usize;
-    let display_scroll_offset = crate::display::compute_display_scroll_offset(
+    let default_offset = crate::display::compute_display_scroll_offset(
         &display_map,
         crate::display::BufferLine(state.observed.cursor_pos.line as usize),
         buffer_rows,
+    );
+    let cursor_display_y = display_map
+        .buffer_to_display(crate::display::BufferLine(
+            state.observed.cursor_pos.line as usize,
+        ))
+        .map(|dl| dl.0)
+        .unwrap_or(state.observed.cursor_pos.line as usize);
+    let display_scroll_offset = registry.resolve_display_scroll_offset(
+        cursor_display_y,
+        buffer_rows,
+        default_offset.0,
+        &app_view,
     );
 
     ViewSections {
@@ -59,7 +85,7 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
         plugin_overlays,
         surface_reports: base.surface_reports,
         display_map,
-        display_scroll_offset: display_scroll_offset.0,
+        display_scroll_offset,
         segment_map: None,
         focused_pane_rect: None,
         focused_pane_state: None,
@@ -161,8 +187,19 @@ fn legacy_surface_compose_result(
 }
 
 /// Build the menu overlay section.
+///
+/// Dispatches to plugin renderers first (first-wins). Falls back to the built-in
+/// menu renderer. The overlay-level transform chain is applied in both cases.
 #[crate::kasane_component]
 fn build_menu_section(state: &AppState, registry: &PluginView<'_>) -> Option<Overlay> {
+    let app_view = AppView::new(state);
+
+    // Try plugin renderers first
+    if let Some(overlay) = registry.resolve_menu_overlay(&app_view) {
+        return Some(overlay);
+    }
+
+    // Fall back to built-in renderer
     let menu_state = state.observed.menu.as_ref()?;
     let transform_target = match menu_state.style {
         MenuStyle::Prompt => TransformTarget::MENU_PROMPT,
@@ -170,12 +207,9 @@ fn build_menu_section(state: &AppState, registry: &PluginView<'_>) -> Option<Ove
         MenuStyle::Search => TransformTarget::MENU_SEARCH,
     };
 
-    // Build the default menu overlay; apply_transform_chain handles
-    // replacement internally (Phase 1) so no explicit get_replacement() needed.
     let menu_overlay = menu::build_menu_overlay(menu_state, state, registry);
     menu_overlay.map(|overlay| {
         // Apply hierarchical transform chain (Menu generic → style-specific)
-        let app_view = AppView::new(state);
         let result = registry.apply_transform_chain_hierarchical(
             transform_target,
             TransformSubject::Overlay(overlay),
@@ -190,6 +224,19 @@ fn build_menu_section(state: &AppState, registry: &PluginView<'_>) -> Option<Ove
 /// Build info overlay section with collision avoidance.
 #[crate::kasane_component]
 fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overlay> {
+    build_info_section_with_avoid(state, registry, &[])
+}
+
+/// Build info overlay section with collision avoidance, including additional
+/// avoid rects from plugin overlays.
+///
+/// Dispatches to plugin renderers first (first-wins). Falls back to the built-in
+/// info renderer. The overlay-level transform chain is applied in both cases.
+fn build_info_section_with_avoid(
+    state: &AppState,
+    registry: &PluginView<'_>,
+    extra_avoid: &[crate::layout::Rect],
+) -> Vec<Overlay> {
     let menu_rect = crate::layout::get_menu_rect(state);
     let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
     if let Some(mr) = menu_rect {
@@ -202,16 +249,22 @@ fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overla
         w: 1,
         h: 1,
     });
+    // Include plugin overlay rects for collision avoidance.
+    avoid_rects.extend_from_slice(extra_avoid);
 
+    // Try plugin renderers first
+    let app_view = AppView::new(state);
+    if let Some(overlays) = registry.resolve_info_overlays(&app_view, &avoid_rects) {
+        return overlays;
+    }
+
+    // Fall back to built-in renderer
     let mut overlays = Vec::new();
     for (info_idx, info_state) in state.observed.infos.iter().enumerate() {
-        // Build the default info overlay; apply_transform_chain handles
-        // replacement internally (Phase 1) so no explicit get_replacement() needed.
         let info_overlay =
             info::build_info_overlay_indexed(info_state, state, &avoid_rects, info_idx);
         if let Some(overlay) = info_overlay {
             // Apply hierarchical transform chain (Info generic → style-specific)
-            let app_view = AppView::new(state);
             let info_target = match info_state.style {
                 InfoStyle::Prompt => TransformTarget::INFO_PROMPT,
                 InfoStyle::Modal => TransformTarget::INFO_MODAL,
@@ -497,13 +550,25 @@ pub(crate) fn build_buffer_core_parts(
     // the cursor stays visible, then use offset-based line_range.
     let (effective_start, effective_end, _display_scroll_offset) = if !display_map.is_identity() {
         let visible_height = display_map.display_line_count().min(buffer_rows);
-        let offset = crate::display::compute_display_scroll_offset(
+        let default_offset = crate::display::compute_display_scroll_offset(
             &display_map,
             crate::display::BufferLine(state.observed.cursor_pos.line as usize),
             visible_height,
         );
-        let end = (offset.0 + visible_height).min(display_map.display_line_count());
-        (offset.0, end, offset.0)
+        let cursor_display_y = display_map
+            .buffer_to_display(crate::display::BufferLine(
+                state.observed.cursor_pos.line as usize,
+            ))
+            .map(|dl| dl.0)
+            .unwrap_or(state.observed.cursor_pos.line as usize);
+        let offset = registry.resolve_display_scroll_offset(
+            cursor_display_y,
+            visible_height,
+            default_offset.0,
+            &app_view,
+        );
+        let end = (offset + visible_height).min(display_map.display_line_count());
+        (offset, end, offset)
     } else {
         (0, buffer_rows, 0)
     };

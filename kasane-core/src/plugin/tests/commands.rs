@@ -31,6 +31,7 @@ fn test_partition_separates_correctly() {
         Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["a".into()])),
         Command::InsertText("hello".into()),
         Command::ScheduleTimer {
+            timer_id: 1,
             delay: std::time::Duration::from_millis(100),
             target: PluginId("test".into()),
             payload: Box::new(42u32),

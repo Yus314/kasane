@@ -158,12 +158,15 @@ bitflags! {
         const IO_HANDLER         = 1 << 17;
         const DISPLAY_TRANSFORM  = 1 << 18;
         const SCROLL_POLICY      = 1 << 19;
+        const SCROLL_OFFSET      = 1 << 20;
         const NAVIGATION_POLICY  = 1 << 21;
         const NAVIGATION_ACTION  = 1 << 22;
         const DROP_HANDLER       = 1 << 23;
         const RENDER_ORNAMENT    = 1 << 24;
         const CONTENT_ANNOTATOR  = 1 << 25;
         const VIRTUAL_EDIT       = 1 << 26;
+        const MENU_RENDERER      = 1 << 27;
+        const INFO_RENDERER      = 1 << 28;
     }
 }
 
