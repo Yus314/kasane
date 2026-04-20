@@ -25,6 +25,8 @@ fn install_panic_hook() {
         );
     }));
 }
+use std::time::Duration;
+
 use kasane_core::config::Config;
 use kasane_core::plugin::{IoEvent, PluginId, PluginManager, ProcessEventSink};
 use kasane_core::protocol::KakouneRequest;
@@ -53,6 +55,10 @@ pub(crate) enum GuiEvent {
         gpu::texture_cache::TextureKey,
         Result<gpu::texture_cache::DecodedImage, String>,
     ),
+    /// kasane.kdl changed — reload config + widgets.
+    FileReload,
+    /// Plugin .reload sentinel changed — hot-reload WASM plugins.
+    PluginReload,
 }
 
 /// EventSink that injects events into the winit event loop.
@@ -102,7 +108,7 @@ pub fn run_gui<R, W, C>(
     create_http_dispatcher: impl FnOnce(
         Arc<dyn ProcessEventSink>,
     ) -> Box<dyn kasane_core::plugin::HttpDispatcher>,
-    mut plugin_manager: PluginManager,
+    plugin_manager: PluginManager,
 ) -> Result<()>
 where
     R: std::io::BufRead + Send + 'static,
@@ -139,16 +145,121 @@ where
     let gui_sink = GuiEventSink(proxy.clone());
     kasane_core::event_loop::spawn_session_reader(active_session, kak_reader, gui_sink.clone());
 
-    let mut app_handler = app::App::new(
-        config,
+    let (mut app_handler, widget_included_paths) = app::App::new(
+        config.clone(),
         session_manager,
         spawn_session,
-        proxy,
-        &mut plugin_manager,
+        proxy.clone(),
+        plugin_manager,
         registry,
         process_dispatcher,
         http_dispatcher,
     )?;
+
+    // Plugin hot-reload sentinel watcher thread (500ms polling)
+    {
+        let plugins_dir = config.plugins.plugins_dir();
+        let reload_sentinel = plugins_dir.join(".reload");
+        let proxy = proxy.clone();
+        std::thread::spawn(move || {
+            let mut last_modified = reload_sentinel.metadata().and_then(|m| m.modified()).ok();
+            loop {
+                std::thread::sleep(Duration::from_millis(500));
+                let current = reload_sentinel.metadata().and_then(|m| m.modified()).ok();
+                if current != last_modified && current.is_some() {
+                    last_modified = current;
+                    if proxy.send_event(GuiEvent::PluginReload).is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    // Unified kasane.kdl hot-reload watcher (notify-based, 100ms debounce)
+    let _config_watcher = {
+        use notify::Watcher;
+
+        let file_proxy = proxy.clone();
+        let config_path = kasane_core::config::config_path();
+
+        let (debounce_tx, debounce_rx) = std::sync::mpsc::channel::<()>();
+        let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            if let Ok(event) = res
+                && (event.kind.is_modify() || event.kind.is_create())
+            {
+                let _ = debounce_tx.send(());
+            }
+        });
+
+        match watcher {
+            Ok(mut watcher) => {
+                // Watch config file's parent directory.
+                if let Some(parent) = config_path.parent() {
+                    let _ = watcher.watch(parent, notify::RecursiveMode::NonRecursive);
+                }
+
+                // Also watch directories containing included widget files.
+                let mut watched_dirs = std::collections::HashSet::new();
+                for inc_path in &widget_included_paths {
+                    if let Some(parent) = inc_path.parent()
+                        && watched_dirs.insert(parent.to_path_buf())
+                    {
+                        let _ = watcher.watch(parent, notify::RecursiveMode::NonRecursive);
+                    }
+                }
+
+                // Debounce thread: wait 100ms after last event before firing FileReload.
+                std::thread::spawn(move || {
+                    while debounce_rx.recv().is_ok() {
+                        std::thread::sleep(Duration::from_millis(100));
+                        while debounce_rx.try_recv().is_ok() {}
+                        if file_proxy.send_event(GuiEvent::FileReload).is_err() {
+                            return;
+                        }
+                    }
+                });
+
+                Some(watcher)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "failed to create config file watcher, falling back to polling: {e}"
+                );
+                // Fallback: 2-second polling thread.
+                let file_proxy2 = proxy;
+                let included_paths = widget_included_paths;
+                std::thread::spawn(move || {
+                    let mut last_modified = config_path.metadata().and_then(|m| m.modified()).ok();
+                    let mut included_mtimes: Vec<Option<std::time::SystemTime>> = included_paths
+                        .iter()
+                        .map(|p| p.metadata().and_then(|m| m.modified()).ok())
+                        .collect();
+                    loop {
+                        std::thread::sleep(Duration::from_secs(2));
+                        let mut changed = false;
+                        let current = config_path.metadata().and_then(|m| m.modified()).ok();
+                        if current != last_modified {
+                            last_modified = current;
+                            changed = true;
+                        }
+                        for (i, path) in included_paths.iter().enumerate() {
+                            let current = path.metadata().and_then(|m| m.modified()).ok();
+                            if current != included_mtimes[i] {
+                                included_mtimes[i] = current;
+                                changed = true;
+                            }
+                        }
+                        if changed && file_proxy2.send_event(GuiEvent::FileReload).is_err() {
+                            return;
+                        }
+                    }
+                });
+                None
+            }
+        }
+    };
+
     event_loop.run_app(&mut app_handler)?;
     Ok(())
 }

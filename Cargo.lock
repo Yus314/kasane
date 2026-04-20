@@ -2409,6 +2409,7 @@ dependencies = [
  "image",
  "kasane-core",
  "lru",
+ "notify",
  "pollster",
  "rustc-hash 2.1.2",
  "tracing",

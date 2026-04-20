@@ -117,6 +117,13 @@ where
     // HTTP dispatcher for plugin HTTP requests
     http_dispatcher: Box<dyn HttpDispatcher>,
 
+    // Plugin manager (owned for hot-reload)
+    plugin_manager: PluginManager,
+
+    // Hot-reload state
+    widget_names: Vec<String>,
+    last_config_hash: u64,
+
     // Salsa database
     salsa_db: KasaneDatabase,
     salsa_handles: SalsaInputHandles,
@@ -134,11 +141,11 @@ where
         mut session_manager: SessionManager<R, W, C>,
         session_spawner: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
         event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
-        plugin_manager: &mut PluginManager,
+        mut plugin_manager: PluginManager,
         registry: PluginRuntime,
         process_dispatcher: Box<dyn ProcessDispatcher>,
         http_dispatcher: Box<dyn HttpDispatcher>,
-    ) -> Result<Self> {
+    ) -> Result<(Self, Vec<std::path::PathBuf>)> {
         let scroll_amount = config.scroll.lines_per_scroll;
 
         let mut state = Box::new(AppState::default());
@@ -155,6 +162,41 @@ where
 
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
+
+        // Load widgets from unified kasane.kdl (each widget becomes its own plugin)
+        let mut widget_names: Vec<String> = Vec::new();
+        let mut widget_included_paths: Vec<std::path::PathBuf> = Vec::new();
+        let mut last_config_hash: u64 = 0;
+        {
+            let config_path = kasane_core::config::config_path();
+            if let Ok(source) = std::fs::read_to_string(&config_path) {
+                {
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    source.hash(&mut hasher);
+                    last_config_hash = hasher.finish();
+                }
+                match kasane_core::config::unified::parse_unified(&source) {
+                    Ok((_config, config_errors, widget_file, errors)) => {
+                        for err in &config_errors {
+                            tracing::warn!("config: {err}");
+                        }
+                        for err in &errors {
+                            tracing::warn!("widget `{}`: {}", err.name, err.message);
+                        }
+                        widget_included_paths = widget_file.included_paths.clone();
+                        widget_names = kasane_core::widget::register_all_widgets(
+                            widget_file,
+                            &errors,
+                            &mut registry,
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("kasane.kdl widget parse failed: {e}");
+                    }
+                }
+            }
+        }
 
         // Collect plugin-owned surfaces before plugin init so invalid surface
         // contracts do not get a chance to produce side effects.
@@ -224,44 +266,50 @@ where
             );
         }
 
-        Ok(App {
-            window: None,
-            gpu: None,
-            scene_renderer: None,
-            state,
-            registry,
-            surface_registry,
-            clipboard: SystemClipboard::new(),
-            backend: None,
-            session_manager,
-            session_states,
-            session_spawner,
-            pending_events: Vec::new(),
-            dirty: initial_dirty,
-            initial_resize_sent,
-            session_ready_gate,
-            current_modifiers: winit::keyboard::ModifiersState::empty(),
-            cursor_pos: None,
-            mouse_button_held: None,
-            scroll_amount,
-            scroll_runtime: ScrollRuntime::default(),
-            scroll_runtime_session,
-            config,
-            color_resolver: None,
-            scene_cache: SceneCache::new(),
-            cursor_animation: CursorAnimation::new(),
-            cursor_dirty: false,
-            last_render_result: None,
-            prev_overlay_count: 0,
-            ime: GuiImeState::default(),
-            diagnostic_overlay,
-            event_proxy: event_proxy.clone(),
-            gui_sink,
-            process_dispatcher,
-            http_dispatcher,
-            salsa_db,
-            salsa_handles,
-        })
+        Ok((
+            App {
+                window: None,
+                gpu: None,
+                scene_renderer: None,
+                state,
+                registry,
+                surface_registry,
+                clipboard: SystemClipboard::new(),
+                backend: None,
+                session_manager,
+                session_states,
+                session_spawner,
+                pending_events: Vec::new(),
+                dirty: initial_dirty,
+                initial_resize_sent,
+                session_ready_gate,
+                current_modifiers: winit::keyboard::ModifiersState::empty(),
+                cursor_pos: None,
+                mouse_button_held: None,
+                scroll_amount,
+                scroll_runtime: ScrollRuntime::default(),
+                scroll_runtime_session,
+                config,
+                color_resolver: None,
+                scene_cache: SceneCache::new(),
+                cursor_animation: CursorAnimation::new(),
+                cursor_dirty: false,
+                last_render_result: None,
+                prev_overlay_count: 0,
+                ime: GuiImeState::default(),
+                diagnostic_overlay,
+                event_proxy: event_proxy.clone(),
+                gui_sink,
+                process_dispatcher,
+                http_dispatcher,
+                plugin_manager,
+                widget_names,
+                last_config_hash,
+                salsa_db,
+                salsa_handles,
+            },
+            widget_included_paths,
+        ))
     }
 
     fn init_window(&mut self, event_loop: &ActiveEventLoop) {
@@ -564,6 +612,15 @@ where
                         self.dirty |= DirtyFlags::ALL;
                     }
                 }
+                GuiEvent::FileReload => {
+                    self.handle_file_reload();
+                }
+                GuiEvent::PluginReload => {
+                    if self.handle_plugin_reload() {
+                        event_loop.exit();
+                        return;
+                    }
+                }
             }
         }
         self.sync_ime_binding();
@@ -579,6 +636,241 @@ where
                 &diagnostics,
             );
         }
+    }
+
+    fn handle_file_reload(&mut self) {
+        use kasane_core::event_loop::schedule_diagnostic_overlay;
+        use kasane_core::plugin::PluginDiagnostic;
+
+        let config_path = kasane_core::config::config_path();
+        match std::fs::read_to_string(&config_path) {
+            Ok(source) => {
+                let hash = {
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    source.hash(&mut hasher);
+                    hasher.finish()
+                };
+                if hash == self.last_config_hash {
+                    return;
+                }
+                match kasane_core::config::unified::parse_unified(&source) {
+                    Ok((new_config, config_errors, widget_file, widget_errors)) => {
+                        for err in &config_errors {
+                            tracing::warn!("config: {err}");
+                        }
+                        if !config_errors.is_empty() {
+                            let diagnostics: Vec<PluginDiagnostic> = config_errors
+                                .iter()
+                                .map(|e| PluginDiagnostic {
+                                    target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
+                                        kasane_core::plugin::PluginId("kasane.config".to_string()),
+                                    ),
+                                    kind: kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
+                                        method: "parse".to_string(),
+                                    },
+                                    message: e.to_string(),
+                                    previous: None,
+                                    attempted: None,
+                                })
+                                .collect();
+                            schedule_diagnostic_overlay(
+                                &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                    self.gui_sink.clone(),
+                                ),
+                                &mut self.diagnostic_overlay,
+                                &diagnostics,
+                            );
+                        }
+
+                        // Check for restart-required fields, excluding GUI-handleable ones
+                        let restart_fields: Vec<&str> = self
+                            .config
+                            .restart_required_diff(&new_config)
+                            .into_iter()
+                            .filter(|f| {
+                                !matches!(*f, "font" | "window" | "scroll.lines_per_scroll")
+                            })
+                            .collect();
+                        if !restart_fields.is_empty() {
+                            let field_list = restart_fields.join(", ");
+                            tracing::warn!("restart required for: {field_list}");
+                            let diagnostic = PluginDiagnostic {
+                                target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
+                                    kasane_core::plugin::PluginId("kasane.config".to_string()),
+                                ),
+                                kind: kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
+                                    method: "reload".to_string(),
+                                },
+                                message: format!(
+                                    "restart required for: {field_list}. \
+                                     Exit and re-run kasane to apply"
+                                ),
+                                previous: None,
+                                attempted: None,
+                            };
+                            schedule_diagnostic_overlay(
+                                &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                    self.gui_sink.clone(),
+                                ),
+                                &mut self.diagnostic_overlay,
+                                &[diagnostic],
+                            );
+                        }
+
+                        // Apply config to state
+                        self.state.apply_config(&new_config);
+
+                        // Hot-reload per-widget plugins (diff-based)
+                        self.widget_names = kasane_core::widget::hot_reload_widgets(
+                            &self.widget_names,
+                            widget_file,
+                            &widget_errors,
+                            &mut self.registry,
+                        );
+
+                        // Route widget parse errors to diagnostic overlay
+                        if !widget_errors.is_empty() {
+                            let diagnostics: Vec<PluginDiagnostic> = widget_errors
+                                .iter()
+                                .map(kasane_core::widget::node_error_to_diagnostic)
+                                .collect();
+                            for err in &widget_errors {
+                                tracing::warn!("widget `{}`: {}", err.name, err.message);
+                            }
+                            schedule_diagnostic_overlay(
+                                &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                    self.gui_sink.clone(),
+                                ),
+                                &mut self.diagnostic_overlay,
+                                &diagnostics,
+                            );
+                        }
+
+                        // GUI-specific: font reload
+                        if self.scene_renderer.is_some() && self.config.font != new_config.font {
+                            self.config = new_config.clone();
+                            if let Some(ref window) = self.window {
+                                self.handle_resize(window.inner_size());
+                            }
+                        }
+
+                        // GUI-specific: color palette reload
+                        if self.scene_renderer.is_some() && self.config.colors != new_config.colors
+                        {
+                            self.color_resolver =
+                                Some(ColorResolver::from_config(&new_config.colors));
+                        }
+
+                        // GUI-specific: scroll amount
+                        self.scroll_amount = new_config.scroll.lines_per_scroll;
+
+                        self.config = new_config;
+                        self.last_config_hash = hash;
+                        self.dirty |= DirtyFlags::ALL;
+                        tracing::info!("kasane.kdl hot-reloaded");
+                    }
+                    Err(err) => {
+                        tracing::warn!("kasane.kdl reload failed (keeping previous): {err}");
+                        let diagnostic = PluginDiagnostic {
+                            target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
+                                kasane_core::plugin::PluginId("kasane.widget.reload".to_string()),
+                            ),
+                            kind: kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
+                                method: "reload".to_string(),
+                            },
+                            message: format!("kasane.kdl reload failed (keeping previous): {err}"),
+                            previous: None,
+                            attempted: None,
+                        };
+                        schedule_diagnostic_overlay(
+                            &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                self.gui_sink.clone(),
+                            ),
+                            &mut self.diagnostic_overlay,
+                            &[diagnostic],
+                        );
+                    }
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // File deleted: unload all widget plugins, reset config to defaults
+                self.state
+                    .apply_config(&kasane_core::config::Config::default());
+                for name in self.widget_names.drain(..) {
+                    let id = kasane_core::widget::WidgetPlugin::plugin_id_for(&name);
+                    self.registry.remove_plugin(&id);
+                }
+                self.dirty |= DirtyFlags::ALL;
+            }
+            Err(e) => {
+                tracing::warn!("cannot read {}: {e}", config_path.display());
+            }
+        }
+    }
+
+    /// Hot-reload WASM plugins. Returns `true` if the app should quit.
+    fn handle_plugin_reload(&mut self) -> bool {
+        use kasane_core::event_loop::{
+            apply_bootstrap_effects, notify_workspace_observers, reconcile_plugin_surfaces,
+            schedule_diagnostic_overlay,
+        };
+
+        let reload_result = self.plugin_manager.reload(
+            &mut self.registry,
+            &AppView::new(&self.state),
+            |result, registry| {
+                if result.deltas.is_empty() {
+                    return vec![];
+                }
+                reconcile_plugin_surfaces(
+                    registry,
+                    &mut self.surface_registry,
+                    &self.state,
+                    result.deltas.as_slice(),
+                )
+            },
+        );
+        match reload_result {
+            Ok(reload) => {
+                reload.apply_settings(&mut self.state);
+                report_plugin_diagnostics(&reload.diagnostics);
+                schedule_diagnostic_overlay(
+                    &kasane_core::event_loop::GenericDiagnosticScheduler(self.gui_sink.clone()),
+                    &mut self.diagnostic_overlay,
+                    &reload.diagnostics,
+                );
+                let ready_targets: Vec<_> = reload.ready_targets().cloned().collect();
+                let mut flags = DirtyFlags::all();
+                apply_bootstrap_effects(reload.bootstrap, &mut flags);
+                sync_ready_gate(&mut self.session_ready_gate, &self.state);
+                if !reload.deltas.is_empty() {
+                    notify_workspace_observers(
+                        &mut self.registry,
+                        &self.surface_registry,
+                        &self.state,
+                    );
+                }
+                self.dirty |= flags;
+                // Flush ready targets for reloaded plugins
+                if self.initial_resize_sent {
+                    for plugin_id in &ready_targets {
+                        let batch = self.registry.notify_plugin_active_session_ready_batch(
+                            plugin_id,
+                            &AppView::new(&self.state),
+                        );
+                        if self.apply_runtime_batch(batch, Some(plugin_id)) {
+                            return true;
+                        }
+                    }
+                }
+                tracing::info!("hot-reloaded plugins");
+            }
+            Err(err) => {
+                tracing::error!("failed to hot-reload plugins: {err}");
+            }
+        }
+        false
     }
 
     fn handle_input_event(&mut self, input: InputEvent, event_loop: &ActiveEventLoop) {
@@ -736,7 +1028,7 @@ where
 
     /// Build a `DeferredContext` from `self` fields and pass it to the closure.
     fn with_deferred_context<T>(&mut self, f: impl FnOnce(&mut DeferredContext<'_>) -> T) -> T {
-        let timer = kasane_core::event_loop::GenericTimerScheduler(self.gui_sink.clone());
+        let timer = kasane_core::event_loop::GenericTimerScheduler::new(self.gui_sink.clone());
         let spawn_session = self.session_spawner;
         let mut session_runtime = kasane_core::event_loop::SharedSessionRuntime {
             session_manager: &mut self.session_manager,
