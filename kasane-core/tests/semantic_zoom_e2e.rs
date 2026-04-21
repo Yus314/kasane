@@ -7,7 +7,7 @@ use kasane_core::display::{
     DisplayDirective, DisplayLine, DisplayMap, InverseResult, ProjectionId,
 };
 use kasane_core::input::{Key, KeyEvent, Modifiers};
-use kasane_core::plugin::{AppView, PluginBridge, PluginRuntime};
+use kasane_core::plugin::{AppView, Command, PluginBridge, PluginRuntime};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::test_support::make_line;
 
@@ -52,10 +52,25 @@ fn ctrl_zero() -> KeyEvent {
     }
 }
 
-/// Dispatch a key event through the plugin runtime and refresh the cache.
-fn dispatch_key(runtime: &mut PluginRuntime, state: &AppState, key: &KeyEvent) {
+/// Dispatch a key event and apply returned commands (e.g. SetStructuralProjection)
+/// to the state, mirroring what the real event loop does.
+fn dispatch_key(runtime: &mut PluginRuntime, state: &mut AppState, key: &KeyEvent) {
+    use kasane_core::plugin::KeyDispatchResult;
+
     let app = AppView::new(state);
-    let _ = runtime.dispatch_key_middleware(key, &app);
+    let result = runtime.dispatch_key_middleware(key, &app);
+
+    if let KeyDispatchResult::Consumed { commands, .. } = result {
+        for cmd in commands {
+            match cmd {
+                Command::SetStructuralProjection(id) => {
+                    state.config.projection_policy.set_structural(id);
+                }
+                _ => {}
+            }
+        }
+    }
+
     runtime.prepare_plugin_cache(DirtyFlags::PLUGIN_STATE);
 }
 
@@ -96,16 +111,11 @@ fn code_lines() -> Vec<kasane_core::protocol::Line> {
 
 #[test]
 fn raw_level_produces_no_directives() {
-    let mut state = setup_state(code_lines());
-    state
-        .config
-        .projection_policy
-        .set_structural(Some(zoom_projection_id()));
-
+    let state = setup_state(code_lines());
     let runtime = register_zoom_plugin(&state);
 
+    // At level 0 (RAW, the default), projection is not active — no directives.
     let directives = collect_directives(&runtime, &state);
-    // At level 0 (RAW, the default), no directives should be emitted.
     assert!(
         directives.is_empty(),
         "RAW level should produce no directives"
@@ -113,18 +123,45 @@ fn raw_level_produces_no_directives() {
 }
 
 #[test]
+fn zoom_in_auto_activates_projection() {
+    let mut state = setup_state(code_lines());
+    let mut runtime = register_zoom_plugin(&state);
+
+    // Before zoom: projection is not active
+    assert!(state.config.projection_policy.active_structural().is_none());
+
+    // First Ctrl+Plus transitions RAW→ANNOTATED and activates the projection
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus());
+    assert_eq!(
+        state.config.projection_policy.active_structural(),
+        Some(&zoom_projection_id())
+    );
+}
+
+#[test]
+fn zoom_out_to_raw_deactivates_projection() {
+    let mut state = setup_state(code_lines());
+    let mut runtime = register_zoom_plugin(&state);
+
+    // Zoom in then back out
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus());
+    assert!(state.config.projection_policy.active_structural().is_some());
+
+    dispatch_key(&mut runtime, &mut state, &ctrl_zero());
+    assert!(
+        state.config.projection_policy.active_structural().is_none(),
+        "returning to RAW should deactivate projection"
+    );
+}
+
+#[test]
 fn zoom_in_produces_directives_and_valid_display_map() {
     let mut state = setup_state(code_lines());
-    state
-        .config
-        .projection_policy
-        .set_structural(Some(zoom_projection_id()));
-
     let mut runtime = register_zoom_plugin(&state);
 
     // Zoom in to level 2 (Compressed) — Ctrl+Plus twice
-    dispatch_key(&mut runtime, &state, &ctrl_plus());
-    dispatch_key(&mut runtime, &state, &ctrl_plus());
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus());
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus());
 
     let directives = collect_directives(&runtime, &state);
     assert!(
@@ -160,11 +197,6 @@ fn zoom_in_produces_directives_and_valid_display_map() {
 #[test]
 fn zoom_levels_monotonically_hide_more() {
     let mut state = setup_state(code_lines());
-    state
-        .config
-        .projection_policy
-        .set_structural(Some(zoom_projection_id()));
-
     let mut runtime = register_zoom_plugin(&state);
     let line_count = state.observed.lines.len();
 
@@ -175,22 +207,22 @@ fn zoom_levels_monotonically_hide_more() {
     display_counts.push(dm.display_line_count());
 
     // Level 1 (ANNOTATED) — no spatial changes expected from indent strategy
-    dispatch_key(&mut runtime, &state, &ctrl_plus());
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus());
     let dm = build_display_map(line_count, &collect_directives(&runtime, &state));
     display_counts.push(dm.display_line_count());
 
     // Level 2 (COMPRESSED)
-    dispatch_key(&mut runtime, &state, &ctrl_plus());
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus());
     let dm = build_display_map(line_count, &collect_directives(&runtime, &state));
     display_counts.push(dm.display_line_count());
 
     // Level 3 (OUTLINE)
-    dispatch_key(&mut runtime, &state, &ctrl_plus());
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus());
     let dm = build_display_map(line_count, &collect_directives(&runtime, &state));
     display_counts.push(dm.display_line_count());
 
     // Level 4 (SKELETON)
-    dispatch_key(&mut runtime, &state, &ctrl_plus());
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus());
     let dm = build_display_map(line_count, &collect_directives(&runtime, &state));
     display_counts.push(dm.display_line_count());
 
@@ -209,11 +241,6 @@ fn zoom_levels_monotonically_hide_more() {
 #[test]
 fn no_overlapping_spatial_ranges_at_any_level() {
     let mut state = setup_state(code_lines());
-    state
-        .config
-        .projection_policy
-        .set_structural(Some(zoom_projection_id()));
-
     let mut runtime = register_zoom_plugin(&state);
 
     for level in 0..=4 {
@@ -236,29 +263,24 @@ fn no_overlapping_spatial_ranges_at_any_level() {
             ranges.push(r);
         }
 
-        dispatch_key(&mut runtime, &state, &ctrl_plus());
+        dispatch_key(&mut runtime, &mut state, &ctrl_plus());
     }
 }
 
 #[test]
 fn zoom_reset_returns_to_raw() {
     let mut state = setup_state(code_lines());
-    state
-        .config
-        .projection_policy
-        .set_structural(Some(zoom_projection_id()));
-
     let mut runtime = register_zoom_plugin(&state);
 
     // Zoom in 3 times
     for _ in 0..3 {
-        dispatch_key(&mut runtime, &state, &ctrl_plus());
+        dispatch_key(&mut runtime, &mut state, &ctrl_plus());
     }
     let directives = collect_directives(&runtime, &state);
     assert!(!directives.is_empty(), "should have directives at level 3");
 
     // Reset
-    dispatch_key(&mut runtime, &state, &ctrl_zero());
+    dispatch_key(&mut runtime, &mut state, &ctrl_zero());
     let directives = collect_directives(&runtime, &state);
     assert!(
         directives.is_empty(),
@@ -269,16 +291,11 @@ fn zoom_reset_returns_to_raw() {
 #[test]
 fn display_map_buffer_roundtrip() {
     let mut state = setup_state(code_lines());
-    state
-        .config
-        .projection_policy
-        .set_structural(Some(zoom_projection_id()));
-
     let mut runtime = register_zoom_plugin(&state);
 
     // Zoom to COMPRESSED
-    dispatch_key(&mut runtime, &state, &ctrl_plus());
-    dispatch_key(&mut runtime, &state, &ctrl_plus());
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus());
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus());
 
     let line_count = state.observed.lines.len();
     let directives = collect_directives(&runtime, &state);
@@ -311,16 +328,11 @@ fn display_map_buffer_roundtrip() {
 #[test]
 fn empty_buffer_produces_no_directives() {
     let mut state = setup_state(vec![]);
-    state
-        .config
-        .projection_policy
-        .set_structural(Some(zoom_projection_id()));
-
     let mut runtime = register_zoom_plugin(&state);
 
     // Zoom to max
     for _ in 0..5 {
-        dispatch_key(&mut runtime, &state, &ctrl_plus());
+        dispatch_key(&mut runtime, &mut state, &ctrl_plus());
     }
 
     let directives = collect_directives(&runtime, &state);
@@ -333,16 +345,11 @@ fn empty_buffer_produces_no_directives() {
 #[test]
 fn single_line_buffer_no_panic() {
     let mut state = setup_state(vec![make_line("hello world")]);
-    state
-        .config
-        .projection_policy
-        .set_structural(Some(zoom_projection_id()));
-
     let mut runtime = register_zoom_plugin(&state);
 
     // Cycle through all levels
     for _ in 0..5 {
-        dispatch_key(&mut runtime, &state, &ctrl_plus());
+        dispatch_key(&mut runtime, &mut state, &ctrl_plus());
         let directives = collect_directives(&runtime, &state);
         let dm = build_display_map(state.observed.lines.len(), &directives);
         assert!(dm.display_line_count() >= 1 || state.observed.lines.is_empty());
@@ -350,18 +357,17 @@ fn single_line_buffer_no_panic() {
 }
 
 #[test]
-fn inactive_projection_produces_no_directives() {
-    let state = setup_state(code_lines());
-    // Do NOT activate the projection
+fn zoom_key_without_prior_activation_still_works() {
+    let mut state = setup_state(code_lines());
     let mut runtime = register_zoom_plugin(&state);
 
-    // Zoom in
-    dispatch_key(&mut runtime, &state, &ctrl_plus());
-    dispatch_key(&mut runtime, &state, &ctrl_plus());
+    // No manual set_structural — key dispatch auto-activates
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus()); // RAW→ANNOTATED + activate
+    dispatch_key(&mut runtime, &mut state, &ctrl_plus()); // ANNOTATED→COMPRESSED
 
     let directives = collect_directives(&runtime, &state);
     assert!(
-        directives.is_empty(),
-        "inactive projection should not contribute directives"
+        !directives.is_empty(),
+        "auto-activated projection should produce directives"
     );
 }

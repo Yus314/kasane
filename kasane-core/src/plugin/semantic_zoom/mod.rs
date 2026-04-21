@@ -11,11 +11,11 @@ mod syntax_strategy;
 use std::fmt;
 
 use crate::display::{DisplayDirective, ProjectionCategory, ProjectionDescriptor, ProjectionId};
-use crate::input::{Key, KeyEvent, KeyPattern, Modifiers};
-use crate::plugin::PluginId;
+use crate::input::{Key, KeyEvent, KeyPattern, KeyResponse, Modifiers};
 use crate::plugin::app_view::AppView;
 use crate::plugin::handler_registry::HandlerRegistry;
 use crate::plugin::state::Plugin;
+use crate::plugin::{Command, PluginId};
 use crate::state::DirtyFlags;
 
 // =============================================================================
@@ -178,31 +178,45 @@ impl Plugin for SemanticZoomPlugin {
             km.action("zoom_in", |state, _key, _app| {
                 let new_level = state.level.up();
                 if new_level == state.level {
-                    return (state.clone(), crate::input::KeyResponse::Pass);
+                    return (state.clone(), KeyResponse::Pass);
                 }
-                (
-                    SemanticZoomState { level: new_level },
-                    crate::input::KeyResponse::Consume,
-                )
+                // Activate the projection when transitioning from RAW.
+                let response = if state.level == ZoomLevel::RAW {
+                    KeyResponse::ConsumeWith(vec![Command::SetStructuralProjection(Some(
+                        projection_id(),
+                    ))])
+                } else {
+                    KeyResponse::Consume
+                };
+                (SemanticZoomState { level: new_level }, response)
             });
 
             km.action("zoom_out", |state, _key, _app| {
                 let new_level = state.level.down();
                 if new_level == state.level {
-                    return (state.clone(), crate::input::KeyResponse::Pass);
+                    return (state.clone(), KeyResponse::Pass);
                 }
-                (
-                    SemanticZoomState { level: new_level },
-                    crate::input::KeyResponse::Consume,
-                )
+                // Deactivate when returning to RAW.
+                let response = if new_level == ZoomLevel::RAW {
+                    KeyResponse::ConsumeWith(vec![Command::SetStructuralProjection(None)])
+                } else {
+                    KeyResponse::Consume
+                };
+                (SemanticZoomState { level: new_level }, response)
             });
 
-            km.action("zoom_reset", |_state, _key, _app| {
+            km.action("zoom_reset", |state, _key, _app| {
+                // Deactivate projection if currently active.
+                let response = if state.level != ZoomLevel::RAW {
+                    KeyResponse::ConsumeWith(vec![Command::SetStructuralProjection(None)])
+                } else {
+                    KeyResponse::Consume
+                };
                 (
                     SemanticZoomState {
                         level: ZoomLevel::RAW,
                     },
-                    crate::input::KeyResponse::Consume,
+                    response,
                 )
             });
         });
