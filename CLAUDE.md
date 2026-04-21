@@ -21,6 +21,7 @@ cargo test -p kasane-core -- test_name   # Single test by name
 # Lint (CI enforces -D warnings)
 cargo clippy -- -D warnings              # TUI
 cargo clippy --features gui -- -D warnings  # TUI + GUI
+cargo clippy --features syntax -- -D warnings  # TUI + tree-sitter
 cargo fmt --check                        # Format check
 
 # Benchmarks
@@ -51,6 +52,7 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `examples/line-numbers/` | Native plugin example — `Plugin` trait with `kasane::run()` |
 | `examples/virtual-text-demo/` | Display transformation proof artifact — `DisplayDirective` (InsertAfter, Fold, Hide) |
 | `examples/image-test/` | GPU image pipeline test — inline RGBA / file-based async image overlay |
+| `kasane-syntax/` | Syntax integration — tree-sitter `SyntaxProvider`, grammar loading, `SyntaxManager` lifecycle (feature-gated via `--features syntax`) |
 | `tools/wasm-test/` | WASM integration test binary |
 
 ## Architecture
@@ -78,7 +80,9 @@ Kakoune (kak -ui json)
 - **Workspace persistence**: `kasane-core/src/workspace/persist.rs` (layout save/restore across sessions)
 - **Salsa integration**: `kasane-core/src/salsa_sync.rs`, `salsa_inputs.rs`, `salsa_views/`
 - **Plugin prelude**: `kasane-core/src/plugin_prelude.rs` (public API for external plugins)
-- **Display transform**: `kasane-core/src/display/mod.rs` (DisplayMap, DisplayDirective)
+- **Display transform**: `kasane-core/src/display/mod.rs` (DisplayMap, DisplayDirective), `display/projection.rs` (ProjectionPolicyState), `display/resolve.rs` (multi-plugin directive resolution)
+- **Semantic Zoom**: `kasane-core/src/plugin/semantic_zoom/` — `mod.rs` (ZoomLevel, SemanticZoomPlugin), `indent_strategy.rs` (indent fallback), `syntax_strategy.rs` (tree-sitter aware)
+- **Syntax**: `kasane-core/src/syntax/mod.rs` (SyntaxProvider trait, Declaration types), `kasane-syntax/src/` (TreeSitterProvider, GrammarRegistry, SyntaxManager)
 
 For architecture details, see `docs/index.md`. For plugin API reference, see `docs/plugin-api.md`. For plugin development guide, see `docs/plugin-development.md`.
 
