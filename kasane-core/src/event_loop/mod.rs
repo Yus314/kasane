@@ -380,6 +380,32 @@ pub fn sync_salsa_for_render(
     crate::salsa_sync::sync_transform_patches(db, state, &view, handles);
 }
 
+/// Trait for pre-render hooks that need mutable state access.
+///
+/// Implementations (e.g. `kasane-syntax::SyntaxManager`) update `AppState`
+/// before the Salsa sync phase. This is called once per render frame.
+pub trait PreRenderHook: Send {
+    /// Update state before Salsa synchronization.
+    fn pre_render(&mut self, state: &mut AppState);
+}
+
+/// Synchronize all Salsa inputs for a render frame, calling pre-render hooks first.
+///
+/// Like [`sync_salsa_for_render`], but calls hooks that need mutable `AppState`
+/// access (e.g. `SyntaxManager`) before the Salsa sync.
+pub fn sync_salsa_for_render_with_hooks(
+    db: &mut crate::salsa_db::KasaneDatabase,
+    state: &mut AppState,
+    registry: &PluginRuntime,
+    handles: &mut crate::salsa_sync::SalsaInputHandles,
+    hooks: &mut [&mut dyn PreRenderHook],
+) {
+    for hook in hooks.iter_mut() {
+        hook.pre_render(state);
+    }
+    sync_salsa_for_render(db, state, registry, handles);
+}
+
 /// Print a hint about reconnecting to a running Kakoune session.
 ///
 /// Called from panic hooks in both TUI and GUI backends.

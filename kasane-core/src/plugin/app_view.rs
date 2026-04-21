@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::Arc;
 
 use crate::display::{FoldToggleState, ProjectionPolicyState};
 use crate::plugin::PluginId;
@@ -12,6 +13,7 @@ use crate::plugin::setting::SettingValue;
 use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
 use crate::session::SessionDescriptor;
 use crate::state::{AppState, Inference, InfoState, MenuState, Policy, Truth};
+use crate::syntax::SyntaxProvider;
 
 /// Read-only view of application state for plugin methods.
 ///
@@ -416,6 +418,12 @@ impl<'a> AppView<'a> {
     #[inline]
     pub fn diagnostic_overlay(&self) -> &super::diagnostics::PluginDiagnosticOverlayState {
         &self.state.runtime.diagnostic_overlay
+    }
+
+    /// Syntax analysis provider for the current buffer (e.g., tree-sitter).
+    #[inline]
+    pub fn syntax_provider(&self) -> Option<&Arc<dyn SyntaxProvider>> {
+        self.state.runtime.syntax_provider.as_ref()
     }
 }
 

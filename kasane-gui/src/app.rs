@@ -1247,6 +1247,7 @@ where
         // Cursor-only animation reuses the cached scene commands.
         if !self.dirty.is_empty() {
             self.surface_registry.sync_ephemeral_surfaces(&self.state);
+            self.plugin_manager.run_pre_render_hooks(&mut self.state);
             self.registry.prepare_plugin_cache(self.dirty);
 
             // Sync Salsa inputs from updated state

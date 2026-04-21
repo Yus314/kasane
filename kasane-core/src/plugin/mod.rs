@@ -24,6 +24,7 @@ pub mod recovery_witness;
 mod registry;
 pub mod render_ornament;
 pub mod safe_directive;
+pub mod semantic_zoom;
 pub mod setting;
 pub mod state;
 mod traits;

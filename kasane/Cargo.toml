@@ -8,6 +8,7 @@ license.workspace = true
 default = ["wasm-plugins"]
 gui = ["dep:kasane-gui"]
 wasm-plugins = ["dep:kasane-wasm", "dep:notify"]
+syntax = ["dep:kasane-syntax"]
 
 [dependencies]
 kasane-core = { workspace = true }
@@ -15,6 +16,7 @@ kasane-plugin-package = { workspace = true }
 kasane-tui = { workspace = true }
 kasane-gui = { workspace = true, optional = true }
 kasane-wasm = { workspace = true, optional = true }
+kasane-syntax = { workspace = true, optional = true }
 notify = { workspace = true, optional = true }
 anyhow = { workspace = true }
 fs2 = { workspace = true }

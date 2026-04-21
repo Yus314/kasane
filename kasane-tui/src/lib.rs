@@ -547,6 +547,7 @@ where
             let render_start = std::time::Instant::now();
 
             surface_registry.sync_ephemeral_surfaces(&state);
+            plugin_manager.run_pre_render_hooks(&mut state);
             registry.prepare_plugin_cache(dirty);
 
             // Sync Salsa inputs from updated state

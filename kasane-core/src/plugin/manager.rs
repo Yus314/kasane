@@ -174,6 +174,7 @@ impl PendingPluginCommit {
 pub struct PluginManager {
     providers: Vec<Box<dyn PluginProvider>>,
     previous: ResolvedPluginSnapshot,
+    pre_render_hooks: Vec<Box<dyn crate::event_loop::PreRenderHook>>,
 }
 
 impl PluginManager {
@@ -181,6 +182,22 @@ impl PluginManager {
         Self {
             providers,
             previous: ResolvedPluginSnapshot::default(),
+            pre_render_hooks: Vec::new(),
+        }
+    }
+
+    /// Add a pre-render hook that runs before each Salsa sync.
+    ///
+    /// Hooks receive `&mut AppState` and can update runtime fields (e.g.
+    /// syntax provider) before the render frame.
+    pub fn add_pre_render_hook(&mut self, hook: Box<dyn crate::event_loop::PreRenderHook>) {
+        self.pre_render_hooks.push(hook);
+    }
+
+    /// Run all pre-render hooks on the given state.
+    pub fn run_pre_render_hooks(&mut self, state: &mut crate::state::AppState) {
+        for hook in &mut self.pre_render_hooks {
+            hook.pre_render(state);
         }
     }
 

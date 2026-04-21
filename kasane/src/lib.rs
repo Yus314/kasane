@@ -321,10 +321,21 @@ fn build_plugin_manager(
             "kasane.builtin.projection-status",
             || kasane_core::plugin::ProjectionStatusPlugin,
         ),
+        builtin_plugin("semantic-zoom", "kasane.semantic-zoom", || {
+            kasane_core::plugin::PluginBridge::new(
+                kasane_core::plugin::semantic_zoom::SemanticZoomPlugin,
+            )
+        }),
     ];
     builtin_factories.extend(builtins::builtin_plugin_factories());
     providers.push(Box::new(StaticPluginProvider::new(builtin_factories)));
-    PluginManager::new(providers)
+    #[allow(unused_mut)]
+    let mut manager = PluginManager::new(providers);
+    #[cfg(feature = "syntax")]
+    {
+        manager.add_pre_render_hook(Box::new(kasane_syntax::SyntaxManager::new()));
+    }
+    manager
 }
 
 #[cfg(all(test, feature = "wasm-plugins"))]

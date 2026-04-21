@@ -4,6 +4,7 @@
 //! fold ranges, indent levels, AST nodes) from a language-specific provider
 //! such as tree-sitter.
 
+use std::fmt;
 use std::ops::Range;
 
 /// A syntax tree node returned by [`SyntaxProvider::nodes_in_range`].
@@ -45,6 +46,72 @@ pub trait SyntaxProvider: Send + Sync {
 
     /// Return the indentation level (in units, not spaces) of a given line.
     fn indent_level(&self, line: usize) -> u32;
+
+    /// Return source-level declarations visible to semantic analysis.
+    ///
+    /// Default: empty (no declaration awareness).
+    fn declarations(&self) -> Vec<Declaration> {
+        Vec::new()
+    }
+
+    /// Return a one-line signature summary for a declaration starting at `line`.
+    ///
+    /// Default: `None` (no summary available).
+    fn signature_summary(&self, _line: usize) -> Option<String> {
+        None
+    }
+}
+
+/// A source-level declaration extracted by a [`SyntaxProvider`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declaration {
+    /// The kind of declaration (function, struct, etc.).
+    pub kind: DeclarationKind,
+    /// The declared name (e.g., `"foo"` for `fn foo()`).
+    pub name: String,
+    /// The line containing the declaration's name (0-indexed).
+    pub name_line: usize,
+    /// Line range covering the signature (start inclusive, end exclusive).
+    pub signature_lines: Range<usize>,
+    /// Line range covering the body, if any (start inclusive, end exclusive).
+    pub body_lines: Option<Range<usize>>,
+    /// Nesting depth (0 = top-level).
+    pub depth: u32,
+}
+
+/// The kind of a source-level [`Declaration`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DeclarationKind {
+    Function,
+    Struct,
+    Enum,
+    Trait,
+    Impl,
+    Module,
+    Class,
+    Interface,
+    TypeAlias,
+    Const,
+    Import,
+}
+
+impl fmt::Display for DeclarationKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::Function => "fn",
+            Self::Struct => "struct",
+            Self::Enum => "enum",
+            Self::Trait => "trait",
+            Self::Impl => "impl",
+            Self::Module => "mod",
+            Self::Class => "class",
+            Self::Interface => "interface",
+            Self::TypeAlias => "type",
+            Self::Const => "const",
+            Self::Import => "import",
+        };
+        f.write_str(s)
+    }
 }
 
 /// A no-op provider that returns empty results for all queries.

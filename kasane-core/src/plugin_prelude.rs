@@ -72,3 +72,6 @@ pub use crate::surface::{
 
 // Session
 pub use crate::session::SessionId;
+
+// Syntax
+pub use crate::syntax::{Declaration, DeclarationKind, SyntaxNode, SyntaxProvider};
