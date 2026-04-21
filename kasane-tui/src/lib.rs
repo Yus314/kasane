@@ -191,6 +191,7 @@ where
         kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
     })?;
     initial_plugins.apply_settings(&mut state);
+    kasane_core::event_loop::sync_suppressed_builtins(&mut state, &registry);
     report_plugin_diagnostics(&initial_plugins.diagnostics);
     kasane_core::event_loop::schedule_diagnostic_overlay(
         &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(tx.clone())),

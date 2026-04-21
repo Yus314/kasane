@@ -142,6 +142,11 @@ impl PluginRuntime {
         self.suppressed_builtins.contains(&target)
     }
 
+    /// Return the full set of suppressed built-in targets.
+    pub fn suppressed_builtins(&self) -> &std::collections::HashSet<super::BuiltinTarget> {
+        &self.suppressed_builtins
+    }
+
     /// Borrow an immutable view for the render phase.
     pub fn view(&self) -> PluginView<'_> {
         let slot_count = self.slots.len();

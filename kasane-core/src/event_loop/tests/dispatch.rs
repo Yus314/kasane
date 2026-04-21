@@ -956,3 +956,57 @@ fn inject_cascade_terminates_at_depth_limit() {
 
     assert!(!quit);
 }
+
+// ── sync_suppressed_builtins ─────────────────────────────────────
+
+struct SuppressPlugin {
+    targets: std::collections::HashSet<crate::plugin::BuiltinTarget>,
+}
+
+impl PluginBackend for SuppressPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("suppress-test".to_string())
+    }
+
+    fn suppressed_builtins(&self) -> &std::collections::HashSet<crate::plugin::BuiltinTarget> {
+        &self.targets
+    }
+}
+
+#[test]
+fn sync_suppressed_builtins_copies_from_registry_to_state() {
+    use crate::plugin::BuiltinTarget;
+
+    let mut state = AppState::default();
+    let mut registry = PluginRuntime::new();
+
+    let mut targets = std::collections::HashSet::new();
+    targets.insert(BuiltinTarget::StatusBar);
+    targets.insert(BuiltinTarget::ShadowCursor);
+    registry.register_backend(Box::new(SuppressPlugin { targets }));
+
+    // Before sync: state has no suppressions
+    assert!(state.runtime.suppressed_builtins.is_empty());
+
+    super::super::sync_suppressed_builtins(&mut state, &registry);
+
+    // After sync: state mirrors registry
+    assert!(
+        state
+            .runtime
+            .suppressed_builtins
+            .contains(&BuiltinTarget::StatusBar)
+    );
+    assert!(
+        state
+            .runtime
+            .suppressed_builtins
+            .contains(&BuiltinTarget::ShadowCursor)
+    );
+    assert!(
+        !state
+            .runtime
+            .suppressed_builtins
+            .contains(&BuiltinTarget::Menu)
+    );
+}

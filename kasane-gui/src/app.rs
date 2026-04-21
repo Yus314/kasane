@@ -204,6 +204,7 @@ where
             kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
         })?;
         initial_plugins.apply_settings(&mut state);
+        kasane_core::event_loop::sync_suppressed_builtins(&mut state, &registry);
         let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
         report_plugin_diagnostics(&initial_plugins.diagnostics);
         let gui_sink = GuiEventSink(event_proxy.clone());
@@ -834,6 +835,7 @@ where
         match reload_result {
             Ok(reload) => {
                 reload.apply_settings(&mut self.state);
+                kasane_core::event_loop::sync_suppressed_builtins(&mut self.state, &self.registry);
                 report_plugin_diagnostics(&reload.diagnostics);
                 schedule_diagnostic_overlay(
                     &kasane_core::event_loop::GenericDiagnosticScheduler(self.gui_sink.clone()),

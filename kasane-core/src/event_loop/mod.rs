@@ -76,6 +76,15 @@ impl EventResult {
 
 // ── Utility functions ───────────────────────────────────────────
 
+/// Copy `suppressed_builtins` from PluginRuntime into AppState.runtime so that
+/// code paths that only have access to AppState (e.g. update.rs shadow-cursor
+/// checks) can query suppression state.
+///
+/// Must be called after plugin registration / hot-reload.
+pub fn sync_suppressed_builtins(state: &mut AppState, registry: &PluginRuntime) {
+    state.runtime.suppressed_builtins = registry.suppressed_builtins().clone();
+}
+
 /// Rebuild the HitMap from the current view tree for plugin mouse routing.
 pub fn rebuild_hit_map(
     state: &mut AppState,
