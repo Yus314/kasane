@@ -29,7 +29,7 @@ for the current specification from a plugin's perspective, see
 
 | Workstream | Next deliverable |
 |---|---|
-| Display transformation | ADR-030 Levels 1–6 complete. Identify next workstream or move to Backlog |
+| Display transformation | ADR-030 Levels 1–6 complete. Semantic Zoom (Phases 0–2) complete. Identify next workstream or move to Backlog |
 
 ### 2.2 Backlog
 
@@ -53,6 +53,21 @@ for the current specification from a plugin's perspective, see
   - Level 6 — Type-level `&mut AppState` ownership: **✓ Complete** (ADR-030). `AppState` decomposed into 5 epistemic sub-structs (`ObservedState`, `InferenceState`, `ConfigState`, `SessionState`, `RuntimeState`), `apply_protocol()` extracted as free function with immutable `&ConfigState`, projections updated to wrap sub-structs directly.
 
 All six levels of ADR-030 are now complete. The P-032 formal observed/policy separation workstream is finished.
+
+### 3.2 Semantic Zoom — completed
+
+Semantic Zoom (Phases 0–2) is complete. The `kasane.semantic-zoom` structural projection provides 6 zoom levels (0 Raw → 4 Skeleton) via `DisplayDirective`s generated through the display pipeline. Two strategy paths:
+
+- **Indent-based fallback** (`indent_strategy.rs`): works on viewport lines using leading whitespace heuristics. No external dependencies.
+- **Syntax-aware** (`syntax_strategy.rs` + `kasane-syntax` crate): uses tree-sitter via `SyntaxProvider` trait. Feature-gated via `--features syntax`. Bundled declaration queries for Rust, Python, Go, TypeScript.
+
+Deferred to follow-up work:
+
+| Phase | Description |
+|---|---|
+| Phase 3 | Per-pane zoom (requires plugin instance state) |
+| Phase 4 | WIT extension (WASM plugins define custom zoom strategies) |
+| Phase 5 | Level 5 MAP (module dependency graph display) |
 
 ## 4. Phase Status Summary
 

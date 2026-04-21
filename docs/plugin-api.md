@@ -73,14 +73,21 @@ As described in `P-030..P-043` of [requirements.md](./requirements.md) and `Disp
 
 The **Display Transform API** (`display_directives()`) provides the first concrete implementation of this direction. Plugins declare `DisplayDirective` values describing how buffer lines map to display lines. The core builds a `DisplayMap` — an O(1) bidirectional mapping between buffer lines and display lines — and integrates it throughout the rendering pipeline (paint, cursor, input, patch).
 
-**Available `DisplayDirective` variants:**
+**Available `DisplayDirective` variants** (4 categories, 11 variants):
 
-| Variant | Description |
-|---|---|
-| `InsertAfter { after, content, face }` | Insert a virtual text line after the given buffer line |
-| `InsertBefore { before, content }` | Insert a virtual text line before the given buffer line |
-| `Fold { range, summary, face }` | Collapse a range of buffer lines into a single summary line |
-| `Hide { range }` | Hide a range of buffer lines entirely |
+| Category | Variant | Description |
+|---|---|---|
+| Spatial | `Fold { range, summary }` | Collapse a range of buffer lines into a single summary line |
+| Spatial | `Hide { range }` | Hide a range of buffer lines entirely |
+| InterLine | `InsertBefore { line, content, priority }` | Insert a full Element before a buffer line |
+| InterLine | `InsertAfter { line, content, priority }` | Insert a full Element after a buffer line |
+| Inline | `InsertInline { line, byte_offset, content, interaction }` | Insert inline content at a byte offset |
+| Inline | `HideInline { line, byte_range }` | Hide a byte range within a buffer line |
+| Inline | `StyleInline { line, byte_range, face }` | Apply face styling to a byte range |
+| Decoration | `StyleLine { line, face, z_order }` | Apply a background face to an entire line |
+| Decoration | `Gutter { line, side, content, priority }` | Add content to the gutter of a line |
+| Decoration | `VirtualText { line, position, content, priority }` | Add virtual text at end of line or right-aligned |
+| Decoration | `EditableVirtualText { after, content, editable_spans }` | Editable virtual text with shadow cursor support |
 
 **Key types:**
 
@@ -411,6 +418,55 @@ fn display_directives(&self, state: &Self::State, app: &AppView<'_>) -> Vec<Disp
 The `DisplayMap` is integrated into: paint (buffer rendering), cursor positioning (`buffer_to_display`), mouse input (`display_to_buffer` with interaction policy check), and the patch optimization layer.
 
 Future extensions: display unit model (P-040..P-043), WASM WIT `display-directive-priority` function.
+
+### 1.11 Projection API (`define_projection`)
+
+Projections are named display transformation strategies registered via `HandlerRegistry::define_projection()`. Two categories:
+
+| Category | Behavior | Example |
+|---|---|---|
+| **Structural** | Mutually exclusive — at most one active | Semantic Zoom, Focus Mode |
+| **Additive** | Composable — any number active | Error Lens, Diff Marks |
+
+Activation is managed via `ProjectionPolicyState` (in `AppState::config`). Structural projections are activated with `set_structural(Some(id))`, additive with `toggle_additive(id)`. Directives from inactive projections are not collected.
+
+```rust
+r.define_projection(
+    ProjectionDescriptor {
+        id: ProjectionId::new("my-plugin.my-projection"),
+        name: "My Projection".to_string(),
+        category: ProjectionCategory::Structural,
+        priority: -50,
+    },
+    |state: &MyState, app: &AppView<'_>| -> Vec<DisplayDirective> {
+        // Return directives based on plugin state and app state
+        vec![]
+    },
+);
+```
+
+Priority bands: Structural -500..0, Ambient/Legacy 0..500, Additive 500..1000.
+
+Per-projection fold toggle state is tracked via `FoldToggleState`, accessible through `app.projection_policy().fold_state_for(&id)`. The existing `BuiltinFoldPlugin` handles ToggleFold interaction for any projection.
+
+The built-in `kasane.semantic-zoom` projection (`kasane-core/src/plugin/semantic_zoom/`) demonstrates the full projection pattern: state-driven directive generation, key map bindings, dual strategy dispatch (syntax-aware with tree-sitter fallback to indent-based).
+
+### 1.12 Syntax Provider API
+
+`SyntaxProvider` (in `kasane-core/src/syntax/`) provides AST-level information to plugins. The active provider is set on `AppState::runtime.syntax_provider` and accessible via `AppView::syntax_provider()`.
+
+Key trait methods:
+
+| Method | Description |
+|---|---|
+| `generation()` | Monotonic counter, incremented on re-parse |
+| `fold_ranges()` | Foldable line ranges from AST structure |
+| `declarations()` | Function/struct/enum/trait declarations with name, kind, signature, and body ranges |
+| `signature_summary(line)` | Human-readable signature text for the declaration at the given line |
+| `scopes_at(line, byte)` | Scope chain at a position (innermost last) |
+| `nodes_in_range(range, kind)` | Named AST nodes within a byte range |
+
+The `kasane-syntax` crate (feature-gated via `--features syntax`) provides `TreeSitterProvider`, which implements `SyntaxProvider` backed by tree-sitter. Grammar `.so` files are loaded from `$XDG_DATA_HOME/kasane/grammars/` or `$XDG_DATA_HOME/kak-tree-sitter/grammars/`. Declaration queries are bundled for Rust, Python, Go, and TypeScript.
 
 ## 2. Element API
 

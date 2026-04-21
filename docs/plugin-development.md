@@ -18,6 +18,7 @@ For API details, see [plugin-api.md](./plugin-api.md). For composition semantics
 | `contribute_overlay_v2()` | Color picker, tooltips, diagnostic popups |
 | `transform()` | Status bar customization, menu layout changes, overlay repositioning |
 | `display_directives()` | Code folding, line hiding, virtual text insertion |
+| `define_projection()` | Named structural/additive display strategies (e.g. Semantic Zoom) |
 | `handle_key()` + `handle_mouse()` | Interactive pickers, dialogs |
 | `handle_default_scroll()` | Wheel policy, smooth scrolling |
 | `Command::EditBuffer` | Structured buffer edits (insert, replace, delete) |
@@ -205,6 +206,7 @@ At build time, Kasane packages the manifest and compiled WASM component into a s
 | Line annotator | `state` (`#[bind]`), `annotate` | `annotation` | cursor-line |
 | Element transformer | `state` (`#[bind]`), `transform` | `transform` | prompt-highlight |
 | Display transform | `state`, `on_state_changed_effects`, `display_directives` | — | virtual-text-demo (native) |
+| Structural projection | `state`, `define_projection`, `on_key_map` | — | semantic-zoom (builtin) |
 | Interactive overlay | `state`, `handle_key`, `overlay` | `overlay` | session-ui |
 | Process launcher | Above + `on_io_event_effects`, `capabilities` | `process` | fuzzy-finder |
 | Scroll policy | `handle_default_scroll` | — | smooth-scroll |
