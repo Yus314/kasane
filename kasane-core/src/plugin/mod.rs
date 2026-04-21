@@ -139,6 +139,21 @@ pub use render_ornament::{
 pub use state::{Plugin, PluginState};
 pub use variable_store::PluginVariableStore;
 
+/// Identifies a built-in plugin feature that can be suppressed by user plugins.
+///
+/// When a user plugin calls `suppress_builtin(target)` during registration,
+/// the corresponding built-in plugin skips its default behavior, allowing
+/// the user plugin to provide a full replacement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinTarget {
+    Menu,
+    Info,
+    StatusBar,
+    Diagnostics,
+    ShadowCursor,
+    DefaultInput,
+}
+
 bitflags! {
     /// Declares which Plugin trait methods a plugin actually implements.
     /// Used by PluginRuntime to skip WASM boundary crossings for non-participating plugins.

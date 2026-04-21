@@ -153,6 +153,14 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         self.table.interests = flags;
     }
 
+    /// Suppress a built-in plugin feature.
+    ///
+    /// When called, the corresponding built-in plugin will skip its default
+    /// behavior, allowing this plugin to provide a full replacement.
+    pub fn suppress_builtin(&mut self, target: super::BuiltinTarget) {
+        self.table.suppressed_builtins.insert(target);
+    }
+
     // =========================================================================
     // Lifecycle handlers
     // =========================================================================

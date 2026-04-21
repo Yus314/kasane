@@ -222,6 +222,13 @@ pub trait PluginBackend: Any {
         PluginAuthorities::empty()
     }
 
+    /// Built-in targets this plugin suppresses.
+    fn suppressed_builtins(&self) -> &std::collections::HashSet<super::BuiltinTarget> {
+        static EMPTY: std::sync::LazyLock<std::collections::HashSet<super::BuiltinTarget>> =
+            std::sync::LazyLock::new(std::collections::HashSet::new);
+        &EMPTY
+    }
+
     /// Whether this plugin is allowed to spawn external processes.
     ///
     /// Native plugins default to `true`. WASM plugins check their resolved

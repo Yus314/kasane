@@ -73,6 +73,7 @@ pub struct PluginRuntime {
     next_tag: u16,
     directive_stability: RefCell<DirectiveStabilityMonitor>,
     variable_store: super::variable_store::PluginVariableStore,
+    suppressed_builtins: std::collections::HashSet<super::BuiltinTarget>,
 }
 
 /// Immutable view over plugins for the render phase.
@@ -83,6 +84,7 @@ pub struct PluginRuntime {
 pub struct PluginView<'a> {
     slots: &'a [PluginSlot],
     directive_stability: &'a RefCell<DirectiveStabilityMonitor>,
+    suppressed_builtins: &'a std::collections::HashSet<super::BuiltinTarget>,
     /// Lazy per-plugin cache for unified display results.
     ///
     /// For plugins with `has_unified_display() == true`, the first collection
@@ -109,6 +111,7 @@ impl PluginRuntime {
             next_tag: 1,
             directive_stability: RefCell::new(DirectiveStabilityMonitor::new()),
             variable_store: super::variable_store::PluginVariableStore::default(),
+            suppressed_builtins: std::collections::HashSet::new(),
         }
     }
 
@@ -134,12 +137,18 @@ impl PluginRuntime {
             .collect()
     }
 
+    /// Check if a built-in target has been suppressed by any registered plugin.
+    pub fn is_builtin_suppressed(&self, target: super::BuiltinTarget) -> bool {
+        self.suppressed_builtins.contains(&target)
+    }
+
     /// Borrow an immutable view for the render phase.
     pub fn view(&self) -> PluginView<'_> {
         let slot_count = self.slots.len();
         PluginView {
             slots: &self.slots,
             directive_stability: &self.directive_stability,
+            suppressed_builtins: &self.suppressed_builtins,
             unified_cache: RefCell::new(vec![None; slot_count]),
         }
     }
@@ -154,6 +163,7 @@ impl PluginRuntime {
         let id = plugin.id();
         let caps = plugin.capabilities();
         let authorities = plugin.authorities();
+        let new_suppressions = plugin.suppressed_builtins().clone();
         if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
             // Replace existing plugin with same ID (e.g. FS plugin overrides bundled)
             let tag = self.slots[pos].plugin_tag;
@@ -197,6 +207,7 @@ impl PluginRuntime {
                 descriptor,
             });
         }
+        self.suppressed_builtins.extend(new_suppressions);
     }
 
     pub fn contains_plugin(&self, id: &PluginId) -> bool {
@@ -1144,6 +1155,11 @@ impl<'a> PluginView<'a> {
     /// Check if any registered plugin has the given capability.
     pub(crate) fn has_capability(&self, cap: PluginCapabilities) -> bool {
         self.slots.iter().any(|s| s.capabilities.contains(cap))
+    }
+
+    /// Check if a built-in target has been suppressed by any registered plugin.
+    pub fn is_builtin_suppressed(&self, target: super::BuiltinTarget) -> bool {
+        self.suppressed_builtins.contains(&target)
     }
 
     /// Collect contributions from all plugins for a given region, sorted by priority.

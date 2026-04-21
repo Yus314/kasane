@@ -405,6 +405,12 @@ impl<'a> AppView<'a> {
     pub fn is_dragging(&self) -> bool {
         !matches!(self.state.runtime.drag, crate::state::DragState::None)
     }
+
+    /// Check if a built-in target has been suppressed.
+    #[inline]
+    pub fn is_builtin_suppressed(&self, target: super::BuiltinTarget) -> bool {
+        self.state.runtime.suppressed_builtins.contains(&target)
+    }
 }
 
 /// Raw `AppState` access for framework layers (WASM host sync, serialization).

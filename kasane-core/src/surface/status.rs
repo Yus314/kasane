@@ -61,6 +61,14 @@ impl Surface for StatusBarSurface {
     }
 
     fn view(&self, ctx: &ViewContext<'_>) -> Element {
+        if ctx
+            .state
+            .runtime
+            .suppressed_builtins
+            .contains(&crate::plugin::BuiltinTarget::StatusBar)
+        {
+            return Element::Empty;
+        }
         crate::render::view::build_status_surface_abstract(ctx.state, ctx.registry)
     }
 

@@ -226,8 +226,14 @@ fn update_inner<E: PluginEffects>(
             }
         }
         Msg::Key(key) => {
-            // ShadowCursor pre-dispatch: intercept keys when shadow cursor is active
-            if state.runtime.shadow_cursor.is_some() {
+            // ShadowCursor pre-dispatch: intercept keys when shadow cursor is active.
+            // Skipped when ShadowCursor builtin is suppressed (user plugin handles it).
+            if state.runtime.shadow_cursor.is_some()
+                && !state
+                    .runtime
+                    .suppressed_builtins
+                    .contains(&crate::plugin::BuiltinTarget::ShadowCursor)
+            {
                 match handle_shadow_cursor_key_dispatch(state, &key) {
                     ShadowKeyDispatch::Consumed(flags) => {
                         return UpdateResult {
@@ -288,8 +294,13 @@ fn update_inner<E: PluginEffects>(
             }
         }
         Msg::TextInput(text) => {
-            // ShadowCursor pre-dispatch: intercept IME text input
-            if let Some(ref mut shadow) = state.runtime.shadow_cursor
+            // ShadowCursor pre-dispatch: intercept IME text input.
+            // Skipped when ShadowCursor builtin is suppressed.
+            if !state
+                .runtime
+                .suppressed_builtins
+                .contains(&crate::plugin::BuiltinTarget::ShadowCursor)
+                && let Some(ref mut shadow) = state.runtime.shadow_cursor
                 && let ShadowPhase::Editing {
                     ref mut working_text,
                     ref mut cursor_grapheme_offset,
@@ -338,8 +349,13 @@ fn update_inner<E: PluginEffects>(
             }
         }
         Msg::Mouse(mouse) => {
-            // Deactivate shadow cursor when clicking outside editable area
+            // Deactivate shadow cursor when clicking outside editable area.
+            // Skipped when ShadowCursor builtin is suppressed.
             if state.runtime.shadow_cursor.is_some()
+                && !state
+                    .runtime
+                    .suppressed_builtins
+                    .contains(&crate::plugin::BuiltinTarget::ShadowCursor)
                 && matches!(mouse.kind, input::MouseEventKind::Press(_))
             {
                 let hit_editable = state

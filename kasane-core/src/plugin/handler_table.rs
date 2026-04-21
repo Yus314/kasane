@@ -450,6 +450,9 @@ pub(crate) struct HandlerTable {
 
     // --- Recovery (ADR-030 Level 4) ---
     pub(crate) recovery: RecoveryFlags,
+
+    // --- Builtin suppression ---
+    pub(crate) suppressed_builtins: std::collections::HashSet<super::BuiltinTarget>,
 }
 
 #[allow(dead_code)] // consumed by PluginBridge
@@ -507,6 +510,7 @@ impl HandlerTable {
             interests: DirtyFlags::ALL,
             transparency: TransparencyFlags::default(),
             recovery: RecoveryFlags::default(),
+            suppressed_builtins: std::collections::HashSet::new(),
         }
     }
 

@@ -40,6 +40,8 @@ pub struct RuntimeState {
     /// Active when the user is editing within an `EditableVirtualText` span.
     /// Lives entirely in display space; key events are intercepted while active.
     pub shadow_cursor: Option<super::shadow_cursor::ShadowCursor>,
+    /// Builtin targets suppressed by user plugins (synced from PluginRuntime).
+    pub suppressed_builtins: std::collections::HashSet<crate::plugin::BuiltinTarget>,
 }
 
 impl std::fmt::Debug for RuntimeState {
@@ -76,6 +78,7 @@ impl Default for RuntimeState {
             available_projections: Vec::new(),
             syntax_provider: None,
             shadow_cursor: None,
+            suppressed_builtins: std::collections::HashSet::new(),
         }
     }
 }
