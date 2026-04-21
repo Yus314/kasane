@@ -411,6 +411,12 @@ impl<'a> AppView<'a> {
     pub fn is_builtin_suppressed(&self, target: super::BuiltinTarget) -> bool {
         self.state.runtime.suppressed_builtins.contains(&target)
     }
+
+    /// Plugin diagnostic overlay state.
+    #[inline]
+    pub fn diagnostic_overlay(&self) -> &super::diagnostics::PluginDiagnosticOverlayState {
+        &self.state.runtime.diagnostic_overlay
+    }
 }
 
 /// Raw `AppState` access for framework layers (WASM host sync, serialization).

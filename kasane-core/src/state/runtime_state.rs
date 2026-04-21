@@ -42,6 +42,8 @@ pub struct RuntimeState {
     pub shadow_cursor: Option<super::shadow_cursor::ShadowCursor>,
     /// Builtin targets suppressed by user plugins (synced from PluginRuntime).
     pub suppressed_builtins: std::collections::HashSet<crate::plugin::BuiltinTarget>,
+    /// Plugin diagnostics overlay state (shown on plugin load/reload errors).
+    pub diagnostic_overlay: crate::plugin::PluginDiagnosticOverlayState,
 }
 
 impl std::fmt::Debug for RuntimeState {
@@ -79,6 +81,7 @@ impl Default for RuntimeState {
             syntax_provider: None,
             shadow_cursor: None,
             suppressed_builtins: std::collections::HashSet::new(),
+            diagnostic_overlay: Default::default(),
         }
     }
 }

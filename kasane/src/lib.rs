@@ -1,5 +1,6 @@
 //! Kasane library: `kasane::run()` entry point, plugin registration, backend selection.
 
+pub mod builtins;
 pub mod cli;
 pub mod http_manager;
 mod init_cmd;
@@ -308,7 +309,7 @@ fn build_plugin_manager(
         let _ = config;
     }
     providers.push(Box::new(provider));
-    providers.push(Box::new(StaticPluginProvider::new([
+    let mut builtin_factories: Vec<Arc<dyn PluginFactory>> = vec![
         builtin_plugin("builtin-input", "kasane.builtin.input", || {
             kasane_core::input::BuiltinInputPlugin
         }),
@@ -320,7 +321,9 @@ fn build_plugin_manager(
             "kasane.builtin.projection-status",
             || kasane_core::plugin::ProjectionStatusPlugin,
         ),
-    ])));
+    ];
+    builtin_factories.extend(builtins::builtin_plugin_factories());
+    providers.push(Box::new(StaticPluginProvider::new(builtin_factories)));
     PluginManager::new(providers)
 }
 

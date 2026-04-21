@@ -22,9 +22,8 @@ use kasane_core::event_loop::{
     sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::plugin::{
-    AppView, CommandResult, HttpDispatcher, PluginDiagnosticOverlayState, PluginManager,
-    PluginRuntime, ProcessDispatcher, ProcessEventSink, execute_commands,
-    report_plugin_diagnostics,
+    AppView, CommandResult, HttpDispatcher, PluginManager, PluginRuntime, ProcessDispatcher,
+    ProcessEventSink, execute_commands, report_plugin_diagnostics,
 };
 use kasane_core::render::{CellGrid, ImageProtocol, ImageRequest};
 use kasane_core::render::{RenderPipelineOptions, render_pipeline_cached};
@@ -37,7 +36,6 @@ use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::pane_map::PaneStates;
 
 use backend::TuiBackend;
-use diagnostics_overlay::paint_diagnostic_overlay;
 use event_handler::{
     Event, EventProcessingContext, TuiEventSink, TuiProcessEventSink, process_event,
 };
@@ -150,8 +148,6 @@ where
         .and_then(kasane_core::workspace::persist::load_layout)
         .and_then(kasane_core::workspace::persist::plan_restore);
 
-    let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
-
     // Load widgets from unified kasane.kdl (each widget becomes its own plugin)
     let mut widget_names: Vec<String> = Vec::new();
     let mut widget_included_paths: Vec<std::path::PathBuf> = Vec::new();
@@ -198,7 +194,7 @@ where
     report_plugin_diagnostics(&initial_plugins.diagnostics);
     kasane_core::event_loop::schedule_diagnostic_overlay(
         &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(tx.clone())),
-        &mut diagnostic_overlay,
+        &mut state.runtime.diagnostic_overlay,
         &initial_plugins.diagnostics,
     );
 
@@ -460,7 +456,6 @@ where
                 process_dispatcher: &mut *process_dispatcher,
                 http_dispatcher: &mut *http_dispatcher,
                 plugin_manager: &mut plugin_manager,
-                diagnostic_overlay: &mut diagnostic_overlay,
                 widget_names: &mut widget_names,
                 last_config_hash: &mut last_config_hash,
                 last_config: &mut last_config,
@@ -521,7 +516,7 @@ where
                 report_plugin_diagnostics(&runtime_diagnostics);
                 kasane_core::event_loop::schedule_diagnostic_overlay(
                     &kasane_core::event_loop::GenericDiagnosticScheduler(tui_sink.clone()),
-                    &mut diagnostic_overlay,
+                    &mut state.runtime.diagnostic_overlay,
                     &runtime_diagnostics,
                 );
             }
@@ -592,9 +587,7 @@ where
                     image_requests: Some(&mut image_requests),
                 },
             );
-            if diagnostic_overlay.is_active() {
-                paint_diagnostic_overlay(&diagnostic_overlay, &mut grid);
-            }
+            // Diagnostic overlay is now rendered via BuiltinDiagnosticsPlugin overlay.
             backend.present(&mut grid, &result, &image_requests)?;
             state.runtime.display_scroll_offset = result.display_scroll_offset;
             state.runtime.display_map = Some(display_map);

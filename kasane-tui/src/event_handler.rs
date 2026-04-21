@@ -15,9 +15,9 @@ use kasane_core::event_loop::{
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    AppView, EffectsBatch, HttpDispatcher, HttpEvent, IoEvent, PluginDiagnostic,
-    PluginDiagnosticOverlayState, PluginId, PluginManager, PluginRuntime, ProcessDispatcher,
-    ProcessEvent, ProcessEventSink, extract_redraw_flags, report_plugin_diagnostics,
+    AppView, EffectsBatch, HttpDispatcher, HttpEvent, IoEvent, PluginDiagnostic, PluginId,
+    PluginManager, PluginRuntime, ProcessDispatcher, ProcessEvent, ProcessEventSink,
+    extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::CellGrid;
@@ -103,7 +103,6 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
     pub http_dispatcher: &'a mut dyn HttpDispatcher,
     pub plugin_manager: &'a mut PluginManager,
-    pub diagnostic_overlay: &'a mut PluginDiagnosticOverlayState,
     /// Names of currently registered per-widget plugins (for hot-reload diffing).
     pub widget_names: &'a mut Vec<String>,
     /// Hash of the last successfully loaded config file source (for skip-if-unchanged).
@@ -297,7 +296,7 @@ where
             Some(target),
         ),
         Event::DiagnosticOverlayExpire(generation) => EventResult {
-            flags: if ctx.diagnostic_overlay.dismiss(generation) {
+            flags: if ctx.state.runtime.diagnostic_overlay.dismiss(generation) {
                 ctx.backend.invalidate();
                 DirtyFlags::ALL
             } else {
@@ -418,7 +417,7 @@ where
                                         &kasane_core::event_loop::GenericDiagnosticScheduler(
                                             TuiEventSink(ctx.session_tx.clone()),
                                         ),
-                                        ctx.diagnostic_overlay,
+                                        &mut ctx.state.runtime.diagnostic_overlay,
                                         &diagnostics,
                                     );
                                 }
@@ -451,7 +450,7 @@ where
                                         &kasane_core::event_loop::GenericDiagnosticScheduler(
                                             TuiEventSink(ctx.session_tx.clone()),
                                         ),
-                                        ctx.diagnostic_overlay,
+                                        &mut ctx.state.runtime.diagnostic_overlay,
                                         &[diagnostic],
                                     );
                                 }
@@ -481,7 +480,7 @@ where
                                         &kasane_core::event_loop::GenericDiagnosticScheduler(
                                             TuiEventSink(ctx.session_tx.clone()),
                                         ),
-                                        ctx.diagnostic_overlay,
+                                        &mut ctx.state.runtime.diagnostic_overlay,
                                         &diagnostics,
                                     );
                                 }
@@ -511,7 +510,7 @@ where
                                     &kasane_core::event_loop::GenericDiagnosticScheduler(
                                         TuiEventSink(ctx.session_tx.clone()),
                                     ),
-                                    ctx.diagnostic_overlay,
+                                    &mut ctx.state.runtime.diagnostic_overlay,
                                     &[diagnostic],
                                 );
                             }
@@ -611,7 +610,7 @@ where
     report_plugin_diagnostics(&reload.diagnostics);
     schedule_diagnostic_overlay(
         &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(ctx.session_tx.clone())),
-        ctx.diagnostic_overlay,
+        &mut ctx.state.runtime.diagnostic_overlay,
         &reload.diagnostics,
     );
 

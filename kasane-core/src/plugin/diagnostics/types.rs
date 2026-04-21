@@ -16,7 +16,7 @@ pub(super) const PLUGIN_DIAGNOSTIC_OVERLAY_COALESCE_WINDOW: Duration = Duration:
 pub(super) const WARNING_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION: Duration = Duration::from_secs(4);
 pub(super) const ERROR_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION: Duration = Duration::from_secs(8);
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct PluginDiagnosticOverlayState {
     generation: u64,
     lines: Vec<PluginDiagnosticOverlayLine>,
