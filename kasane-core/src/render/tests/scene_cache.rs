@@ -13,27 +13,27 @@ fn test_scene_cache_invalidate_buffer_clears_base_only() {
     };
     let mut cache = SceneCache::new();
     cache.base_commands = Some(vec![]);
-    cache.menu_commands = Some(vec![]);
-    cache.info_commands = Some(vec![]);
+    cache.overlay_commands = Some(vec![]);
     cache.cached_cell_size = Some((cs.width.to_bits(), cs.height.to_bits()));
     cache.cached_dims = Some((80, 24));
 
     cache.invalidate(DirtyFlags::BUFFER, cs, 80, 24);
     assert!(cache.base_commands.is_none(), "BUFFER should clear base");
-    assert!(cache.menu_commands.is_some(), "BUFFER should preserve menu");
-    assert!(cache.info_commands.is_some(), "BUFFER should preserve info");
+    assert!(
+        cache.overlay_commands.is_some(),
+        "BUFFER should preserve overlays"
+    );
 }
 
 #[test]
-fn test_scene_cache_invalidate_menu_clears_menu_only() {
+fn test_scene_cache_invalidate_menu_clears_overlays() {
     let cs = scene::CellSize {
         width: 10.0,
         height: 20.0,
     };
     let mut cache = SceneCache::new();
     cache.base_commands = Some(vec![]);
-    cache.menu_commands = Some(vec![]);
-    cache.info_commands = Some(vec![]);
+    cache.overlay_commands = Some(vec![]);
     cache.cached_cell_size = Some((cs.width.to_bits(), cs.height.to_bits()));
     cache.cached_dims = Some((80, 24));
 
@@ -43,32 +43,29 @@ fn test_scene_cache_invalidate_menu_clears_menu_only() {
         "MENU_SELECTION should preserve base"
     );
     assert!(
-        cache.menu_commands.is_none(),
-        "MENU_SELECTION should clear menu"
-    );
-    assert!(
-        cache.info_commands.is_some(),
-        "MENU_SELECTION should preserve info"
+        cache.overlay_commands.is_none(),
+        "MENU_SELECTION should clear overlays"
     );
 }
 
 #[test]
-fn test_scene_cache_invalidate_info_clears_info_only() {
+fn test_scene_cache_invalidate_info_clears_overlays() {
     let cs = scene::CellSize {
         width: 10.0,
         height: 20.0,
     };
     let mut cache = SceneCache::new();
     cache.base_commands = Some(vec![]);
-    cache.menu_commands = Some(vec![]);
-    cache.info_commands = Some(vec![]);
+    cache.overlay_commands = Some(vec![]);
     cache.cached_cell_size = Some((cs.width.to_bits(), cs.height.to_bits()));
     cache.cached_dims = Some((80, 24));
 
     cache.invalidate(DirtyFlags::INFO, cs, 80, 24);
     assert!(cache.base_commands.is_some(), "INFO should preserve base");
-    assert!(cache.menu_commands.is_some(), "INFO should preserve menu");
-    assert!(cache.info_commands.is_none(), "INFO should clear info");
+    assert!(
+        cache.overlay_commands.is_none(),
+        "INFO should clear overlays"
+    );
 }
 
 #[test]
@@ -83,24 +80,18 @@ fn test_scene_cache_cell_size_change_clears_all() {
     };
     let mut cache = SceneCache::new();
     cache.base_commands = Some(vec![]);
-    cache.menu_commands = Some(vec![]);
-    cache.info_commands = Some(vec![]);
+    cache.overlay_commands = Some(vec![]);
     cache.cached_cell_size = Some((cs1.width.to_bits(), cs1.height.to_bits()));
     cache.cached_dims = Some((80, 24));
 
-    // Even with empty dirty flags, a cell size change should clear everything
     cache.invalidate(DirtyFlags::empty(), cs2, 80, 24);
     assert!(
         cache.base_commands.is_none(),
         "cell size change should clear base"
     );
     assert!(
-        cache.menu_commands.is_none(),
-        "cell size change should clear menu"
-    );
-    assert!(
-        cache.info_commands.is_none(),
-        "cell size change should clear info"
+        cache.overlay_commands.is_none(),
+        "cell size change should clear overlays"
     );
 }
 
@@ -112,8 +103,7 @@ fn test_scene_cache_dims_change_clears_all() {
     };
     let mut cache = SceneCache::new();
     cache.base_commands = Some(vec![]);
-    cache.menu_commands = Some(vec![]);
-    cache.info_commands = Some(vec![]);
+    cache.overlay_commands = Some(vec![]);
     cache.cached_cell_size = Some((cs.width.to_bits(), cs.height.to_bits()));
     cache.cached_dims = Some((80, 24));
 
@@ -123,12 +113,8 @@ fn test_scene_cache_dims_change_clears_all() {
         "dims change should clear base"
     );
     assert!(
-        cache.menu_commands.is_none(),
-        "dims change should clear menu"
-    );
-    assert!(
-        cache.info_commands.is_none(),
-        "dims change should clear info"
+        cache.overlay_commands.is_none(),
+        "dims change should clear overlays"
     );
 }
 
@@ -147,7 +133,6 @@ fn test_scene_render_pipeline_deterministic() {
         height: 20.0,
     };
 
-    // Two calls to scene_render_pipeline should produce identical output
     let (first, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
     let (second, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
 
@@ -166,7 +151,6 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
     state.observed.lines = vec![make_line("hello"), make_line("world")];
     state.inference.status_line = make_line("status");
 
-    // Show menu
     state.apply(crate::protocol::KakouneRequest::MenuShow {
         items: vec![make_line("item1"), make_line("item2")],
         anchor: Coord { line: 1, column: 0 },
@@ -175,7 +159,6 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
         style: MenuStyle::Inline,
     });
 
-    // Show info
     state.apply(crate::protocol::KakouneRequest::InfoShow {
         title: make_line("Info Title"),
         content: vec![make_line("info content")],
@@ -190,7 +173,6 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
         height: 20.0,
     };
 
-    // Verify scene_render_pipeline produces deterministic overlay output
     let (first, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
     let (second, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
 
@@ -199,7 +181,6 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
         .filter(|c| matches!(c, DrawCommand::BeginOverlay))
         .count();
 
-    // Menu + info = at least 2 overlays
     assert!(
         overlay_count >= 2,
         "expected at least 2 overlays (menu + info), got {overlay_count}"

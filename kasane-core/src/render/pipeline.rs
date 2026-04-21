@@ -541,50 +541,10 @@ pub(crate) fn scene_render_core<'a>(
         scene_cache.base_commands = Some(cmds);
     }
 
-    // Menu section
-    if scene_cache.menu_commands.is_none() {
-        let cmds = if let Some(ref overlay) = frame.sections.menu_overlay {
-            let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
-
-            // Collect overlay region hint
-            let r = &overlay_layout.area;
-            result
-                .visual_hints
-                .overlay_regions
-                .push(super::visual_hints::OverlayRegionHint {
-                    rect: scene::PixelRect {
-                        x: r.x as f32 * cell_size.width,
-                        y: r.y as f32 * cell_size.height,
-                        w: r.w as f32 * cell_size.width,
-                        h: r.h as f32 * cell_size.height,
-                    },
-                    id: 0,
-                });
-
-            walk::walk_paint_scene_section(
-                &overlay.element,
-                &overlay_layout,
-                state,
-                theme,
-                cell_size,
-                result.cursor_style,
-            )
-        } else {
-            Vec::new()
-        };
-        scene_cache.menu_commands = Some(cmds);
-    }
-
-    // Info + plugin overlays section
-    if scene_cache.info_commands.is_none() {
+    // Overlay section (menu + info + plugin, unified)
+    if scene_cache.overlay_commands.is_none() {
         let mut cmds = Vec::new();
-        for (idx, overlay) in frame
-            .sections
-            .info_overlays
-            .iter()
-            .chain(frame.sections.plugin_overlays.iter())
-            .enumerate()
-        {
+        for (idx, overlay) in frame.sections.overlays.iter().enumerate() {
             cmds.push(DrawCommand::BeginOverlay);
             let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
 
@@ -600,7 +560,7 @@ pub(crate) fn scene_render_core<'a>(
                         w: r.w as f32 * cell_size.width,
                         h: r.h as f32 * cell_size.height,
                     },
-                    id: (idx + 1) as u32,
+                    id: idx as u32,
                 });
 
             let overlay_cmds = walk::walk_paint_scene_section(
@@ -613,7 +573,7 @@ pub(crate) fn scene_render_core<'a>(
             );
             cmds.extend(overlay_cmds);
         }
-        scene_cache.info_commands = Some(cmds);
+        scene_cache.overlay_commands = Some(cmds);
     }
 
     scene_cache.compose();

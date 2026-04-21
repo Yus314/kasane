@@ -27,7 +27,10 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
     let base = legacy_surface_compose_result(state, registry);
     let app_view = AppView::new(state);
     let display_map = registry.collect_display_map(&app_view);
-    let menu_overlay = build_menu_section(state, registry);
+    let mut overlays = Vec::new();
+    if let Some(menu) = build_menu_section(state, registry) {
+        overlays.push(menu);
+    }
     let menu_rect = crate::layout::get_menu_rect(state);
     // Collect plugin overlays before info so info can avoid them.
     let overlay_ctx = crate::plugin::OverlayContext {
@@ -50,14 +53,19 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
             _ => None,
         })
         .collect();
-    let plugin_overlays: Vec<crate::element::Overlay> = plugin_overlay_contributions
-        .into_iter()
-        .map(|oc| crate::element::Overlay {
-            element: oc.element,
-            anchor: oc.anchor,
-        })
-        .collect();
-    let info_overlays = build_info_section_with_avoid(state, registry, &plugin_overlay_rects);
+    overlays.extend(
+        plugin_overlay_contributions
+            .into_iter()
+            .map(|oc| crate::element::Overlay {
+                element: oc.element,
+                anchor: oc.anchor,
+            }),
+    );
+    overlays.extend(build_info_section_with_avoid(
+        state,
+        registry,
+        &plugin_overlay_rects,
+    ));
 
     let buffer_rows = state.available_height() as usize;
     let default_offset = crate::display::compute_display_scroll_offset(
@@ -80,9 +88,7 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
 
     ViewSections {
         base: base.base.unwrap_or(Element::Empty),
-        menu_overlay,
-        info_overlays,
-        plugin_overlays,
+        overlays,
         surface_reports: base.surface_reports,
         display_map,
         display_scroll_offset,
@@ -95,9 +101,8 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
 /// Decomposed view sections for per-section caching.
 pub struct ViewSections {
     pub base: Element,
-    pub menu_overlay: Option<Overlay>,
-    pub info_overlays: Vec<Overlay>,
-    pub plugin_overlays: Vec<Overlay>,
+    /// All overlays (menu, info, plugin) in z_index-sorted order.
+    pub overlays: Vec<Overlay>,
     pub surface_reports: Vec<SurfaceRenderReport>,
     /// The active DisplayMap for the current frame (identity if no transforms).
     pub display_map: DisplayMapRef,
@@ -116,17 +121,10 @@ pub struct ViewSections {
 impl ViewSections {
     /// Assemble sections into the final Element tree.
     pub fn into_element(self) -> Element {
-        let mut overlays = Vec::new();
-        if let Some(overlay) = self.menu_overlay {
-            overlays.push(overlay);
-        }
-        overlays.extend(self.info_overlays);
-        overlays.extend(self.plugin_overlays);
-
-        if overlays.is_empty() {
+        if self.overlays.is_empty() {
             self.base
         } else {
-            Element::stack(self.base, overlays)
+            Element::stack(self.base, self.overlays)
         }
     }
 
@@ -141,18 +139,11 @@ impl ViewSections {
         root_area: crate::layout::Rect,
         state: &AppState,
     ) -> (Element, crate::layout::flex::LayoutResult) {
-        let mut overlays = Vec::new();
-        if let Some(overlay) = self.menu_overlay {
-            overlays.push(overlay);
-        }
-        overlays.extend(self.info_overlays);
-        overlays.extend(self.plugin_overlays);
-
-        if overlays.is_empty() {
+        if self.overlays.is_empty() {
             (self.base, base_layout)
         } else {
             let mut layout_children = vec![base_layout];
-            for overlay in &overlays {
+            for overlay in &self.overlays {
                 layout_children.push(crate::layout::layout_single_overlay(
                     overlay, root_area, state,
                 ));
@@ -161,7 +152,7 @@ impl ViewSections {
                 area: root_area,
                 children: layout_children,
             };
-            (Element::stack(self.base, overlays), layout)
+            (Element::stack(self.base, self.overlays), layout)
         }
     }
 }

@@ -200,7 +200,7 @@ impl SurfaceRegistry {
     ///
     /// Returns the same structure as `view::ViewSections`:
     /// - `base`: workspace content + status bar
-    /// - `menu_overlay`, `info_overlays`, `plugin_overlays`: overlay sections
+    /// - `overlays`: all overlay sections (menu, info, plugin) in unified vec
     pub fn compose_view_sections(
         &self,
         state: &AppState,
@@ -211,8 +211,11 @@ impl SurfaceRegistry {
         use crate::render::view;
 
         let base_result = self.compose_base_result(state, pane_states, plugin_registry, total);
-        let menu_overlay = view::build_menu_section_standalone(state, plugin_registry);
-        let info_overlays = view::build_info_section_standalone(state, plugin_registry);
+
+        let mut overlays = Vec::new();
+        if let Some(menu) = view::build_menu_section_standalone(state, plugin_registry) {
+            overlays.push(menu);
+        }
         let overlay_ctx = crate::plugin::OverlayContext {
             screen_cols: state.runtime.cols,
             screen_rows: state.runtime.rows,
@@ -221,14 +224,16 @@ impl SurfaceRegistry {
             focused_surface_id: Some(self.workspace.focused()),
         };
         let app_view = AppView::new(state);
-        let plugin_overlays: Vec<crate::element::Overlay> = plugin_registry
-            .collect_overlays_with_ctx(&app_view, &overlay_ctx)
-            .into_iter()
-            .map(|oc| crate::element::Overlay {
-                element: oc.element,
-                anchor: oc.anchor,
-            })
-            .collect();
+        overlays.extend(
+            plugin_registry
+                .collect_overlays_with_ctx(&app_view, &overlay_ctx)
+                .into_iter()
+                .map(|oc| crate::element::Overlay {
+                    element: oc.element,
+                    anchor: oc.anchor,
+                }),
+        );
+        overlays.extend(view::build_info_section_standalone(state, plugin_registry));
 
         let display_map = plugin_registry.collect_display_map(&app_view);
         let focused = self.workspace.focused();
@@ -238,9 +243,7 @@ impl SurfaceRegistry {
             .map(|s| Box::new(s.clone()));
         view::ViewSections {
             base: base_result.base.unwrap_or(Element::Empty),
-            menu_overlay,
-            info_overlays,
-            plugin_overlays,
+            overlays,
             surface_reports: base_result.surface_reports,
             display_map,
             display_scroll_offset: 0,

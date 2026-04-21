@@ -6,8 +6,7 @@ use crate::state::DirtyFlags;
 #[derive(Debug, Default)]
 pub struct SceneCache {
     pub(in crate::render) base_commands: Option<Vec<DrawCommand>>,
-    pub(in crate::render) menu_commands: Option<Vec<DrawCommand>>,
-    pub(in crate::render) info_commands: Option<Vec<DrawCommand>>,
+    pub(in crate::render) overlay_commands: Option<Vec<DrawCommand>>,
     composed: Vec<DrawCommand>,
     pub(in crate::render) cached_cell_size: Option<(u32, u32)>,
     pub(in crate::render) cached_dims: Option<(u16, u16)>,
@@ -25,8 +24,7 @@ impl SceneCache {
 
         if self.cached_cell_size != Some(cs_key) || self.cached_dims != Some(dims_key) {
             self.base_commands = None;
-            self.menu_commands = None;
-            self.info_commands = None;
+            self.overlay_commands = None;
             self.cached_cell_size = Some(cs_key);
             self.cached_dims = Some(dims_key);
             return;
@@ -40,17 +38,20 @@ impl SceneCache {
         ) {
             self.base_commands = None;
         }
-        if dirty.intersects(DirtyFlags::MENU | DirtyFlags::OPTIONS) {
-            self.menu_commands = None;
-        }
-        if dirty.intersects(DirtyFlags::INFO | DirtyFlags::OPTIONS | DirtyFlags::MENU_STRUCTURE) {
-            self.info_commands = None;
+        if dirty.intersects(
+            DirtyFlags::MENU
+                | DirtyFlags::INFO
+                | DirtyFlags::OPTIONS
+                | DirtyFlags::MENU_STRUCTURE
+                | DirtyFlags::PLUGIN_STATE,
+        ) {
+            self.overlay_commands = None;
         }
     }
 
     /// Returns true if all sections are cached.
     pub fn is_fully_cached(&self) -> bool {
-        self.base_commands.is_some() && self.menu_commands.is_some() && self.info_commands.is_some()
+        self.base_commands.is_some() && self.overlay_commands.is_some()
     }
 
     /// Assemble the composed output from cached sections.
@@ -59,14 +60,8 @@ impl SceneCache {
         if let Some(ref base) = self.base_commands {
             self.composed.extend_from_slice(base);
         }
-        if let Some(ref menu) = self.menu_commands
-            && !menu.is_empty()
-        {
-            self.composed.push(DrawCommand::BeginOverlay);
-            self.composed.extend_from_slice(menu);
-        }
-        if let Some(ref info) = self.info_commands {
-            self.composed.extend_from_slice(info);
+        if let Some(ref overlays) = self.overlay_commands {
+            self.composed.extend_from_slice(overlays);
         }
     }
 

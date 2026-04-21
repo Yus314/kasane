@@ -210,15 +210,18 @@ impl ViewSource for SalsaViewSource<'_> {
                 .collect()
         };
 
-        // --- Plugin overlays from Salsa input ---
-        let plugin_overlays = h.plugin_overlays.overlays(db).clone();
+        // --- Assemble all overlays in unified vec ---
+        let mut overlays = Vec::new();
+        if let Some(menu) = menu_overlay {
+            overlays.push(menu);
+        }
+        overlays.extend(h.plugin_overlays.overlays(db).clone());
+        overlays.extend(info_overlays);
 
         let display_map = salsa_views::display_map_query(db, h.display_directives);
         view::ViewSections {
             base: base_el,
-            menu_overlay,
-            info_overlays,
-            plugin_overlays,
+            overlays,
             surface_reports,
             display_map,
             display_scroll_offset,
