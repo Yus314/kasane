@@ -42,7 +42,8 @@ use compact_str::CompactString;
 // Re-export command module
 pub use command::{
     BufferEdit, BufferPosition, Command, CommandResult, edits_to_keys, escape_kakoune_insert_text,
-    execute_commands, extract_redraw_flags, extract_shadow_cursor_update, partition_commands,
+    execute_commands, extract_drag_state_update, extract_redraw_flags,
+    extract_shadow_cursor_update, partition_commands,
 };
 pub use diagnostics::{
     PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticOverlayState, PluginDiagnosticSeverity,
@@ -98,7 +99,8 @@ pub use crate::display::{
 // Re-export traits module
 pub use crate::input::KeyResponse;
 pub use traits::{
-    KeyHandleResult, KeyPreDispatchResult, PluginBackend, TextInputPreDispatchResult,
+    KeyHandleResult, KeyPreDispatchResult, MousePreDispatchResult, PluginBackend,
+    TextInputPreDispatchResult,
 };
 
 // Re-export projection status plugin (Phase 10)
@@ -136,8 +138,8 @@ pub use handler_table::GutterSide;
 pub use process_task::{ProcessTaskResult, ProcessTaskSpec};
 pub use pubsub::{OscillationKind, Topic, TopicBus, TopicId};
 pub use render_ornament::{
-    CursorEffect, CursorEffectOrn, CursorStyleOrn, OrnamentBatch, OrnamentModality,
-    RenderOrnamentContext, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
+    CursorEffect, CursorEffectOrn, CursorPositionOrn, CursorStyleOrn, OrnamentBatch,
+    OrnamentModality, RenderOrnamentContext, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
 };
 pub use state::{Plugin, PluginState};
 pub use variable_store::PluginVariableStore;
@@ -186,6 +188,8 @@ bitflags! {
         const MENU_RENDERER      = 1 << 27;
         const INFO_RENDERER      = 1 << 28;
         const KEY_PRE_DISPATCH   = 1 << 29;
+        const MOUSE_PRE_DISPATCH = 1 << 30;
+        const MOUSE_FALLBACK     = 1 << 31;
     }
 }
 

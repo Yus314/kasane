@@ -656,9 +656,12 @@ mod tests {
 // BuiltinShadowCursorPlugin
 // =============================================================================
 
+use crate::display::InteractionPolicy;
+use crate::input::MouseEvent;
 use crate::plugin::{
-    AppView, FrameworkAccess, KeyPreDispatchResult, PluginBackend, PluginCapabilities,
-    TextInputPreDispatchResult,
+    AppView, BuiltinTarget, CursorPositionOrn, Effects, FrameworkAccess, KeyPreDispatchResult,
+    MousePreDispatchResult, OrnamentBatch, OrnamentModality, PluginBackend, PluginCapabilities,
+    RenderOrnamentContext, TextInputPreDispatchResult,
 };
 
 /// Builtin plugin that implements the shadow cursor key/text pre-dispatch.
@@ -675,6 +678,41 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
 
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::KEY_PRE_DISPATCH
+            | PluginCapabilities::MOUSE_PRE_DISPATCH
+            | PluginCapabilities::RENDER_ORNAMENT
+    }
+
+    fn on_state_changed_effects(&mut self, state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
+        if !dirty.contains(DirtyFlags::BUFFER_CONTENT) {
+            return Effects::default();
+        }
+        let app = state.as_app_state();
+        let shadow = match app.runtime.shadow_cursor.as_ref() {
+            Some(s) => s,
+            None => return Effects::default(),
+        };
+        if let Some(dum) = &app.runtime.display_unit_map {
+            if let Some(unit) = dum.unit_at_line(shadow.display_line) {
+                if let crate::display::UnitSource::ProjectedLine { anchor, .. } = &unit.source {
+                    if app
+                        .inference
+                        .lines_dirty
+                        .get(*anchor)
+                        .copied()
+                        .unwrap_or(true)
+                    {
+                        return Effects::with(vec![Command::UpdateShadowCursor(None)]);
+                    }
+                } else {
+                    // Display unit no longer projected -> deactivate
+                    return Effects::with(vec![Command::UpdateShadowCursor(None)]);
+                }
+            } else {
+                // Display line no longer exists -> deactivate
+                return Effects::with(vec![Command::UpdateShadowCursor(None)]);
+            }
+        }
+        Effects::default()
     }
 
     fn handle_key_pre_dispatch(
@@ -776,6 +814,79 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
             }
         } else {
             TextInputPreDispatchResult::Pass
+        }
+    }
+
+    fn handle_mouse_pre_dispatch(
+        &mut self,
+        event: &MouseEvent,
+        state: &AppView<'_>,
+    ) -> MousePreDispatchResult {
+        let app = state.as_app_state();
+        if app.runtime.shadow_cursor.is_none() {
+            return MousePreDispatchResult::Pass { commands: vec![] };
+        }
+        if !matches!(event.kind, crate::input::MouseEventKind::Press(_)) {
+            return MousePreDispatchResult::Pass { commands: vec![] };
+        }
+        if app
+            .runtime
+            .suppressed_builtins
+            .contains(&BuiltinTarget::ShadowCursor)
+        {
+            return MousePreDispatchResult::Pass { commands: vec![] };
+        }
+        let hit_editable = app
+            .runtime
+            .display_unit_map
+            .as_ref()
+            .and_then(|dum| dum.hit_test(event.line, app.runtime.display_scroll_offset))
+            .is_some_and(|u| u.interaction == InteractionPolicy::Editable);
+        if !hit_editable {
+            MousePreDispatchResult::Pass {
+                commands: vec![Command::UpdateShadowCursor(None)],
+            }
+        } else {
+            MousePreDispatchResult::Pass { commands: vec![] }
+        }
+    }
+
+    fn render_ornaments(&self, state: &AppView<'_>, ctx: &RenderOrnamentContext) -> OrnamentBatch {
+        let app = state.as_app_state();
+        let shadow = match app.runtime.shadow_cursor.as_ref() {
+            Some(s) => s,
+            None => return OrnamentBatch::default(),
+        };
+        if let ShadowPhase::Editing {
+            cursor_grapheme_offset,
+            working_text,
+            ..
+        } = &shadow.phase
+        {
+            use unicode_width::UnicodeWidthStr;
+            // Compute display column from grapheme offset
+            let display_col: u16 = working_text
+                .graphemes(true)
+                .take(*cursor_grapheme_offset)
+                .map(|g| UnicodeWidthStr::width(g) as u16)
+                .sum();
+            let cx = display_col + ctx.buffer_x_offset;
+            let display_scroll_offset = ctx.visible_line_start as u16;
+            let cy = (shadow.display_line as u16).saturating_sub(display_scroll_offset)
+                + ctx.buffer_y_offset;
+            OrnamentBatch {
+                cursor_position: Some(CursorPositionOrn {
+                    x: cx,
+                    y: cy,
+                    style: crate::render::CursorStyle::Bar,
+                    color: crate::protocol::Color::Default,
+                    priority: 100,
+                    modality: OrnamentModality::Must,
+                }),
+                ..Default::default()
+            }
+        } else {
+            OrnamentBatch::default()
         }
     }
 }

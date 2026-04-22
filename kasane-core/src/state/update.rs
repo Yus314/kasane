@@ -1,16 +1,16 @@
-use crate::display::InteractionPolicy;
 use crate::input;
 use crate::input::{DropEvent, InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{
-    AppView, Command, KeyDispatchResult, KeyPreDispatchResult, MouseHandleResult, PluginEffects,
-    PluginId, TextInputHandleResult, TextInputPreDispatchResult, extract_redraw_flags,
+    AppView, Command, KeyDispatchResult, KeyPreDispatchResult, MouseHandleResult,
+    MousePreDispatchResult, PluginEffects, PluginId, TextInputHandleResult,
+    TextInputPreDispatchResult, extract_drag_state_update, extract_redraw_flags,
     extract_shadow_cursor_update,
 };
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::scroll::{LegacyScrollDispatch, ScrollPlan};
 
 use super::shadow_cursor::{ShadowCursor, ShadowPhase};
-use super::{AppState, DirtyFlags, DragState};
+use super::{AppState, DirtyFlags};
 
 /// Messages that drive the application state machine.
 pub enum Msg {
@@ -101,7 +101,6 @@ fn update_inner<E: PluginEffects>(
 ) -> UpdateResult {
     match msg {
         Msg::Kakoune(req) => {
-            let is_draw = matches!(&req, KakouneRequest::Draw { .. });
             let req_kind = match &req {
                 KakouneRequest::Draw { .. } => "Draw",
                 KakouneRequest::DrawStatus { .. } => "DrawStatus",
@@ -112,42 +111,15 @@ fn update_inner<E: PluginEffects>(
             }
             let flags = state.apply(req);
 
-            // Deactivate shadow cursor when Draw arrives and anchor line is dirty
-            if is_draw
-                && flags.contains(DirtyFlags::BUFFER_CONTENT)
-                && let Some(ref shadow) = state.runtime.shadow_cursor
-            {
-                // Check if the anchor line of the shadow cursor's span changed
-                if let Some(dum) = &state.runtime.display_unit_map {
-                    if let Some(unit) = dum.unit_at_line(shadow.display_line) {
-                        if let crate::display::UnitSource::ProjectedLine { anchor, .. } =
-                            &unit.source
-                        {
-                            if state
-                                .inference
-                                .lines_dirty
-                                .get(*anchor)
-                                .copied()
-                                .unwrap_or(true)
-                            {
-                                state.runtime.shadow_cursor = None;
-                            }
-                        } else {
-                            // Display unit no longer projected → deactivate
-                            state.runtime.shadow_cursor = None;
-                        }
-                    } else {
-                        // Display line no longer exists → deactivate
-                        state.runtime.shadow_cursor = None;
-                    }
-                }
-            }
             let mut commands = Vec::new();
             let mut scroll_plans = Vec::new();
             if !flags.is_empty() {
                 let mut batch = effects.notify_state_changed(&AppView::new(state), flags);
                 scroll_plans.append(&mut batch.effects.scroll_plans);
                 commands.append(&mut batch.effects.commands);
+                if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
+                    state.runtime.shadow_cursor = sc;
+                }
                 let effect_flags = batch.effects.redraw;
                 let extra_flags = effect_flags | extract_redraw_flags(&mut commands);
                 return UpdateResult {
@@ -269,39 +241,35 @@ fn update_inner<E: PluginEffects>(
             }
         }
         Msg::Mouse(mouse) => {
-            // Deactivate shadow cursor when clicking outside editable area.
-            // Skipped when ShadowCursor builtin is suppressed.
-            if state.runtime.shadow_cursor.is_some()
-                && !state
-                    .runtime
-                    .suppressed_builtins
-                    .contains(&crate::plugin::BuiltinTarget::ShadowCursor)
-                && matches!(mouse.kind, input::MouseEventKind::Press(_))
-            {
-                let hit_editable = state
-                    .runtime
-                    .display_unit_map
-                    .as_ref()
-                    .and_then(|dum| dum.hit_test(mouse.line, state.runtime.display_scroll_offset))
-                    .is_some_and(|u| u.interaction == InteractionPolicy::Editable);
-                if !hit_editable {
-                    state.runtime.shadow_cursor = None;
-                }
-            }
-
-            // Update drag state
-            match mouse.kind {
-                input::MouseEventKind::Press(button) => {
-                    state.runtime.drag = DragState::Active {
-                        button,
-                        start_line: mouse.line,
-                        start_column: mouse.column,
+            // Pre-dispatch: plugins with MOUSE_PRE_DISPATCH capability
+            // (e.g., BuiltinShadowCursorPlugin) intercept mouse before observation.
+            match effects.dispatch_mouse_pre_dispatch(&mouse, &AppView::new(state)) {
+                MousePreDispatchResult::Consumed {
+                    flags,
+                    mut commands,
+                } => {
+                    if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
+                        state.runtime.shadow_cursor = sc;
+                    }
+                    if let Some(drag) = extract_drag_state_update(&mut commands) {
+                        state.runtime.drag = drag;
+                    }
+                    let extra_flags = extract_redraw_flags(&mut commands);
+                    return UpdateResult {
+                        flags: flags | extra_flags,
+                        commands,
+                        scroll_plans: vec![],
+                        source_plugin: None,
                     };
                 }
-                input::MouseEventKind::Release(_) => {
-                    state.runtime.drag = DragState::None;
+                MousePreDispatchResult::Pass { mut commands } => {
+                    if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
+                        state.runtime.shadow_cursor = sc;
+                    }
+                    if let Some(drag) = extract_drag_state_update(&mut commands) {
+                        state.runtime.drag = drag;
+                    }
                 }
-                _ => {}
             }
 
             // Notify all plugins (observe only, independent of hit test)
@@ -468,17 +436,9 @@ fn update_inner<E: PluginEffects>(
                 }
             }
 
-            let cmds = if let Some(req) = input::mouse_to_kakoune(
-                &mouse,
-                scroll_amount,
-                state.runtime.display_map.as_deref(),
-                state.runtime.display_scroll_offset,
-                state.runtime.segment_map.as_deref(),
-            ) {
-                vec![Command::SendToKakoune(req)]
-            } else {
-                vec![]
-            };
+            let cmds = effects
+                .dispatch_mouse_fallback(&mouse, scroll_amount, &AppView::new(state))
+                .unwrap_or_default();
             UpdateResult {
                 flags: DirtyFlags::empty(),
                 commands: cmds,

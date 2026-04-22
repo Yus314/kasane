@@ -6,7 +6,7 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPlan, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 
 use super::command::Command;
-use super::traits::{KeyPreDispatchResult, TextInputPreDispatchResult};
+use super::traits::{KeyPreDispatchResult, MousePreDispatchResult, TextInputPreDispatchResult};
 use super::{AppView, KeyDispatchResult, PluginId};
 
 /// Lifecycle phase for effect validation.
@@ -265,6 +265,24 @@ pub trait PluginEffects {
         app: &AppView<'_>,
     ) -> TextInputHandleResult;
 
+    /// Run mouse pre-dispatch (before observe and hit-test dispatch).
+    ///
+    /// Dispatches to plugins with `MOUSE_PRE_DISPATCH` capability in priority order.
+    /// First plugin that returns `Consumed` wins.
+    fn dispatch_mouse_pre_dispatch(
+        &mut self,
+        event: &MouseEvent,
+        app: &AppView<'_>,
+    ) -> MousePreDispatchResult;
+
+    /// Run mouse fallback dispatch when no plugin or hit-test consumed the event.
+    fn dispatch_mouse_fallback(
+        &mut self,
+        event: &MouseEvent,
+        scroll_amount: i32,
+        app: &AppView<'_>,
+    ) -> Option<Vec<Command>>;
+
     /// Broadcast mouse observation to all plugins (cannot consume).
     fn observe_mouse_all(&mut self, event: &MouseEvent, app: &AppView<'_>);
 
@@ -329,6 +347,21 @@ impl PluginEffects for NullEffects {
     fn observe_text_input_all(&mut self, _: &str, _: &AppView<'_>) {}
     fn dispatch_text_input_handler(&mut self, _: &str, _: &AppView<'_>) -> TextInputHandleResult {
         TextInputHandleResult::NotHandled
+    }
+    fn dispatch_mouse_pre_dispatch(
+        &mut self,
+        _: &MouseEvent,
+        _: &AppView<'_>,
+    ) -> MousePreDispatchResult {
+        MousePreDispatchResult::Pass { commands: vec![] }
+    }
+    fn dispatch_mouse_fallback(
+        &mut self,
+        _: &MouseEvent,
+        _: i32,
+        _: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        None
     }
     fn observe_mouse_all(&mut self, _: &MouseEvent, _: &AppView<'_>) {}
     fn dispatch_mouse_handler(
@@ -411,6 +444,21 @@ impl PluginEffects for RecordingEffects {
     ) -> TextInputHandleResult {
         self.text_input_dispatches.push(text.to_string());
         TextInputHandleResult::NotHandled
+    }
+    fn dispatch_mouse_pre_dispatch(
+        &mut self,
+        _: &MouseEvent,
+        _: &AppView<'_>,
+    ) -> MousePreDispatchResult {
+        MousePreDispatchResult::Pass { commands: vec![] }
+    }
+    fn dispatch_mouse_fallback(
+        &mut self,
+        _: &MouseEvent,
+        _: i32,
+        _: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        None
     }
     fn observe_mouse_all(&mut self, event: &MouseEvent, _: &AppView<'_>) {
         self.mouse_observations.push(event.clone());

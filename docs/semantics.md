@@ -330,6 +330,7 @@ Commands fall into the following categories.
 - Process management: `SpawnProcess`, `WriteToProcess`, `CloseProcessStdin`, `KillProcess`, `ResizePty`
 - Surface management: `RegisterSurface`, `UnregisterSurface`, `RegisterSurfaceRequested`, `UnregisterSurfaceKey`
 - Structural commands: `Session(SessionCommand)`, `Workspace(WorkspaceCommand)`, `SpawnPaneClient`, `ClosePaneClient`
+- Framework-internal commands: `UpdateShadowCursor`, `UpdateDragState` — extracted by the framework during `update()`, never forwarded to `execute_commands`. These are emitted by builtin plugins to synchronize state changes back to `RuntimeState`. Stage 2 (state migration) will remove them by moving the owned state into the plugins themselves.
 
 The runtime receives Commands and executes them as side effects. The important invariant is that Command generation is deterministic given the same state and input, even though Command execution may involve I/O.
 
@@ -636,8 +637,12 @@ The following table classifies each extension point by what it affects in the pr
 | `transform` | Ω_L | TransformChain (non-commutative) | ✓ always |
 | `render_ornaments` (emphasis) | Ω_P (Physical presentation) | Priority-merged | ✓ always |
 | `render_ornaments` (cursor_style) | Ω_P | Modality+Priority FirstWins | ✓ always |
-| `handle_key_middleware` | ρ (Input routing) | FirstWins (3-variant) | iff handler emits no Kakoune-writing Command |
+| `render_ornaments` (cursor_position) | Ω_P | Modality+Priority FirstWins | ✓ always |
+| `handle_key_pre_dispatch` | ρ (Input routing) | FirstWins | iff handler emits no Kakoune-writing Command |
+| `handle_mouse_pre_dispatch` | ρ | Pass-collect, Consumed FirstWins | iff handler emits no Kakoune-writing Command |
+| `handle_key_middleware` | ρ | FirstWins (3-variant) | iff handler emits no Kakoune-writing Command |
 | `handle_mouse` | ρ | FirstWins | iff handler emits no Kakoune-writing Command |
+| `handle_mouse_fallback` | ρ | FirstWins | iff handler emits no Kakoune-writing Command |
 | `handle_default_scroll` | ρ | FirstWins | iff handler emits no Kakoune-writing Command |
 
 The "Kakoune-Transparent?" column records which extension points are guaranteed (by the shape of the extension point alone) to generate no Kakoune-writing Commands, and which depend on the handler body. The seven display/decoration extension points marked ✓ affect only the Kasane fibre `Delta(k)` (§2.5) and therefore satisfy A9 and Theorem T10 (Plugin Transparency, §12.10) unconditionally. Input-routing extension points may consume an event or delegate it to Kakoune; when they delegate, they emit a Kakoune-writing Command and are not transparent.
@@ -716,10 +721,21 @@ Each extension point has its own ordering rule. All multi-plugin results use sta
 
 Plugin input handling follows a defined dispatch order.
 
-1. `observe_key()` is called on **all** plugins (observation only, no consumption)
-2. `handle_key()` is called on plugins in registration order; the **first** plugin to return a non-None result consumes the key
-3. If no plugin consumes the key, built-in handlers (PageUp, PageDown, etc.) are tried
-4. If no built-in handler matches, the key is forwarded to Kakoune
+**Key dispatch order:**
+
+1. `handle_key_pre_dispatch()` — plugins with `KEY_PRE_DISPATCH` capability intercept keys before all other plugins (e.g., shadow cursor intercepts keys during editing). First `Consumed` wins.
+2. `observe_key()` is called on **all** plugins (observation only, no consumption)
+3. `handle_key()` is called on plugins in registration order; the **first** plugin to return a non-None result consumes the key
+4. If no plugin consumes the key, built-in handlers (PageUp, PageDown, etc.) are tried
+5. If no built-in handler matches, the key is forwarded to Kakoune
+
+**Mouse dispatch order:**
+
+1. `handle_mouse_pre_dispatch()` — plugins with `MOUSE_PRE_DISPATCH` capability intercept mouse events before observation (e.g., drag state tracking, shadow cursor deactivation). Pass commands are accumulated; first `Consumed` wins.
+2. `observe_mouse()` is called on **all** plugins (observation only, no consumption)
+3. Hit-test dispatch: `handle_mouse()` is called on the plugin owning the hit-test region
+4. Legacy scroll dispatch and display unit navigation dispatch
+5. `handle_mouse_fallback()` — plugins with `MOUSE_FALLBACK` capability handle events not consumed by any prior stage (e.g., forwarding to Kakoune via `mouse_to_kakoune`)
 
 This is a first-wins dispatch model. Plugin registration order determines priority for key consumption. `observe_key` is always exhaustive; `handle_key` is short-circuiting.
 

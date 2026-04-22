@@ -342,6 +342,8 @@ fn test_update_mouse_miss_forwards_to_kakoune() {
     state.runtime.cols = 80;
     state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(crate::input::BuiltinDragPlugin));
+    registry.register_backend(Box::new(crate::input::BuiltinMouseFallbackPlugin));
     // Empty HitMap (no interactive regions)
 
     let mouse = MouseEvent {
@@ -738,6 +740,8 @@ fn mouse_press_on_normal_line_forwards_to_kakoune() {
     state.runtime.cols = 80;
     state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(crate::input::BuiltinDragPlugin));
+    registry.register_backend(Box::new(crate::input::BuiltinMouseFallbackPlugin));
 
     let directives = vec![DisplayDirective::Fold {
         range: 2..5,

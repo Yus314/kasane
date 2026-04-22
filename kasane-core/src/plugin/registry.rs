@@ -18,6 +18,7 @@ use super::bridge::PluginBridge;
 use super::context::TransformScope;
 use super::effects::{MouseHandleResult, PluginEffects, TextInputHandleResult};
 use super::state::Plugin;
+use super::traits::MousePreDispatchResult;
 use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
     EffectsBatch, GutterSide, IoEvent, KeyHandleResult, OverlayContext, OverlayContribution,
@@ -35,6 +36,8 @@ pub struct CollectedOrnaments {
     pub emphasis: Vec<super::CellDecoration>,
     /// Winning cursor style hint (modality.rank(), priority winner-takes-all).
     pub cursor_style: Option<crate::render::CursorStyleHint>,
+    /// Winning cursor position override (modality.rank(), priority winner-takes-all).
+    pub cursor_position: Option<(u16, u16, crate::render::CursorStyle, crate::protocol::Color)>,
     /// Accumulated cursor effects from all plugins.
     pub cursor_effects: Vec<super::CursorEffectOrn>,
     /// Surface ornaments from all plugins.
@@ -915,6 +918,65 @@ impl PluginRuntime {
         TextInputPreDispatchResult::Pass
     }
 
+    /// Dispatch mouse pre-dispatch to plugins with MOUSE_PRE_DISPATCH capability.
+    /// First plugin returning `Consumed` wins. Pass commands are collected.
+    pub fn dispatch_mouse_pre_dispatch(
+        &mut self,
+        event: &MouseEvent,
+        app: &AppView<'_>,
+    ) -> MousePreDispatchResult {
+        let mut pass_commands = Vec::new();
+        for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::MOUSE_PRE_DISPATCH)
+            {
+                continue;
+            }
+            let result = slot.backend.handle_mouse_pre_dispatch(event, app);
+            match result {
+                MousePreDispatchResult::Consumed {
+                    flags,
+                    mut commands,
+                } => {
+                    commands.splice(0..0, pass_commands);
+                    return MousePreDispatchResult::Consumed { flags, commands };
+                }
+                MousePreDispatchResult::Pass { commands } => {
+                    pass_commands.extend(commands);
+                }
+            }
+        }
+        MousePreDispatchResult::Pass {
+            commands: pass_commands,
+        }
+    }
+
+    /// Dispatch mouse fallback to plugins with MOUSE_FALLBACK capability.
+    /// First plugin returning `Some` wins.
+    pub fn dispatch_mouse_fallback(
+        &mut self,
+        event: &MouseEvent,
+        scroll_amount: i32,
+        app: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::MOUSE_FALLBACK)
+            {
+                continue;
+            }
+            if let Some(commands) = slot
+                .backend
+                .handle_mouse_fallback(event, scroll_amount, app)
+            {
+                return Some(commands);
+            }
+        }
+        None
+    }
+
     /// Broadcast key observation to all plugins with INPUT_HANDLER capability.
     pub fn observe_key_all(&mut self, key: &KeyEvent, app: &AppView<'_>) {
         for slot in &mut self.slots {
@@ -1078,6 +1140,23 @@ impl PluginEffects for PluginRuntime {
         app: &AppView<'_>,
     ) -> TextInputHandleResult {
         PluginRuntime::dispatch_text_input_handler(self, text, app)
+    }
+
+    fn dispatch_mouse_pre_dispatch(
+        &mut self,
+        event: &MouseEvent,
+        app: &AppView<'_>,
+    ) -> MousePreDispatchResult {
+        PluginRuntime::dispatch_mouse_pre_dispatch(self, event, app)
+    }
+
+    fn dispatch_mouse_fallback(
+        &mut self,
+        event: &MouseEvent,
+        scroll_amount: i32,
+        app: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        PluginRuntime::dispatch_mouse_fallback(self, event, scroll_amount, app)
     }
 
     fn observe_mouse_all(&mut self, event: &MouseEvent, app: &AppView<'_>) {
@@ -2226,6 +2305,7 @@ impl<'a> PluginView<'a> {
     ) -> CollectedOrnaments {
         let mut emphasis = Vec::new();
         let mut cursor_style: Option<(super::CursorStyleOrn, usize)> = None;
+        let mut cursor_position: Option<(super::CursorPositionOrn, usize)> = None;
         let mut cursor_effects = Vec::new();
         let mut surfaces = Vec::new();
 
@@ -2257,6 +2337,20 @@ impl<'a> PluginView<'a> {
                 }
             }
 
+            if let Some(candidate) = batch.cursor_position {
+                let replace = match &cursor_position {
+                    None => true,
+                    Some((current, _)) => {
+                        let lhs = (candidate.modality.rank(), candidate.priority);
+                        let rhs = (current.modality.rank(), current.priority);
+                        lhs > rhs
+                    }
+                };
+                if replace {
+                    cursor_position = Some((candidate, idx));
+                }
+            }
+
             cursor_effects.extend(batch.cursor_effects);
             surfaces.extend(batch.surfaces);
         }
@@ -2266,6 +2360,7 @@ impl<'a> PluginView<'a> {
         CollectedOrnaments {
             emphasis,
             cursor_style: cursor_style.map(|(orn, _)| orn.hint),
+            cursor_position: cursor_position.map(|(orn, _)| (orn.x, orn.y, orn.style, orn.color)),
             cursor_effects,
             surfaces,
         }

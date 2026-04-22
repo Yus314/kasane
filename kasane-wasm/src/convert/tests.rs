@@ -359,6 +359,7 @@ fn convert_render_ornament_context_to_wit() {
         screen_rows: 40,
         visible_line_start: 10,
         visible_line_end: 20,
+        ..Default::default()
     };
 
     let wit_ctx = render_ornament_context_to_wit(&ctx);

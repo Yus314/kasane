@@ -264,6 +264,7 @@ pub(crate) fn wit_ornament_batch_to_ornament_batch(w: &wit::OrnamentBatch) -> Co
             .map(wit_cell_decoration_to_decoration)
             .collect(),
         cursor_style: w.cursor_style.as_ref().and_then(wit_cursor_style_orn),
+        cursor_position: None,
         cursor_effects: w.cursor_effects.iter().map(wit_cursor_effect_orn).collect(),
         surfaces: w
             .surfaces

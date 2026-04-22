@@ -160,6 +160,7 @@ fn test_collect_ornaments() {
                 priority: 20,
                 modality: OrnamentModality::Approximate,
             }),
+            cursor_position: None,
             cursor_effects: vec![CursorEffectOrn {
                 kind: CursorEffect::Halo,
                 face: Face::default(),
@@ -198,6 +199,7 @@ fn test_cursor_style_does_not_compete_with_effects() {
                 priority: 10,
                 modality: OrnamentModality::Must,
             }),
+            cursor_position: None,
             cursor_effects: vec![CursorEffectOrn {
                 kind: CursorEffect::Halo,
                 face: Face::default(),

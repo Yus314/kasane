@@ -57,6 +57,21 @@ pub enum KeyPreDispatchResult {
     Pass { commands: Vec<Command> },
 }
 
+/// Result of mouse pre-dispatch (before observation and hit-test dispatch).
+///
+/// Pre-dispatch handlers run before `observe_mouse_all` and `dispatch_mouse_handler`.
+/// They are used for features like drag state tracking and shadow cursor deactivation
+/// that need to intercept mouse events before any other plugin sees them.
+pub enum MousePreDispatchResult {
+    /// Mouse event was consumed by the pre-dispatch handler.
+    Consumed {
+        flags: DirtyFlags,
+        commands: Vec<Command>,
+    },
+    /// Pass through to normal mouse dispatch. Commands (if any) are applied first.
+    Pass { commands: Vec<Command> },
+}
+
 /// Result of text input pre-dispatch (before the text input handler chain).
 pub enum TextInputPreDispatchResult {
     /// Text input was consumed by the pre-dispatch handler.
@@ -132,6 +147,19 @@ pub trait PluginBackend: Any {
         KeyPreDispatchResult::Pass { commands: vec![] }
     }
 
+    /// Handle a mouse event before observation and hit-test dispatch.
+    ///
+    /// Only called for plugins with `MOUSE_PRE_DISPATCH` capability.
+    /// Used by `BuiltinShadowCursorPlugin` to deactivate on click outside editable area,
+    /// and by `BuiltinDragPlugin` to track drag state.
+    fn handle_mouse_pre_dispatch(
+        &mut self,
+        _event: &MouseEvent,
+        _state: &AppView<'_>,
+    ) -> MousePreDispatchResult {
+        MousePreDispatchResult::Pass { commands: vec![] }
+    }
+
     /// Handle committed text input before the text input handler chain.
     ///
     /// Only called for plugins with `KEY_PRE_DISPATCH` capability.
@@ -177,6 +205,19 @@ pub trait PluginBackend: Any {
     ) -> Option<Vec<Command>> {
         None
     }
+    /// Handle a mouse event as a fallback when no plugin or hit-test consumed it.
+    ///
+    /// Only called for plugins with `MOUSE_FALLBACK` capability.
+    /// Used by `BuiltinMouseFallbackPlugin` to forward mouse events to Kakoune.
+    fn handle_mouse_fallback(
+        &mut self,
+        _event: &MouseEvent,
+        _scroll_amount: i32,
+        _state: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        None
+    }
+
     fn handle_default_scroll(
         &mut self,
         _candidate: DefaultScrollCandidate,

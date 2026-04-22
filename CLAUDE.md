@@ -82,6 +82,7 @@ Kakoune (kak -ui json)
 - **Plugin prelude**: `kasane-core/src/plugin_prelude.rs` (public API for external plugins)
 - **Display transform**: `kasane-core/src/display/mod.rs` (DisplayMap, DisplayDirective), `display/projection.rs` (ProjectionPolicyState), `display/resolve.rs` (multi-plugin directive resolution)
 - **Semantic Zoom**: `kasane-core/src/plugin/semantic_zoom/` — `mod.rs` (ZoomLevel, SemanticZoomPlugin), `indent_strategy.rs` (indent fallback), `syntax_strategy.rs` (tree-sitter aware)
+- **Builtin input plugins**: `kasane-core/src/input/builtin.rs` (BuiltinInputPlugin, default key handling), `builtin_fold.rs` (BuiltinFoldPlugin, fold toggle), `builtin_drag.rs` (BuiltinDragPlugin, drag state tracking), `builtin_mouse.rs` (BuiltinMouseFallbackPlugin, mouse-to-Kakoune forwarding)
 - **Syntax**: `kasane-core/src/syntax/mod.rs` (SyntaxProvider trait, Declaration types), `kasane-syntax/src/` (TreeSitterProvider, GrammarRegistry, SyntaxManager)
 
 For architecture details, see `docs/index.md`. For plugin API reference, see `docs/plugin-api.md`. For plugin development guide, see `docs/plugin-development.md`.

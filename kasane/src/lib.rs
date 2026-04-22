@@ -316,6 +316,14 @@ fn build_plugin_manager(
         builtin_plugin("builtin-fold", "kasane.builtin.fold", || {
             kasane_core::input::BuiltinFoldPlugin
         }),
+        builtin_plugin("builtin-drag", "kasane.builtin.drag", || {
+            kasane_core::input::BuiltinDragPlugin
+        }),
+        builtin_plugin(
+            "builtin-mouse-fallback",
+            "kasane.builtin.mouse_fallback",
+            || kasane_core::input::BuiltinMouseFallbackPlugin,
+        ),
         builtin_plugin(
             "projection-status",
             "kasane.builtin.projection-status",

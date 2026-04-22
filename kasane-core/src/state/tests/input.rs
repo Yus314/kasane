@@ -9,6 +9,7 @@ use crate::state::{AppState, DragState};
 fn test_drag_state_press_activates() {
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(crate::input::BuiltinDragPlugin));
 
     let mouse = crate::input::MouseEvent {
         kind: crate::input::MouseEventKind::Press(crate::input::MouseButton::Left),
@@ -36,6 +37,7 @@ fn test_drag_state_release_clears() {
         start_column: 0,
     };
     let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(crate::input::BuiltinDragPlugin));
 
     let mouse = crate::input::MouseEvent {
         kind: crate::input::MouseEventKind::Release(crate::input::MouseButton::Left),
@@ -56,6 +58,8 @@ fn test_drag_state_drag_keeps_active() {
         start_column: 0,
     };
     let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(crate::input::BuiltinDragPlugin));
+    registry.register_backend(Box::new(crate::input::BuiltinMouseFallbackPlugin));
 
     let mouse = crate::input::MouseEvent {
         kind: crate::input::MouseEventKind::Drag(crate::input::MouseButton::Left),

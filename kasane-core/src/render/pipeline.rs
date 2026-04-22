@@ -101,37 +101,6 @@ fn compute_render_result(
     display_scroll_offset: u16,
     focused_pane_rect: Option<&Rect>,
 ) -> RenderResult {
-    // ShadowCursor override: when active and editing, place cursor at the shadow position
-    if let Some(ref shadow) = state.runtime.shadow_cursor
-        && let crate::state::shadow_cursor::ShadowPhase::Editing {
-            cursor_grapheme_offset,
-            working_text,
-            ..
-        } = &shadow.phase
-    {
-        use unicode_segmentation::UnicodeSegmentation;
-        use unicode_width::UnicodeWidthStr;
-        // Compute display column from grapheme offset
-        let display_col: u16 = working_text
-            .graphemes(true)
-            .take(*cursor_grapheme_offset)
-            .map(|g| UnicodeWidthStr::width(g) as u16)
-            .sum();
-        let cx = display_col + buffer_x_offset;
-        let cy =
-            (shadow.display_line as u16).saturating_sub(display_scroll_offset) + buffer_y_offset;
-        return RenderResult {
-            cursor_x: cx,
-            cursor_y: cy,
-            cursor_style: super::CursorStyle::Bar,
-            cursor_color: crate::protocol::Color::Default,
-            cursor_blink: None,
-            cursor_movement: None,
-            display_scroll_offset: display_scroll_offset as usize,
-            visual_hints: super::VisualHints::default(),
-        };
-    }
-
     let (cx, cy) = match state.inference.cursor_mode {
         CursorMode::Buffer => {
             let cx = state.observed.cursor_pos.column as u16 + buffer_x_offset;
@@ -354,6 +323,8 @@ pub(crate) fn render_cached_core(
         state.runtime.cols,
         state.runtime.rows,
         frame.display_scroll_offset,
+        frame.buffer_x_offset,
+        frame.buffer_y_offset,
     );
     let ornaments = registry.collect_ornaments(&AppView::new(state), &ornament_ctx);
 
@@ -432,7 +403,7 @@ pub(crate) fn render_cached_core(
         frame.segment_map.as_deref(),
     );
 
-    let result = RenderResult {
+    let mut result = RenderResult {
         cursor_x: cx,
         cursor_y: cy,
         cursor_style: hint.shape,
@@ -442,6 +413,12 @@ pub(crate) fn render_cached_core(
         display_scroll_offset: frame.display_scroll_offset,
         visual_hints: super::VisualHints::default(),
     };
+    if let Some((px, py, style, color)) = ornaments.cursor_position {
+        result.cursor_x = px;
+        result.cursor_y = py;
+        result.cursor_style = style;
+        result.cursor_color = color;
+    }
     (result, frame.display_map)
 }
 
@@ -472,6 +449,8 @@ pub(crate) fn scene_render_core<'a>(
         state.runtime.cols,
         state.runtime.rows,
         frame.display_scroll_offset,
+        frame.buffer_x_offset,
+        frame.buffer_y_offset,
     );
     let ornaments = registry.collect_ornaments(&AppView::new(state), &ornament_ctx);
 
@@ -489,6 +468,12 @@ pub(crate) fn scene_render_core<'a>(
         dso,
         frame.focused_pane_rect.as_ref(),
     );
+    if let Some((px, py, style, color)) = ornaments.cursor_position {
+        result.cursor_x = px;
+        result.cursor_y = py;
+        result.cursor_style = style;
+        result.cursor_color = color;
+    }
 
     // Populate visual hints for GPU backend
     {
