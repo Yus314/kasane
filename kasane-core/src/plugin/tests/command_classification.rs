@@ -124,6 +124,7 @@ pub(super) fn make_all_command_instances() -> Vec<Command> {
         Command::SetStructuralProjection(None),
         Command::ToggleAdditiveProjection(crate::display::ProjectionId::new("test")),
         Command::ProjectionOff,
+        Command::UpdateShadowCursor(None),
     ]
 }
 

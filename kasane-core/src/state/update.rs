@@ -2,76 +2,15 @@ use crate::display::InteractionPolicy;
 use crate::input;
 use crate::input::{DropEvent, InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{
-    AppView, Command, KeyDispatchResult, MouseHandleResult, PluginEffects, PluginId,
-    TextInputHandleResult, extract_redraw_flags,
+    AppView, Command, KeyDispatchResult, KeyPreDispatchResult, MouseHandleResult, PluginEffects,
+    PluginId, TextInputHandleResult, TextInputPreDispatchResult, extract_redraw_flags,
+    extract_shadow_cursor_update,
 };
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::scroll::{LegacyScrollDispatch, ScrollPlan};
 
-use super::shadow_cursor::{ShadowCursor, ShadowKeyResult, ShadowPhase};
+use super::shadow_cursor::{ShadowCursor, ShadowPhase};
 use super::{AppState, DirtyFlags, DragState};
-
-/// Internal dispatch result for shadow cursor key handling.
-enum ShadowKeyDispatch {
-    /// Key was consumed by the shadow cursor, redraw needed.
-    Consumed(DirtyFlags),
-    /// Shadow cursor should deactivate, fall through to normal key handling.
-    Deactivate,
-    /// Editing committed, send commands to Kakoune.
-    Commit(Vec<Command>),
-    /// Shadow cursor did not handle this key, fall through.
-    Pass,
-}
-
-/// Dispatch a key event to the active shadow cursor.
-fn handle_shadow_cursor_key_dispatch(state: &mut AppState, key: &KeyEvent) -> ShadowKeyDispatch {
-    // Extract shadow cursor info before mutable borrow
-    let (display_line, span_index) = match state.runtime.shadow_cursor.as_ref() {
-        Some(s) => (s.display_line, s.span_index),
-        None => return ShadowKeyDispatch::Pass,
-    };
-
-    // Get the span text for transitioning from Navigating → Editing
-    let span_text = state
-        .runtime
-        .display_map
-        .as_ref()
-        .and_then(|dm| {
-            let entry = dm.entry(crate::display::DisplayLine(display_line))?;
-            let syn = entry.synthetic()?;
-            Some(syn.text())
-        })
-        .unwrap_or_default();
-
-    let shadow = state.runtime.shadow_cursor.as_mut().unwrap();
-    match super::shadow_cursor::handle_shadow_cursor_key(shadow, key, &span_text) {
-        ShadowKeyResult::Consumed(flags) => ShadowKeyDispatch::Consumed(flags),
-        ShadowKeyResult::Deactivate => ShadowKeyDispatch::Deactivate,
-        ShadowKeyResult::Commit(_) => {
-            // Resolve the editable span and build mirror commit commands
-            let shadow = state.runtime.shadow_cursor.as_ref().unwrap();
-            let commands = state
-                .runtime
-                .display_map
-                .as_ref()
-                .and_then(|dm| {
-                    let entry = dm.entry(crate::display::DisplayLine(display_line))?;
-                    if let crate::display::SourceMapping::Projected { spans, .. } = entry.source() {
-                        let span = spans.get(span_index)?;
-                        Some(super::shadow_cursor::build_mirror_commit(
-                            shadow,
-                            span,
-                            state.observed.lines.len(),
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_default();
-            ShadowKeyDispatch::Commit(commands)
-        }
-    }
-}
 
 /// Messages that drive the application state machine.
 pub enum Msg {
@@ -226,39 +165,29 @@ fn update_inner<E: PluginEffects>(
             }
         }
         Msg::Key(key) => {
-            // ShadowCursor pre-dispatch: intercept keys when shadow cursor is active.
-            // Skipped when ShadowCursor builtin is suppressed (user plugin handles it).
-            if state.runtime.shadow_cursor.is_some()
-                && !state
-                    .runtime
-                    .suppressed_builtins
-                    .contains(&crate::plugin::BuiltinTarget::ShadowCursor)
-            {
-                match handle_shadow_cursor_key_dispatch(state, &key) {
-                    ShadowKeyDispatch::Consumed(flags) => {
-                        return UpdateResult {
-                            flags,
-                            commands: vec![],
-                            scroll_plans: vec![],
-                            source_plugin: None,
-                        };
+            // Pre-dispatch: plugins with KEY_PRE_DISPATCH capability
+            // (e.g., BuiltinShadowCursorPlugin) intercept keys before middleware.
+            match effects.dispatch_key_pre_dispatch(&key, &AppView::new(state)) {
+                KeyPreDispatchResult::Consumed {
+                    flags,
+                    mut commands,
+                } => {
+                    if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
+                        state.runtime.shadow_cursor = sc;
                     }
-                    ShadowKeyDispatch::Commit(commands) => {
-                        state.runtime.shadow_cursor = None;
-                        return UpdateResult {
-                            flags: DirtyFlags::BUFFER_CONTENT,
-                            commands,
-                            scroll_plans: vec![],
-                            source_plugin: None,
-                        };
+                    let extra_flags = extract_redraw_flags(&mut commands);
+                    return UpdateResult {
+                        flags: flags | extra_flags,
+                        commands,
+                        scroll_plans: vec![],
+                        source_plugin: None,
+                    };
+                }
+                KeyPreDispatchResult::Pass { mut commands } => {
+                    if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
+                        state.runtime.shadow_cursor = sc;
                     }
-                    ShadowKeyDispatch::Deactivate => {
-                        state.runtime.shadow_cursor = None;
-                        // Fall through to normal key handling
-                    }
-                    ShadowKeyDispatch::Pass => {
-                        // Fall through to normal key handling
-                    }
+                    // Fall through to normal key handling
                 }
             }
 
@@ -294,34 +223,25 @@ fn update_inner<E: PluginEffects>(
             }
         }
         Msg::TextInput(text) => {
-            // ShadowCursor pre-dispatch: intercept IME text input.
-            // Skipped when ShadowCursor builtin is suppressed.
-            if !state
-                .runtime
-                .suppressed_builtins
-                .contains(&crate::plugin::BuiltinTarget::ShadowCursor)
-                && let Some(ref mut shadow) = state.runtime.shadow_cursor
-                && let ShadowPhase::Editing {
-                    ref mut working_text,
-                    ref mut cursor_grapheme_offset,
-                    ..
-                } = shadow.phase
-            {
-                use unicode_segmentation::UnicodeSegmentation;
-                let offset = *cursor_grapheme_offset;
-                let byte_pos: usize = working_text
-                    .graphemes(true)
-                    .take(offset)
-                    .map(|g| g.len())
-                    .sum();
-                working_text.insert_str(byte_pos, &text);
-                *cursor_grapheme_offset += text.graphemes(true).count();
-                return UpdateResult {
-                    flags: DirtyFlags::BUFFER_CONTENT,
-                    commands: vec![],
-                    scroll_plans: vec![],
-                    source_plugin: None,
-                };
+            // Pre-dispatch: plugins with KEY_PRE_DISPATCH capability
+            // (e.g., BuiltinShadowCursorPlugin) intercept text input during editing.
+            match effects.dispatch_text_input_pre_dispatch(&text, &AppView::new(state)) {
+                TextInputPreDispatchResult::Consumed {
+                    flags,
+                    mut commands,
+                } => {
+                    if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
+                        state.runtime.shadow_cursor = sc;
+                    }
+                    let extra_flags = extract_redraw_flags(&mut commands);
+                    return UpdateResult {
+                        flags: flags | extra_flags,
+                        commands,
+                        scroll_plans: vec![],
+                        source_plugin: None,
+                    };
+                }
+                TextInputPreDispatchResult::Pass => {}
             }
 
             let app = AppView::new(state);

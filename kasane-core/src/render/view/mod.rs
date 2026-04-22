@@ -1,5 +1,5 @@
-pub(crate) mod info;
-pub(crate) mod menu;
+pub mod info;
+pub mod menu;
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
 mod tests;
@@ -11,7 +11,7 @@ use crate::display::segment_map::SegmentMap;
 use crate::element::{Direction, Element, FlexChild, Overlay, OverlayAnchor, Style, StyleToken};
 use crate::layout::line_display_width;
 use crate::plugin::{AnnotateContext, AppView, PluginView, TransformSubject, TransformTarget};
-use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
+use crate::protocol::{Atom, Face, Line, MenuStyle};
 use crate::state::AppState;
 use crate::surface::{SurfaceComposeResult, SurfaceRenderReport};
 
@@ -179,37 +179,34 @@ fn legacy_surface_compose_result(
 
 /// Build the menu overlay section.
 ///
-/// Dispatches to plugin renderers first (first-wins). Falls back to the built-in
-/// menu renderer. The overlay-level transform chain is applied in both cases.
+/// All rendering goes through plugin renderers (the builtin menu plugin is the
+/// lowest-priority renderer). The overlay-level transform chain is always applied.
 #[crate::kasane_component]
 fn build_menu_section(state: &AppState, registry: &PluginView<'_>) -> Option<Overlay> {
     let app_view = AppView::new(state);
 
-    // Try plugin renderers first
-    if let Some(overlay) = registry.resolve_menu_overlay(&app_view) {
-        return Some(overlay);
-    }
+    let overlay = registry.resolve_menu_overlay(&app_view)?;
 
-    // Fall back to built-in renderer
-    let menu_state = state.observed.menu.as_ref()?;
-    let transform_target = match menu_state.style {
-        MenuStyle::Prompt => TransformTarget::MENU_PROMPT,
-        MenuStyle::Inline => TransformTarget::MENU_INLINE,
-        MenuStyle::Search => TransformTarget::MENU_SEARCH,
-    };
-
-    let menu_overlay = menu::build_menu_overlay(menu_state, state, registry);
-    menu_overlay.map(|overlay| {
-        // Apply hierarchical transform chain (Menu generic → style-specific)
+    // Apply overlay-level transform chain if menu state is available
+    if let Some(menu_state) = state.observed.menu.as_ref() {
+        let transform_target = match menu_state.style {
+            MenuStyle::Prompt => TransformTarget::MENU_PROMPT,
+            MenuStyle::Inline => TransformTarget::MENU_INLINE,
+            MenuStyle::Search => TransformTarget::MENU_SEARCH,
+        };
         let result = registry.apply_transform_chain_hierarchical(
             transform_target,
             TransformSubject::Overlay(overlay),
             &app_view,
         );
-        result
-            .into_overlay()
-            .expect("overlay transform preserves variant")
-    })
+        Some(
+            result
+                .into_overlay()
+                .expect("overlay transform preserves variant"),
+        )
+    } else {
+        Some(overlay)
+    }
 }
 
 /// Build info overlay section with collision avoidance.
@@ -221,8 +218,8 @@ fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overla
 /// Build info overlay section with collision avoidance, including additional
 /// avoid rects from plugin overlays.
 ///
-/// Dispatches to plugin renderers first (first-wins). Falls back to the built-in
-/// info renderer. The overlay-level transform chain is applied in both cases.
+/// Computes initial avoid rects (menu, cursor, plugin overlays), then delegates
+/// to plugin renderers (the builtin info plugin is the lowest-priority renderer).
 fn build_info_section_with_avoid(
     state: &AppState,
     registry: &PluginView<'_>,
@@ -243,46 +240,11 @@ fn build_info_section_with_avoid(
     // Include plugin overlay rects for collision avoidance.
     avoid_rects.extend_from_slice(extra_avoid);
 
-    // Try plugin renderers first
+    // All rendering goes through plugins (builtin info plugin is lowest priority)
     let app_view = AppView::new(state);
-    if let Some(overlays) = registry.resolve_info_overlays(&app_view, &avoid_rects) {
-        return overlays;
-    }
-
-    // Fall back to built-in renderer
-    let mut overlays = Vec::new();
-    for (info_idx, info_state) in state.observed.infos.iter().enumerate() {
-        let info_overlay =
-            info::build_info_overlay_indexed(info_state, state, &avoid_rects, info_idx);
-        if let Some(overlay) = info_overlay {
-            // Apply hierarchical transform chain (Info generic → style-specific)
-            let info_target = match info_state.style {
-                InfoStyle::Prompt => TransformTarget::INFO_PROMPT,
-                InfoStyle::Modal => TransformTarget::INFO_MODAL,
-                _ => TransformTarget::INFO,
-            };
-            let result = registry.apply_transform_chain_hierarchical(
-                info_target,
-                TransformSubject::Overlay(overlay),
-                &app_view,
-            );
-            let transformed = result
-                .into_overlay()
-                .expect("overlay transform preserves variant");
-            // Track this overlay's rect for subsequent infos to avoid
-            // (using post-transform anchor, since transform may modify it)
-            if let OverlayAnchor::Absolute { x, y, w, h } = &transformed.anchor {
-                avoid_rects.push(crate::layout::Rect {
-                    x: *x,
-                    y: *y,
-                    w: *w,
-                    h: *h,
-                });
-            }
-            overlays.push(transformed);
-        }
-    }
-    overlays
+    registry
+        .resolve_info_overlays(&app_view, &avoid_rects)
+        .unwrap_or_default()
 }
 
 fn build_status_core(state: &AppState) -> Element {

@@ -28,7 +28,7 @@ fn resolve_menu_face(menu: &MenuState, selected: bool, state: &AppState) -> Face
 }
 
 #[crate::kasane_component]
-pub(crate) fn build_menu_overlay(
+pub fn build_menu_overlay(
     menu: &MenuState,
     state: &AppState,
     registry: &PluginView<'_>,
@@ -424,6 +424,39 @@ fn build_scrollbar(
         thumb,
         track,
     )
+}
+
+// ---------------------------------------------------------------------------
+// BuiltinMenuPlugin — lowest-priority MENU_RENDERER
+// ---------------------------------------------------------------------------
+
+use crate::plugin::{FrameworkAccess, PluginBackend, PluginCapabilities, PluginId};
+
+/// Built-in plugin for menu overlay rendering.
+///
+/// Delegates to [`build_menu_overlay`] for all `MenuStyle` variants.
+/// Registered as the lowest-priority `MENU_RENDERER` so that user plugins
+/// with the same capability take precedence.
+pub struct BuiltinMenuPlugin;
+
+impl PluginBackend for BuiltinMenuPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("kasane.builtin.menu".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::MENU_RENDERER
+    }
+
+    fn render_menu_overlay(
+        &self,
+        state: &AppView<'_>,
+        view: &PluginView<'_>,
+    ) -> Option<crate::element::Overlay> {
+        let app_state = state.as_app_state();
+        let menu = app_state.observed.menu.as_ref()?;
+        build_menu_overlay(menu, app_state, view)
+    }
 }
 
 #[cfg(test)]

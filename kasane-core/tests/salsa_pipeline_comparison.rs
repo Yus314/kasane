@@ -19,6 +19,14 @@ use kasane_core::salsa_sync::{
 use kasane_core::state::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuParams, MenuState};
 use kasane_core::test_support::{assert_grids_equal, test_state_80x24};
 
+/// Create a PluginRuntime with the built-in menu and info renderers registered.
+fn registry_with_builtins() -> PluginRuntime {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(kasane_core::render::view::menu::BuiltinMenuPlugin));
+    registry.register_backend(Box::new(kasane_core::render::view::info::BuiltinInfoPlugin));
+    registry
+}
+
 fn make_atom(text: &str) -> Atom {
     Atom {
         face: Face::default(),
@@ -143,7 +151,7 @@ fn compare_with_inline_menu() {
             max_height: 10,
         },
     ));
-    let registry = PluginRuntime::new();
+    let registry = registry_with_builtins();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -167,7 +175,7 @@ fn compare_with_search_menu() {
             max_height: 10,
         },
     ));
-    let registry = PluginRuntime::new();
+    let registry = registry_with_builtins();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -197,7 +205,7 @@ fn compare_with_info_modal() {
         },
         scroll_offset: 0,
     });
-    let registry = PluginRuntime::new();
+    let registry = registry_with_builtins();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -236,7 +244,7 @@ fn compare_with_multiple_infos() {
         },
         scroll_offset: 0,
     });
-    let registry = PluginRuntime::new();
+    let registry = registry_with_builtins();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -578,7 +586,7 @@ fn compare_with_plugins_and_menu() {
             max_height: 10,
         },
     ));
-    let mut registry = PluginRuntime::new();
+    let mut registry = registry_with_builtins();
     registry.register_backend(Box::new(GutterPlugin));
     registry.register_backend(Box::new(StatusRightPlugin));
     registry.init_all(&AppView::new(&state));
@@ -644,7 +652,7 @@ fn compare_menu_and_info_simultaneous() {
         .observed
         .infos
         .push(make_info_state(5, 10, InfoStyle::Modal));
-    let registry = PluginRuntime::new();
+    let registry = registry_with_builtins();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -662,7 +670,7 @@ fn compare_menu_appears_while_info_visible() {
         .infos
         .push(make_info_state(3, 0, InfoStyle::Inline));
 
-    let registry = PluginRuntime::new();
+    let registry = registry_with_builtins();
     let (mut db, mut handles) = setup_salsa(&state);
 
     // Render with only info visible
@@ -696,7 +704,7 @@ fn compare_menu_disappears_while_info_visible() {
         .infos
         .push(make_info_state(3, 0, InfoStyle::Inline));
 
-    let registry = PluginRuntime::new();
+    let registry = registry_with_builtins();
     let (mut db, mut handles) = setup_salsa(&state);
 
     // Render with both menu and info

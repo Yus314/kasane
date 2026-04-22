@@ -651,3 +651,131 @@ mod tests {
         }
     }
 }
+
+// =============================================================================
+// BuiltinShadowCursorPlugin
+// =============================================================================
+
+use crate::plugin::{
+    AppView, FrameworkAccess, KeyPreDispatchResult, PluginBackend, PluginCapabilities,
+    TextInputPreDispatchResult,
+};
+
+/// Builtin plugin that implements the shadow cursor key/text pre-dispatch.
+///
+/// Reads the shadow cursor state from `RuntimeState` (via `FrameworkAccess`),
+/// handles key events and text input, and returns `UpdateShadowCursor` commands
+/// to synchronize state changes back to the framework.
+pub struct BuiltinShadowCursorPlugin;
+
+impl PluginBackend for BuiltinShadowCursorPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("kasane.builtin.shadow_cursor".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::KEY_PRE_DISPATCH
+    }
+
+    fn handle_key_pre_dispatch(
+        &mut self,
+        key: &KeyEvent,
+        state: &AppView<'_>,
+    ) -> KeyPreDispatchResult {
+        let app_state = state.as_app_state();
+        let shadow = match app_state.runtime.shadow_cursor.as_ref() {
+            Some(s) => s,
+            None => return KeyPreDispatchResult::Pass { commands: vec![] },
+        };
+
+        let display_line = shadow.display_line;
+        let span_index = shadow.span_index;
+
+        // Get the span text for transitioning from Navigating → Editing
+        let span_text = app_state
+            .runtime
+            .display_map
+            .as_ref()
+            .and_then(|dm| {
+                let entry = dm.entry(crate::display::DisplayLine(display_line))?;
+                let syn = entry.synthetic()?;
+                Some(syn.text())
+            })
+            .unwrap_or_default();
+
+        let mut shadow_mut = shadow.clone();
+        match handle_shadow_cursor_key(&mut shadow_mut, key, &span_text) {
+            ShadowKeyResult::Consumed(flags) => KeyPreDispatchResult::Consumed {
+                flags,
+                commands: vec![Command::UpdateShadowCursor(Some(shadow_mut))],
+            },
+            ShadowKeyResult::Deactivate => KeyPreDispatchResult::Pass {
+                commands: vec![Command::UpdateShadowCursor(None)],
+            },
+            ShadowKeyResult::Commit(_) => {
+                // Resolve the editable span and build mirror commit commands
+                let commands = app_state
+                    .runtime
+                    .display_map
+                    .as_ref()
+                    .and_then(|dm| {
+                        let entry = dm.entry(crate::display::DisplayLine(display_line))?;
+                        if let crate::display::SourceMapping::Projected { spans, .. } =
+                            entry.source()
+                        {
+                            let span = spans.get(span_index)?;
+                            Some(build_mirror_commit(
+                                &shadow_mut,
+                                span,
+                                app_state.observed.lines.len(),
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
+                let mut cmds = vec![Command::UpdateShadowCursor(None)];
+                cmds.extend(commands);
+                KeyPreDispatchResult::Consumed {
+                    flags: DirtyFlags::BUFFER_CONTENT,
+                    commands: cmds,
+                }
+            }
+        }
+    }
+
+    fn handle_text_input_pre_dispatch(
+        &mut self,
+        text: &str,
+        state: &AppView<'_>,
+    ) -> TextInputPreDispatchResult {
+        let app_state = state.as_app_state();
+        let shadow = match app_state.runtime.shadow_cursor.as_ref() {
+            Some(s) => s,
+            None => return TextInputPreDispatchResult::Pass,
+        };
+
+        let mut shadow_mut = shadow.clone();
+        if let ShadowPhase::Editing {
+            ref mut working_text,
+            ref mut cursor_grapheme_offset,
+            ..
+        } = shadow_mut.phase
+        {
+            let offset = *cursor_grapheme_offset;
+            let byte_pos: usize = working_text
+                .graphemes(true)
+                .take(offset)
+                .map(|g| g.len())
+                .sum();
+            working_text.insert_str(byte_pos, text);
+            *cursor_grapheme_offset += text.graphemes(true).count();
+            TextInputPreDispatchResult::Consumed {
+                flags: DirtyFlags::BUFFER_CONTENT,
+                commands: vec![Command::UpdateShadowCursor(Some(shadow_mut))],
+            }
+        } else {
+            TextInputPreDispatchResult::Pass
+        }
+    }
+}

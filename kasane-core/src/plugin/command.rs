@@ -8,6 +8,7 @@ use crate::input::InputEvent;
 use crate::protocol::{Face, KasaneRequest};
 use crate::session::{SessionCommand, SessionId};
 use crate::state::DirtyFlags;
+use crate::state::shadow_cursor::ShadowCursor;
 use crate::surface::Surface;
 use crate::surface::SurfaceId;
 use crate::surface::SurfacePlacementRequest;
@@ -258,6 +259,11 @@ pub enum Command {
     ToggleAdditiveProjection(crate::display::ProjectionId),
     /// Deactivate all projections (preserves fold states).
     ProjectionOff,
+    /// Update the shadow cursor state.
+    ///
+    /// Extracted by the framework during update, not forwarded to `execute_commands`.
+    /// Follows the same pattern as `RequestRedraw`.
+    UpdateShadowCursor(Option<ShadowCursor>),
 }
 
 impl Command {
@@ -298,6 +304,7 @@ impl Command {
         "StartProcessTask",
         "ToggleAdditiveProjection",
         "UnbindSurfaceSession",
+        "UpdateShadowCursor",
         "UnregisterSurface",
         "UnregisterSurfaceKey",
         "Workspace",
@@ -370,6 +377,7 @@ impl Command {
             Command::SetStructuralProjection(_) => false,
             Command::ToggleAdditiveProjection(_) => false,
             Command::ProjectionOff => false,
+            Command::UpdateShadowCursor(_) => false,
         }
     }
 
@@ -415,6 +423,7 @@ impl Command {
             Command::SetStructuralProjection(_) => true,
             Command::ToggleAdditiveProjection(_) => true,
             Command::ProjectionOff => true,
+            Command::UpdateShadowCursor(_) => false,
         }
     }
 
@@ -458,6 +467,7 @@ impl Command {
             Command::SetStructuralProjection(_) => true,
             Command::ToggleAdditiveProjection(_) => true,
             Command::ProjectionOff => true,
+            Command::UpdateShadowCursor(_) => false,
         }
     }
 
@@ -502,6 +512,7 @@ impl Command {
             Command::SetStructuralProjection(_) => EffectCategory::CONFIG_MUTATION,
             Command::ToggleAdditiveProjection(_) => EffectCategory::CONFIG_MUTATION,
             Command::ProjectionOff => EffectCategory::CONFIG_MUTATION,
+            Command::UpdateShadowCursor(_) => EffectCategory::REDRAW,
         }
     }
 
@@ -543,6 +554,7 @@ impl Command {
             Command::SetStructuralProjection(_) => "SetStructuralProjection",
             Command::ToggleAdditiveProjection(_) => "ToggleAdditiveProjection",
             Command::ProjectionOff => "ProjectionOff",
+            Command::UpdateShadowCursor(_) => "UpdateShadowCursor",
         }
     }
 }
@@ -600,6 +612,7 @@ pub fn execute_commands(
             }
             Command::Quit => return CommandResult::Quit,
             Command::RequestRedraw(_) => {} // handled earlier by extract_redraw_flags
+            Command::UpdateShadowCursor(_) => {} // handled earlier by extract_shadow_cursor_update
             // Deferred commands should be extracted before reaching execute_commands
             Command::ScheduleTimer { .. }
             | Command::PluginMessage { .. }
@@ -726,4 +739,19 @@ pub fn extract_redraw_flags(commands: &mut Vec<Command>) -> DirtyFlags {
         }
     });
     flags
+}
+
+/// Extract an `UpdateShadowCursor` command, returning the new shadow cursor state.
+///
+/// At most one `UpdateShadowCursor` is expected per dispatch cycle; the first
+/// one found is removed and returned. The input Vec retains all other commands.
+pub fn extract_shadow_cursor_update(commands: &mut Vec<Command>) -> Option<Option<ShadowCursor>> {
+    let idx = commands
+        .iter()
+        .position(|c| matches!(c, Command::UpdateShadowCursor(_)))?;
+    let cmd = commands.remove(idx);
+    match cmd {
+        Command::UpdateShadowCursor(sc) => Some(sc),
+        _ => unreachable!(),
+    }
 }

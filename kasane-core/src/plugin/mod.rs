@@ -42,7 +42,7 @@ use compact_str::CompactString;
 // Re-export command module
 pub use command::{
     BufferEdit, BufferPosition, Command, CommandResult, edits_to_keys, escape_kakoune_insert_text,
-    execute_commands, extract_redraw_flags, partition_commands,
+    execute_commands, extract_redraw_flags, extract_shadow_cursor_update, partition_commands,
 };
 pub use diagnostics::{
     PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticOverlayState, PluginDiagnosticSeverity,
@@ -97,7 +97,9 @@ pub use crate::display::{
 
 // Re-export traits module
 pub use crate::input::KeyResponse;
-pub use traits::{KeyHandleResult, PluginBackend};
+pub use traits::{
+    KeyHandleResult, KeyPreDispatchResult, PluginBackend, TextInputPreDispatchResult,
+};
 
 // Re-export projection status plugin (Phase 10)
 pub use projection_status::ProjectionStatusPlugin;
@@ -183,6 +185,7 @@ bitflags! {
         const VIRTUAL_EDIT       = 1 << 26;
         const MENU_RENDERER      = 1 << 27;
         const INFO_RENDERER      = 1 << 28;
+        const KEY_PRE_DISPATCH   = 1 << 29;
     }
 }
 

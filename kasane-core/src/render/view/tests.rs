@@ -60,7 +60,8 @@ fn test_view_with_menu() {
         style: MenuStyle::Inline,
     });
 
-    let registry = PluginRuntime::new();
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(super::menu::BuiltinMenuPlugin));
     let el = view(&state, &registry.view());
 
     // Should be a Stack (base Column + menu overlay)
@@ -85,7 +86,8 @@ fn test_view_with_info() {
         style: InfoStyle::Modal,
     });
 
-    let registry = PluginRuntime::new();
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(super::info::BuiltinInfoPlugin));
     let el = view(&state, &registry.view());
 
     match el {
@@ -281,7 +283,8 @@ fn test_info_framed_shadow_disabled() {
         style: InfoStyle::Modal,
     });
 
-    let registry = PluginRuntime::new();
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(super::info::BuiltinInfoPlugin));
     let el = view(&state, &registry.view());
 
     // Find the info overlay's framed Container

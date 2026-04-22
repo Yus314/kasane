@@ -23,6 +23,7 @@
 
 mod atom_metrics;
 mod cursor;
+mod default_strategy;
 mod mode;
 mod selection;
 mod validation;
@@ -40,6 +41,10 @@ pub use validation::{
     WidthDivergence, build_status_line, check_cursor_width_consistency, compute_lines_dirty,
 };
 
+pub use default_strategy::DefaultInferenceStrategy;
+
+use crate::protocol::{Coord, CursorMode, Face, Line};
+
 /// Parsed editor mode derived from cursor mode and status mode line.
 ///
 /// Provides a higher-level abstraction than `CursorMode` (which only distinguishes
@@ -53,4 +58,44 @@ pub enum EditorMode {
     Replace,
     Prompt,
     Unknown,
+}
+
+/// Strategy interface for inference heuristics.
+///
+/// Kasane infers semantic information (cursors, selections, editor mode) from
+/// Kakoune's display-only protocol. This trait abstracts the inference algorithms
+/// so they can be replaced (e.g., for alternative heuristics or testing).
+///
+/// The default implementation ([`DefaultInferenceStrategy`]) delegates to the
+/// existing free functions in the `derived` module.
+///
+/// # Performance
+///
+/// Inference runs on every `apply_protocol()` call (hot path). Virtual dispatch
+/// cost is negligible (~1ns) compared to the scan work. The strategy is set once
+/// at startup, not dynamically composed.
+pub trait InferenceStrategy: Send + Sync {
+    /// Detect cursor positions from buffer atoms (I-1).
+    ///
+    /// Returns `(cursor_count, secondary_cursors)` where secondary_cursors
+    /// excludes the primary cursor.
+    fn detect_cursors(
+        &self,
+        lines: &[Line],
+        primary_cursor_pos: Coord,
+        lines_dirty: &[bool],
+        cache: &mut CursorCache,
+    ) -> (usize, Vec<Coord>);
+
+    /// Detect selection ranges from buffer atoms (I-7).
+    fn detect_selections(
+        &self,
+        lines: &[Line],
+        primary_cursor_pos: Coord,
+        secondary_cursors: &[Coord],
+        default_face: &Face,
+    ) -> Vec<Selection>;
+
+    /// Derive editor mode from cursor mode and status mode line (I-2).
+    fn derive_editor_mode(&self, cursor_mode: CursorMode, status_mode_line: &Line) -> EditorMode;
 }

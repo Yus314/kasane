@@ -723,7 +723,11 @@ impl PluginBackend for PluginBridge {
             })
     }
 
-    fn render_menu_overlay(&self, state: &AppView<'_>) -> Option<Overlay> {
+    fn render_menu_overlay(
+        &self,
+        state: &AppView<'_>,
+        _view: &super::PluginView<'_>,
+    ) -> Option<Overlay> {
         self.table
             .menu_renderer_handler
             .as_ref()
@@ -734,6 +738,7 @@ impl PluginBackend for PluginBridge {
         &self,
         state: &AppView<'_>,
         avoid: &[crate::layout::Rect],
+        _view: &super::PluginView<'_>,
     ) -> Option<Vec<Overlay>> {
         self.table
             .info_renderer_handler

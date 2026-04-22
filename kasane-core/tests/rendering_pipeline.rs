@@ -35,6 +35,19 @@ fn render(state: &AppState) -> kasane_core::render::CellGrid {
     render_with_registry(state, &PluginRuntime::new())
 }
 
+/// Create a registry with the built-in menu and info renderers.
+fn registry_with_builtins() -> PluginRuntime {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(kasane_core::render::view::menu::BuiltinMenuPlugin));
+    registry.register_backend(Box::new(kasane_core::render::view::info::BuiltinInfoPlugin));
+    registry
+}
+
+/// Run the pipeline with built-in renderers registered.
+fn render_with_builtins(state: &AppState) -> kasane_core::render::CellGrid {
+    render_with_registry(state, &registry_with_builtins())
+}
+
 // ===========================================================================
 // Basic buffer rendering
 // ===========================================================================
@@ -156,7 +169,7 @@ fn menu_show_and_select() {
     });
     assert!(state.observed.menu.is_some());
 
-    let grid = render(&state);
+    let grid = render_with_builtins(&state);
     // Menu items should appear somewhere in the grid
     let mut found_foo = false;
     let mut found_bar = false;
@@ -231,7 +244,7 @@ fn info_show_and_hide() {
     assert!(flags.contains(DirtyFlags::INFO));
     assert_eq!(state.observed.infos.len(), 1);
 
-    let grid = render(&state);
+    let grid = render_with_builtins(&state);
     // Info content should appear in the grid
     let mut found = false;
     for y in 0..state.runtime.rows {
@@ -512,7 +525,7 @@ fn long_line_truncated_at_screen_width() {
 fn render_with_dirty(state: &AppState, dirty: DirtyFlags, grid: &mut CellGrid) {
     use kasane_core::render::render_pipeline_direct;
 
-    let registry = PluginRuntime::new();
+    let registry = registry_with_builtins();
     render_pipeline_direct(state, &registry.view(), grid, dirty);
 }
 
@@ -723,7 +736,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
         style: MenuStyle::Inline,
     });
 
-    let registry = PluginRuntime::new();
+    let registry = registry_with_builtins();
 
     // Legacy pipeline
     let mut legacy_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);

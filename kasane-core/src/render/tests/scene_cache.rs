@@ -167,7 +167,9 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
         style: crate::protocol::InfoStyle::Prompt,
     });
 
-    let registry = PluginRuntime::new();
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(crate::render::view::menu::BuiltinMenuPlugin));
+    registry.register_backend(Box::new(crate::render::view::info::BuiltinInfoPlugin));
     let cs = scene::CellSize {
         width: 10.0,
         height: 20.0,

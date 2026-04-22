@@ -14,7 +14,7 @@ use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, LineAnnotation, OrnamentBatch,
     OverlayContext, OverlayContribution, PluginAuthorities, PluginCapabilities, PluginDiagnostic,
-    PluginId, RenderOrnamentContext, SlotId, TransformContext, TransformDescriptor,
+    PluginId, PluginView, RenderOrnamentContext, SlotId, TransformContext, TransformDescriptor,
     TransformSubject, TransformTarget, VirtualTextItem,
 };
 
@@ -38,6 +38,34 @@ impl From<KeyResponse> for KeyHandleResult {
             KeyResponse::ConsumeWith(commands) => KeyHandleResult::Consumed(commands),
         }
     }
+}
+
+/// Result of key pre-dispatch (before the middleware chain).
+///
+/// Pre-dispatch handlers run before `observe_key_all` and `dispatch_key_middleware`.
+/// They are used for features like the shadow cursor that need to intercept keys
+/// before any other plugin sees them.
+pub enum KeyPreDispatchResult {
+    /// Key was consumed by the pre-dispatch handler.
+    Consumed {
+        flags: DirtyFlags,
+        commands: Vec<Command>,
+    },
+    /// Pass through to normal key dispatch. Commands (if any) are applied first.
+    /// This allows pre-dispatch handlers to update state (e.g., deactivate shadow cursor)
+    /// while still letting the key proceed through normal dispatch.
+    Pass { commands: Vec<Command> },
+}
+
+/// Result of text input pre-dispatch (before the text input handler chain).
+pub enum TextInputPreDispatchResult {
+    /// Text input was consumed by the pre-dispatch handler.
+    Consumed {
+        flags: DirtyFlags,
+        commands: Vec<Command>,
+    },
+    /// Pass through to normal text input dispatch.
+    Pass,
 }
 
 /// Internal framework trait. Plugin authors should use [`Plugin`] instead.
@@ -88,6 +116,33 @@ pub trait PluginBackend: Any {
     fn observe_mouse(&mut self, _event: &MouseEvent, _state: &AppView<'_>) {}
     /// Observe a drop event (notification only, cannot consume).
     fn observe_drop(&mut self, _event: &DropEvent, _state: &AppView<'_>) {}
+
+    // --- Pre-dispatch (before middleware chain) ---
+
+    /// Handle a key event before the middleware chain.
+    ///
+    /// Only called for plugins with `KEY_PRE_DISPATCH` capability.
+    /// Used by `BuiltinShadowCursorPlugin` to intercept keys when the shadow
+    /// cursor is active.
+    fn handle_key_pre_dispatch(
+        &mut self,
+        _key: &KeyEvent,
+        _state: &AppView<'_>,
+    ) -> KeyPreDispatchResult {
+        KeyPreDispatchResult::Pass { commands: vec![] }
+    }
+
+    /// Handle committed text input before the text input handler chain.
+    ///
+    /// Only called for plugins with `KEY_PRE_DISPATCH` capability.
+    /// Used by `BuiltinShadowCursorPlugin` to intercept IME input during editing.
+    fn handle_text_input_pre_dispatch(
+        &mut self,
+        _text: &str,
+        _state: &AppView<'_>,
+    ) -> TextInputPreDispatchResult {
+        TextInputPreDispatchResult::Pass
+    }
 
     // --- Update / Input handling ---
 
@@ -497,7 +552,11 @@ pub trait PluginBackend: Any {
     /// Return `Some(overlay)` to provide a custom menu rendering, or `None`
     /// to defer to the next plugin or the built-in renderer. The overlay-level
     /// transform chain is still applied to the result by the pipeline.
-    fn render_menu_overlay(&self, _state: &AppView<'_>) -> Option<Overlay> {
+    ///
+    /// The `view` parameter provides access to per-item transform hooks
+    /// (e.g. `transform_menu_item`) so that renderers can apply item-level
+    /// transforms from other plugins.
+    fn render_menu_overlay(&self, _state: &AppView<'_>, _view: &PluginView<'_>) -> Option<Overlay> {
         None
     }
 
@@ -506,10 +565,14 @@ pub trait PluginBackend: Any {
     /// Return `Some(overlays)` to provide custom info popup rendering, or `None`
     /// to defer to the next plugin or the built-in renderer. The overlay-level
     /// transform chain is still applied to each overlay by the pipeline.
+    ///
+    /// The `view` parameter provides access to transform hooks so that
+    /// renderers can apply per-info transforms from other plugins.
     fn render_info_overlays(
         &self,
         _state: &AppView<'_>,
         _avoid: &[crate::layout::Rect],
+        _view: &PluginView<'_>,
     ) -> Option<Vec<Overlay>> {
         None
     }

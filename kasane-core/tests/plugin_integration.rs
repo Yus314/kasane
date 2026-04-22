@@ -220,6 +220,7 @@ fn menu_transform_adds_prefix() {
     });
 
     let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(kasane_core::render::view::menu::BuiltinMenuPlugin));
     registry.register_backend(Box::new(PrefixPluginPlugin::new()));
     let _ = registry.init_all_batch(&AppView::new(&state));
     registry.prepare_plugin_cache(DirtyFlags::ALL);

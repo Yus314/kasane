@@ -40,7 +40,7 @@ fn compute_info_window(
 }
 
 #[crate::kasane_component]
-pub(crate) fn build_info_overlay_indexed(
+pub fn build_info_overlay_indexed(
     info: &InfoState,
     state: &AppState,
     avoid: &[crate::layout::Rect],
@@ -216,4 +216,79 @@ fn build_info_nonframed(
     let content_col = build_content_column(&info.content, win.width, win.height, &face);
 
     Some(Element::container(content_col, Style::from(face)))
+}
+
+// ---------------------------------------------------------------------------
+// BuiltinInfoPlugin — lowest-priority INFO_RENDERER
+// ---------------------------------------------------------------------------
+
+use crate::plugin::{
+    AppView, FrameworkAccess, PluginBackend, PluginCapabilities, PluginId, PluginView,
+    TransformSubject, TransformTarget,
+};
+
+/// Built-in plugin for info overlay rendering.
+///
+/// Iterates info popups, builds overlays via [`build_info_overlay_indexed`],
+/// applies per-info-style transforms, and tracks collision-avoidance rects.
+/// Registered as the lowest-priority `INFO_RENDERER` so that user plugins
+/// with the same capability take precedence.
+pub struct BuiltinInfoPlugin;
+
+impl PluginBackend for BuiltinInfoPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("kasane.builtin.info".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::INFO_RENDERER
+    }
+
+    fn render_info_overlays(
+        &self,
+        state: &AppView<'_>,
+        avoid: &[crate::layout::Rect],
+        view: &PluginView<'_>,
+    ) -> Option<Vec<Overlay>> {
+        let app_state = state.as_app_state();
+        if app_state.observed.infos.is_empty() {
+            return None;
+        }
+
+        let mut avoid_rects = avoid.to_vec();
+        let mut overlays = Vec::new();
+
+        for (info_idx, info_state) in app_state.observed.infos.iter().enumerate() {
+            let info_overlay =
+                build_info_overlay_indexed(info_state, app_state, &avoid_rects, info_idx);
+            if let Some(overlay) = info_overlay {
+                // Apply hierarchical transform chain (Info generic → style-specific)
+                let info_target = match info_state.style {
+                    InfoStyle::Prompt => TransformTarget::INFO_PROMPT,
+                    InfoStyle::Modal => TransformTarget::INFO_MODAL,
+                    _ => TransformTarget::INFO,
+                };
+                let result = view.apply_transform_chain_hierarchical(
+                    info_target,
+                    TransformSubject::Overlay(overlay),
+                    state,
+                );
+                let transformed = result
+                    .into_overlay()
+                    .expect("overlay transform preserves variant");
+                // Track this overlay's rect for subsequent infos to avoid
+                if let OverlayAnchor::Absolute { x, y, w, h } = &transformed.anchor {
+                    avoid_rects.push(crate::layout::Rect {
+                        x: *x,
+                        y: *y,
+                        w: *w,
+                        h: *h,
+                    });
+                }
+                overlays.push(transformed);
+            }
+        }
+
+        Some(overlays)
+    }
 }

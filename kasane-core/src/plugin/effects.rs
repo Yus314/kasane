@@ -6,6 +6,7 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPlan, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 
 use super::command::Command;
+use super::traits::{KeyPreDispatchResult, TextInputPreDispatchResult};
 use super::{AppView, KeyDispatchResult, PluginId};
 
 /// Lifecycle phase for effect validation.
@@ -231,6 +232,23 @@ pub trait PluginEffects {
     /// Notify plugins of state changes and collect batched effects.
     fn notify_state_changed(&mut self, app: &AppView<'_>, flags: DirtyFlags) -> EffectsBatch;
 
+    /// Run key pre-dispatch (before observe and middleware).
+    ///
+    /// Dispatches to plugins with `KEY_PRE_DISPATCH` capability in priority order.
+    /// First plugin that returns `Consumed` wins.
+    fn dispatch_key_pre_dispatch(
+        &mut self,
+        key: &KeyEvent,
+        app: &AppView<'_>,
+    ) -> KeyPreDispatchResult;
+
+    /// Run text input pre-dispatch (before observe and text input handler).
+    fn dispatch_text_input_pre_dispatch(
+        &mut self,
+        text: &str,
+        app: &AppView<'_>,
+    ) -> TextInputPreDispatchResult;
+
     /// Broadcast key observation to all plugins (cannot consume).
     fn observe_key_all(&mut self, key: &KeyEvent, app: &AppView<'_>);
 
@@ -294,6 +312,16 @@ impl PluginEffects for NullEffects {
     fn notify_state_changed(&mut self, _: &AppView<'_>, _: DirtyFlags) -> EffectsBatch {
         EffectsBatch::default()
     }
+    fn dispatch_key_pre_dispatch(&mut self, _: &KeyEvent, _: &AppView<'_>) -> KeyPreDispatchResult {
+        KeyPreDispatchResult::Pass { commands: vec![] }
+    }
+    fn dispatch_text_input_pre_dispatch(
+        &mut self,
+        _: &str,
+        _: &AppView<'_>,
+    ) -> TextInputPreDispatchResult {
+        TextInputPreDispatchResult::Pass
+    }
     fn observe_key_all(&mut self, _: &KeyEvent, _: &AppView<'_>) {}
     fn dispatch_key_middleware(&mut self, key: &KeyEvent, _: &AppView<'_>) -> KeyDispatchResult {
         KeyDispatchResult::Passthrough(key.clone())
@@ -355,6 +383,16 @@ impl PluginEffects for RecordingEffects {
     fn notify_state_changed(&mut self, _: &AppView<'_>, flags: DirtyFlags) -> EffectsBatch {
         self.state_notifications.push(flags);
         EffectsBatch::default()
+    }
+    fn dispatch_key_pre_dispatch(&mut self, _: &KeyEvent, _: &AppView<'_>) -> KeyPreDispatchResult {
+        KeyPreDispatchResult::Pass { commands: vec![] }
+    }
+    fn dispatch_text_input_pre_dispatch(
+        &mut self,
+        _: &str,
+        _: &AppView<'_>,
+    ) -> TextInputPreDispatchResult {
+        TextInputPreDispatchResult::Pass
     }
     fn observe_key_all(&mut self, key: &KeyEvent, _: &AppView<'_>) {
         self.key_observations.push(key.clone());

@@ -2,6 +2,7 @@ use crate::protocol::KakouneRequest;
 use crate::render::color_context::ColorContext;
 
 use super::derived;
+use super::derived::InferenceStrategy;
 use super::{
     AppState, ConfigState, DirtyFlags, InferenceState, InfoIdentity, InfoState, MenuParams,
     MenuState, ObservedState, RuntimeState,
@@ -30,6 +31,7 @@ pub(crate) fn apply_protocol(
     cursor_cache: &mut derived::CursorCache,
     config: &ConfigState,
     runtime: &RuntimeState,
+    strategy: &dyn InferenceStrategy,
     request: KakouneRequest,
 ) -> (DirtyFlags, ConfigReactions) {
     let mut reactions = ConfigReactions::default();
@@ -56,12 +58,8 @@ pub(crate) fn apply_protocol(
             );
 
             // Heuristic cursor detection — incremental when possible
-            let (cursor_count, secondary_cursors) = derived::detect_cursors_incremental(
-                &lines,
-                cursor_pos,
-                &inference.lines_dirty,
-                cursor_cache,
-            );
+            let (cursor_count, secondary_cursors) =
+                strategy.detect_cursors(&lines, cursor_pos, &inference.lines_dirty, cursor_cache);
 
             // I-1: primary cursor in detected set (self-consistency)
             debug_assert!(
@@ -121,7 +119,7 @@ pub(crate) fn apply_protocol(
 
             inference.cursor_count = cursor_count;
             inference.selections =
-                derived::detect_selections(&lines, cursor_pos, &secondary_cursors, &default_face);
+                strategy.detect_selections(&lines, cursor_pos, &secondary_cursors, &default_face);
             inference.secondary_cursors = secondary_cursors;
 
             observed.widget_columns = widget_columns;
@@ -167,7 +165,7 @@ pub(crate) fn apply_protocol(
 
             // Derive editor mode from cursor_mode + mode_line
             inference.editor_mode =
-                derived::derive_editor_mode(inference.cursor_mode, &observed.status_mode_line);
+                strategy.derive_editor_mode(inference.cursor_mode, &observed.status_mode_line);
 
             if mode_changed {
                 DirtyFlags::STATUS | DirtyFlags::BUFFER_CURSOR
@@ -282,12 +280,14 @@ impl AppState {
     /// Thin wrapper around [`apply_protocol()`] that delegates to the free
     /// function and applies config reactions.
     pub fn apply(&mut self, request: KakouneRequest) -> DirtyFlags {
+        let strategy = self.runtime.inference_strategy.clone();
         let (flags, reactions) = apply_protocol(
             &mut self.observed,
             &mut self.inference,
             &mut self.cursor_cache,
             &self.config,
             &self.runtime,
+            &*strategy,
             request,
         );
 

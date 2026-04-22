@@ -68,6 +68,7 @@ impl TransparentCommand {
         "UnbindSurfaceSession",
         "UnregisterSurface",
         "UnregisterSurfaceKey",
+        "UpdateShadowCursor",
         "Workspace",
         "WriteToProcess",
     ];

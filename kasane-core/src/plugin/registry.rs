@@ -865,6 +865,56 @@ impl PluginRuntime {
         self.register_backend(Box::new(bridge));
     }
 
+    /// Dispatch key pre-dispatch to plugins with KEY_PRE_DISPATCH capability.
+    /// First plugin returning `Consumed` wins.
+    pub fn dispatch_key_pre_dispatch(
+        &mut self,
+        key: &KeyEvent,
+        app: &AppView<'_>,
+    ) -> super::KeyPreDispatchResult {
+        use super::KeyPreDispatchResult;
+        for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::KEY_PRE_DISPATCH)
+            {
+                continue;
+            }
+            let result = slot.backend.handle_key_pre_dispatch(key, app);
+            match result {
+                KeyPreDispatchResult::Consumed { .. } => return result,
+                KeyPreDispatchResult::Pass { ref commands } if !commands.is_empty() => {
+                    return result;
+                }
+                KeyPreDispatchResult::Pass { .. } => continue,
+            }
+        }
+        KeyPreDispatchResult::Pass { commands: vec![] }
+    }
+
+    /// Dispatch text input pre-dispatch to plugins with KEY_PRE_DISPATCH capability.
+    pub fn dispatch_text_input_pre_dispatch(
+        &mut self,
+        text: &str,
+        app: &AppView<'_>,
+    ) -> super::TextInputPreDispatchResult {
+        use super::TextInputPreDispatchResult;
+        for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::KEY_PRE_DISPATCH)
+            {
+                continue;
+            }
+            let result = slot.backend.handle_text_input_pre_dispatch(text, app);
+            match result {
+                TextInputPreDispatchResult::Consumed { .. } => return result,
+                TextInputPreDispatchResult::Pass => continue,
+            }
+        }
+        TextInputPreDispatchResult::Pass
+    }
+
     /// Broadcast key observation to all plugins with INPUT_HANDLER capability.
     pub fn observe_key_all(&mut self, key: &KeyEvent, app: &AppView<'_>) {
         for slot in &mut self.slots {
@@ -992,6 +1042,22 @@ impl PluginRuntime {
 impl PluginEffects for PluginRuntime {
     fn notify_state_changed(&mut self, app: &AppView<'_>, flags: DirtyFlags) -> EffectsBatch {
         self.notify_state_changed_batch(app, flags)
+    }
+
+    fn dispatch_key_pre_dispatch(
+        &mut self,
+        key: &KeyEvent,
+        app: &AppView<'_>,
+    ) -> super::KeyPreDispatchResult {
+        PluginRuntime::dispatch_key_pre_dispatch(self, key, app)
+    }
+
+    fn dispatch_text_input_pre_dispatch(
+        &mut self,
+        text: &str,
+        app: &AppView<'_>,
+    ) -> super::TextInputPreDispatchResult {
+        PluginRuntime::dispatch_text_input_pre_dispatch(self, text, app)
     }
 
     fn observe_key_all(&mut self, key: &KeyEvent, app: &AppView<'_>) {
@@ -2091,7 +2157,7 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            if let Some(overlay) = slot.backend.render_menu_overlay(state) {
+            if let Some(overlay) = slot.backend.render_menu_overlay(state, self) {
                 return Some(overlay);
             }
         }
@@ -2114,7 +2180,7 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            if let Some(overlays) = slot.backend.render_info_overlays(state, avoid) {
+            if let Some(overlays) = slot.backend.render_info_overlays(state, avoid, self) {
                 return Some(overlays);
             }
         }

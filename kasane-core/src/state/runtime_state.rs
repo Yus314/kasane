@@ -12,6 +12,7 @@ use crate::layout::HitMap;
 use crate::syntax::SyntaxProvider;
 
 use super::DragState;
+use super::derived::InferenceStrategy;
 
 /// Ephemeral runtime state.
 ///
@@ -44,6 +45,10 @@ pub struct RuntimeState {
     pub suppressed_builtins: std::collections::HashSet<crate::plugin::BuiltinTarget>,
     /// Plugin diagnostics overlay state (shown on plugin load/reload errors).
     pub diagnostic_overlay: crate::plugin::PluginDiagnosticOverlayState,
+    /// Inference strategy for cursor/selection/mode detection.
+    ///
+    /// Set once at startup. Default: [`DefaultInferenceStrategy`](super::derived::DefaultInferenceStrategy).
+    pub inference_strategy: Arc<dyn InferenceStrategy>,
 }
 
 impl std::fmt::Debug for RuntimeState {
@@ -82,6 +87,7 @@ impl Default for RuntimeState {
             shadow_cursor: None,
             suppressed_builtins: std::collections::HashSet::new(),
             diagnostic_overlay: Default::default(),
+            inference_strategy: Arc::new(super::derived::DefaultInferenceStrategy),
         }
     }
 }
