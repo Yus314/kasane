@@ -151,12 +151,11 @@ fn test_cursor_style_ui_option_overrides_mode_line() {
     assert_eq!(cursor_style_default(&state), CursorStyle::Block);
 }
 
-// --- clear_block_cursor_face tests ---
+// --- clear_cursor_face_at tests ---
 
 #[test]
-fn test_clear_block_cursor_face_bar() {
+fn test_clear_cursor_face_at_bar() {
     let mut state = AppState::default();
-    state.observed.cursor_pos = crate::protocol::Coord { line: 0, column: 2 };
     state.observed.default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
@@ -171,26 +170,15 @@ fn test_clear_block_cursor_face_bar() {
     };
     grid.put_char(2, 0, "x", &cursor_face);
 
-    clear_block_cursor_face(
-        &state,
-        &mut grid,
-        CursorStyle::Bar,
-        0,
-        None,
-        0,
-        0,
-        None,
-        None,
-    );
+    clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 2, 0);
 
     let cell = grid.get(2, 0).unwrap();
     assert_eq!(cell.face, state.observed.default_face);
 }
 
 #[test]
-fn test_clear_block_cursor_face_underline() {
+fn test_clear_cursor_face_at_underline() {
     let mut state = AppState::default();
-    state.observed.cursor_pos = crate::protocol::Coord { line: 1, column: 3 };
     state.observed.default_face = Face {
         fg: Color::Named(NamedColor::Yellow),
         bg: Color::Named(NamedColor::Blue),
@@ -205,27 +193,14 @@ fn test_clear_block_cursor_face_underline() {
     };
     grid.put_char(3, 1, "y", &cursor_face);
 
-    clear_block_cursor_face(
-        &state,
-        &mut grid,
-        CursorStyle::Underline,
-        0,
-        None,
-        0,
-        0,
-        None,
-        None,
-    );
+    clear_cursor_face_at(&state, &mut grid, CursorStyle::Underline, 3, 1);
 
     let cell = grid.get(3, 1).unwrap();
     assert_eq!(cell.face, state.observed.default_face);
 }
 
 #[test]
-fn test_clear_block_cursor_face_block_noop() {
-    let mut state = AppState::default();
-    state.observed.cursor_pos = crate::protocol::Coord { line: 0, column: 0 };
-
+fn test_clear_cursor_face_at_block_noop() {
     let mut grid = CellGrid::new(10, 5);
     let cursor_face = Face {
         fg: Color::Named(NamedColor::Black),
@@ -234,31 +209,17 @@ fn test_clear_block_cursor_face_block_noop() {
     };
     grid.put_char(0, 0, "z", &cursor_face);
 
-    clear_block_cursor_face(
-        &state,
-        &mut grid,
-        CursorStyle::Block,
-        0,
-        None,
-        0,
-        0,
-        None,
-        None,
-    );
+    let state = AppState::default();
+    clear_cursor_face_at(&state, &mut grid, CursorStyle::Block, 0, 0);
 
     let cell = grid.get(0, 0).unwrap();
     assert_eq!(cell.face, cursor_face);
 }
 
 #[test]
-fn test_clear_block_cursor_face_prompt() {
+fn test_clear_cursor_face_at_prompt() {
     let mut state = AppState::default();
     state.inference.cursor_mode = crate::protocol::CursorMode::Prompt;
-    state.observed.status_prompt = vec![Atom {
-        face: Face::default(),
-        contents: ":".into(),
-    }];
-    state.observed.status_content_cursor_pos = 3;
     state.observed.status_default_face = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Magenta),
@@ -271,46 +232,20 @@ fn test_clear_block_cursor_face_prompt() {
         bg: Color::Named(NamedColor::White),
         ..Face::default()
     };
-    // Prompt cursor at col = prompt_width(1) + cursor_pos(3) = 4, last row = 4
     grid.put_char(4, 4, "p", &cursor_face);
 
-    clear_block_cursor_face(
-        &state,
-        &mut grid,
-        CursorStyle::Bar,
-        0,
-        None,
-        0,
-        0,
-        None,
-        None,
-    );
+    clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 4, 4);
 
     let cell = grid.get(4, 4).unwrap();
     assert_eq!(cell.face, state.observed.status_default_face);
 }
 
 #[test]
-fn test_clear_block_cursor_face_out_of_bounds() {
-    let mut state = AppState::default();
-    state.observed.cursor_pos = crate::protocol::Coord {
-        line: 100,
-        column: 100,
-    };
-
+fn test_clear_cursor_face_at_out_of_bounds() {
+    let state = AppState::default();
     let mut grid = CellGrid::new(10, 5);
     // Should not panic
-    clear_block_cursor_face(
-        &state,
-        &mut grid,
-        CursorStyle::Bar,
-        0,
-        None,
-        0,
-        0,
-        None,
-        None,
-    );
+    clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 100, 100);
 }
 
 // --- make_secondary_cursor_face tests ---

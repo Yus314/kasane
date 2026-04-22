@@ -10,6 +10,7 @@ use crate::display::DisplayMapRef;
 use crate::layout::line_display_width;
 use crate::plugin::PluginRuntime;
 use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor};
+use crate::render::cursor;
 use crate::state::AppState;
 use crate::test_support::test_state_80x24;
 use crate::test_utils::make_line;
@@ -269,6 +270,34 @@ fn prompt_cursor_cjk_prefix() {
 
     // "検"=2 + "索"=2 + ":"=1 = 5 display columns
     assert_eq!(result.cursor_x, 5);
+}
+
+// ---------------------------------------------------------------------------
+// Prompt mode — status_content_x_offset (unit test)
+// ---------------------------------------------------------------------------
+
+/// When status-left slot has width W, the prompt cursor must shift by W.
+/// This tests cursor_position() directly with a non-zero status_content_x_offset.
+#[test]
+fn prompt_cursor_with_status_left_offset() {
+    let mut state = buffer_state(40, 5);
+    state.inference.cursor_mode = CursorMode::Prompt;
+    state.observed.status_prompt = vec![Atom {
+        face: Face::default(),
+        contents: ":".into(),
+    }];
+    state.observed.status_content_cursor_pos = 3;
+
+    let grid = CellGrid::new(40, 5);
+
+    // Without offset: cursor_x = prompt_width(1) + cursor_pos(3) = 4
+    let (cx_no_offset, _) = cursor::cursor_position(&state, &grid, 0, None, 0, 0, None, None, 0);
+    assert_eq!(cx_no_offset, 4);
+
+    // With offset 8 (simulating " prompt " widget in status-left):
+    // cursor_x = 8 + 1 + 3 = 12
+    let (cx_with_offset, _) = cursor::cursor_position(&state, &grid, 0, None, 0, 0, None, None, 8);
+    assert_eq!(cx_with_offset, 12);
 }
 
 // ---------------------------------------------------------------------------

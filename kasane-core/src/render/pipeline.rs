@@ -1,8 +1,9 @@
 use super::CursorStyleHint;
 use super::cell_decoration;
 use super::cursor::{
-    apply_secondary_cursor_faces, clear_block_cursor_face, cursor_position, cursor_style_default,
-    find_buffer_origin_in_rect, find_buffer_x_offset, neutralize_unfocused_cursors,
+    apply_secondary_cursor_faces, clear_cursor_face_at, cursor_position, cursor_style_default,
+    find_buffer_origin_in_rect, find_buffer_x_offset, find_status_left_slot_width,
+    neutralize_unfocused_cursors,
 };
 use super::grid::CellGrid;
 use super::ornament::{
@@ -92,6 +93,7 @@ fn selective_clear(grid: &mut CellGrid, state: &AppState, dirty: DirtyFlags) {
 }
 
 /// Compute the RenderResult (cursor position + style) from AppState.
+#[allow(clippy::too_many_arguments)]
 fn compute_render_result(
     state: &AppState,
     hint: CursorStyleHint,
@@ -100,6 +102,7 @@ fn compute_render_result(
     buffer_y_offset: u16,
     display_scroll_offset: u16,
     focused_pane_rect: Option<&Rect>,
+    status_content_x_offset: u16,
 ) -> RenderResult {
     let (cx, cy) = match state.inference.cursor_mode {
         CursorMode::Buffer => {
@@ -119,7 +122,9 @@ fn compute_render_result(
         }
         CursorMode::Prompt => {
             let prompt_width = line_display_width(&state.observed.status_prompt) as u16;
-            let base_cx = prompt_width + (state.observed.status_content_cursor_pos.max(0) as u16);
+            let base_cx = status_content_x_offset
+                + prompt_width
+                + (state.observed.status_content_cursor_pos.max(0) as u16);
             match focused_pane_rect {
                 Some(r) => {
                     let cy = if state.config.status_at_top {
@@ -224,6 +229,8 @@ pub(crate) struct PreparedFrame {
     pub segment_map: Option<std::sync::Arc<crate::display::segment_map::SegmentMap>>,
     pub focused_pane_rect: Option<Rect>,
     pub focused_pane_state: Option<Box<AppState>>,
+    /// Width of the `kasane.status.left` slot, used to offset prompt cursor.
+    pub status_content_x_offset: u16,
 }
 
 /// Run the shared pipeline orchestration, returning a `PreparedFrame`.
@@ -262,6 +269,9 @@ pub(crate) fn prepare_frame(
 
     let segment_map = sections.segment_map.clone();
 
+    // Compute status-left slot width for prompt cursor offset.
+    let status_content_x_offset = find_status_left_slot_width(&sections.base, &base_layout);
+
     PreparedFrame {
         sections,
         base_layout,
@@ -273,6 +283,7 @@ pub(crate) fn prepare_frame(
         segment_map,
         focused_pane_rect,
         focused_pane_state,
+        status_content_x_offset,
     }
 }
 
@@ -383,17 +394,6 @@ pub(crate) fn render_cached_core(
     let hint = ornaments
         .cursor_style
         .unwrap_or_else(|| cursor_style_default(cursor_state).into());
-    clear_block_cursor_face(
-        cursor_state,
-        grid,
-        hint.shape,
-        frame.buffer_x_offset,
-        dm,
-        frame.buffer_y_offset,
-        dso,
-        frame.focused_pane_rect.as_ref(),
-        frame.segment_map.as_deref(),
-    );
     let (cx, cy) = cursor_position(
         cursor_state,
         grid,
@@ -403,7 +403,9 @@ pub(crate) fn render_cached_core(
         dso,
         frame.focused_pane_rect.as_ref(),
         frame.segment_map.as_deref(),
+        frame.status_content_x_offset,
     );
+    clear_cursor_face_at(cursor_state, grid, hint.shape, cx, cy);
 
     let mut result = RenderResult {
         cursor_x: cx,
@@ -469,6 +471,7 @@ pub(crate) fn scene_render_core<'a>(
         frame.buffer_y_offset,
         dso,
         frame.focused_pane_rect.as_ref(),
+        frame.status_content_x_offset,
     );
     if let Some((px, py, style, color)) = ornaments.cursor_position {
         result.cursor_x = px;

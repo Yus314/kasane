@@ -220,8 +220,59 @@ pub fn neutralize_unfocused_cursors(
     }
 }
 
+/// Find the layout width of the `kasane.status.left` ResolvedSlot.
+///
+/// When a widget contributes to `slot="status-left"`, the status bar content
+/// is shifted right by the slot width. This function walks the Element tree
+/// to find that slot and returns its layout width (0 when absent or empty).
+pub fn find_status_left_slot_width(element: &Element, layout: &LayoutResult) -> u16 {
+    match element {
+        Element::ResolvedSlot {
+            slot_name,
+            children,
+            ..
+        } => {
+            if slot_name == "kasane.status.left" {
+                return layout.area.w;
+            }
+            for (i, child) in children.iter().enumerate() {
+                if let Some(cl) = layout.children.get(i) {
+                    let w = find_status_left_slot_width(&child.element, cl);
+                    if w > 0 {
+                        return w;
+                    }
+                }
+            }
+            0
+        }
+        Element::Flex { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                if let Some(cl) = layout.children.get(i) {
+                    let w = find_status_left_slot_width(&child.element, cl);
+                    if w > 0 {
+                        return w;
+                    }
+                }
+            }
+            0
+        }
+        Element::Container { child, .. } | Element::Interactive { child, .. } => layout
+            .children
+            .first()
+            .map(|cl| find_status_left_slot_width(child, cl))
+            .unwrap_or(0),
+        Element::Stack { base, .. } => layout
+            .children
+            .first()
+            .map(|cl| find_status_left_slot_width(base, cl))
+            .unwrap_or(0),
+        _ => 0,
+    }
+}
+
 /// Compute the terminal cursor position from the application state.
 /// `buffer_x_offset` accounts for left gutter columns.
+/// `status_content_x_offset` accounts for status-left slot widget width.
 /// `display_map` transforms buffer line to display line when active.
 /// Returns (x, y) coordinates for the terminal cursor.
 #[allow(clippy::too_many_arguments)]
@@ -234,6 +285,7 @@ pub fn cursor_position(
     display_scroll_offset: u16,
     focused_pane_rect: Option<&crate::layout::Rect>,
     segment_map: Option<&SegmentMap>,
+    status_content_x_offset: u16,
 ) -> (u16, u16) {
     match state.inference.cursor_mode {
         CursorMode::Buffer => {
@@ -248,7 +300,9 @@ pub fn cursor_position(
         }
         CursorMode::Prompt => {
             let prompt_width = line_display_width(&state.observed.status_prompt) as u16;
-            let base_cx = prompt_width + (state.observed.status_content_cursor_pos.max(0) as u16);
+            let base_cx = status_content_x_offset
+                + prompt_width
+                + (state.observed.status_content_cursor_pos.max(0) as u16);
             match focused_pane_rect {
                 Some(r) => {
                     let cy = if state.config.status_at_top {
@@ -282,56 +336,17 @@ pub fn cursor_style_default(state: &AppState) -> CursorStyle {
 }
 
 /// In non-block cursor modes (insert/replace), clear the PrimaryCursor face
-/// highlight from the cursor cell so the terminal cursor shape is visible.
-#[allow(clippy::too_many_arguments)]
-pub fn clear_block_cursor_face(
+/// at the given screen position so the terminal cursor shape is visible.
+pub fn clear_cursor_face_at(
     state: &AppState,
     grid: &mut CellGrid,
     style: CursorStyle,
-    buffer_x_offset: u16,
-    display_map: Option<&DisplayMap>,
-    buffer_y_offset: u16,
-    display_scroll_offset: u16,
-    focused_pane_rect: Option<&crate::layout::Rect>,
-    segment_map: Option<&SegmentMap>,
+    cx: u16,
+    cy: u16,
 ) {
     if style == CursorStyle::Block || style == CursorStyle::Outline {
         return;
     }
-    let (cx, cy) = match state.inference.cursor_mode {
-        CursorMode::Buffer => {
-            let cx = state.observed.cursor_pos.column as u16 + buffer_x_offset;
-            let cy = buffer_line_to_screen_y(
-                state.observed.cursor_pos.line as usize,
-                display_map,
-                display_scroll_offset,
-                segment_map,
-            ) + buffer_y_offset;
-            (cx, cy)
-        }
-        CursorMode::Prompt => {
-            let prompt_width = line_display_width(&state.observed.status_prompt) as u16;
-            let base_cx = prompt_width + (state.observed.status_content_cursor_pos.max(0) as u16);
-            match focused_pane_rect {
-                Some(r) => {
-                    let cy = if state.config.status_at_top {
-                        r.y
-                    } else {
-                        r.y + r.h - 1
-                    };
-                    (base_cx + r.x, cy)
-                }
-                None => {
-                    let cy = if state.config.status_at_top {
-                        0
-                    } else {
-                        grid.height().saturating_sub(1)
-                    };
-                    (base_cx, cy)
-                }
-            }
-        }
-    };
     let base_face = match state.inference.cursor_mode {
         CursorMode::Buffer => &state.observed.default_face,
         CursorMode::Prompt => &state.observed.status_default_face,
