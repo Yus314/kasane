@@ -155,6 +155,8 @@ fn compute_render_result(
 /// Extract the cursor visual color from the Kakoune face at the cursor position.
 ///
 /// Walks the atoms in the cursor line to find the face at the cursor column.
+/// `cursor_pos.column` is a display column, so atom widths must be measured
+/// in display columns (not character count).
 /// Under REVERSE (typical Kakoune cursor), the visual cursor block color is `face.fg`.
 /// Without REVERSE, it is `face.bg`.
 fn extract_cursor_color(state: &AppState) -> crate::protocol::Color {
@@ -170,7 +172,7 @@ fn extract_cursor_color(state: &AppState) -> crate::protocol::Color {
     };
     let mut pos = 0;
     for atom in atoms {
-        let atom_width = atom.contents.chars().count();
+        let atom_width = crate::layout::line_display_width(std::slice::from_ref(atom));
         if col < pos + atom_width {
             return if atom.face.attributes.contains(Attributes::REVERSE) {
                 atom.face.fg

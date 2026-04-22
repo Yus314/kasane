@@ -88,6 +88,17 @@ pub fn render_to_grid(state: &AppState, registry: &PluginRuntime) -> CellGrid {
     grid
 }
 
+/// Render to a fresh CellGrid and return the RenderResult (cursor position, style, etc.).
+pub fn render_to_grid_with_result(
+    state: &AppState,
+    registry: &PluginRuntime,
+) -> (CellGrid, crate::render::RenderResult) {
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    grid.clear(&state.observed.default_face);
+    let (result, _) = render_pipeline(state, &registry.view(), &mut grid);
+    (grid, result)
+}
+
 /// Compare two grids cell-by-cell, panicking with a descriptive message on mismatch.
 pub fn assert_grids_equal(actual: &CellGrid, expected: &CellGrid, context: &str) {
     assert_eq!(
