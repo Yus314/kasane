@@ -101,14 +101,14 @@ pub enum DirectiveCategory {
 
 /// Plugin-declared display transformation directive.
 ///
-/// Ten variants spanning four categories:
+/// Eleven variants spanning four categories:
 ///
 /// | Category | Variants |
 /// |---|---|
 /// | **Spatial** | `Fold`, `Hide` |
 /// | **InterLine** | `InsertBefore`, `InsertAfter` |
 /// | **Inline** | `InsertInline`, `HideInline`, `StyleInline` |
-/// | **Decoration** | `StyleLine`, `Gutter`, `VirtualText` |
+/// | **Decoration** | `StyleLine`, `Gutter`, `VirtualText`, `EditableVirtualText` |
 ///
 /// The spatial subset performs coordinate compression (changes which buffer
 /// lines are visible and where they appear). Other categories operate at the

@@ -456,7 +456,7 @@ Enable the `test-harness` feature in your plugin's `Cargo.toml`:
 
 ```toml
 [dev-dependencies]
-kasane-plugin-sdk = { version = "0.3", features = ["test-harness"] }
+kasane-plugin-sdk = { version = "0.5", features = ["test-harness"] }
 ```
 
 ```rust

@@ -14,7 +14,7 @@ Start here: [Getting Started](getting-started.md) · [What's Different](whats-di
 [Using Plugins](using-plugins.md)
 
 **Build plugins:**
-[Plugin Development](plugin-development.md) → [Plugin API](plugin-api.md) → [WASM Constraints](wasm-constraints.md)
+[Plugin Development](plugin-development.md) → [Plugin API](plugin-api.md)
 
 **Use GPU backend:**
 [What's Different](whats-different.md#opt-in-gpu-backend) → [Configuration](config.md#gui-backend)
@@ -75,7 +75,7 @@ Authoritative specifications, responsibilities, and usage guides.
 - [semantics.md](semantics.md) — current semantics authority
 - [plugin-development.md](plugin-development.md) — plugin development guide
 - [plugin-api.md](plugin-api.md) — plugin API reference
-- [wasm-constraints.md](wasm-constraints.md) — WASM plugin constraints and evolution path
+- [plugin-api.md §8](plugin-api.md#8-wasm-plugin-constraints) — WASM plugin constraints
 - [config.md](config.md) — configuration reference
 - [performance.md](performance.md) — performance principles, benchmarks, and optimization status
 

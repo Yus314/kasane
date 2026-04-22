@@ -20,7 +20,7 @@ The following operations are currently outside the scope of the plugin API.
 
 Native plugins run within the host process and can therefore technically use `std::process`, `std::fs`, etc. However, Plugin trait hook functions are called synchronously, so the plugin developer bears the design responsibility for avoiding main thread blocking.
 
-For a comprehensive catalog of WASM-specific constraints and their evolution path, see [wasm-constraints.md](./wasm-constraints.md).
+For WASM-specific constraints (feature gaps, runtime limits, missing state queries), see [§8 WASM Plugin Constraints](#8-wasm-plugin-constraints).
 
 Kasane's long-term strategy is to **make WASM the first-class distribution and execution path, with capabilities as close to native as possible**. Accordingly, native-only APIs are treated not as "permanent advantages" but as one of the following:
 
@@ -118,7 +118,7 @@ Native plugins can be implemented using one of two traits:
 
 | | `Plugin` (HandlerRegistry, recommended) | `PluginBackend` (mutable, internal) |
 |---|---|---|
-| Registration | 3 methods: `id()`, `State` type, `register()` with `HandlerRegistry` | 20+ trait methods with defaults |
+| Registration | 2 methods + 1 associated type: `id()`, `State` type, `register()` with `HandlerRegistry` | 20+ trait methods with defaults |
 | State ownership | Framework holds state; handlers are pure functions | Plugin holds its own state (`&mut self`) |
 | Capabilities | Auto-inferred from registered handlers | Manual `capabilities()` method |
 | Cache invalidation | Automatic via `PartialEq` comparison (generation counter) | Manual `state_hash()` |
@@ -417,7 +417,7 @@ fn display_directives(&self, state: &Self::State, app: &AppView<'_>) -> Vec<Disp
 
 The `DisplayMap` is integrated into: paint (buffer rendering), cursor positioning (`buffer_to_display`), mouse input (`display_to_buffer` with interaction policy check), and the patch optimization layer.
 
-Future extensions: display unit model (P-040..P-043), WASM WIT `display-directive-priority` function.
+The display unit model (P-040..P-043) is implemented; see §3.4.1 for navigation API. Future extension: WASM WIT `display-directive-priority` function.
 
 ### 1.11 Projection API (`define_projection`)
 
@@ -727,7 +727,46 @@ The `DisplayMap` provides the first concrete implementation of source mapping an
 
 Mouse clicks on `ReadOnly` or `Skip` lines are suppressed by `mouse_to_kakoune()` (returns `None`). Cursor positioning uses `buffer_to_display()` to translate buffer coordinates to display coordinates.
 
-The Display Unit model (P-040..P-043) is implemented. `DisplayUnit`, `DisplayUnitId`, `SemanticRole`, and `UnitSource` provide a first-class unit abstraction. Navigation is handled via `NavigationPolicy` (per-unit policy resolution through plugin dispatch) and `NavigationAction` / `ActionResult` (movement, selection, hit test, fold toggle). Plugins can define custom navigation policies by registering a `navigate_with_policy` handler in `HandlerRegistry`.
+The Display Unit model (P-040..P-043) is implemented. `DisplayUnit`, `DisplayUnitId`, `SemanticRole`, and `UnitSource` provide a first-class unit abstraction. Navigation is handled via `NavigationPolicy` (per-unit policy resolution through plugin dispatch, FirstWins composition) and `NavigationAction` / `ActionResult`.
+
+`InteractionPolicy` (rendering/cursor suppression) and `NavigationPolicy` (input/navigation) are orthogonal: a fold summary has `InteractionPolicy::ReadOnly` (σ is weak) **and** `NavigationPolicy::Boundary { ToggleFold }` (plugin-declared).
+
+**Registration methods on `HandlerRegistry`:**
+
+```rust
+/// Declare navigation policy for display units produced by this plugin.
+pub fn on_navigation_policy(
+    &mut self,
+    handler: impl Fn(&S, &DisplayUnit) -> NavigationPolicy + Send + Sync + 'static,
+);
+
+/// Handle navigation actions on this plugin's display units.
+pub fn on_navigation_action(
+    &mut self,
+    handler: impl Fn(&S, &DisplayUnit, NavigationAction) -> (S, ActionResult)
+    + Send + Sync + 'static,
+);
+```
+
+**Default policies** (when no plugin registers a policy):
+
+| SemanticRole | Default NavigationPolicy |
+|---|---|
+| `BufferContent` | `Normal` |
+| `FoldSummary` | `Boundary { ToggleFold }` |
+| `EditableVirtualText` | `Boundary { ActivateShadowCursor }` |
+| `Plugin(_, _)` | `Skip` |
+
+**Extensibility boundaries:**
+
+| Dimension | Extensible? | Mechanism |
+|---|---|---|
+| Unit kinds (`SemanticRole`) | Yes | `Plugin(tag, id)` variant |
+| Navigation policies | Yes | `on_navigation_policy` registration |
+| Click/activation behavior | Yes | `on_navigation_action` registration |
+| Source mapping kinds (`UnitSource`) | No | Closed enum — core must determine σ strength for DU-INV-4 |
+| `InteractionPolicy` override | No | Derived from σ strength — prevents undefined cursor placement |
+| Cross-plugin policy override | Yes | FirstWins priority |
 
 Constraints:
 - Sub-line display units (`UnitSource::Span`) are defined in the type but not yet produced by the builder
@@ -1278,9 +1317,72 @@ Native plugins: inferred automatically from `HandlerRegistry` method calls (e.g.
 
 WASM plugins: declared in the manifest `[handlers]` section (`transform_targets`, `publish_topics`, etc.) and converted to `CapabilityDescriptor` at load time.
 
-## 7. Related Documents
+## 7. Inter-Plugin Cooperation
+
+### 7.1 Available Mechanisms
+
+1. **PluginMessage**: Point-to-point via `Command::PluginMessage { target, payload }`. No type safety, no delivery guarantee, no RPC.
+2. **ConfigEntry**: Publish via `Command::SetConfig { key, value }`; read via `AppView::plugin_config()`. Indirect, delayed (next frame).
+3. **Transform chain**: Indirectly modify other plugins' contributions through `ElementPatch`. The transformer does not know whose contribution it is transforming.
+4. **Topic-based Pub/Sub**: Broadcast via `TopicBus`. Two-phase evaluation (collect → deliver) with cycle prevention. Type safety is runtime-enforced (downcast). See `plugin/pubsub.rs`.
+5. **Plugin-defined Extension Points**: Define `ExtensionPointId` with `CompositionRule` (`Merge`, `FirstWins`, `Chain`). See `plugin/extension_point.rs`.
+
+### 7.2 Impossible Cooperation Patterns
+
+- **Conditional contribution** ("if Plugin B contributed to slot X, adjust mine") — impossible. Each plugin generates contributions independently.
+- **Relative positioning** ("place my overlay next to Plugin C's") — impossible. Overlays use absolute positioning or anchors.
+- **Resource budget negotiation** — impossible. Framework resolves via layout.
+- **Synchronous RPC** (Plugin A → B → A) — impossible. Pub/sub is broadcast-only.
+- **Atomic transactions** across multiple plugins — impossible. Each plugin's state transition is independent.
+
+## 8. WASM Plugin Constraints
+
+This section catalogs constraints of WASM plugins compared to native plugins: **[By Design]** (intentional boundary), **[Not Yet Implemented]** (planned), **[Improvement]** (ergonomic friction).
+
+### 8.1 Feature Gaps
+
+| Feature | Native | WASM | Gap |
+|---|---|---|---|
+| Dynamic surfaces | Full | Static only | Cannot add/remove/move post-init [Not Yet Implemented] |
+| Pane lifecycle | Full | None | No create/close/focus hooks [Not Yet Implemented] |
+| Pane rendering | Full | None | Cannot own custom panes [Not Yet Implemented] |
+| Pane commands | Full | None | No split/close/focus commands [Not Yet Implemented] |
+| Inter-plugin messaging | `Box<dyn Any>` | `Vec<u8>` | Serialization required |
+| State access | Direct `&AppState` | ~40 getter functions | Guarded access [By Design] |
+| Cache invalidation | Automatic (`PartialEq`) | Manual `state_hash()` | [Improvement] |
+| Fuel / timeout | N/A | None | No runaway protection [Improvement] |
+
+### 8.2 Missing State Queries [Not Yet Implemented]
+
+| State | Native | WASM |
+|---|---|---|
+| Selection ranges and mode | `state.selections` | Not available |
+| Search state and regex | `state.search` | Not available |
+| Input mode | `state.input_mode` | Not available |
+| Named registers | `state.registers` | Not available |
+| Completion candidates | `state.completions` | Not available |
+| Pane tree structure | `state.panes` | Not available |
+| Full face registry | `state.faces` | Not available |
+
+### 8.3 Runtime Constraints
+
+- **Synchronous execution [By Design]**: All calls block the host thread. Long-running work should use `SpawnProcess`.
+- **No threading [By Design]**: WASI does not include threading support.
+- **No network access [By Design]**: Spawn a helper process via `SpawnProcess` and communicate over stdin/stdout.
+- **Element handle scope [By Design]**: Handles are valid only within the current plugin call.
+- **No fuel metering [Improvement]**: An infinite loop blocks the editor indefinitely.
+
+### 8.4 Intentional Design Constraints
+
+| Constraint | Rationale |
+|---|---|
+| No direct `AppState` mutation | Pure function semantics, deterministic rendering |
+| No commands during view phase | Eliminate rendering side effects |
+| No access to other plugins' state | Plugin isolation, testability |
+| No WASM network I/O | Sandbox security |
+
+## 9. Related Documents
 
 - [plugin-development.md](./plugin-development.md) — Quickstart guide
-- [semantics.md](./semantics.md) — Composition ordering and semantics
 - [semantics.md](./semantics.md) — Composition ordering and system boundaries
 - [index.md](./index.md) — Entry point for all docs

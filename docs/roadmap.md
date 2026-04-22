@@ -1,7 +1,6 @@
 # Implementation Roadmap
 
-This document is a tracker that follows the **currently open implementation workstreams** of Kasane.
-It records only "what is currently incomplete and what ships next," not detailed design rationale or current semantics.
+This document tracks **what is currently incomplete and what ships next** in Kasane.
 
 ## 1. Scope of This Document
 
@@ -16,7 +15,7 @@ The following are NOT the responsibility of this document.
 - Explanation of current semantics
 - Detailed specification of the shared Plugin API
 - Lengthy design explanations of native escape hatches
-- Detailed history of completed phases
+- Detailed history of completed phases (see [decisions.md](./decisions.md) for ADR records)
 
 For detailed design rationale, see [decisions.md](./decisions.md); for current semantics, see [semantics.md](./semantics.md);
 for the current specification from a plugin's perspective, see
@@ -27,9 +26,7 @@ for the current specification from a plugin's perspective, see
 
 ### 2.1 Now
 
-| Workstream | Next deliverable |
-|---|---|
-| Display transformation | ADR-030 Levels 1–6 complete. Semantic Zoom (Phases 0–2) complete. Identify next workstream or move to Backlog |
+No active workstream. All prior workstreams (ADR-030 Levels 1–6, Semantic Zoom Phases 0–2) are complete.
 
 ### 2.2 Backlog
 
@@ -37,52 +34,40 @@ for the current specification from a plugin's perspective, see
 |---|---|
 | External plugin candidates | indent guides, clickable links, built-in splits, floating panels, code folding, display-line navigation, URL detection, region-specific text policy, etc. |
 | Session-affine plugin surfaces | Plugin API for declaring session affinity on `surfaces()` return values. No consumer exists yet; deferred until a plugin requires it |
-| ~~RecoveryWitness contract for destructive display directives~~ | **✓ Complete** (ADR-030 Level 4). `SafeDisplayDirective` + `RecoveryWitness` + `RecoveryFlags` enforce §10.2a at registration time |
 | Element ↔ §2.6 P(X) synchronisation regression test | Mechanise the §15.1 sync obligation between `Element` variants and the polynomial functor P(X) in semantics §2.6, so variant additions force a semantics update. See semantics §13.16 |
+| Semantic Zoom Phase 3 | Per-pane zoom (requires plugin instance state) |
+| Semantic Zoom Phase 4 | WIT extension (WASM plugins define custom zoom strategies) |
+| Semantic Zoom Phase 5 | Level 5 MAP (module dependency graph display) |
 
-## 3. Open Workstreams
+## 3. Completed Workstreams
 
-### 3.1 Display transformation — remaining work
+### 3.1 Display transformation (P-032)
 
-- P-032: Formal observed/policy separation
-  - Level 1 — `Truth<'a>` projection: **✓ Complete** (ADR-030). Read-side write denial for `#[epistemic(observed)]` fields, structural coverage witness, A9 property test, and Salsa projection fix (`status_prompt` / `status_content` / `status_content_cursor_pos`).
-  - Level 2 — `Inference<'a>` / `Policy<'a>` projections: **✓ Complete** (ADR-030). Derived+heuristic and config projections with structural coverage witnesses, `salsa_opt_out` mechanism on `#[epistemic(...)]`, Level 2 Salsa projection coverage test, projection-subset witness of A8 (Inference Boundedness), `fold_toggle_state` reclassified from runtime to config, and PoC migration of three internal call sites to `state.policy()`.
-  - Level 3 — `TransparentCommand` projection: **✓ Complete** (ADR-030). `Command::is_kakoune_writing()` exhaustive classification, `TransparentCommand` newtype restricting construction to non-writing variants, `TransparentKeyResult`, 5 `_transparent` handler registration methods on `HandlerRegistry`, `TransparencyFlags` for per-plugin T10 auto-derivation, 8 structural witness tests, and A3 τ-transition property test.
-  - Level 4 — `RecoveryWitness` for destructive directives: **✓ Complete** (ADR-030). `DisplayDirective::is_destructive()` exhaustive classification, `SafeDisplayDirective` newtype restricting construction to non-destructive variants, `RecoveryWitness` + `RecoveryMechanism` registration-time evidence, `on_display_safe()` / `on_display_witnessed()` registration methods on `HandlerRegistry`, `RecoveryFlags` for per-plugin Visual Faithfulness auto-derivation, 8 structural witness tests, 4 flag auto-derivation tests, and 2 fold recovery property tests.
-  - Level 5 — Effect Footprint for static analysability: **✓ Complete** (ADR-030). `EffectCategory` bitflags with exhaustive `Command::effect_category()` classification, `TransparentEffects` newtype restricting lifecycle handler returns to non-writing effects, 7 `_transparent` lifecycle registration methods on `HandlerRegistry` (init, session_ready, state_changed, io_event, update, process_task, process_task_streaming), `TransparencyFlags` extended with 5 lifecycle handler fields, `is_lifecycle_transparent()` / `is_fully_transparent()` queries, `EffectFootprint` per-plugin footprint with `compute_transitive_footprints()` fixed-point iteration for cascade analysis, 10 structural witness tests and 17 flag/footprint tests.
-  - Level 6 — Type-level `&mut AppState` ownership: **✓ Complete** (ADR-030). `AppState` decomposed into 5 epistemic sub-structs (`ObservedState`, `InferenceState`, `ConfigState`, `SessionState`, `RuntimeState`), `apply_protocol()` extracted as free function with immutable `&ConfigState`, projections updated to wrap sub-structs directly.
+ADR-030 Levels 1–6 complete. The formal observed/policy separation workstream is finished. For level-by-level details, see [decisions.md ADR-030](./decisions.md).
 
-All six levels of ADR-030 are now complete. The P-032 formal observed/policy separation workstream is finished.
+### 3.2 Semantic Zoom (Phases 0–2)
 
-### 3.2 Semantic Zoom — completed
-
-Semantic Zoom (Phases 0–2) is complete. The `kasane.semantic-zoom` structural projection provides 6 zoom levels (0 Raw → 4 Skeleton) via `DisplayDirective`s generated through the display pipeline. Two strategy paths:
+Complete. The `kasane.semantic-zoom` structural projection provides 6 zoom levels (0 Raw → 4 Skeleton) via `DisplayDirective`s generated through the display pipeline. Two strategy paths:
 
 - **Indent-based fallback** (`indent_strategy.rs`): works on viewport lines using leading whitespace heuristics. No external dependencies.
 - **Syntax-aware** (`syntax_strategy.rs` + `kasane-syntax` crate): uses tree-sitter via `SyntaxProvider` trait. Feature-gated via `--features syntax`. Bundled declaration queries for Rust, Python, Go, TypeScript.
 
-Deferred to follow-up work:
-
-| Phase | Description |
-|---|---|
-| Phase 3 | Per-pane zoom (requires plugin instance state) |
-| Phase 4 | WIT extension (WASM plugins define custom zoom strategies) |
-| Phase 5 | Level 5 MAP (module dependency graph display) |
-
 ## 4. Phase Status Summary
 
-| Phase | Primary objective | Status | Notes |
-|---|---|---|---|
-| Phase 0 | Development environment and CI foundation | ✓ Complete | project bootstrap |
-| Phase 1 | MVP (TUI core features + declarative UI foundation) | ✓ Complete | Element + TEA + basic slots |
-| Phase 2 | Enhanced floating windows + plugin foundation | ✓ Complete | Some items moved to subsequent workstreams |
-| Phase 3 | Input, clipboard, and scroll enhancements | ✓ Complete | Basic input features on the TUI side are complete |
-| Phase G | GUI backend | ✓ Complete | Foundation complete. R-053 text decoration rendering (DecorationPipeline) complete. Image element GPU pipeline + texture cache landed |
-| Phase W | WASM plugin runtime foundation | ✓ Complete | Foundation + operational follow-ups (plugin manifest, settings API, precompiled cache) |
-| Phase 4 | Shared Plugin API validation | ✓ Complete | Proof artifacts for public extension points are sufficient |
-| Phase 5 | Surface / Workspace / multi-pane foundation | ✓ Complete | Session/surface + multi-session UI complete; multi-pane split/focus/routing landed (5b/5c); UI polish (pane layout persistence) complete |
-| Phase P | Plugin I/O foundation | ✓ Complete | P-1 / P-2 / P-3 complete |
-| Plugin Redesign | Plugin architecture redesign (HandlerRegistry, ElementPatch, annotation decomposition, per-plugin invalidation, pub/sub, extension points, WASM capability inference, proc macro v2) | ✓ Complete | ADR-025 through ADR-029 |
+All implementation phases are complete.
+
+| Phase | Primary objective | Notes |
+|---|---|---|
+| Phase 0 | Development environment and CI foundation | project bootstrap |
+| Phase 1 | MVP (TUI core features + declarative UI foundation) | Element + TEA + basic slots |
+| Phase 2 | Enhanced floating windows + plugin foundation | |
+| Phase 3 | Input, clipboard, and scroll enhancements | |
+| Phase G | GUI backend | DecorationPipeline, image element GPU pipeline + texture cache |
+| Phase W | WASM plugin runtime foundation | plugin manifest, settings API, precompiled cache |
+| Phase 4 | Shared Plugin API validation | Proof artifacts for public extension points |
+| Phase 5 | Surface / Workspace / multi-pane foundation | Session/surface, multi-pane split/focus/routing, pane layout persistence |
+| Phase P | Plugin I/O foundation | P-1 / P-2 / P-3 |
+| Plugin Redesign | HandlerRegistry, ElementPatch, annotation decomposition, per-plugin invalidation, pub/sub, extension points, WASM capability inference, proc macro v2 | ADR-025 through ADR-029 |
 
 ## 5. Items Separated to Upstream Dependencies
 
@@ -98,9 +83,9 @@ The following items are not tracked in this roadmap; [upstream-dependencies.md](
 
 This document is updated when:
 
-- Priorities among `Now` / `Next` / `Backlog` change
+- Priorities among `Now` / `Backlog` change
 - Deliverables or completion criteria for an open workstream change
-- A phase status changes
+- A workstream completes and moves to §3
 - The source of truth for the tracker is moved to another document
 
 ## 7. Related Documents

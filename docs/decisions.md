@@ -50,9 +50,9 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Session management boundaries | Current | **Mechanism (core) / Policy (plugin) split** | Session lifecycle in core; session UI in plugins. Details in [ADR-023](#adr-023-session-management-boundaries--mechanism--policy-split) |
 | Display transformation | Current | **DisplayMap + DisplayDirective** | Plugin-declared directives (Fold/InsertAfter/Hide) → core builds O(1) bidirectional mapping. Single-plugin constraint initially. Virtual text proof artifact in `examples/virtual-text-demo/`. Kakoune viewport control limits true folding |
 | Performance policy | Current | **Three-layer perceptual framework** | Perceptual compass + engineering ratchets + optimization accountability. Details in [ADR-024](#adr-024-perception-oriented-performance-policy) |
-| Plugin registration model | Current | **HandlerRegistry + Plugin trait (3 methods)** | Plugins register handlers declaratively; capabilities auto-inferred. Details in [ADR-025](#adr-025-handlerregistry-plugin-architecture) |
+| Plugin registration model | Current | **HandlerRegistry + Plugin trait (2 methods + 1 associated type)** | Plugins register handlers declaratively; capabilities auto-inferred. Details in [ADR-025](#adr-025-handlerregistry-plugin-architecture) |
 | Declarative transforms | Current | **ElementPatch algebra** | Composable, normalizable, Salsa-memoizable. Custom escape hatch for imperative transforms. Details in [ADR-026](#adr-026-elementpatch-declarative-transforms) |
-| Annotation decomposition | Current | **5 independent extension points** | Gutter, background, inline, virtual text, cell decoration — each with own handler type and composition rule. Details in [ADR-027](#adr-027-lineannotation-decomposition) |
+| Annotation decomposition | Current | **4 annotation extension points + render_ornaments** | Gutter, background, inline, virtual text (annotation), plus render_ornaments (physical decoration). Details in [ADR-027](#adr-027-lineannotation-decomposition) |
 | WASM capability inference | Current | **`register-capabilities` WIT export** | WASM plugins declare capabilities as a bitmask; host skips non-participating dispatch. Details in [ADR-028](#adr-028-wasm-capability-inference) |
 | Inter-plugin communication | Current | **Topic-based pub/sub + plugin-defined extension points** | Two-phase evaluation with cycle prevention; typed extension points with composition rules. Details in [ADR-029](#adr-029-topic-based-pubsub-and-plugin-defined-extension-points) |
 
@@ -1712,13 +1712,13 @@ The transform chain collects `ElementPatch` from all plugins, composes them, nor
 
 ### Decision
 
-Decompose annotations into 5 independent extension points, each with its own handler type and composition rule:
+Decompose annotations into 4 independent annotation extension points, each with its own handler type and composition rule. Cell decoration was later consolidated into `on_render_ornaments` (see render ornament unification):
 
 1. **Gutter** (`on_annotate_gutter`): `(GutterSide, priority, Fn(&S, usize, &AppView, &AnnotateContext) -> Option<Element>)` — priority-sorted, left/right placement
 2. **Background** (`on_annotate_background`): `Fn(&S, usize, &AppView, &AnnotateContext) -> Option<BackgroundLayer>` — z-order-sorted, last wins
 3. **Inline** (`on_annotate_inline`): `Fn(&S, usize, &AppView, &AnnotateContext) -> Option<InlineDecoration>` — first-wins with warning
 4. **Virtual text** (`on_virtual_text`): `Fn(&S, usize, &AppView, &AnnotateContext) -> Vec<VirtualTextItem>` — merged
-5. **Cell decoration** (`on_cell_decoration`): `Fn(&S, &AppView, &AnnotateContext) -> Vec<CellDecoration>` — priority-sorted, merge by `FaceMerge` mode
+5. ~~**Cell decoration** (`on_cell_decoration`)~~ — consolidated into `on_render_ornaments` (physical decoration path unification)
 
 `LineAnnotation` is retained for `PluginBackend` (Legacy/WASM backward compatibility); the bridge decomposes it into individual concerns.
 

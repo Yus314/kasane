@@ -14,7 +14,7 @@ cargo build                              # TUI only
 cargo build --features gui               # Include GPU backend
 
 # Test
-cargo test                               # All tests (~1800)
+cargo test                               # All tests (~2200)
 cargo test -p kasane-core                # Single crate
 cargo test -p kasane-core -- test_name   # Single test by name
 
@@ -48,7 +48,7 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane-plugin-sdk/` | SDK for WASM guest plugins — WIT bindings, constants, helper macros (excluded from workspace, independent crate) |
 | `kasane-plugin-sdk-macros/` | Proc macros for WASM SDK — `define_plugin!` all-in-one macro (excluded from workspace, independent crate) |
 | `kasane-wasm-bench/` | WASM benchmarks — wasmtime Component Model overhead measurement (Phase W0) |
-| `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, fuzzy-finder, pane-manager, prompt-highlight, session-ui, smooth-scroll, image-preview |
+| `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, selection-algebra, fuzzy-finder, pane-manager, prompt-highlight, session-ui, smooth-scroll, image-preview |
 | `examples/line-numbers/` | Native plugin example — `Plugin` trait with `kasane::run()` |
 | `examples/virtual-text-demo/` | Display transformation proof artifact — `DisplayDirective` (InsertAfter, Fold, Hide) |
 | `examples/image-test/` | GPU image pipeline test — inline RGBA / file-based async image overlay |
@@ -75,14 +75,15 @@ Kakoune (kak -ui json)
 - **Element tree**: `kasane-core/src/element.rs`
 - **Rendering**: `kasane-core/src/render/` — `pipeline_salsa.rs` (Salsa-backed entry), `view/mod.rs`, `paint.rs`
 - **Layout**: `kasane-core/src/layout/flex.rs` (flexbox), `grid.rs`, `position.rs` (overlay)
-- **Plugin system**: `kasane-core/src/plugin/` — `state.rs` (Plugin trait, 3 methods, HandlerRegistry-based), `handler_registry.rs` (HandlerRegistry, handler registration API including `on_transform_for()`), `handler_table.rs` (type-erased dispatch table), `bridge.rs` (PluginBridge adapter, Plugin→PluginBackend), `traits.rs` (PluginBackend, internal), `registry.rs` (PluginRuntime), `element_patch.rs` (declarative transform algebra), `compose.rs` (monoidal composition traits + types), `channel.rs` (ChannelValue cross-boundary serialization), `pubsub.rs` (topic-based inter-plugin pub/sub), `extension_point.rs` (plugin-defined extension points)
+- **Plugin system**: `kasane-core/src/plugin/` — `state.rs` (Plugin trait: 2 methods + 1 associated type, HandlerRegistry-based), `handler_registry.rs` (HandlerRegistry, handler registration API including `on_transform_for()`), `handler_table.rs` (type-erased dispatch table), `bridge.rs` (PluginBridge adapter, Plugin→PluginBackend), `traits.rs` (PluginBackend, internal), `registry.rs` (PluginRuntime), `manager.rs` (plugin resolution, ResolvedCatalog), `element_patch.rs` (declarative transform algebra), `compose.rs` (monoidal composition traits + types), `channel.rs` (ChannelValue cross-boundary serialization), `pubsub.rs` (topic-based inter-plugin pub/sub), `extension_point.rs` (plugin-defined extension points), `effects.rs` (unified Effects type, lifecycle phases), `command.rs` (Command variants, effect classification), `context.rs` (TransformSubject/TransformTarget), `app_view.rs` (read-only AppView for plugins), `io.rs` (I/O event handling), `process_task.rs` (declarative process tasks), `diagnostics/` (plugin diagnostic system), `transparent_command.rs` (Kakoune non-write commands), `transparent_effects.rs` (ADR-030 Level 5 transparency), `safe_directive.rs` (compile-time safe DisplayDirective), `recovery_witness.rs` (Hide directive recovery evidence), `provider.rs` (PluginProvider trait), `variable_store.rs` (plugin variable storage)
 - **Event loop**: `kasane-core/src/event_loop/` — `mod.rs` (re-exports), `dispatch.rs` (command dispatch), `context.rs` (deferred context), `session.rs` (session lifecycle), `surface.rs` (surface lifecycle)
 - **Workspace persistence**: `kasane-core/src/workspace/persist.rs` (layout save/restore across sessions)
 - **Salsa integration**: `kasane-core/src/salsa_sync.rs`, `salsa_inputs.rs`, `salsa_views/`
 - **Plugin prelude**: `kasane-core/src/plugin_prelude.rs` (public API for external plugins)
-- **Display transform**: `kasane-core/src/display/mod.rs` (DisplayMap, DisplayDirective), `display/projection.rs` (ProjectionPolicyState), `display/resolve.rs` (multi-plugin directive resolution)
+- **Display transform**: `kasane-core/src/display/mod.rs` (DisplayMap, DisplayDirective), `display/projection.rs` (ProjectionPolicyState), `display/resolve.rs` (multi-plugin directive resolution), `display/navigation.rs` (display coordinate navigation), `display/fold_state.rs` (fold state tracking), `display/segment_map.rs` (segment map), `display/unit.rs` (display units), `display/content_annotation.rs` (content annotations), `display/stability.rs` (stability guarantees)
 - **Semantic Zoom**: `kasane-core/src/plugin/semantic_zoom/` — `mod.rs` (ZoomLevel, SemanticZoomPlugin), `indent_strategy.rs` (indent fallback), `syntax_strategy.rs` (tree-sitter aware)
-- **Builtin input plugins**: `kasane-core/src/input/builtin.rs` (BuiltinInputPlugin, default key handling), `builtin_fold.rs` (BuiltinFoldPlugin, fold toggle), `builtin_drag.rs` (BuiltinDragPlugin, drag state tracking), `builtin_mouse.rs` (BuiltinMouseFallbackPlugin, mouse-to-Kakoune forwarding)
+- **Builtin input plugins**: `kasane-core/src/input/builtin.rs` (BuiltinInputPlugin, default key handling), `builtin_fold.rs` (BuiltinFoldPlugin, fold toggle), `builtin_drag.rs` (BuiltinDragPlugin, drag state tracking), `builtin_mouse.rs` (BuiltinMouseFallbackPlugin, mouse-to-Kakoune forwarding), `key_map.rs` (CompiledKeyMap, KeyBinding, ChordBinding, ChordState)
+- **Shadow cursor**: `kasane-core/src/state/shadow_cursor.rs` (ShadowCursor, EditableSpan, EditProjection — editable virtual text for BDT)
 - **Syntax**: `kasane-core/src/syntax/mod.rs` (SyntaxProvider trait, Declaration types), `kasane-syntax/src/` (TreeSitterProvider, GrammarRegistry, SyntaxManager)
 
 For architecture details, see `docs/index.md`. For plugin API reference, see `docs/plugin-api.md`. For plugin development guide, see `docs/plugin-development.md`.

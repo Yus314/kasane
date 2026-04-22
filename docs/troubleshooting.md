@@ -74,31 +74,12 @@ Or `$XDG_STATE_HOME/kasane/kasane.log` if `$XDG_STATE_HOME` is set.
 
 ## Plugin Issues
 
-### Bundled plugins not loading
+For plugin enabling, configuration, and management commands, see [Using Plugins](using-plugins.md).
 
-Bundled plugins require explicit opt-in. Add them to your config:
+If a plugin is not loading:
 
-```kdl
-plugins {
-    enabled "cursor_line" "color_preview"
-}
-```
-
-Then rebuild the active set:
-
-```bash
-kasane plugin resolve
-```
-
-### External plugin not loading
-
-1. Check the package was installed through `kasane plugin install` or `kasane plugin dev`
-2. Rebuild `plugins.lock`: `kasane plugin resolve`
-3. Check the plugin is not in the `disabled` list
-4. Run `kasane plugin doctor`
-5. Remove stale package artifacts if needed: `kasane plugin gc` (this keeps rollback generations intact)
-6. Restore the previous active set if a recent resolve/update changed it: `kasane plugin rollback`
-7. Check the log for loading errors: `KASANE_LOG=info kasane file.txt`
+1. Run `kasane plugin doctor` to diagnose the active plugin set
+2. Check the log for loading errors: `KASANE_LOG=info kasane file.txt`
 
 ## Reporting Bugs
 

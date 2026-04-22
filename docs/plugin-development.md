@@ -234,7 +234,7 @@ against an older version; older binaries will not load.
 
 If you are upgrading a plugin from the previous ABI, the required changes are:
 
-1. Update the SDK crate to `kasane-plugin-sdk = "0.4"` and set
+1. Update the SDK crate to `kasane-plugin-sdk = "0.5"` and set
    `abi_version = "0.25.0"` in `kasane-plugin.toml`.
 2. Rename clipboard-paste commands from `Command::Paste` to
    `Command::PasteClipboard`. If you use SDK helpers, prefer
@@ -468,7 +468,7 @@ For the full list of bundled and source example plugins, see [using-plugins.md](
 
 For use cases that require features not yet available via WASM (such as `Surface`), you can write a native plugin. Native plugins are distributed as custom binaries.
 
-The `Plugin` trait uses `HandlerRegistry`-based registration: 3 methods (`id()`, `State` type, `register()`). The framework owns the state; handlers are pure functions. Capabilities are auto-inferred from which handlers are registered.
+The `Plugin` trait uses `HandlerRegistry`-based registration: 2 methods + 1 associated type (`id()`, `State` type, `register()`). The framework owns the state; handlers are pure functions. Capabilities are auto-inferred from which handlers are registered.
 
 ```rust
 use kasane::kasane_core::plugin_prelude::*;
@@ -522,7 +522,7 @@ fn main() {
 }
 ```
 
-For a comparison of WASM vs Native plugin models, see [Appendix C](#appendix-c-wasm-vs-native-comparison) or [wasm-constraints.md Quick Reference](./wasm-constraints.md#quick-reference).
+For a comparison of WASM vs Native plugin models, see [Appendix C](#appendix-c-wasm-vs-native-comparison) or [plugin-api.md §8](./plugin-api.md#8-wasm-plugin-constraints).
 
 ## Appendix B: PluginBackend (Internal) {#appendix-b-pluginbackend-internal}
 
@@ -585,7 +585,7 @@ Register `PluginBackend` implementors via `host_plugin("id", || PluginType)` and
 
 ## Appendix C: WASM vs Native Comparison {#appendix-c-wasm-vs-native-comparison}
 
-For the comprehensive WASM vs Native feature comparison table, see [wasm-constraints.md Quick Reference](./wasm-constraints.md#quick-reference). For choosing a plugin model (WASM, Native `Plugin`, Native `PluginBackend`), see [plugin-api.md §1.2.2](./plugin-api.md#122-choosing-a-plugin-model).
+For the WASM vs Native feature gap table and runtime constraints, see [plugin-api.md §8](./plugin-api.md#8-wasm-plugin-constraints). For choosing a plugin model (WASM, Native `Plugin`, Native `PluginBackend`), see [plugin-api.md §1.2.2](./plugin-api.md#122-choosing-a-plugin-model).
 
 ## Appendix D: Explicit WASM Pattern {#appendix-d-explicit-wasm-pattern}
 
