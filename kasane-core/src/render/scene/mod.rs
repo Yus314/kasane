@@ -46,6 +46,36 @@ pub struct ResolvedAtom {
     pub face: Face,
 }
 
+/// Semantic annotation on a buffer paragraph (positions are byte offsets in
+/// the original buffer text, resolved to pixel positions by the GPU renderer
+/// after shaping).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParagraphAnnotation {
+    /// Primary cursor at the given byte offset.
+    PrimaryCursor {
+        byte_offset: usize,
+        style: super::CursorStyle,
+    },
+    /// Secondary (multi-) cursor at the given byte offset.
+    SecondaryCursor {
+        byte_offset: usize,
+        blend_ratio: f32,
+    },
+}
+
+/// Rendering information for a buffer line, carrying styled atoms and semantic
+/// annotations. The GPU renderer shapes the text first, then resolves annotation
+/// positions (cursor, selection) from glyph metrics.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BufferParagraph {
+    /// Styled atoms (resolved against base face).
+    pub atoms: Vec<ResolvedAtom>,
+    /// Base face for the line (used for background fill).
+    pub base_face: Face,
+    /// Semantic annotations (cursors, etc.).
+    pub annotations: Vec<ParagraphAnnotation>,
+}
+
 /// GPU draw command produced by `scene_paint`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawCommand {
@@ -121,6 +151,17 @@ pub enum DrawCommand {
         opacity: f32,
     },
 
+    /// Render a buffer line paragraph with annotations.
+    ///
+    /// The GPU renderer shapes text first, then resolves annotation positions
+    /// (cursor rectangles, selection highlights) from glyph metrics. This
+    /// enables correct rendering with proportional fonts and BiDi text.
+    RenderParagraph {
+        pos: PixelPos,
+        max_width: f32,
+        paragraph: BufferParagraph,
+    },
+
     /// Layer boundary: all subsequent commands belong to a new overlay layer.
     ///
     /// The renderer must flush (bg → border → text) before starting the new
@@ -186,40 +227,6 @@ pub(crate) fn resolve_atoms(atoms: &[Atom], base_face: Option<&Face>) -> Vec<Res
             }
         })
         .collect()
-}
-
-/// Apply secondary cursor face to the atom at the given column.
-/// Uses the same scan logic as clear_cursor_atom but applies a dimmed face.
-pub(crate) fn dim_cursor_atom(
-    atoms: &mut [ResolvedAtom],
-    cursor_col: u16,
-    base_face: &Face,
-    blend_ratio: f32,
-) {
-    let mut col: u16 = 0;
-    for atom in atoms.iter_mut() {
-        let w = line_display_width_str(&atom.contents) as u16;
-        if cursor_col >= col && cursor_col < col + w {
-            atom.face =
-                super::cursor::make_secondary_cursor_face(&atom.face, base_face, blend_ratio);
-            return;
-        }
-        col += w;
-    }
-}
-
-/// Clear the PrimaryCursor face from the atom at the given column so that
-/// non-block cursor shapes (bar, underline) are visible.
-pub(crate) fn clear_cursor_atom(atoms: &mut [ResolvedAtom], cursor_col: u16, base_face: &Face) {
-    let mut col: u16 = 0;
-    for atom in atoms.iter_mut() {
-        let w = line_display_width_str(&atom.contents) as u16;
-        if cursor_col >= col && cursor_col < col + w {
-            atom.face = *base_face;
-            return;
-        }
-        col += w;
-    }
 }
 
 /// Compute display width of a string (for atom width calculations).

@@ -14,8 +14,8 @@ use super::paint::{
     paint_border_title, paint_buffer_ref, paint_shadow, paint_text,
 };
 use super::scene::{
-    CellSize, DrawCommand, PixelPos, PixelRect, clear_cursor_atom, dim_cursor_atom, resolve_atoms,
-    to_pixel_rect,
+    BufferParagraph, CellSize, DrawCommand, ParagraphAnnotation, PixelPos, PixelRect,
+    resolve_atoms, to_pixel_rect,
 };
 use super::theme::Theme;
 use crate::display::DisplayMap;
@@ -592,52 +592,42 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     decorated,
                     virtual_text: vt,
                 } => {
-                    self.out.push(DrawCommand::FillRect {
-                        rect: PixelRect {
-                            x: px,
-                            y: py,
-                            w: row_w,
-                            h: cs.height,
-                        },
-                        face: base_face,
-                        elevated: false,
-                    });
                     let atoms = decorated.as_deref().unwrap_or(line);
-                    // GPU-specific: resolve atoms with base face, then apply
-                    // cursor face operations (not shared with TUI).
                     let mut resolved = resolve_atoms(atoms, Some(&base_face));
-                    // Clear PrimaryCursor face at cursor cell in non-block modes
-                    // so the thin bar/underline is visible.
-                    if !matches!(self.cursor_style, CursorStyle::Block | CursorStyle::Outline)
-                        && state.inference.cursor_mode == crate::protocol::CursorMode::Buffer
-                        && line_idx == state.observed.cursor_pos.line as usize
-                    {
-                        clear_cursor_atom(
-                            &mut resolved,
-                            state.observed.cursor_pos.column as u16,
-                            &base_face,
-                        );
-                    }
-                    // Differentiate secondary cursor faces
-                    for coord in &state.inference.secondary_cursors {
-                        if coord.line as usize == line_idx {
-                            dim_cursor_atom(
-                                &mut resolved,
-                                coord.column as u16,
-                                &base_face,
-                                state.config.secondary_blend_ratio,
-                            );
-                        }
-                    }
+
                     // EOL virtual text: append after buffer content
                     if let Some(vt_atoms) = vt {
                         let vt_resolved = resolve_atoms(vt_atoms, Some(&base_face));
                         resolved.extend(vt_resolved);
                     }
-                    self.out.push(DrawCommand::DrawAtoms {
+
+                    // Build semantic annotations instead of modifying atom faces
+                    let mut annotations = Vec::new();
+                    if state.inference.cursor_mode == crate::protocol::CursorMode::Buffer
+                        && line_idx == state.observed.cursor_pos.line as usize
+                    {
+                        annotations.push(ParagraphAnnotation::PrimaryCursor {
+                            byte_offset: state.observed.cursor_pos.column as usize,
+                            style: self.cursor_style,
+                        });
+                    }
+                    for coord in &state.inference.secondary_cursors {
+                        if coord.line as usize == line_idx {
+                            annotations.push(ParagraphAnnotation::SecondaryCursor {
+                                byte_offset: coord.column as usize,
+                                blend_ratio: state.config.secondary_blend_ratio,
+                            });
+                        }
+                    }
+
+                    self.out.push(DrawCommand::RenderParagraph {
                         pos: PixelPos { x: px, y: py },
-                        atoms: resolved,
                         max_width: row_w,
+                        paragraph: BufferParagraph {
+                            atoms: resolved,
+                            base_face,
+                            annotations,
+                        },
                     });
                 }
                 BufferLineAction::Padding { face, char_face } => {

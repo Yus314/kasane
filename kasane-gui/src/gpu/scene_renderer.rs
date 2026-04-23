@@ -3,7 +3,10 @@ use crate::animation::CursorRenderState;
 use cosmic_text::{Buffer as GlyphonBuffer, FontSystem, Metrics, Shaping, SwashCache};
 use kasane_core::config::FontConfig;
 use kasane_core::render::scene::line_display_width_str;
-use kasane_core::render::{CellSize, CursorStyle, DrawCommand, PixelRect};
+use kasane_core::render::{
+    CellSize, CursorStyle, DrawCommand, PixelRect,
+    scene::{BufferParagraph, ParagraphAnnotation},
+};
 use wgpu::MultisampleState;
 use winit::dpi::PhysicalSize;
 
@@ -1002,6 +1005,13 @@ impl SceneRenderer {
                     }
                 }
             }
+            DrawCommand::RenderParagraph {
+                pos,
+                max_width,
+                paragraph,
+            } => {
+                self.process_render_paragraph(pos.x, pos.y, *max_width, paragraph, color_resolver);
+            }
             DrawCommand::BeginOverlay => {} // handled by layer splitting
         }
     }
@@ -1128,11 +1138,12 @@ impl SceneRenderer {
         }
     }
 
-    /// Process DrawAtoms: build atom-level spans for ligature support.
+    /// Process DrawAtoms: shaping-first approach for proportional font support.
     ///
     /// Adjacent atoms with the same foreground color are merged into a single
     /// shaping span so that ligatures (e.g. `->`, `!=`, `=>`) can form across
-    /// atom boundaries.
+    /// atom boundaries. Background rectangles and decorations are computed from
+    /// glyph metrics after shaping, so they adapt to proportional fonts.
     fn process_draw_atoms(
         &mut self,
         px: f32,
@@ -1141,42 +1152,21 @@ impl SceneRenderer {
         max_width: f32,
         color_resolver: &ColorResolver,
     ) {
-        let cell_w = self.metrics.cell_width;
         let cell_h = self.metrics.cell_height;
 
-        let mut x = px;
+        // === Step 1: Concatenate text + track atom byte boundaries + build spans ===
         self.row_text.clear();
         self.span_ranges.clear();
+        let mut atom_byte_boundaries: Vec<usize> = vec![0];
+        let mut atom_faces: Vec<&kasane_core::protocol::Face> = Vec::new();
 
         for atom in atoms {
-            let atom_display_w = line_display_width_str(&atom.contents) as f32 * cell_w;
-            let remaining = max_width - (x - px);
-            if remaining <= 0.0 {
-                break;
-            }
-
-            let actual_w = atom_display_w.min(remaining);
-            let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_face_colors(&atom.face);
-
-            // Background rectangle — skip when not needed so the parent
-            // element's background (e.g. an elevated Container) shows through.
-            if actual_w > 0.0
-                && needs_bg
-                && !self.should_skip_default_bg(&visual_bg, color_resolver)
-            {
-                self.bg.push_rect(x, py, actual_w, cell_h, visual_bg);
-            }
-
-            // Text decorations (underline, strikethrough, etc.)
-            if actual_w > 0.0 {
-                self.emit_decorations(x, py, actual_w, &atom.face, visual_fg, color_resolver);
-            }
+            let (visual_fg, _, _) = color_resolver.resolve_face_colors(&atom.face);
+            let fg = visual_fg;
 
             // Text span — merge with previous span if same fg color
-            let fg = visual_fg;
             if let Some(last) = self.span_ranges.last_mut() {
                 if last.2 == fg {
-                    // Extend previous span
                     self.row_text.push_str(&atom.contents);
                     last.1 = self.row_text.len();
                 } else {
@@ -1190,20 +1180,16 @@ impl SceneRenderer {
                 self.span_ranges.push((start, self.row_text.len(), fg));
             }
 
-            x += atom_display_w;
+            atom_byte_boundaries.push(self.row_text.len());
+            atom_faces.push(&atom.face);
         }
 
         if self.row_text.is_empty() {
             return;
         }
 
-        // Insert Word Joiners to prevent cosmic-text from splitting operator
-        // sequences (like `->`, `!=`) into separate shaping runs.
-        super::text_helpers::insert_word_joiners(&mut self.row_text, &mut self.span_ranges);
-
+        // === Step 2: Shape text with cosmic-text ===
         let buf_idx = self.alloc_text_buffer(max_width);
-        self.text_positions.push((px, py));
-        self.push_text_clip_bounds();
         let default_attrs = super::text_helpers::default_attrs(&self.font_family);
 
         let rich_text_iter = self.span_ranges.iter().map(|(start, end, fg)| {
@@ -1221,6 +1207,229 @@ impl SceneRenderer {
             None,
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
+
+        // === Step 3: Compute per-atom pixel extents from glyph metrics ===
+        let atom_count = atom_faces.len();
+        let mut atom_x_min = vec![f32::MAX; atom_count];
+        let mut atom_x_max = vec![f32::MIN; atom_count];
+
+        let buffer = &self.text_buffers[buf_idx];
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs.iter() {
+                let idx = atom_byte_boundaries
+                    .partition_point(|&b| b <= glyph.start)
+                    .saturating_sub(1);
+                if idx < atom_count {
+                    atom_x_min[idx] = atom_x_min[idx].min(glyph.x);
+                    atom_x_max[idx] = atom_x_max[idx].max(glyph.x + glyph.w);
+                }
+            }
+        }
+
+        // === Step 4: Per-atom background rectangles + decorations ===
+        for i in 0..atom_count {
+            if atom_x_min[i] > atom_x_max[i] {
+                continue; // No glyphs for this atom (empty)
+            }
+            let w = (atom_x_max[i] - atom_x_min[i]).min(max_width);
+            let x = px + atom_x_min[i];
+            let (visual_fg, visual_bg, needs_bg) =
+                color_resolver.resolve_face_colors(atom_faces[i]);
+
+            if w > 0.0 && needs_bg && !self.should_skip_default_bg(&visual_bg, color_resolver) {
+                self.bg.push_rect(x, py, w, cell_h, visual_bg);
+            }
+            if w > 0.0 {
+                self.emit_decorations(x, py, w, atom_faces[i], visual_fg, color_resolver);
+            }
+        }
+
+        // === Step 5: Register text position ===
+        self.text_positions.push((px, py));
+        self.push_text_clip_bounds();
+    }
+
+    /// Process RenderParagraph: buffer line with semantic annotations.
+    ///
+    /// Shapes text first, then draws per-atom backgrounds and decorations from
+    /// glyph metrics, and finally resolves annotation positions (cursors) from
+    /// the shaping result.
+    fn process_render_paragraph(
+        &mut self,
+        px: f32,
+        py: f32,
+        max_width: f32,
+        para: &BufferParagraph,
+        color_resolver: &ColorResolver,
+    ) {
+        let cell_h = self.metrics.cell_height;
+        let cell_w = self.metrics.cell_width;
+
+        // 1. Line-wide background fill
+        let (_, base_bg, base_needs_bg) = color_resolver.resolve_face_colors(&para.base_face);
+        if base_needs_bg && !self.should_skip_default_bg(&base_bg, color_resolver) {
+            self.bg.push_rect(px, py, max_width, cell_h, base_bg);
+        }
+
+        if para.atoms.is_empty() {
+            return;
+        }
+
+        // 2. Concatenate text + track atom byte boundaries + build color spans
+        self.row_text.clear();
+        self.span_ranges.clear();
+        let mut atom_byte_boundaries: Vec<usize> = vec![0];
+        let mut atom_faces: Vec<&kasane_core::protocol::Face> = Vec::new();
+
+        for atom in &para.atoms {
+            let (visual_fg, _, _) = color_resolver.resolve_face_colors(&atom.face);
+            let fg = visual_fg;
+
+            if let Some(last) = self.span_ranges.last_mut() {
+                if last.2 == fg {
+                    self.row_text.push_str(&atom.contents);
+                    last.1 = self.row_text.len();
+                } else {
+                    let start = self.row_text.len();
+                    self.row_text.push_str(&atom.contents);
+                    self.span_ranges.push((start, self.row_text.len(), fg));
+                }
+            } else {
+                let start = self.row_text.len();
+                self.row_text.push_str(&atom.contents);
+                self.span_ranges.push((start, self.row_text.len(), fg));
+            }
+
+            atom_byte_boundaries.push(self.row_text.len());
+            atom_faces.push(&atom.face);
+        }
+
+        if self.row_text.is_empty() {
+            return;
+        }
+
+        // 3. Shape text with cosmic-text
+        let buf_idx = self.alloc_text_buffer(max_width);
+        let default_attrs = super::text_helpers::default_attrs(&self.font_family);
+
+        let rich_text_iter = self.span_ranges.iter().map(|(start, end, fg)| {
+            let text = &self.row_text[*start..*end];
+            let color = super::text_helpers::to_glyphon_color(*fg);
+            (text, default_attrs.clone().color(color))
+        });
+
+        let buffer = &mut self.text_buffers[buf_idx];
+        buffer.set_rich_text(
+            &mut self.font_system,
+            rich_text_iter,
+            &default_attrs,
+            Shaping::Advanced,
+            None,
+        );
+        buffer.shape_until_scroll(&mut self.font_system, false);
+
+        // 4. Per-atom background rectangles + decorations from glyph metrics
+        let atom_count = atom_faces.len();
+        let mut atom_x_min = vec![f32::MAX; atom_count];
+        let mut atom_x_max = vec![f32::MIN; atom_count];
+
+        let buffer = &self.text_buffers[buf_idx];
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs.iter() {
+                let idx = atom_byte_boundaries
+                    .partition_point(|&b| b <= glyph.start)
+                    .saturating_sub(1);
+                if idx < atom_count {
+                    atom_x_min[idx] = atom_x_min[idx].min(glyph.x);
+                    atom_x_max[idx] = atom_x_max[idx].max(glyph.x + glyph.w);
+                }
+            }
+        }
+
+        for i in 0..atom_count {
+            if atom_x_min[i] > atom_x_max[i] {
+                continue;
+            }
+            let w = (atom_x_max[i] - atom_x_min[i]).min(max_width);
+            let x = px + atom_x_min[i];
+            let (visual_fg, visual_bg, needs_bg) =
+                color_resolver.resolve_face_colors(atom_faces[i]);
+
+            if w > 0.0 && needs_bg && !self.should_skip_default_bg(&visual_bg, color_resolver) {
+                self.bg.push_rect(x, py, w, cell_h, visual_bg);
+            }
+            if w > 0.0 {
+                self.emit_decorations(x, py, w, atom_faces[i], visual_fg, color_resolver);
+            }
+        }
+
+        // 5. Annotation rendering (cursors)
+        let buffer = &self.text_buffers[buf_idx];
+        for ann in &para.annotations {
+            match ann {
+                ParagraphAnnotation::PrimaryCursor { byte_offset, style } => {
+                    if let Some((gx, gw)) = find_glyph_at_byte_offset(buffer, *byte_offset) {
+                        let x = px + gx;
+                        let w = gw.max(cell_w); // Ensure minimum cursor width
+                        match style {
+                            CursorStyle::Block => {
+                                // Block cursor is rendered by the animated cursor system
+                                // (render_cursor) — skip here to avoid double-draw
+                            }
+                            CursorStyle::Bar => {
+                                self.bg.push_rect(
+                                    x,
+                                    py,
+                                    CURSOR_BAR_WIDTH,
+                                    cell_h,
+                                    [1.0, 1.0, 1.0, 1.0],
+                                );
+                            }
+                            CursorStyle::Underline => {
+                                self.bg.push_rect(
+                                    x,
+                                    py + cell_h - CURSOR_UNDERLINE_HEIGHT,
+                                    w,
+                                    CURSOR_UNDERLINE_HEIGHT,
+                                    [1.0, 1.0, 1.0, 1.0],
+                                );
+                            }
+                            CursorStyle::Outline => {
+                                let t = CURSOR_OUTLINE_THICKNESS;
+                                let c = [1.0, 1.0, 1.0, 1.0];
+                                self.bg.push_rect(x, py, w, t, c);
+                                self.bg.push_rect(x, py + cell_h - t, w, t, c);
+                                self.bg.push_rect(x, py, t, cell_h, c);
+                                self.bg.push_rect(x + w - t, py, t, cell_h, c);
+                            }
+                        }
+                    }
+                }
+                ParagraphAnnotation::SecondaryCursor {
+                    byte_offset,
+                    blend_ratio,
+                } => {
+                    if let Some((gx, gw)) = find_glyph_at_byte_offset(buffer, *byte_offset) {
+                        let x = px + gx;
+                        let w = gw.max(cell_w);
+                        // Blend cursor color with base background
+                        let cursor_color = [1.0_f32, 1.0, 1.0, 1.0];
+                        let bg_color = base_bg;
+                        let blended = [
+                            cursor_color[0] * blend_ratio + bg_color[0] * (1.0 - blend_ratio),
+                            cursor_color[1] * blend_ratio + bg_color[1] * (1.0 - blend_ratio),
+                            cursor_color[2] * blend_ratio + bg_color[2] * (1.0 - blend_ratio),
+                            1.0,
+                        ];
+                        self.bg.push_rect(x, py, w, cell_h, blended);
+                    }
+                }
+            }
+        }
+
+        // 6. Register text position for rendering
+        self.text_positions.push((px, py));
+        self.push_text_clip_bounds();
     }
 
     /// Process DrawText: simple single-face text.
@@ -1292,6 +1501,7 @@ impl SceneRenderer {
         if idx >= self.text_buffers.len() {
             let mut buffer = GlyphonBuffer::new(&mut self.font_system, glyph_metrics);
             buffer.set_hinting(&mut self.font_system, cosmic_text::Hinting::Enabled);
+            buffer.set_wrap(&mut self.font_system, cosmic_text::Wrap::None);
             buffer.set_size(
                 &mut self.font_system,
                 Some(max_width),
@@ -1300,6 +1510,7 @@ impl SceneRenderer {
             self.text_buffers.push(buffer);
         } else {
             self.text_buffers[idx].set_metrics(&mut self.font_system, glyph_metrics);
+            self.text_buffers[idx].set_wrap(&mut self.font_system, cosmic_text::Wrap::None);
             self.text_buffers[idx].set_size(
                 &mut self.font_system,
                 Some(max_width),
@@ -1308,4 +1519,17 @@ impl SceneRenderer {
         }
         idx
     }
+}
+
+/// Find the glyph covering the given byte offset in a shaped buffer.
+/// Returns `(glyph_x, glyph_w)` if found.
+fn find_glyph_at_byte_offset(buffer: &GlyphonBuffer, byte_offset: usize) -> Option<(f32, f32)> {
+    for run in buffer.layout_runs() {
+        for glyph in run.glyphs.iter() {
+            if byte_offset >= glyph.start && byte_offset < glyph.end {
+                return Some((glyph.x, glyph.w));
+            }
+        }
+    }
+    None
 }

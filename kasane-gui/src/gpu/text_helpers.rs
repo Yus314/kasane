@@ -71,57 +71,6 @@ pub(super) fn default_attrs(font_family: &str) -> Attrs<'_> {
         .font_features(features)
 }
 
-/// Insert Word Joiners (U+2060) after characters whose Unicode line-break
-/// class allows a break, preventing `cosmic-text` from splitting operator
-/// sequences (e.g. `->`, `!=`, `|>`, `/*`) into separate shaping words.
-///
-/// Without this, `unicode_linebreak` treats `-` (HY), `!` (EX), `/` (SY),
-/// `|` (BA), and `+` (PR) as break opportunities, which splits them from
-/// the following character and prevents ligature formation in harfrust.
-pub(super) fn insert_word_joiners(text: &mut String, spans: &mut [(usize, usize, [f32; 4])]) {
-    const WJ: &str = "\u{2060}";
-    const WJ_LEN: usize = 3; // UTF-8 byte length of U+2060
-
-    let bytes = text.as_bytes();
-    let mut insert_positions = Vec::new();
-
-    for i in 0..bytes.len().saturating_sub(1) {
-        if matches!(bytes[i], b'-' | b'!' | b'/' | b'|' | b'+') {
-            // Only insert WJ if the next byte is a printable ASCII non-space
-            // character (potential ligature partner).
-            let next = bytes[i + 1];
-            if next > b' ' && next < 0x7F {
-                insert_positions.push(i + 1);
-            }
-        }
-    }
-
-    if insert_positions.is_empty() {
-        return;
-    }
-
-    // Build new string with WJs inserted at each position.
-    let mut new_text = String::with_capacity(text.len() + insert_positions.len() * WJ_LEN);
-    let mut last = 0;
-    for &pos in &insert_positions {
-        new_text.push_str(&text[last..pos]);
-        new_text.push_str(WJ);
-        last = pos;
-    }
-    new_text.push_str(&text[last..]);
-
-    // Adjust span byte ranges: each WJ inserted at position p shifts all
-    // offsets after p by WJ_LEN bytes.
-    for span in spans.iter_mut() {
-        let start_shift = insert_positions.partition_point(|&p| p <= span.0) * WJ_LEN;
-        let end_shift = insert_positions.partition_point(|&p| p <= span.1) * WJ_LEN;
-        span.0 += start_shift;
-        span.1 += end_shift;
-    }
-
-    *text = new_text;
-}
-
 pub(super) fn to_glyphon_color(c: [f32; 4]) -> GlyphonColor {
     GlyphonColor::rgba(
         (c[0] * 255.0) as u8,
