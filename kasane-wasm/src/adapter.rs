@@ -44,6 +44,9 @@ struct WasmPluginRuntime {
 /// Maximum pending diagnostics kept per plugin (ring buffer).
 const MAX_PENDING_DIAGNOSTICS: usize = 10;
 
+/// Sentinel value for state_hash that forces recollection on the next frame.
+const HASH_SENTINEL: u64 = u64::MAX;
+
 struct WasmPluginShared {
     runtime: Mutex<WasmPluginRuntime>,
     plugin_id: PluginId,
@@ -60,11 +63,14 @@ struct WasmPluginShared {
     extensions_consumed: Vec<String>,
     extension_defs: Vec<kasane_core::plugin::extension_point::ExtensionDefinition>,
     has_unified_display_export: bool,
+    /// Keeps the epoch ticker thread alive as long as this plugin is alive.
+    _epoch_ticker: Arc<crate::EpochTicker>,
 }
 
 impl WasmPluginShared {
     fn with_runtime<R>(&self, f: impl FnOnce(&mut WasmPluginRuntime) -> R) -> R {
         let mut runtime = self.runtime.lock();
+        runtime.store.set_epoch_deadline(1);
         f(&mut runtime)
     }
 
@@ -100,6 +106,7 @@ impl WasmPluginShared {
                 Err(e) => {
                     tracing::error!("WASM plugin {}.{method} failed: {e}", self.plugin_id.0);
                     self.record_diagnostic(method, &e);
+                    self.set_state_hash(HASH_SENTINEL);
                     R::default()
                 }
             }
@@ -125,6 +132,7 @@ impl WasmPluginShared {
                 Err(e) => {
                     tracing::error!("WASM plugin {}.{method} failed: {e}", self.plugin_id.0);
                     self.record_diagnostic(method, &e);
+                    self.set_state_hash(HASH_SENTINEL);
                     return R::default();
                 }
             };
@@ -370,6 +378,7 @@ impl WasmPlugin {
         subscribe_topics: Vec<String>,
         extensions_consumed: Vec<String>,
         extension_defs: Vec<kasane_core::plugin::extension_point::ExtensionDefinition>,
+        epoch_ticker: Arc<crate::EpochTicker>,
     ) -> Self {
         store.data_mut().plugin_id = id.clone();
 
@@ -417,6 +426,7 @@ impl WasmPlugin {
                 extensions_consumed,
                 extension_defs,
                 has_unified_display_export,
+                _epoch_ticker: epoch_ticker,
             }),
             key_map,
             cached_projection_descriptors,
@@ -429,6 +439,7 @@ impl WasmPlugin {
         id: String,
         process_allowed: bool,
         authorities: PluginAuthorities,
+        epoch_ticker: Arc<crate::EpochTicker>,
     ) -> Self {
         // Set plugin_id on HostState so log messages can be attributed.
         store.data_mut().plugin_id = id.clone();
@@ -491,6 +502,7 @@ impl WasmPlugin {
                 extensions_consumed: Vec::new(),
                 extension_defs: Vec::new(),
                 has_unified_display_export,
+                _epoch_ticker: epoch_ticker,
             }),
             key_map,
             cached_projection_descriptors,

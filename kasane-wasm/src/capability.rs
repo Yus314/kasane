@@ -93,6 +93,25 @@ pub fn is_capability_granted(
     !denied.iter().any(|d| d == name)
 }
 
+/// Environment variables considered safe to expose to plugins.
+///
+/// These are general-purpose variables that do not contain credentials or
+/// sensitive data. Plugins requiring additional variables must declare them
+/// in their manifest under `[capabilities] env_vars`.
+const SAFE_ENV_VARS: &[&str] = &[
+    "HOME",
+    "PATH",
+    "SHELL",
+    "EDITOR",
+    "PAGER",
+    "TERM",
+    "LANG",
+    "LC_ALL",
+    "XDG_DATA_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+];
+
 /// Build a `WasiCtx` for a plugin based on its requested capabilities and user config.
 ///
 /// Capabilities that appear in the deny list for this plugin are skipped.
@@ -102,6 +121,15 @@ pub fn build_wasi_ctx(
     plugin_id: &str,
     requested: &[Capability],
     config: &WasiCapabilityConfig,
+) -> anyhow::Result<WasiCtx> {
+    build_wasi_ctx_inner(plugin_id, requested, config, &[])
+}
+
+fn build_wasi_ctx_inner(
+    plugin_id: &str,
+    requested: &[Capability],
+    config: &WasiCapabilityConfig,
+    extra_env_vars: &[String],
 ) -> anyhow::Result<WasiCtx> {
     let denied = config
         .deny_capabilities
@@ -138,8 +166,20 @@ pub fn build_wasi_ctx(
                 );
             }
             Capability::Environment => {
-                builder.inherit_env();
-                tracing::info!(plugin = plugin_id, "granted environment capability");
+                for var in SAFE_ENV_VARS {
+                    if let Ok(val) = std::env::var(var) {
+                        builder.env(var, &val);
+                    }
+                }
+                for var in extra_env_vars {
+                    if let Ok(val) = std::env::var(var) {
+                        builder.env(var, &val);
+                    }
+                }
+                tracing::info!(
+                    plugin = plugin_id,
+                    "granted environment capability (allowlist)"
+                );
             }
             Capability::MonotonicClock => {
                 // Clocks are provided by default in WasiCtxBuilder::new().
@@ -161,11 +201,21 @@ pub fn build_wasi_ctx(
 /// Build a `WasiCtx` from manifest-declared capability names.
 ///
 /// Converts string names from the manifest to `Capability` enum values,
-/// then delegates to [`build_wasi_ctx`]. Unknown names are silently
+/// then delegates to the inner builder. Unknown names are silently
 /// skipped (they should have been caught by manifest validation).
 pub fn build_wasi_ctx_from_manifest(
     plugin_id: &str,
     manifest_caps: &[String],
+    config: &WasiCapabilityConfig,
+) -> anyhow::Result<WasiCtx> {
+    build_wasi_ctx_from_manifest_with_env(plugin_id, manifest_caps, &[], config)
+}
+
+/// Build a `WasiCtx` from manifest-declared capabilities, with additional env vars.
+pub fn build_wasi_ctx_from_manifest_with_env(
+    plugin_id: &str,
+    manifest_caps: &[String],
+    extra_env_vars: &[String],
     config: &WasiCapabilityConfig,
 ) -> anyhow::Result<WasiCtx> {
     let capabilities: Vec<Capability> = manifest_caps
@@ -178,7 +228,7 @@ pub fn build_wasi_ctx_from_manifest(
             _ => None,
         })
         .collect();
-    build_wasi_ctx(plugin_id, &capabilities, config)
+    build_wasi_ctx_inner(plugin_id, &capabilities, config, extra_env_vars)
 }
 
 /// Check whether the "process" capability is in the manifest list and not denied.

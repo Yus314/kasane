@@ -20,8 +20,43 @@ use kasane_core::plugin::ProviderArtifactStage;
 use kasane_plugin_package::package;
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine};
+
+/// Background thread that periodically increments the engine's epoch counter.
+///
+/// The ticker is reference-counted: it keeps running as long as any
+/// `Arc<EpochTicker>` clone is alive (shared between the loader and all
+/// plugins it creates). When the last reference is dropped, the thread stops.
+struct EpochTicker {
+    stop: Arc<AtomicBool>,
+}
+
+impl EpochTicker {
+    fn start(engine: &Engine) -> Arc<Self> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
+        let engine = engine.clone();
+        std::thread::Builder::new()
+            .name("wasm-epoch-ticker".into())
+            .spawn(move || {
+                while !flag.load(Ordering::Relaxed) {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    engine.increment_epoch();
+                }
+            })
+            .expect("failed to spawn epoch ticker thread");
+        Arc::new(Self { stop })
+    }
+}
+
+impl Drop for EpochTicker {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
 
 /// Loads and instantiates WASM plugins.
 ///
@@ -31,16 +66,19 @@ pub struct WasmPluginLoader {
     engine: Engine,
     linker: Linker<host::HostState>,
     cache: Option<cache::ComponentCache>,
+    epoch_ticker: Arc<EpochTicker>,
 }
 
 impl WasmPluginLoader {
     pub fn new() -> anyhow::Result<Self> {
         let (engine, linker) = Self::create_engine_and_linker()?;
         let cache = cache::ComponentCache::new(&engine);
+        let epoch_ticker = EpochTicker::start(&engine);
         Ok(Self {
             engine,
             linker,
             cache,
+            epoch_ticker,
         })
     }
 
@@ -49,16 +87,19 @@ impl WasmPluginLoader {
     pub fn new_with_cache_base(cache_base: &std::path::Path) -> anyhow::Result<Self> {
         let (engine, linker) = Self::create_engine_and_linker()?;
         let cache = cache::ComponentCache::new_with_base(&engine, cache_base);
+        let epoch_ticker = EpochTicker::start(&engine);
         Ok(Self {
             engine,
             linker,
             cache,
+            epoch_ticker,
         })
     }
 
     fn create_engine_and_linker() -> anyhow::Result<(Engine, Linker<host::HostState>)> {
         let mut config = Config::new();
         config.wasm_component_model(true);
+        config.epoch_interruption(true);
         let engine = Engine::new(&config)?;
         let mut linker: Linker<host::HostState> = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
@@ -124,6 +165,10 @@ impl WasmPluginLoader {
     ) -> anyhow::Result<WasmPlugin> {
         let host_state = host::HostState::default();
         let mut store = wasmtime::Store::new(&self.engine, host_state);
+        store.limiter(|data| &mut data.store_limits);
+        // Generous deadline during instantiation (≈1s at 10ms tick).
+        // Runtime calls use a tighter deadline (1 epoch ≈ 10ms) via with_runtime().
+        store.set_epoch_deadline(100);
         let instance = bindings::KasanePlugin::instantiate(&mut store, &component, &self.linker)?;
 
         let plugin_api = instance.kasane_plugin_plugin_api();
@@ -153,6 +198,7 @@ impl WasmPluginLoader {
             id,
             process_allowed,
             resolved_authorities,
+            Arc::clone(&self.epoch_ticker),
         ))
     }
 
@@ -184,9 +230,10 @@ impl WasmPluginLoader {
 
         // Build WasiCtx from manifest capabilities BEFORE instantiation.
         let wasi_ctx = if !manifest.wasi_capabilities().is_empty() {
-            capability::build_wasi_ctx_from_manifest(
+            capability::build_wasi_ctx_from_manifest_with_env(
                 plugin_id,
                 manifest.wasi_capabilities(),
+                &manifest.capabilities.env_vars,
                 wasi_config,
             )?
         } else {
@@ -199,6 +246,9 @@ impl WasmPluginLoader {
         };
 
         let mut store = wasmtime::Store::new(&self.engine, host_state);
+        store.limiter(|data| &mut data.store_limits);
+        // Generous deadline during instantiation (≈1s at 10ms tick).
+        store.set_epoch_deadline(100);
         let instance = bindings::KasanePlugin::instantiate(&mut store, &component, &self.linker)?;
 
         // Verify WASM module's self-reported ID matches manifest
@@ -253,6 +303,7 @@ impl WasmPluginLoader {
             subscribe_topics,
             extensions_consumed,
             extension_defs,
+            Arc::clone(&self.epoch_ticker),
         ))
     }
 

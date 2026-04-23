@@ -39,6 +39,13 @@ pub struct PluginSection {
 pub struct CapabilitiesSection {
     #[serde(default)]
     pub wasi: Vec<String>,
+    /// Additional environment variables to expose beyond the safe default set.
+    ///
+    /// Only effective when `wasi` includes `"environment"`. Each entry is a
+    /// variable name (e.g. `"RUST_LOG"`). The host resolves values from the
+    /// process environment at load time.
+    #[serde(default)]
+    pub env_vars: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]

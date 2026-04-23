@@ -106,6 +106,9 @@ pub(crate) struct HostState {
     // WASI support (required by wasmtime-wasi for wasm32-wasip2 components)
     pub wasi: wasmtime_wasi::WasiCtx,
     pub table: wasmtime::component::ResourceTable,
+
+    /// Resource limits for the WASM store (memory, tables, instances).
+    pub store_limits: wasmtime::StoreLimits,
 }
 
 /// Cached session descriptor for WASM host state.
@@ -166,6 +169,11 @@ impl Default for HostState {
             plugin_tag: PluginTag::UNASSIGNED,
             wasi: WasiCtxBuilder::new().build(),
             table: wasmtime::component::ResourceTable::new(),
+            store_limits: wasmtime::StoreLimitsBuilder::new()
+                .memory_size(64 * 1024 * 1024) // 64 MB per plugin
+                .table_elements(10_000)
+                .instances(10)
+                .build(),
         }
     }
 }
@@ -320,6 +328,10 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
             .map(|c| (*c).into())
     }
 
+    fn get_all_secondary_cursors(&mut self) -> Vec<bindings::kasane::plugin::types::Coord> {
+        self.secondary_cursors.iter().map(|c| (*c).into()).collect()
+    }
+
     // --- v0.4.0 Tier 5: Config ---
     fn get_config_string(&mut self, key: String) -> Option<String> {
         self.config_values.get(&key).cloned()
@@ -449,6 +461,17 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
                 cursor: s.cursor.into(),
                 is_primary: s.is_primary,
             })
+    }
+
+    fn get_all_selections(&mut self) -> Vec<bindings::kasane::plugin::types::Selection> {
+        self.selections
+            .iter()
+            .map(|s| bindings::kasane::plugin::types::Selection {
+                anchor: s.anchor.into(),
+                cursor: s.cursor.into(),
+                is_primary: s.is_primary,
+            })
+            .collect()
     }
 
     // --- v0.9.0 Tier 10: Buffer file metadata ---
