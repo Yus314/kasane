@@ -70,7 +70,6 @@ pub(crate) type ErasedExtensionHandler =
 #[doc(hidden)]
 pub struct ExtensionDefinition {
     pub(crate) id: ExtensionPointId,
-    #[allow(dead_code)]
     pub(crate) rule: CompositionRule,
     /// The definer's own handler (optional — the definer may also contribute).
     pub(crate) handler: Option<ErasedExtensionHandler>,
