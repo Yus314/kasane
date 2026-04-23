@@ -380,9 +380,10 @@ pub fn schedule_diagnostic_overlay(
 pub fn sync_salsa_for_render(
     db: &mut crate::salsa_db::KasaneDatabase,
     state: &AppState,
-    registry: &PluginRuntime,
+    registry: &mut PluginRuntime,
     handles: &mut crate::salsa_sync::SalsaInputHandles,
 ) {
+    crate::salsa_sync::cleanup_unloaded_plugins(registry, handles);
     crate::salsa_sync::sync_inputs_from_state(db, state, handles);
     let view = registry.view();
     crate::salsa_sync::sync_unified_display(db, state, &view, handles);
@@ -405,7 +406,7 @@ pub trait PreRenderHook: Send {
 pub fn sync_salsa_for_render_with_hooks(
     db: &mut crate::salsa_db::KasaneDatabase,
     state: &mut AppState,
-    registry: &PluginRuntime,
+    registry: &mut PluginRuntime,
     handles: &mut crate::salsa_sync::SalsaInputHandles,
     hooks: &mut [&mut dyn PreRenderHook],
 ) {

@@ -146,12 +146,16 @@ impl TopicBus {
         }
     }
 
-    /// Record a publication. Panics if called during delivery phase.
+    /// Record a publication. Logs an error and returns early if called during delivery phase.
     pub fn publish(&mut self, topic: TopicId, publisher: PluginId, value: ChannelValue) {
-        debug_assert!(
-            !self.delivering.load(Ordering::Relaxed),
-            "cannot publish during delivery phase (cycle detected)"
-        );
+        if self.delivering.load(Ordering::Relaxed) {
+            tracing::error!(
+                topic = topic.as_str(),
+                publisher = %publisher.0,
+                "cycle detected: publish during delivery phase — dropping publication"
+            );
+            return;
+        }
         self.publications
             .entry(topic)
             .or_default()
@@ -310,9 +314,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "cannot publish during delivery phase")]
-    fn publish_during_delivery_panics_in_debug() {
+    fn publish_during_delivery_is_dropped() {
         let mut bus = TopicBus::new();
         bus.begin_delivery();
         bus.publish(
@@ -320,6 +322,9 @@ mod tests {
             PluginId("p".to_string()),
             ChannelValue::new(&()).unwrap(),
         );
+        bus.end_delivery();
+        // Publication was silently dropped
+        assert!(bus.get_publications(&TopicId::new("x")).is_none());
     }
 
     #[test]

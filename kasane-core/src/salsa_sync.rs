@@ -98,6 +98,17 @@ impl SalsaInputHandles {
     }
 }
 
+/// Drain unloaded plugin IDs from the registry and clean up their
+/// contribution caches. Call this before `sync_plugin_contributions()`.
+pub fn cleanup_unloaded_plugins(
+    registry: &mut crate::plugin::PluginRuntime,
+    inputs: &mut SalsaInputHandles,
+) {
+    for id in registry.drain_unloaded_ids() {
+        inputs.remove_plugin_cache(&id);
+    }
+}
+
 /// Project all `AppState` fields onto Salsa inputs.
 ///
 /// Salsa's `set_*().to()` compares via PartialEq and only bumps the

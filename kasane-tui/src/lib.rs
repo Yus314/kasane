@@ -555,7 +555,7 @@ where
             kasane_core::event_loop::sync_salsa_for_render(
                 &mut salsa_db,
                 &state,
-                &registry,
+                &mut registry,
                 &mut salsa_handles,
             );
             let view = registry.view();

@@ -314,7 +314,7 @@ interface types {
         byte-offset: u32,
         content: list<atom>,
         /// None = not interactive. Some(id) = clickable with interactive ID.
-        interactive-id: option<u64>,
+        interactive-id: option<interactive-id>,
     }
 
     record hide-inline-directive {
@@ -1110,6 +1110,9 @@ interface host-state {
     get-secondary-cursor-count: func() -> u32;
     get-secondary-cursor: func(index: u32) -> option<coord>;
 
+    /// Get all secondary cursors as a batch.
+    get-all-secondary-cursors: func() -> list<coord>;
+
     // --- v0.4.0 Tier 5: Config ---
     get-config-string: func(key: string) -> option<string>;
 
@@ -1159,6 +1162,9 @@ interface host-state {
     /// Get a selection by index.
     /// Returns anchor, cursor, is_primary packed as a selection record.
     get-selection: func(index: u32) -> option<selection>;
+
+    /// Get all selections as a batch.
+    get-all-selections: func() -> list<selection>;
 
     // --- v0.9.0 Tier 10: Buffer file metadata ---
 

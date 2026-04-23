@@ -1256,7 +1256,7 @@ where
             kasane_core::event_loop::sync_salsa_for_render(
                 &mut self.salsa_db,
                 &self.state,
-                &self.registry,
+                &mut self.registry,
                 &mut self.salsa_handles,
             );
             let view = self.registry.view();

@@ -77,6 +77,9 @@ pub struct PluginRuntime {
     directive_stability: RefCell<DirectiveStabilityMonitor>,
     variable_store: super::variable_store::PluginVariableStore,
     suppressed_builtins: std::collections::HashSet<super::BuiltinTarget>,
+    /// Plugin IDs that were unloaded since the last drain. Used by the salsa
+    /// sync path to clean up contribution caches.
+    unloaded_ids: Vec<PluginId>,
 }
 
 /// Immutable view over plugins for the render phase.
@@ -115,6 +118,7 @@ impl PluginRuntime {
             directive_stability: RefCell::new(DirectiveStabilityMonitor::new()),
             variable_store: super::variable_store::PluginVariableStore::default(),
             suppressed_builtins: std::collections::HashSet::new(),
+            unloaded_ids: Vec::new(),
         }
     }
 
@@ -244,6 +248,7 @@ impl PluginRuntime {
     pub fn remove_plugin(&mut self, id: &PluginId) -> bool {
         if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == *id) {
             self.slots.remove(pos);
+            self.unloaded_ids.push(id.clone());
             true
         } else {
             false
@@ -255,10 +260,19 @@ impl PluginRuntime {
         if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == *id) {
             self.slots[pos].backend.on_shutdown();
             self.slots.remove(pos);
+            self.unloaded_ids.push(id.clone());
             true
         } else {
             false
         }
+    }
+
+    /// Drain the list of recently-unloaded plugin IDs.
+    ///
+    /// Called by the salsa sync path to clean up contribution caches
+    /// for plugins that have been removed.
+    pub fn drain_unloaded_ids(&mut self) -> Vec<PluginId> {
+        std::mem::take(&mut self.unloaded_ids)
     }
 
     /// Check whether any plugin's internal state changed since the last call,
@@ -378,14 +392,22 @@ impl PluginRuntime {
     ///
     /// Iterates over all registered extension point definitions, collects
     /// contributions from all plugins, and returns the collected results.
+    /// The [`CompositionRule`] on each definition determines how multiple
+    /// contributions are combined:
+    ///
+    /// * **Merge** — all contributions are collected (registration order).
+    /// * **FirstWins** — the first non-empty result wins; later plugins are skipped.
+    /// * **Chain** — each handler receives the previous handler's output as input.
     pub fn evaluate_extensions(
         &self,
         input: &super::channel::ChannelValue,
         app: &AppView<'_>,
     ) -> super::extension_point::ExtensionResults {
+        use super::extension_point::CompositionRule;
+
         let mut results = super::extension_point::ExtensionResults::new();
 
-        // Collect all defined extension point IDs.
+        // Collect all defined extension point definitions (id + rule).
         let definitions: Vec<_> = self
             .slots
             .iter()
@@ -393,15 +415,44 @@ impl PluginRuntime {
                 slot.backend
                     .extension_definitions()
                     .iter()
-                    .map(|def| def.id.clone())
+                    .map(|def| (def.id.clone(), def.rule.clone()))
             })
             .collect();
 
-        // For each extension point, collect contributions from all plugins.
-        for ext_id in &definitions {
-            for slot in &self.slots {
-                for output in slot.backend.evaluate_extension(ext_id, input, app) {
-                    results.insert(ext_id.clone(), output);
+        for (ext_id, rule) in &definitions {
+            match rule {
+                CompositionRule::Merge => {
+                    // Collect all contributions (original behavior).
+                    for slot in &self.slots {
+                        for output in slot.backend.evaluate_extension(ext_id, input, app) {
+                            results.insert(ext_id.clone(), output);
+                        }
+                    }
+                }
+                CompositionRule::FirstWins => {
+                    // First non-empty result wins.
+                    for slot in &self.slots {
+                        let outputs = slot.backend.evaluate_extension(ext_id, input, app);
+                        if !outputs.is_empty() {
+                            for output in outputs {
+                                results.insert(ext_id.clone(), output);
+                            }
+                            break;
+                        }
+                    }
+                }
+                CompositionRule::Chain => {
+                    // Chain: each handler receives the previous output as input.
+                    let mut current_input = input.clone();
+                    for slot in &self.slots {
+                        let outputs = slot.backend.evaluate_extension(ext_id, &current_input, app);
+                        if let Some(last) = outputs.last() {
+                            current_input = last.value.clone();
+                            for output in outputs {
+                                results.insert(ext_id.clone(), output);
+                            }
+                        }
+                    }
                 }
             }
         }

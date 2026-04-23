@@ -44,7 +44,7 @@ pub(crate) fn wit_display_directive_to_directive_with_resolver(
             byte_offset: d.byte_offset as usize,
             content: super::wit_atoms_to_atoms(&d.content),
             interaction: match d.interactive_id {
-                Some(id) => InlineInteraction::Action(InteractiveId::new(id as u32, plugin_tag)),
+                Some(id) => InlineInteraction::Action(InteractiveId::new(id, plugin_tag)),
                 None => InlineInteraction::None,
             },
         },
@@ -176,7 +176,7 @@ pub(crate) fn display_directive_to_wit(directive: &DisplayDirective) -> wit::Dis
             byte_offset: *byte_offset as u32,
             content: super::atoms_to_wit(content),
             interactive_id: match interaction {
-                InlineInteraction::Action(id) => Some(id.local as u64),
+                InlineInteraction::Action(id) => Some(id.local),
                 InlineInteraction::None => None,
             },
         }),
