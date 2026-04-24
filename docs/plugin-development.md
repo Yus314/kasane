@@ -128,7 +128,7 @@ kasane_plugin_sdk::define_plugin! {
 
 ### SDK Helpers Reference
 
-Common helpers like `plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `hex()`, `redraw()`, `send_command()`, and `paste_clipboard()` are available in all plugin code (emitted by `generate!()` / `define_plugin!`). `paste_clipboard()` specifically requests insertion of the host system clipboard contents; committed text input and bracketed paste payloads already flow through the text-input pipeline without using this command. For the full list including face/color construction, overlay layout, key escaping, and attribute constants, see [plugin-api.md §4.5](./plugin-api.md#45-sdk-helpers).
+Common helpers like `plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `hex()`, `redraw()`, `send_command()`, and `paste_clipboard()` are available in all plugin code (emitted by `generate!()` / `define_plugin!`). `paste_clipboard()` specifically requests insertion of the host system clipboard contents; committed text input and bracketed paste payloads already flow through the text-input pipeline without using this command. For the full list including face/color construction, overlay layout, key escaping, and attribute constants, see [plugin-api.md §4.4](./plugin-api.md#44-sdk-helpers).
 
 ### Plugin Manifest
 
