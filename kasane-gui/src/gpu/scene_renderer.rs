@@ -53,6 +53,10 @@ pub struct SceneRenderer {
     row_text: String,
     span_ranges: Vec<(usize, usize, [f32; 4])>,
 
+    /// Glyph-accurate primary cursor pixel position from RenderParagraph.
+    /// Overrides the cell-based cursor position in render_cursor().
+    paragraph_cursor_x: Option<f32>,
+
     // Font config
     font_family: String,
     font_size: f32,
@@ -148,6 +152,7 @@ impl SceneRenderer {
             text_buffer_count: 0,
             row_text: String::with_capacity(512),
             span_ranges: Vec::with_capacity(256),
+            paragraph_cursor_x: None,
             font_family: font_config.family.clone(),
             font_size,
             line_height,
@@ -386,6 +391,7 @@ impl SceneRenderer {
         self.text_positions.clear();
         self.text_clip_bounds.clear();
         self.clip_stack.clear();
+        self.paragraph_cursor_x = None;
 
         // Split commands into layers at BeginOverlay boundaries.
         // layer_ranges[i] = (start, end) index into `commands`.
@@ -1017,6 +1023,10 @@ impl SceneRenderer {
     }
 
     /// Render the cursor into the bg pipeline.
+    ///
+    /// When `paragraph_cursor_x` is set (from RenderParagraph shaping),
+    /// the glyph-accurate x position is used instead of the cell-based x.
+    /// This ensures correct cursor placement with proportional fonts and RTL text.
     fn render_cursor(
         &mut self,
         cursor: Option<(f32, f32, f32, CursorStyle, kasane_core::protocol::Color)>,
@@ -1024,9 +1034,10 @@ impl SceneRenderer {
         cell_w: f32,
         cell_h: f32,
     ) {
-        let Some((x, y, opacity, style, cursor_color)) = cursor else {
+        let Some((cell_x, y, opacity, style, cursor_color)) = cursor else {
             return;
         };
+        let x = self.paragraph_cursor_x.unwrap_or(cell_x);
         let mut cc = color_resolver.resolve(cursor_color, true);
         cc[3] = opacity;
         match style {
@@ -1275,14 +1286,42 @@ impl SceneRenderer {
             return;
         }
 
-        // 2. Concatenate text + track atom byte boundaries + build color spans
+        // 2. Identify cursor atom indices so we can strip Kakoune's baked-in
+        //    cursor face (REVERSE) before background computation.
+        let mut cursor_atom_indices: Vec<usize> = Vec::new();
+        for ann in &para.annotations {
+            let offset = match ann {
+                ParagraphAnnotation::PrimaryCursor { byte_offset, .. }
+                | ParagraphAnnotation::SecondaryCursor { byte_offset, .. } => *byte_offset,
+            };
+            // Walk atoms to find which one contains this byte offset
+            let mut accum = 0usize;
+            for (i, atom) in para.atoms.iter().enumerate() {
+                let atom_end = accum + atom.contents.len();
+                if offset >= accum && offset < atom_end {
+                    cursor_atom_indices.push(i);
+                    break;
+                }
+                accum = atom_end;
+            }
+        }
+
+        // 3. Concatenate text + track atom byte boundaries + build color spans
         self.row_text.clear();
         self.span_ranges.clear();
         let mut atom_byte_boundaries: Vec<usize> = vec![0];
-        let mut atom_faces: Vec<&kasane_core::protocol::Face> = Vec::new();
+        let mut atom_faces: Vec<kasane_core::protocol::Face> = Vec::new();
 
-        for atom in &para.atoms {
-            let (visual_fg, _, _) = color_resolver.resolve_face_colors(&atom.face);
+        for (i, atom) in para.atoms.iter().enumerate() {
+            // Strip cursor face: use base_face for cursor atoms so the
+            // REVERSE background doesn't create a phantom cursor block.
+            let face = if cursor_atom_indices.contains(&i) {
+                para.base_face
+            } else {
+                atom.face
+            };
+
+            let (visual_fg, _, _) = color_resolver.resolve_face_colors(&face);
             let fg = visual_fg;
 
             if let Some(last) = self.span_ranges.last_mut() {
@@ -1301,14 +1340,14 @@ impl SceneRenderer {
             }
 
             atom_byte_boundaries.push(self.row_text.len());
-            atom_faces.push(&atom.face);
+            atom_faces.push(face);
         }
 
         if self.row_text.is_empty() {
             return;
         }
 
-        // 3. Shape text with cosmic-text
+        // 4. Shape text with cosmic-text
         let buf_idx = self.alloc_text_buffer(max_width);
         let default_attrs = super::text_helpers::default_attrs(&self.font_family);
 
@@ -1328,7 +1367,7 @@ impl SceneRenderer {
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
 
-        // 4. Per-atom background rectangles + decorations from glyph metrics
+        // 5. Per-atom background rectangles + decorations from glyph metrics
         let atom_count = atom_faces.len();
         let mut atom_x_min = vec![f32::MAX; atom_count];
         let mut atom_x_max = vec![f32::MIN; atom_count];
@@ -1353,56 +1392,24 @@ impl SceneRenderer {
             let w = (atom_x_max[i] - atom_x_min[i]).min(max_width);
             let x = px + atom_x_min[i];
             let (visual_fg, visual_bg, needs_bg) =
-                color_resolver.resolve_face_colors(atom_faces[i]);
+                color_resolver.resolve_face_colors(&atom_faces[i]);
 
             if w > 0.0 && needs_bg && !self.should_skip_default_bg(&visual_bg, color_resolver) {
                 self.bg.push_rect(x, py, w, cell_h, visual_bg);
             }
             if w > 0.0 {
-                self.emit_decorations(x, py, w, atom_faces[i], visual_fg, color_resolver);
+                self.emit_decorations(x, py, w, &atom_faces[i], visual_fg, color_resolver);
             }
         }
 
-        // 5. Annotation rendering (cursors)
+        // 6. Resolve annotation positions from glyph metrics
         let buffer = &self.text_buffers[buf_idx];
         for ann in &para.annotations {
             match ann {
-                ParagraphAnnotation::PrimaryCursor { byte_offset, style } => {
-                    if let Some((gx, gw)) = find_glyph_at_byte_offset(buffer, *byte_offset) {
-                        let x = px + gx;
-                        let w = gw.max(cell_w); // Ensure minimum cursor width
-                        match style {
-                            CursorStyle::Block => {
-                                // Block cursor is rendered by the animated cursor system
-                                // (render_cursor) — skip here to avoid double-draw
-                            }
-                            CursorStyle::Bar => {
-                                self.bg.push_rect(
-                                    x,
-                                    py,
-                                    CURSOR_BAR_WIDTH,
-                                    cell_h,
-                                    [1.0, 1.0, 1.0, 1.0],
-                                );
-                            }
-                            CursorStyle::Underline => {
-                                self.bg.push_rect(
-                                    x,
-                                    py + cell_h - CURSOR_UNDERLINE_HEIGHT,
-                                    w,
-                                    CURSOR_UNDERLINE_HEIGHT,
-                                    [1.0, 1.0, 1.0, 1.0],
-                                );
-                            }
-                            CursorStyle::Outline => {
-                                let t = CURSOR_OUTLINE_THICKNESS;
-                                let c = [1.0, 1.0, 1.0, 1.0];
-                                self.bg.push_rect(x, py, w, t, c);
-                                self.bg.push_rect(x, py + cell_h - t, w, t, c);
-                                self.bg.push_rect(x, py, t, cell_h, c);
-                                self.bg.push_rect(x + w - t, py, t, cell_h, c);
-                            }
-                        }
+                ParagraphAnnotation::PrimaryCursor { byte_offset, .. } => {
+                    // Store glyph-accurate cursor x for render_cursor()
+                    if let Some((gx, _gw)) = find_glyph_at_byte_offset(buffer, *byte_offset) {
+                        self.paragraph_cursor_x = Some(px + gx);
                     }
                 }
                 ParagraphAnnotation::SecondaryCursor {
@@ -1412,7 +1419,6 @@ impl SceneRenderer {
                     if let Some((gx, gw)) = find_glyph_at_byte_offset(buffer, *byte_offset) {
                         let x = px + gx;
                         let w = gw.max(cell_w);
-                        // Blend cursor color with base background
                         let cursor_color = [1.0_f32, 1.0, 1.0, 1.0];
                         let bg_color = base_bg;
                         let blended = [
@@ -1427,7 +1433,7 @@ impl SceneRenderer {
             }
         }
 
-        // 6. Register text position for rendering
+        // 7. Register text position for rendering
         self.text_positions.push((px, py));
         self.push_text_clip_bounds();
     }
