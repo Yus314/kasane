@@ -1276,9 +1276,10 @@ impl SceneRenderer {
         let cell_h = self.metrics.cell_height;
         let cell_w = self.metrics.cell_width;
 
-        // 1. Line-wide background fill
-        let (_, base_bg, base_needs_bg) = color_resolver.resolve_face_colors(&para.base_face);
-        if base_needs_bg && !self.should_skip_default_bg(&base_bg, color_resolver) {
+        // 1. Line-wide background fill (always drawn, matching old FillRect behavior).
+        // Only skip when gradient is active and bg matches default.
+        let (_, base_bg, _) = color_resolver.resolve_face_colors(&para.base_face);
+        if !self.should_skip_default_bg(&base_bg, color_resolver) {
             self.bg.push_rect(px, py, max_width, cell_h, base_bg);
         }
 
@@ -1286,23 +1287,24 @@ impl SceneRenderer {
             return;
         }
 
-        // 2. Identify cursor atom indices so we can strip Kakoune's baked-in
-        //    cursor face (REVERSE) before background computation.
-        let mut cursor_atom_indices: Vec<usize> = Vec::new();
+        // 2. Identify primary cursor atom index for face stripping.
+        // Only strip for Bar/Underline styles (non-block/outline) — Block and Outline
+        // keep the Kakoune-provided face so the cursor highlight is visible.
+        // Secondary cursors keep their face (dim_cursor applies a blend, not REVERSE).
+        let mut clear_cursor_atom_idx: Option<usize> = None;
         for ann in &para.annotations {
-            let offset = match ann {
-                ParagraphAnnotation::PrimaryCursor { byte_offset, .. }
-                | ParagraphAnnotation::SecondaryCursor { byte_offset, .. } => *byte_offset,
-            };
-            // Walk atoms to find which one contains this byte offset
-            let mut accum = 0usize;
-            for (i, atom) in para.atoms.iter().enumerate() {
-                let atom_end = accum + atom.contents.len();
-                if offset >= accum && offset < atom_end {
-                    cursor_atom_indices.push(i);
-                    break;
+            if let ParagraphAnnotation::PrimaryCursor { byte_offset, style } = ann
+                && matches!(style, CursorStyle::Bar | CursorStyle::Underline)
+            {
+                let mut accum = 0usize;
+                for (i, atom) in para.atoms.iter().enumerate() {
+                    let atom_end = accum + atom.contents.len();
+                    if *byte_offset >= accum && *byte_offset < atom_end {
+                        clear_cursor_atom_idx = Some(i);
+                        break;
+                    }
+                    accum = atom_end;
                 }
-                accum = atom_end;
             }
         }
 
@@ -1313,9 +1315,9 @@ impl SceneRenderer {
         let mut atom_faces: Vec<kasane_core::protocol::Face> = Vec::new();
 
         for (i, atom) in para.atoms.iter().enumerate() {
-            // Strip cursor face: use base_face for cursor atoms so the
-            // REVERSE background doesn't create a phantom cursor block.
-            let face = if cursor_atom_indices.contains(&i) {
+            // Strip cursor face only for Bar/Underline so the thin cursor
+            // shape is visible (the REVERSE bg would hide it).
+            let face = if clear_cursor_atom_idx == Some(i) {
                 para.base_face
             } else {
                 atom.face
