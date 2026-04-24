@@ -63,7 +63,6 @@ pub(crate) type ErasedExtensionHandler =
     Box<dyn Fn(&dyn PluginState, &ChannelValue, &AppView<'_>) -> ChannelValue + Send + Sync>;
 
 /// Registration entry for defining an extension point.
-/// Registration entry for defining an extension point.
 ///
 /// Framework-internal. Plugin authors interact with
 /// [`HandlerRegistry::define_extension()`] instead.

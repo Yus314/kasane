@@ -397,7 +397,8 @@ impl PluginRuntime {
     ///
     /// * **Merge** — all contributions are collected (registration order).
     /// * **FirstWins** — the first non-empty result wins; later plugins are skipped.
-    /// * **Chain** — each handler receives the previous handler's output as input.
+    /// * **Chain** — each handler receives the previous handler's output as input;
+    ///   only the final output is kept.
     pub fn evaluate_extensions(
         &self,
         input: &super::channel::ChannelValue,
@@ -442,15 +443,20 @@ impl PluginRuntime {
                     }
                 }
                 CompositionRule::Chain => {
-                    // Chain: each handler receives the previous output as input.
+                    // Chain: each handler receives the previous handler's output.
+                    // Only the final output is kept; intermediates are discarded.
                     let mut current_input = input.clone();
+                    let mut last_output = None;
                     for slot in &self.slots {
                         let outputs = slot.backend.evaluate_extension(ext_id, &current_input, app);
                         if let Some(last) = outputs.last() {
                             current_input = last.value.clone();
-                            for output in outputs {
-                                results.insert(ext_id.clone(), output);
-                            }
+                            last_output = Some(outputs);
+                        }
+                    }
+                    if let Some(outputs) = last_output {
+                        for output in outputs {
+                            results.insert(ext_id.clone(), output);
                         }
                     }
                 }
