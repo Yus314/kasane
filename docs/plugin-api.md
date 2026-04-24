@@ -1350,7 +1350,9 @@ This section catalogs constraints of WASM plugins compared to native plugins: **
 | Inter-plugin messaging | `Box<dyn Any>` | `Vec<u8>` | Serialization required |
 | State access | Direct `&AppState` | ~40 getter functions | Guarded access [By Design] |
 | Cache invalidation | Automatic (`PartialEq`) | Manual `state_hash()` | [Improvement] |
-| Fuel / timeout | N/A | None | No runaway protection [Improvement] |
+| Execution timeout | N/A | Epoch interruption (~10ms) | — |
+| Memory limits | N/A | 64 MB per plugin | — |
+| Environment variables | Full | Allowlisted subset | [By Design] |
 
 ### 8.2 Missing State Queries [Not Yet Implemented]
 
@@ -1370,7 +1372,9 @@ This section catalogs constraints of WASM plugins compared to native plugins: **
 - **No threading [By Design]**: WASI does not include threading support.
 - **No network access [By Design]**: Spawn a helper process via `SpawnProcess` and communicate over stdin/stdout.
 - **Element handle scope [By Design]**: Handles are valid only within the current plugin call.
-- **No fuel metering [Improvement]**: An infinite loop blocks the editor indefinitely.
+- **Epoch interruption**: A background ticker (10ms interval) traps runaway plugins. Runtime calls have a 1-epoch (~10ms) deadline; instantiation uses 100 epochs (~1s).
+- **Memory limits**: Each plugin Store is limited to 64 MB memory, 10K table elements, and 10 instances via `StoreLimits`.
+- **Environment variable allowlist [By Design]**: Only a safe subset (`HOME`, `PATH`, `SHELL`, `EDITOR`, `PAGER`, `TERM`, `LANG`, `LC_ALL`, `XDG_*`) is exposed. Plugins can declare additional variables via manifest `capabilities.env_vars`.
 
 ### 8.4 Intentional Design Constraints
 
