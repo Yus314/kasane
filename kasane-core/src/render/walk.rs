@@ -601,20 +601,30 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         resolved.extend(vt_resolved);
                     }
 
-                    // Build semantic annotations instead of modifying atom faces
+                    // Build semantic annotations.
+                    // cursor_pos.column and secondary_cursors[].column are display
+                    // columns (unicode width), not byte offsets. Convert to byte
+                    // offsets so the GPU renderer can match against glyph byte ranges.
                     let mut annotations = Vec::new();
                     if state.inference.cursor_mode == crate::protocol::CursorMode::Buffer
                         && line_idx == state.observed.cursor_pos.line as usize
+                        && let Some(bo) = display_col_to_byte_offset(
+                            &resolved,
+                            state.observed.cursor_pos.column as usize,
+                        )
                     {
                         annotations.push(ParagraphAnnotation::PrimaryCursor {
-                            byte_offset: state.observed.cursor_pos.column as usize,
+                            byte_offset: bo,
                             style: self.cursor_style,
                         });
                     }
                     for coord in &state.inference.secondary_cursors {
-                        if coord.line as usize == line_idx {
+                        if coord.line as usize == line_idx
+                            && let Some(bo) =
+                                display_col_to_byte_offset(&resolved, coord.column as usize)
+                        {
                             annotations.push(ParagraphAnnotation::SecondaryCursor {
-                                byte_offset: coord.column as usize,
+                                byte_offset: bo,
                                 blend_ratio: state.config.secondary_blend_ratio,
                             });
                         }
@@ -869,6 +879,36 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
     fn visit_scrollable_post(&mut self) {
         self.out.push(DrawCommand::PopClip);
     }
+}
+
+/// Convert a display column (unicode width offset) to a byte offset in the
+/// concatenated text of resolved atoms.
+///
+/// Kakoune's `cursor_pos.column` is a display column, not a byte offset.
+/// This walks atoms accumulating display widths and returns the byte offset
+/// of the first character at or after the target display column.
+fn display_col_to_byte_offset(
+    atoms: &[super::scene::ResolvedAtom],
+    display_col: usize,
+) -> Option<usize> {
+    use unicode_width::UnicodeWidthChar;
+    let mut col = 0usize;
+    let mut byte = 0usize;
+    for atom in atoms {
+        for ch in atom.contents.chars() {
+            let w = ch.width().unwrap_or(0);
+            if col == display_col || (w > 1 && display_col > col && display_col < col + w) {
+                return Some(byte);
+            }
+            col += w;
+            byte += ch.len_utf8();
+        }
+    }
+    // display_col at or past end → return total byte length
+    if display_col >= col {
+        return Some(byte);
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
