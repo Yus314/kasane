@@ -57,6 +57,10 @@ pub struct SceneRenderer {
     /// Overrides the cell-based cursor position/width in render_cursor().
     paragraph_cursor: Option<(f32, f32)>,
 
+    /// Per-paragraph hit test data from the current frame.
+    /// Each entry is (origin_x, origin_y, buffer_idx) for a RenderParagraph.
+    paragraph_hit_data: Vec<(f32, f32, usize)>,
+
     // Font config
     font_family: String,
     font_size: f32,
@@ -153,6 +157,7 @@ impl SceneRenderer {
             row_text: String::with_capacity(512),
             span_ranges: Vec::with_capacity(256),
             paragraph_cursor: None,
+            paragraph_hit_data: Vec::with_capacity(64),
             font_family: font_config.family.clone(),
             font_size,
             line_height,
@@ -169,6 +174,49 @@ impl SceneRenderer {
 
     pub fn metrics(&self) -> &CellMetrics {
         &self.metrics
+    }
+
+    /// Proportional-aware mouse hit test.
+    ///
+    /// Uses the shaped paragraph buffers from the last frame to convert pixel
+    /// coordinates into a (display_col, row) pair. Falls back to cell-based
+    /// division for areas outside paragraph regions (status bar, menus, etc.).
+    pub fn hit_test(&self, px: f64, py: f64) -> (u16, u16) {
+        let cell_h = self.metrics.cell_height;
+        let cell_w = self.metrics.cell_width;
+        let row = (py as f32 / cell_h).floor().max(0.0) as u16;
+
+        // Find the paragraph buffer whose y range covers this pixel.
+        for &(origin_x, origin_y, buf_idx) in &self.paragraph_hit_data {
+            let rel_y = py as f32 - origin_y;
+            if rel_y < 0.0 || rel_y >= cell_h {
+                continue;
+            }
+            let rel_x = px as f32 - origin_x;
+            if rel_x < 0.0 {
+                break; // x is before the paragraph origin
+            }
+            let buffer = &self.text_buffers[buf_idx];
+            if let Some(cursor) = buffer.hit(rel_x, rel_y) {
+                // cursor.index is a byte offset into the shaped text.
+                // Convert to display column by measuring unicode widths
+                // using the run text (single-line buffers have one run).
+                if let Some(run) = buffer.layout_runs().next() {
+                    let col = byte_offset_to_display_col(run.text, cursor.index);
+                    return (
+                        col.min(self.metrics.cols.saturating_sub(1)),
+                        row.min(self.metrics.rows.saturating_sub(1)),
+                    );
+                }
+            }
+        }
+
+        // Fallback: cell-based grid division
+        let col = (px as f32 / cell_w).floor().max(0.0) as u16;
+        (
+            col.min(self.metrics.cols.saturating_sub(1)),
+            row.min(self.metrics.rows.saturating_sub(1)),
+        )
     }
 
     pub fn cell_size(&self) -> CellSize {
@@ -392,6 +440,7 @@ impl SceneRenderer {
         self.text_clip_bounds.clear();
         self.clip_stack.clear();
         self.paragraph_cursor = None;
+        self.paragraph_hit_data.clear();
 
         // Split commands into layers at BeginOverlay boundaries.
         // layer_ranges[i] = (start, end) index into `commands`.
@@ -1440,9 +1489,10 @@ impl SceneRenderer {
             }
         }
 
-        // 7. Register text position for rendering
+        // 7. Register text position for rendering + hit test data
         self.text_positions.push((px, py));
         self.push_text_clip_bounds();
+        self.paragraph_hit_data.push((px, py, buf_idx));
     }
 
     /// Process DrawText: simple single-face text.
@@ -1532,6 +1582,12 @@ impl SceneRenderer {
         }
         idx
     }
+}
+
+/// Convert a byte offset into text to a display column (unicode width).
+fn byte_offset_to_display_col(text: &str, byte_offset: usize) -> u16 {
+    let prefix = &text[..byte_offset.min(text.len())];
+    line_display_width_str(prefix) as u16
 }
 
 /// Find the glyph covering the given byte offset in a shaped buffer.

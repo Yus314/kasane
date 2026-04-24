@@ -1627,11 +1627,13 @@ where
             return;
         };
         let metrics = sr.metrics();
+        let hit_test = |px: f64, py: f64| sr.hit_test(px, py);
         let mut input_events = convert_window_event(
             &event,
             metrics,
             &mut self.cursor_pos,
             &mut self.mouse_button_held,
+            Some(&hit_test),
         );
 
         // Apply modifier state

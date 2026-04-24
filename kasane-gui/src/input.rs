@@ -7,12 +7,23 @@ use winit::keyboard::{Key as WinitKey, NamedKey};
 use crate::gpu::CellMetrics;
 
 /// Convert a winit `WindowEvent` to a kasane `InputEvent`.
+///
+/// `hit_test` provides proportional-aware pixel→grid conversion from the
+/// scene renderer's shaped paragraph buffers. When `None`, falls back to
+/// cell-based division.
 pub fn convert_window_event(
     event: &WindowEvent,
     cell_metrics: &CellMetrics,
     cursor_pos: &mut Option<(f64, f64)>,
     mouse_button_held: &mut Option<MouseButton>,
+    hit_test: Option<&dyn Fn(f64, f64) -> (u16, u16)>,
 ) -> Vec<InputEvent> {
+    let resolve = |px: f64, py: f64| -> (u16, u16) {
+        match hit_test {
+            Some(f) => f(px, py),
+            None => pixel_to_grid(px, py, cell_metrics),
+        }
+    };
     match event {
         WindowEvent::KeyboardInput { event, .. } => {
             if event.state != ElementState::Pressed {
@@ -35,7 +46,7 @@ pub fn convert_window_event(
             *cursor_pos = Some((position.x, position.y));
             // Generate drag event if a button is held
             if let Some(btn) = *mouse_button_held {
-                let (col, row) = pixel_to_grid(position.x, position.y, cell_metrics);
+                let (col, row) = resolve(position.x, position.y);
                 vec![InputEvent::Mouse(MouseEvent {
                     kind: MouseEventKind::Drag(btn),
                     line: row as u32,
@@ -50,7 +61,7 @@ pub fn convert_window_event(
             let Some((px, py)) = *cursor_pos else {
                 return vec![];
             };
-            let (col, row) = pixel_to_grid(px, py, cell_metrics);
+            let (col, row) = resolve(px, py);
             let btn = match button {
                 winit::event::MouseButton::Left => MouseButton::Left,
                 winit::event::MouseButton::Right => MouseButton::Right,
@@ -82,7 +93,7 @@ pub fn convert_window_event(
             let Some((px, py)) = *cursor_pos else {
                 return vec![];
             };
-            let (col, row) = pixel_to_grid(px, py, cell_metrics);
+            let (col, row) = resolve(px, py);
             let lines = match delta {
                 MouseScrollDelta::LineDelta(_, y) => *y as i32,
                 MouseScrollDelta::PixelDelta(pos) => {
@@ -108,9 +119,7 @@ pub fn convert_window_event(
             }
         }
         WindowEvent::DroppedFile(path) => {
-            let (col, row) = cursor_pos
-                .map(|(px, py)| pixel_to_grid(px, py, cell_metrics))
-                .unwrap_or((0, 0));
+            let (col, row) = cursor_pos.map(|(px, py)| resolve(px, py)).unwrap_or((0, 0));
             vec![InputEvent::Drop(DropEvent {
                 paths: vec![path.clone()],
                 col,
@@ -337,8 +346,13 @@ mod tests {
         let mut cursor_pos = Some((50.0, 40.0));
         let mut mouse_button_held = None;
 
-        let events =
-            convert_window_event(&event, &metrics, &mut cursor_pos, &mut mouse_button_held);
+        let events = convert_window_event(
+            &event,
+            &metrics,
+            &mut cursor_pos,
+            &mut mouse_button_held,
+            None,
+        );
         assert_eq!(
             events,
             vec![InputEvent::Drop(DropEvent {
