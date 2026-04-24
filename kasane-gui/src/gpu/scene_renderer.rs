@@ -1040,7 +1040,7 @@ impl SceneRenderer {
         };
         let (x, w) = self
             .paragraph_cursor
-            .map(|(gx, gw)| (gx, gw.max(cell_w)))
+            .map(|(gx, gw)| (gx, gw.max(CURSOR_BAR_WIDTH)))
             .unwrap_or((cell_x, cell_w));
         let mut cc = color_resolver.resolve(cursor_color, true);
         cc[3] = opacity;
