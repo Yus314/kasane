@@ -62,6 +62,17 @@ pub struct UpdateResult {
     pub source_plugin: Option<PluginId>,
 }
 
+impl Default for UpdateResult {
+    fn default() -> Self {
+        Self {
+            flags: DirtyFlags::empty(),
+            commands: vec![],
+            scroll_plans: vec![],
+            source_plugin: None,
+        }
+    }
+}
+
 /// TEA-pure update: takes ownership of state and returns it alongside effects.
 ///
 /// The implementation mutates `state` in place (through `DerefMut` on `Box`),
@@ -126,14 +137,14 @@ fn update_inner<E: PluginEffects>(
                     flags: flags | extra_flags,
                     commands,
                     scroll_plans,
-                    source_plugin: None,
+                    ..Default::default()
                 };
             }
             UpdateResult {
                 flags,
                 commands,
                 scroll_plans,
-                source_plugin: None,
+                ..Default::default()
             }
         }
         Msg::Key(key) => {
@@ -151,8 +162,7 @@ fn update_inner<E: PluginEffects>(
                     return UpdateResult {
                         flags: flags | extra_flags,
                         commands,
-                        scroll_plans: vec![],
-                        source_plugin: None,
+                        ..Default::default()
                     };
                 }
                 KeyPreDispatchResult::Pass { mut commands } => {
@@ -177,8 +187,8 @@ fn update_inner<E: PluginEffects>(
                     UpdateResult {
                         flags,
                         commands,
-                        scroll_plans: vec![],
                         source_plugin: Some(source_plugin),
+                        ..Default::default()
                     }
                 }
                 KeyDispatchResult::Passthrough(final_key) => {
@@ -186,10 +196,8 @@ fn update_inner<E: PluginEffects>(
                     let kak_key = input::key_to_kakoune(&final_key);
                     let cmd = Command::SendToKakoune(KasaneRequest::Keys(vec![kak_key]));
                     UpdateResult {
-                        flags: DirtyFlags::empty(),
                         commands: vec![cmd],
-                        scroll_plans: vec![],
-                        source_plugin: None,
+                        ..Default::default()
                     }
                 }
             }
@@ -209,8 +217,7 @@ fn update_inner<E: PluginEffects>(
                     return UpdateResult {
                         flags: flags | extra_flags,
                         commands,
-                        scroll_plans: vec![],
-                        source_plugin: None,
+                        ..Default::default()
                     };
                 }
                 TextInputPreDispatchResult::Pass => {}
@@ -228,15 +235,13 @@ fn update_inner<E: PluginEffects>(
                     UpdateResult {
                         flags,
                         commands,
-                        scroll_plans: vec![],
                         source_plugin: Some(source_plugin),
+                        ..Default::default()
                     }
                 }
                 TextInputHandleResult::NotHandled => UpdateResult {
-                    flags: DirtyFlags::empty(),
                     commands: vec![Command::InsertText(text)],
-                    scroll_plans: vec![],
-                    source_plugin: None,
+                    ..Default::default()
                 },
             }
         }
@@ -258,8 +263,7 @@ fn update_inner<E: PluginEffects>(
                     return UpdateResult {
                         flags: flags | extra_flags,
                         commands,
-                        scroll_plans: vec![],
-                        source_plugin: None,
+                        ..Default::default()
                     };
                 }
                 MousePreDispatchResult::Pass { mut commands } => {
@@ -292,8 +296,8 @@ fn update_inner<E: PluginEffects>(
                         return UpdateResult {
                             flags,
                             commands,
-                            scroll_plans: vec![],
                             source_plugin: Some(source_plugin),
+                            ..Default::default()
                         };
                     }
                     MouseHandleResult::NotHandled => {
@@ -319,26 +323,20 @@ fn update_inner<E: PluginEffects>(
                 LegacyScrollDispatch::ConsumedInfo => {
                     return UpdateResult {
                         flags: DirtyFlags::INFO,
-                        commands: vec![],
-                        scroll_plans: vec![],
-                        source_plugin: None,
+                        ..Default::default()
                     };
                 }
                 LegacyScrollDispatch::Requests(requests) => {
                     let commands = requests.into_iter().map(Command::SendToKakoune).collect();
                     return UpdateResult {
-                        flags: DirtyFlags::empty(),
                         commands,
-                        scroll_plans: vec![],
-                        source_plugin: None,
+                        ..Default::default()
                     };
                 }
                 LegacyScrollDispatch::Plan(plan) => {
                     return UpdateResult {
-                        flags: DirtyFlags::empty(),
-                        commands: vec![],
                         scroll_plans: vec![plan],
-                        source_plugin: None,
+                        ..Default::default()
                     };
                 }
                 LegacyScrollDispatch::NotHandled => {}
@@ -346,104 +344,16 @@ fn update_inner<E: PluginEffects>(
 
             // Display unit dispatch (ρ₂'): when display transforms are active,
             // dispatch based on NavigationPolicy for the hit display unit.
-            if let Some(unit) = state
-                .runtime
-                .display_unit_map
-                .as_ref()
-                .and_then(|dum| dum.hit_test(mouse.line, state.runtime.display_scroll_offset))
-            {
-                use crate::display::{
-                    ActionResult, NavigationAction, NavigationPolicy, UnitSource,
-                };
-                let suppressed = UpdateResult {
-                    flags: DirtyFlags::empty(),
-                    commands: vec![],
-                    scroll_plans: vec![],
-                    source_plugin: None,
-                };
-                let policy = effects.resolve_navigation_policy(unit);
-                match policy {
-                    NavigationPolicy::Normal => {
-                        // Fall through to mouse_to_kakoune
-                    }
-                    NavigationPolicy::Skip => {
-                        return suppressed;
-                    }
-                    NavigationPolicy::Boundary { action } => {
-                        // Only activate on press (not drag/move/scroll)
-                        if matches!(mouse.kind, input::MouseEventKind::Press(_)) {
-                            let result = effects.dispatch_navigation_action(unit, action.clone());
-                            match result {
-                                ActionResult::Handled => {
-                                    return UpdateResult {
-                                        flags: DirtyFlags::BUFFER_CONTENT,
-                                        ..suppressed
-                                    };
-                                }
-                                ActionResult::SendKeys(keys) => {
-                                    return UpdateResult {
-                                        commands: vec![Command::SendToKakoune(
-                                            KasaneRequest::Keys(vec![keys]),
-                                        )],
-                                        ..suppressed
-                                    };
-                                }
-                                ActionResult::ToggleFold(range) => {
-                                    // Per-projection fold state scoping
-                                    if let Some(active_id) =
-                                        state.config.projection_policy.active_structural()
-                                    {
-                                        state
-                                            .config
-                                            .projection_policy
-                                            .fold_state_for_mut(&active_id.clone())
-                                            .toggle(&range);
-                                    } else {
-                                        state.config.fold_toggle_state.toggle(&range);
-                                    }
-                                    return UpdateResult {
-                                        flags: DirtyFlags::BUFFER_CONTENT,
-                                        ..suppressed
-                                    };
-                                }
-                                ActionResult::Pass => {
-                                    // Built-in fallback: shadow cursor activation
-                                    if let NavigationAction::ActivateShadowCursor = &action
-                                        && let UnitSource::ProjectedLine { anchor, spans: _ } =
-                                            &unit.source
-                                    {
-                                        // Owner plugin comes from the display
-                                        // directive; for now use a placeholder.
-                                        let owner = crate::plugin::PluginId(String::new());
-                                        state.runtime.shadow_cursor = Some(ShadowCursor {
-                                            display_line: unit.display_line,
-                                            span_index: 0,
-                                            phase: ShadowPhase::Navigating,
-                                            owner_plugin: owner,
-                                        });
-                                        let _ = anchor;
-                                        return UpdateResult {
-                                            flags: DirtyFlags::BUFFER_CONTENT,
-                                            ..suppressed
-                                        };
-                                    }
-                                }
-                            }
-                        }
-                        // Non-press events on Boundary, or unhandled actions: suppress
-                        return suppressed;
-                    }
-                }
+            if let Some(result) = dispatch_display_unit_mouse(state, effects, &mouse) {
+                return result;
             }
 
             let cmds = effects
                 .dispatch_mouse_fallback(&mouse, scroll_amount, &AppView::new(state))
                 .unwrap_or_default();
             UpdateResult {
-                flags: DirtyFlags::empty(),
                 commands: cmds,
-                scroll_plans: vec![],
-                source_plugin: None,
+                ..Default::default()
             }
         }
         Msg::Drop(drop) => {
@@ -461,8 +371,8 @@ fn update_inner<E: PluginEffects>(
                         return UpdateResult {
                             flags,
                             commands,
-                            scroll_plans: vec![],
                             source_plugin: Some(source_plugin),
+                            ..Default::default()
                         };
                     }
                     MouseHandleResult::NotHandled => {}
@@ -479,17 +389,13 @@ fn update_inner<E: PluginEffects>(
                 .collect();
 
             UpdateResult {
-                flags: DirtyFlags::empty(),
                 commands,
-                scroll_plans: vec![],
-                source_plugin: None,
+                ..Default::default()
             }
         }
         Msg::ClipboardPaste => UpdateResult {
-            flags: DirtyFlags::empty(),
             commands: vec![Command::PasteClipboard],
-            scroll_plans: vec![],
-            source_plugin: None,
+            ..Default::default()
         },
         Msg::Resize { cols, rows } => {
             state.runtime.cols = cols;
@@ -501,27 +407,101 @@ fn update_inner<E: PluginEffects>(
             UpdateResult {
                 flags: DirtyFlags::ALL,
                 commands: vec![cmd],
-                scroll_plans: vec![],
-                source_plugin: None,
+                ..Default::default()
             }
         }
         Msg::FocusGained => {
             state.runtime.focused = true;
             UpdateResult {
                 flags: DirtyFlags::ALL,
-                commands: vec![],
-                scroll_plans: vec![],
-                source_plugin: None,
+                ..Default::default()
             }
         }
         Msg::FocusLost => {
             state.runtime.focused = false;
             UpdateResult {
                 flags: DirtyFlags::ALL,
-                commands: vec![],
-                scroll_plans: vec![],
-                source_plugin: None,
+                ..Default::default()
             }
+        }
+    }
+}
+
+/// Dispatch mouse event through display unit navigation policy.
+/// Returns `Some(result)` if handled, `None` to fall through to mouse_to_kakoune.
+fn dispatch_display_unit_mouse<E: PluginEffects>(
+    state: &mut AppState,
+    effects: &mut E,
+    mouse: &MouseEvent,
+) -> Option<UpdateResult> {
+    use crate::display::{ActionResult, NavigationAction, NavigationPolicy, UnitSource};
+
+    let unit = state
+        .runtime
+        .display_unit_map
+        .as_ref()
+        .and_then(|dum| dum.hit_test(mouse.line, state.runtime.display_scroll_offset))?;
+
+    let policy = effects.resolve_navigation_policy(unit);
+    match policy {
+        NavigationPolicy::Normal => None,
+        NavigationPolicy::Skip => Some(UpdateResult::default()),
+        NavigationPolicy::Boundary { action } => {
+            if matches!(mouse.kind, input::MouseEventKind::Press(_)) {
+                let result = effects.dispatch_navigation_action(unit, action.clone());
+                match result {
+                    ActionResult::Handled => {
+                        return Some(UpdateResult {
+                            flags: DirtyFlags::BUFFER_CONTENT,
+                            ..Default::default()
+                        });
+                    }
+                    ActionResult::SendKeys(keys) => {
+                        return Some(UpdateResult {
+                            commands: vec![Command::SendToKakoune(KasaneRequest::Keys(vec![keys]))],
+                            ..Default::default()
+                        });
+                    }
+                    ActionResult::ToggleFold(range) => {
+                        // Per-projection fold state scoping
+                        if let Some(active_id) = state.config.projection_policy.active_structural()
+                        {
+                            state
+                                .config
+                                .projection_policy
+                                .fold_state_for_mut(&active_id.clone())
+                                .toggle(&range);
+                        } else {
+                            state.config.fold_toggle_state.toggle(&range);
+                        }
+                        return Some(UpdateResult {
+                            flags: DirtyFlags::BUFFER_CONTENT,
+                            ..Default::default()
+                        });
+                    }
+                    ActionResult::Pass => {
+                        // Built-in fallback: shadow cursor activation
+                        if let NavigationAction::ActivateShadowCursor = &action
+                            && let UnitSource::ProjectedLine { anchor, spans: _ } = &unit.source
+                        {
+                            let owner = crate::plugin::PluginId(String::new());
+                            state.runtime.shadow_cursor = Some(ShadowCursor {
+                                display_line: unit.display_line,
+                                span_index: 0,
+                                phase: ShadowPhase::Navigating,
+                                owner_plugin: owner,
+                            });
+                            let _ = anchor;
+                            return Some(UpdateResult {
+                                flags: DirtyFlags::BUFFER_CONTENT,
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
+            }
+            // Non-press events on Boundary, or unhandled actions: suppress
+            Some(UpdateResult::default())
         }
     }
 }
