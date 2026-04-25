@@ -21,6 +21,8 @@ pub mod theme;
 pub mod view;
 pub mod visual_hints;
 pub(crate) mod walk;
+pub(crate) mod walk_grid;
+pub(crate) mod walk_scene;
 
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
