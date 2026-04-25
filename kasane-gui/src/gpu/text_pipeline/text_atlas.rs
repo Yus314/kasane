@@ -3,7 +3,7 @@
 // Modified: removed custom_glyph support from grow()
 
 use crate::gpu::text_pipeline::{
-    Cache, ContentType, GlyphDetails, GpuCacheStatus, State, text_render::GlyphonCacheKey,
+    Cache, ContentType, GlyphDetails, State, text_render::GlyphonCacheKey,
 };
 use cosmic_text::{FontSystem, SwashCache};
 use etagere::{Allocation, BucketedAtlasAllocator, size2};
@@ -12,9 +12,8 @@ use rustc_hash::FxHasher;
 use std::{collections::HashSet, hash::BuildHasherDefault};
 use wgpu::{
     BindGroup, DepthStencilState, Device, Extent3d, MultisampleState, Origin3d, Queue,
-    RenderPipeline, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
-    TextureViewDescriptor,
+    RenderPipeline, TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
 };
 
 type Hasher = BuildHasherDefault<FxHasher>;
@@ -32,7 +31,7 @@ pub(crate) struct InnerAtlas {
 }
 
 impl InnerAtlas {
-    const INITIAL_SIZE: u32 = 256;
+    const INITIAL_SIZE: u32 = 1024;
 
     fn new(state: &State, kind: Kind) -> Self {
         let max_texture_dimension_2d = state.device.limits().max_texture_dimension_2d;
@@ -40,7 +39,10 @@ impl InnerAtlas {
 
         let packer = BucketedAtlasAllocator::new(size2(size as i32, size as i32));
 
-        // Create a texture to use for our atlas
+        // Create a texture to use for our atlas.
+        // COPY_SRC is required so that grow() can copy the existing atlas
+        // contents into the larger replacement texture without having to
+        // re-rasterize every cached glyph.
         let texture = state.device.create_texture(&TextureDescriptor {
             label: Some("glyphon atlas"),
             size: Extent3d {
@@ -52,7 +54,9 @@ impl InnerAtlas {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: kind.texture_format(),
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
@@ -115,8 +119,8 @@ impl InnerAtlas {
     pub(crate) fn grow(
         &mut self,
         state: &State,
-        font_system: &mut FontSystem,
-        cache: &mut SwashCache,
+        _font_system: &mut FontSystem,
+        _cache: &mut SwashCache,
     ) -> bool {
         if self.size >= self.max_texture_dimension_2d {
             return false;
@@ -127,10 +131,12 @@ impl InnerAtlas {
         const GROWTH_FACTOR: u32 = 2;
         let new_size = (self.size * GROWTH_FACTOR).min(self.max_texture_dimension_2d);
 
+        // etagere preserves existing allocation positions across grow(),
+        // so cached glyph (x, y) coordinates remain valid in the new texture.
         self.packer.grow(size2(new_size as i32, new_size as i32));
 
-        // Create a texture to use for our atlas
-        self.texture = state.device.create_texture(&TextureDescriptor {
+        // Create the larger replacement texture.
+        let new_texture = state.device.create_texture(&TextureDescriptor {
             label: Some("glyphon atlas"),
             size: Extent3d {
                 width: new_size,
@@ -141,49 +147,42 @@ impl InnerAtlas {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: self.kind.texture_format(),
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
-        // Re-upload glyphs
-        for (&cache_key, glyph) in &self.glyph_cache {
-            let (x, y) = match glyph.gpu_cache {
-                GpuCacheStatus::InAtlas { x, y, .. } => (x, y),
-                GpuCacheStatus::SkipRasterization => continue,
-            };
+        // GPU-side copy of the previous atlas contents. This avoids having
+        // to re-rasterize every cached glyph via swash, which previously
+        // dominated grow() cost (O(N) glyphs × CPU rasterization per call).
+        let mut encoder = state
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("glyphon atlas grow"),
+            });
+        encoder.copy_texture_to_texture(
+            TexelCopyTextureInfo {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            TexelCopyTextureInfo {
+                texture: &new_texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            Extent3d {
+                width: self.size,
+                height: self.size,
+                depth_or_array_layers: 1,
+            },
+        );
+        state.queue.submit(std::iter::once(encoder.finish()));
 
-            let GlyphonCacheKey::Text(text_cache_key) = cache_key;
-            let image = cache
-                .get_image_uncached(font_system, text_cache_key)
-                .unwrap();
-            let width = image.placement.width as usize;
-            let height = image.placement.height as usize;
-
-            state.queue.write_texture(
-                TexelCopyTextureInfo {
-                    texture: &self.texture,
-                    mip_level: 0,
-                    origin: Origin3d {
-                        x: x as u32,
-                        y: y as u32,
-                        z: 0,
-                    },
-                    aspect: TextureAspect::All,
-                },
-                &image.data,
-                TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(width as u32 * self.kind.num_channels() as u32),
-                    rows_per_image: None,
-                },
-                Extent3d {
-                    width: width as u32,
-                    height: height as u32,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
-
+        self.texture = new_texture;
         self.texture_view = self.texture.create_view(&TextureViewDescriptor::default());
         self.size = new_size;
 
@@ -259,6 +258,7 @@ pub struct TextAtlas {
 
 impl TextAtlas {
     /// Creates a new [`TextAtlas`].
+    #[allow(dead_code)] // Retained from glyphon API surface; we use with_color_mode().
     pub fn new(device: &Device, queue: &Queue, cache: &Cache, format: TextureFormat) -> Self {
         Self::with_color_mode(device, queue, cache, format, ColorMode::Accurate)
     }

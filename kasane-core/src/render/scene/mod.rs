@@ -94,6 +94,13 @@ pub enum DrawCommand {
         pos: PixelPos,
         atoms: Vec<ResolvedAtom>,
         max_width: f32,
+        /// Stable identity used by the GPU renderer's line-shaping cache.
+        ///
+        /// The exact numeric value carries no semantic meaning beyond being
+        /// stable across frames for a given line: callers should reserve
+        /// distinct values for distinct logical lines. `u32::MAX` opts out
+        /// of caching (the renderer reshapes unconditionally).
+        line_idx: u32,
     },
 
     /// Draw plain text (Element::Text).
@@ -160,6 +167,9 @@ pub enum DrawCommand {
         pos: PixelPos,
         max_width: f32,
         paragraph: BufferParagraph,
+        /// Stable identity used by the GPU renderer's line-shaping cache.
+        /// See [`DrawCommand::DrawAtoms::line_idx`].
+        line_idx: u32,
     },
 
     /// Draw plugin canvas operations within a pixel rectangle.

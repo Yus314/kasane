@@ -1,4 +1,4 @@
-use super::text_pipeline::{Cache, Resolution, TextAtlas, TextRenderer, Viewport};
+use super::text_pipeline::{Cache, ColorMode, Resolution, TextAtlas, TextRenderer, Viewport};
 use crate::animation::CursorRenderState;
 use cosmic_text::{Buffer as GlyphonBuffer, FontSystem, SwashCache};
 use kasane_core::config::FontConfig;
@@ -8,6 +8,9 @@ use wgpu::MultisampleState;
 use winit::dpi::PhysicalSize;
 
 mod draw_commands;
+mod line_cache;
+
+use line_cache::LineShapingCache;
 
 use super::CellMetrics;
 use super::compositor::{BlitPipeline, BlurPipeline, RenderTarget};
@@ -32,17 +35,36 @@ pub struct SceneRenderer {
     texture_cache: TextureCache,
     metrics: CellMetrics,
 
-    // Reusable text buffers (growable pool)
+    // Reusable text buffers (growable pool). Slots are addressed by index;
+    // unused slots may exist between live ones because the line cache returns
+    // arbitrary slots on hit.
     text_buffers: Vec<GlyphonBuffer>,
-    /// Position (left, top) for each text buffer allocated this frame.
-    text_positions: Vec<(f32, f32)>,
-    /// Clip bounds (left, top, right, bottom) for each text buffer.
+    /// Per-emission render record: (left, top, buffer_idx). One entry per
+    /// DrawAtoms / RenderParagraph / DrawText / DrawPaddingRow processed.
+    text_draws: Vec<(f32, f32, usize)>,
+    /// Clip bounds (left, top, right, bottom) parallel to `text_draws`.
     text_clip_bounds: Vec<(i32, i32, i32, i32)>,
-    text_buffer_count: usize,
+
+    /// Per-line cosmic-text shaping cache. Cache hits skip the dominant
+    /// CPU cost (shape_until_scroll, ~100 µs/line) for unchanged lines on
+    /// cursor-only frames.
+    line_cache: LineShapingCache,
 
     // Scratch buffers
     row_text: String,
     span_ranges: Vec<(usize, usize, [f32; 4])>,
+    /// Per-frame scratch: byte offsets where each atom starts in `row_text`.
+    atom_byte_boundaries: Vec<usize>,
+    /// Per-frame scratch: face per atom (cloned from input).
+    atom_faces: Vec<kasane_core::protocol::Face>,
+    /// Per-frame scratch: glyph-derived per-atom min X.
+    atom_x_min: Vec<f32>,
+    /// Per-frame scratch: glyph-derived per-atom max X.
+    atom_x_max: Vec<f32>,
+    /// Per-frame scratch: cell-aligned per-atom X (fallback when glyph extents missing).
+    atom_estimated_x: Vec<f32>,
+    /// Per-frame scratch: cell-aligned per-atom width (fallback).
+    atom_estimated_w: Vec<f32>,
 
     /// Glyph-accurate primary cursor position and width from RenderParagraph.
     /// Overrides the cell-based cursor position/width in render_cursor().
@@ -110,7 +132,21 @@ impl SceneRenderer {
         let surface_format = gpu.config.format;
 
         let cache = Cache::new(&gpu.device);
-        let mut text_atlas = TextAtlas::new(&gpu.device, &gpu.queue, &cache, surface_format);
+        // ColorMode::Web: vertex colors are passed through to fragment shader
+        // without sRGB→linear conversion. We pass linear-space colors via
+        // resolve_face_colors_linear() and the shader outputs them as-is to
+        // the linear framebuffer. ColorMode::Accurate would apply srgb_to_linear()
+        // a second time, producing dramatically darker text (the original bug).
+        // Note: Color glyphs (emoji) sampled from the linear-format atlas may
+        // appear slightly washed out compared to ColorMode::Accurate; tracked
+        // separately for follow-up.
+        let mut text_atlas = TextAtlas::with_color_mode(
+            &gpu.device,
+            &gpu.queue,
+            &cache,
+            surface_format,
+            ColorMode::Web,
+        );
         let text_renderer = TextRenderer::new(
             &mut text_atlas,
             &gpu.device,
@@ -153,11 +189,17 @@ impl SceneRenderer {
             texture_cache,
             metrics,
             text_buffers: Vec::with_capacity(128),
-            text_positions: Vec::with_capacity(128),
+            text_draws: Vec::with_capacity(128),
             text_clip_bounds: Vec::with_capacity(128),
-            text_buffer_count: 0,
+            line_cache: LineShapingCache::new(),
             row_text: String::with_capacity(512),
             span_ranges: Vec::with_capacity(256),
+            atom_byte_boundaries: Vec::with_capacity(64),
+            atom_faces: Vec::with_capacity(64),
+            atom_x_min: Vec::with_capacity(64),
+            atom_x_max: Vec::with_capacity(64),
+            atom_estimated_x: Vec::with_capacity(64),
+            atom_estimated_w: Vec::with_capacity(64),
             paragraph_cursor: None,
             paragraph_hit_data: Vec::with_capacity(64),
             font_family: font_config.family.clone(),
@@ -325,8 +367,10 @@ impl SceneRenderer {
             window_size.height.max(1),
         );
         self.text_buffers.clear();
-        self.text_positions.clear();
-        self.text_buffer_count = 0;
+        self.text_draws.clear();
+        // Cached shaping is keyed on font_size; the text_buffers pool was
+        // also wiped above, so all cached buffer_idx values are invalid.
+        self.line_cache.invalidate_all();
     }
 
     /// Render with animated cursor state.
@@ -444,12 +488,14 @@ impl SceneRenderer {
 
         // Reset per-frame state
         self.texture_cache.frame_tick();
-        self.text_buffer_count = 0;
-        self.text_positions.clear();
+        self.text_draws.clear();
         self.text_clip_bounds.clear();
         self.clip_stack.clear();
         self.paragraph_cursor = None;
         self.paragraph_hit_data.clear();
+        // Reset which buffer pool slots are claimed; cache entries are kept
+        // so subsequent frames can hit them.
+        self.line_cache.frame_start(self.text_buffers.len());
         self.timing.begin_frame();
 
         // Split commands into layers at BeginOverlay boundaries.
@@ -502,7 +548,7 @@ impl SceneRenderer {
             // Reset per-layer pipeline instances
             self.quad.instances.clear();
             self.image.clear_frame();
-            let layer_text_start = self.text_buffer_count;
+            let layer_text_start = self.text_draws.len();
 
             // Process this layer's DrawCommands
             for cmd in &commands[range_start..range_end] {
@@ -565,15 +611,17 @@ impl SceneRenderer {
             let image_count = self.image.instances.len() / 9;
             self.image.ensure_buffer(gpu, image_count);
 
-            // Build TextAreas for this layer's text buffers only
-            let layer_text_end = self.text_buffer_count;
+            // Build TextAreas for this layer's text emissions. Each emission
+            // carries its own buffer pool index (cache hits return arbitrary
+            // indices), so we look up buffers indirectly rather than slicing.
+            let layer_text_end = self.text_draws.len();
             let layer_clips = &self.text_clip_bounds[layer_text_start..layer_text_end];
             let has_clips = layer_clips.iter().any(|&(l, t, r, b)| {
                 l != 0 || t != 0 || r != screen_w as i32 || b != screen_h as i32
             });
             let text_areas = super::text_helpers::prepare_text_areas(
-                &self.text_positions[layer_text_start..layer_text_end],
-                &self.text_buffers[layer_text_start..layer_text_end],
+                &self.text_draws[layer_text_start..layer_text_end],
+                &self.text_buffers,
                 screen_w,
                 screen_h,
                 if has_clips { Some(layer_clips) } else { None },

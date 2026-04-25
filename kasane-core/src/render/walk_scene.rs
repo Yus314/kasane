@@ -24,6 +24,12 @@ pub(crate) struct ScenePaintVisitor<'a> {
     cell_size: CellSize,
     cursor_style: CursorStyle,
     theme: &'a Theme,
+    /// Monotonic counter handed out as `line_idx` for non-buffer text emissions
+    /// (status bar, menu items, gutter, etc.). Starts at `u32::MAX` and
+    /// decrements to keep these IDs disjoint from buffer-line `display_line`
+    /// values. Stable across frames as long as visit order is deterministic,
+    /// which makes it usable as a shaping-cache key in the GPU renderer.
+    line_counter: u32,
 }
 
 impl<'a> ScenePaintVisitor<'a> {
@@ -38,7 +44,14 @@ impl<'a> ScenePaintVisitor<'a> {
             cell_size,
             cursor_style,
             theme,
+            line_counter: u32::MAX,
         }
+    }
+
+    fn next_non_buffer_line_idx(&mut self) -> u32 {
+        let id = self.line_counter;
+        self.line_counter = self.line_counter.saturating_sub(1);
+        id
     }
 }
 
@@ -66,10 +79,12 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
     fn visit_styled_line(&mut self, atoms: &[Atom], area: Rect) {
         let pr = to_pixel_rect(&area, self.cell_size);
         let resolved = resolve_atoms(atoms, None);
+        let line_idx = self.next_non_buffer_line_idx();
         self.out.push(DrawCommand::DrawAtoms {
             pos: PixelPos { x: pr.x, y: pr.y },
             atoms: resolved,
             max_width: pr.w,
+            line_idx,
         });
     }
 
@@ -120,6 +135,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         pos: PixelPos { x: px, y: py },
                         atoms: resolved,
                         max_width: row_w,
+                        line_idx: display_line as u32,
                     });
                 }
                 BufferLineAction::BufferLine {
@@ -175,6 +191,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             base_face,
                             annotations,
                         },
+                        line_idx: display_line as u32,
                     });
                 }
                 BufferLineAction::Padding { face, char_face } => {
@@ -213,6 +230,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         pos: PixelPos { x: px, y: py },
                         atoms: resolved,
                         max_width: row_w,
+                        line_idx: display_line as u32,
                     });
                 }
             }
@@ -363,10 +381,12 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     }],
                     None,
                 );
+                let gutter_line_idx = self.next_non_buffer_line_idx();
                 self.out.push(DrawCommand::DrawAtoms {
                     pos: PixelPos { x: pr.x, y: pr.y },
                     atoms: gutter_atoms,
                     max_width: pr.w,
+                    line_idx: gutter_line_idx,
                 });
             }
 
@@ -379,10 +399,12 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                 };
                 let pr = to_pixel_rect(&line_area, cs);
                 let resolved = resolve_atoms(&lines[line_idx], None);
+                let panel_line_idx = self.next_non_buffer_line_idx();
                 self.out.push(DrawCommand::DrawAtoms {
                     pos: PixelPos { x: pr.x, y: pr.y },
                     atoms: resolved,
                     max_width: pr.w,
+                    line_idx: panel_line_idx,
                 });
 
                 if let Some((cl, _cc)) = cursor

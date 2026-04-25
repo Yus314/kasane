@@ -4,22 +4,25 @@ use cosmic_text::{
 };
 use kasane_core::element::BorderLineStyle;
 
-/// Build TextAreas from position/buffer slices for a single layer.
+/// Build TextAreas from per-emission `(left, top, buffer_idx)` records.
 ///
-/// `clip_bounds` provides optional per-buffer clip rects (left, top, right, bottom)
-/// to restrict text rendering to a clipped region. `None` entries use full screen bounds.
+/// `buffer_pool` is the full text buffer pool; emissions index into it.
+/// Indices may be sparse and out-of-order because the line shaping cache
+/// returns arbitrary slots on hit.
+///
+/// `clip_bounds` provides optional per-emission clip rects (left, top, right,
+/// bottom). `None` uses full screen bounds.
 pub(super) fn prepare_text_areas<'a>(
-    positions: &'a [(f32, f32)],
-    buffers: &'a [GlyphonBuffer],
+    draws: &'a [(f32, f32, usize)],
+    buffer_pool: &'a [GlyphonBuffer],
     screen_w: f32,
     screen_h: f32,
     clip_bounds: Option<&[(i32, i32, i32, i32)]>,
 ) -> Vec<TextArea<'a>> {
-    positions
+    draws
         .iter()
-        .zip(buffers.iter())
         .enumerate()
-        .map(|(i, (&(left, top), buffer))| {
+        .map(|(i, &(left, top, buffer_idx))| {
             let bounds = if let Some(clips) = clip_bounds {
                 let (cl, ct, cr, cb) = clips[i];
                 TextBounds {
@@ -37,7 +40,7 @@ pub(super) fn prepare_text_areas<'a>(
                 }
             };
             TextArea {
-                buffer,
+                buffer: &buffer_pool[buffer_idx],
                 left,
                 top,
                 scale: 1.0,
@@ -71,6 +74,13 @@ pub(super) fn default_attrs(font_family: &str) -> Attrs<'_> {
         .font_features(features)
 }
 
+/// Quantize a linear-space [f32; 4] color to a `GlyphonColor` (u8 RGBA).
+///
+/// IMPORTANT: Input must be in **linear** color space — typically obtained
+/// from `ColorResolver::resolve_face_colors_linear()`. The TextAtlas runs in
+/// `ColorMode::Web`, which means the text shader passes vertex colors through
+/// to the linear-format framebuffer without applying `srgb_to_linear()`.
+/// Passing sRGB-space values here would cause text to appear too bright.
 pub(super) fn to_glyphon_color(c: [f32; 4]) -> GlyphonColor {
     GlyphonColor::rgba(
         (c[0] * 255.0) as u8,

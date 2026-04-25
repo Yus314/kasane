@@ -172,6 +172,7 @@ impl SceneBuilder {
                 pos,
                 atoms,
                 max_width,
+                line_idx: _,
             } => {
                 let spans: Vec<TextSpan> = atoms
                     .iter()
@@ -357,6 +358,7 @@ mod tests {
                 face: Face::default(),
             }],
             max_width: 100.0,
+            line_idx: 0,
         }];
         let prims = SceneBuilder::from_draw_commands(&commands, &dummy_resolve);
         assert_eq!(prims.len(), 1);
