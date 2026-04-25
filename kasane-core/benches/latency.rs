@@ -47,16 +47,16 @@ fn main() {
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Warmup
     for _ in 0..100 {
         let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
         let _ = grid.diff();
         grid.swap();
@@ -68,7 +68,7 @@ fn main() {
         let start = Instant::now();
         let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
         let _ = grid.diff();
         grid.swap();
@@ -108,7 +108,7 @@ fn main() {
     let mut data_paint = Vec::<u64>::with_capacity(ITERATIONS as usize);
     for _ in 0..ITERATIONS {
         let start = Instant::now();
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
         let elapsed = start.elapsed().as_nanos() as u64;
         data_paint.push(elapsed);
@@ -117,7 +117,7 @@ fn main() {
 
     // diff
     // Re-render to get a fresh grid for diffing
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
     let mut data_diff = Vec::<u64>::with_capacity(ITERATIONS as usize);
     for _ in 0..ITERATIONS {

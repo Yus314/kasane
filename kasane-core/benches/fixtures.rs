@@ -115,25 +115,25 @@ fn make_colored_line(i: usize) -> Line {
 /// Create an `AppState` representing a typical 80x24 editor with colored buffer lines.
 pub fn typical_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.padding_face = state.default_face;
-    state.status_default_face = Face {
+    state.observed.padding_face = state.observed.default_face;
+    state.observed.status_default_face = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.lines = (0..line_count).map(make_colored_line).collect();
-    state.status_line = vec![Atom {
+    state.observed.lines = (0..line_count).map(make_colored_line).collect();
+    state.inference.status_line = vec![Atom {
         face: Face::default(),
         contents: " NORMAL ".into(),
     }];
-    state.status_mode_line = vec![Atom {
+    state.observed.status_mode_line = vec![Atom {
         face: Face::default(),
         contents: "normal".into(),
     }];
@@ -424,25 +424,25 @@ fn make_realistic_line(i: usize) -> Line {
 /// Realistic state with varied line lengths, diverse faces, and wide chars.
 pub fn realistic_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.padding_face = state.default_face;
-    state.status_default_face = Face {
+    state.observed.padding_face = state.observed.default_face;
+    state.observed.status_default_face = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.lines = (0..line_count).map(make_realistic_line).collect();
-    state.status_line = vec![Atom {
+    state.observed.lines = (0..line_count).map(make_realistic_line).collect();
+    state.inference.status_line = vec![Atom {
         face: Face::default(),
         contents: " NORMAL ".into(),
     }];
-    state.status_mode_line = vec![Atom {
+    state.observed.status_mode_line = vec![Atom {
         face: Face::default(),
         contents: "normal".into(),
     }];
@@ -474,8 +474,8 @@ pub fn draw_realistic_json(line_count: usize) -> Vec<u8> {
 /// Create a state with `n` lines modified starting at `start_line` (simulating an edit).
 pub fn state_with_edit(base: &AppState, start_line: usize, n: usize) -> AppState {
     let mut state = base.clone();
-    for i in start_line..(start_line + n).min(state.lines.len()) {
-        state.lines[i] = vec![
+    for i in start_line..(start_line + n).min(state.observed.lines.len()) {
+        state.observed.lines[i] = vec![
             Atom {
                 face: Face {
                     fg: Color::Rgb { r: 255, g: 0, b: 0 },
@@ -516,7 +516,7 @@ pub fn state_with_menu(item_count: usize) -> AppState {
         ..Face::default()
     };
     let screen_h = state.available_height();
-    state.menu = Some(kasane_core::state::MenuState::new(
+    state.observed.menu = Some(kasane_core::state::MenuState::new(
         items,
         kasane_core::state::MenuParams {
             anchor: Coord {
@@ -526,9 +526,9 @@ pub fn state_with_menu(item_count: usize) -> AppState {
             selected_item_face: selected_face,
             menu_face,
             style: MenuStyle::Inline,
-            screen_w: state.cols,
+            screen_w: state.runtime.cols,
             screen_h,
-            max_height: state.menu_max_height,
+            max_height: state.config.menu_max_height,
         },
     ));
     state

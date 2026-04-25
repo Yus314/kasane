@@ -201,25 +201,25 @@ fn make_colored_line(i: usize) -> Vec<Atom> {
 
 fn typical_state(line_count: usize) -> kasane_core::state::AppState {
     let mut state = kasane_core::state::AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.padding_face = state.default_face;
-    state.status_default_face = Face {
+    state.observed.padding_face = state.observed.default_face;
+    state.observed.status_default_face = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.lines = (0..line_count).map(make_colored_line).collect();
-    state.status_line = vec![Atom {
+    state.observed.lines = (0..line_count).map(make_colored_line).collect();
+    state.inference.status_line = vec![Atom {
         face: Face::default(),
         contents: " NORMAL ".into(),
     }];
-    state.status_mode_line = vec![Atom {
+    state.observed.status_mode_line = vec![Atom {
         face: Face::default(),
         contents: "normal".into(),
     }];
@@ -228,8 +228,8 @@ fn typical_state(line_count: usize) -> kasane_core::state::AppState {
 
 fn generate_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid {
     let mut state = typical_state(line_count);
-    state.cols = cols;
-    state.rows = rows;
+    state.runtime.cols = cols;
+    state.runtime.rows = rows;
     let registry = PluginRuntime::new();
     let area = Rect {
         x: 0,
@@ -240,7 +240,7 @@ fn generate_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid {
     let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
     let mut grid = CellGrid::new(cols, rows);
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
     grid
 }
@@ -251,22 +251,22 @@ fn generate_incremental_grid() -> CellGrid {
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
 
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // "before" frame
     let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
     grid.swap();
 
     // "after": modify 1 line
     let mut edited = state.clone();
-    edited.lines[10] = vec![
+    edited.observed.lines[10] = vec![
         Atom {
             face: Face {
                 fg: Color::Rgb { r: 255, g: 0, b: 0 },
@@ -283,7 +283,7 @@ fn generate_incremental_grid() -> CellGrid {
 
     let element = view::view(&edited, &registry.view());
     let layout = flex::place(&element, area, &edited);
-    grid.clear(&edited.default_face);
+    grid.clear(&edited.observed.default_face);
     paint::paint(&element, &layout, &mut grid, &edited);
     grid
 }

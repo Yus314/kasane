@@ -20,7 +20,7 @@ use fixtures::{draw_json, typical_state};
 fn setup_full_frame() -> (kasane_core::state::AppState, PluginRuntime, CellGrid) {
     let state = typical_state(23);
     let registry = PluginRuntime::new();
-    let grid = CellGrid::new(state.cols, state.rows);
+    let grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     (state, registry, grid)
 }
 
@@ -46,11 +46,11 @@ fn setup_paint() -> (
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let layout = flex::place(&element, area, &state);
-    let grid = CellGrid::new(state.cols, state.rows);
+    let grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     (state, element, layout, grid)
 }
 
@@ -61,12 +61,12 @@ fn setup_grid_diff_full() -> CellGrid {
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let layout = flex::place(&element, area, &state);
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    grid.clear(&state.default_face);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    grid.clear(&state.observed.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
     grid
 }
@@ -78,15 +78,15 @@ fn setup_grid_diff_incremental() -> CellGrid {
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let layout = flex::place(&element, area, &state);
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    grid.clear(&state.default_face);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    grid.clear(&state.observed.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
     grid.swap();
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
     grid
 }
@@ -115,11 +115,11 @@ fn iai_full_frame(
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let layout = flex::place(&element, area, &state);
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
     let _diffs = grid.diff();
     grid.swap();
@@ -151,7 +151,7 @@ fn iai_paint_80x24(
         CellGrid,
     ),
 ) {
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
 }
 

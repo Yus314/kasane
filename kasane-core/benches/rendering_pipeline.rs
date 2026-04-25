@@ -51,8 +51,8 @@ fn bench_flex_layout(c: &mut Criterion) {
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
 
     c.bench_function("flex_layout", |b| {
@@ -72,15 +72,15 @@ fn bench_paint(c: &mut Criterion) {
         let area = Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         };
         let layout = flex::place(&element, area, &state);
-        let mut grid = CellGrid::new(state.cols, state.rows);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
         group.bench_function("80x24", |b| {
             b.iter(|| {
-                grid.clear(&state.default_face);
+                grid.clear(&state.observed.default_face);
                 paint::paint(&element, &layout, &mut grid, &state);
             });
         });
@@ -89,22 +89,22 @@ fn bench_paint(c: &mut Criterion) {
     // 200x60
     {
         let mut state = typical_state(59);
-        state.cols = 200;
-        state.rows = 60;
+        state.runtime.cols = 200;
+        state.runtime.rows = 60;
         let registry = PluginRuntime::new();
         let element = view::view(&state, &registry.view());
         let area = Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         };
         let layout = flex::place(&element, area, &state);
-        let mut grid = CellGrid::new(state.cols, state.rows);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
         group.bench_function("200x60", |b| {
             b.iter(|| {
-                grid.clear(&state.default_face);
+                grid.clear(&state.observed.default_face);
                 paint::paint(&element, &layout, &mut grid, &state);
             });
         });
@@ -118,15 +118,15 @@ fn bench_paint(c: &mut Criterion) {
         let area = Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         };
         let layout = flex::place(&element, area, &state);
-        let mut grid = CellGrid::new(state.cols, state.rows);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
         group.bench_function("80x24_realistic", |b| {
             b.iter(|| {
-                grid.clear(&state.default_face);
+                grid.clear(&state.observed.default_face);
                 paint::paint(&element, &layout, &mut grid, &state);
             });
         });
@@ -145,15 +145,15 @@ fn bench_grid_diff(c: &mut Criterion) {
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let layout = flex::place(&element, area, &state);
 
     // Full redraw (previous is empty)
     {
-        let mut grid = CellGrid::new(state.cols, state.rows);
-        grid.clear(&state.default_face);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
 
         group.bench_function("full_redraw", |b| {
@@ -163,11 +163,11 @@ fn bench_grid_diff(c: &mut Criterion) {
 
     // Incremental (previous populated, same content → empty diff)
     {
-        let mut grid = CellGrid::new(state.cols, state.rows);
-        grid.clear(&state.default_face);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
         grid.swap();
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
 
         group.bench_function("incremental", |b| {
@@ -188,18 +188,18 @@ fn bench_grid_diff_into(c: &mut Criterion) {
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let layout = flex::place(&element, area, &state);
 
     // Full redraw (previous is empty)
     {
-        let mut grid = CellGrid::new(state.cols, state.rows);
-        grid.clear(&state.default_face);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
 
-        let mut buf = Vec::with_capacity(state.cols as usize * state.rows as usize);
+        let mut buf = Vec::with_capacity(state.runtime.cols as usize * state.runtime.rows as usize);
         group.bench_function("full_redraw", |b| {
             b.iter(|| grid.diff_into(&mut buf));
         });
@@ -207,14 +207,14 @@ fn bench_grid_diff_into(c: &mut Criterion) {
 
     // Incremental (previous populated, same content → empty diff)
     {
-        let mut grid = CellGrid::new(state.cols, state.rows);
-        grid.clear(&state.default_face);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
         grid.swap();
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
 
-        let mut buf = Vec::with_capacity(state.cols as usize * state.rows as usize);
+        let mut buf = Vec::with_capacity(state.runtime.cols as usize * state.runtime.rows as usize);
         group.bench_function("incremental", |b| {
             b.iter(|| grid.diff_into(&mut buf));
         });
@@ -228,11 +228,11 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
     let mut group = c.benchmark_group("line_dirty_buffer_status");
 
     let mut state = typical_state(23);
-    state.status_default_face = state.default_face;
+    state.observed.status_default_face = state.observed.default_face;
     let registry = PluginRuntime::new();
 
     // Prepare warm grid (2 frames to get past swap fallback)
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
     grid.swap_with_dirty();
     render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
@@ -240,18 +240,18 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
 
     // Now simulate editing 1 line with BUFFER|STATUS dirty
     let mut edited = state.clone();
-    edited.lines[10] = vec![kasane_core::protocol::Atom {
+    edited.observed.lines[10] = vec![kasane_core::protocol::Atom {
         face: kasane_core::protocol::Face::default(),
         contents: "EDITED_LINE".into(),
     }];
-    edited.lines_dirty = vec![false; 23];
-    edited.lines_dirty[10] = true;
+    edited.inference.lines_dirty = vec![false; 23];
+    edited.inference.lines_dirty[10] = true;
 
     group.bench_function("1_line_changed", |b| {
         b.iter_batched(
             || {
                 // Setup: create a warm grid each iteration
-                let mut g = CellGrid::new(state.cols, state.rows);
+                let mut g = CellGrid::new(state.runtime.cols, state.runtime.rows);
                 render_pipeline_direct(&state, &registry.view(), &mut g, DirtyFlags::ALL);
                 g.swap_with_dirty();
                 render_pipeline_direct(&state, &registry.view(), &mut g, DirtyFlags::ALL);
@@ -303,16 +303,16 @@ fn bench_full_frame(c: &mut Criterion) {
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     c.bench_function("full_frame", |b| {
         b.iter(|| {
             let element = view::view(&state, &registry.view());
             let layout = flex::place(&element, area, &state);
-            grid.clear(&state.default_face);
+            grid.clear(&state.observed.default_face);
             paint::paint(&element, &layout, &mut grid, &state);
             let diffs = grid.diff();
             grid.swap();
@@ -331,10 +331,10 @@ fn bench_draw_message(c: &mut Criterion) {
         let area = Rect {
             x: 0,
             y: 0,
-            w: base_state.cols,
-            h: base_state.rows,
+            w: base_state.runtime.cols,
+            h: base_state.runtime.rows,
         };
-        let mut grid = CellGrid::new(base_state.cols, base_state.rows);
+        let mut grid = CellGrid::new(base_state.runtime.cols, base_state.runtime.rows);
 
         b.iter_batched(
             || (base_state.clone(), draw.clone()),
@@ -342,7 +342,7 @@ fn bench_draw_message(c: &mut Criterion) {
                 state.apply(req);
                 let element = view::view(&state, &registry.view());
                 let layout = flex::place(&element, area, &state);
-                grid.clear(&state.default_face);
+                grid.clear(&state.observed.default_face);
                 paint::paint(&element, &layout, &mut grid, &state);
                 let diffs = grid.diff();
                 grid.swap();
@@ -368,15 +368,15 @@ fn bench_menu_show(c: &mut Criterion) {
                 let area = Rect {
                     x: 0,
                     y: 0,
-                    w: state.cols,
-                    h: state.rows,
+                    w: state.runtime.cols,
+                    h: state.runtime.rows,
                 };
-                let mut grid = CellGrid::new(state.cols, state.rows);
+                let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
                 b.iter(|| {
                     let element = view::view(&state, &registry.view());
                     let layout = flex::place(&element, area, &state);
-                    grid.clear(&state.default_face);
+                    grid.clear(&state.observed.default_face);
                     paint::paint(&element, &layout, &mut grid, &state);
                     let diffs = grid.diff();
                     grid.swap();
@@ -398,16 +398,16 @@ fn bench_incremental_edit(c: &mut Criterion) {
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
 
     for edit_lines in [1, 5] {
         // Render "before" frame into previous buffer
-        let mut grid = CellGrid::new(state.cols, state.rows);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
         let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
         grid.swap();
 
@@ -419,7 +419,7 @@ fn bench_incremental_edit(c: &mut Criterion) {
                 // Re-render into current buffer and diff (previous stays fixed — no swap)
                 let element = view::view(&edited_state, &registry.view());
                 let layout = flex::place(&element, area, &edited_state);
-                grid.clear(&edited_state.default_face);
+                grid.clear(&edited_state.observed.default_face);
                 paint::paint(&element, &layout, &mut grid, &edited_state);
                 grid.diff().len()
             });
@@ -451,10 +451,10 @@ fn bench_message_sequence(c: &mut Criterion) {
     let area = Rect {
         x: 0,
         y: 0,
-        w: base_state.cols,
-        h: base_state.rows,
+        w: base_state.runtime.cols,
+        h: base_state.runtime.rows,
     };
-    let mut grid = CellGrid::new(base_state.cols, base_state.rows);
+    let mut grid = CellGrid::new(base_state.runtime.cols, base_state.runtime.rows);
 
     c.bench_function("message_sequence", |b| {
         b.iter_batched(
@@ -464,7 +464,7 @@ fn bench_message_sequence(c: &mut Criterion) {
                 state.apply(msg2);
                 let element = view::view(&state, &registry.view());
                 let layout = flex::place(&element, area, &state);
-                grid.clear(&state.default_face);
+                grid.clear(&state.observed.default_face);
                 paint::paint(&element, &layout, &mut grid, &state);
                 let diffs = grid.diff();
                 grid.swap();
@@ -616,8 +616,8 @@ fn bench_scaling(c: &mut Criterion) {
         (300, 80, 79, "300x80"),
     ] {
         let mut state = typical_state(lines);
-        state.cols = cols;
-        state.rows = rows;
+        state.runtime.cols = cols;
+        state.runtime.rows = rows;
         let area = Rect {
             x: 0,
             y: 0,
@@ -630,7 +630,7 @@ fn bench_scaling(c: &mut Criterion) {
             b.iter(|| {
                 let element = view::view(&state, &registry.view());
                 let layout = flex::place(&element, area, &state);
-                grid.clear(&state.default_face);
+                grid.clear(&state.observed.default_face);
                 paint::paint(&element, &layout, &mut grid, &state);
                 let diffs = grid.diff();
                 grid.swap();
@@ -662,8 +662,8 @@ fn bench_scaling(c: &mut Criterion) {
         (300, 80, 79, "300x80"),
     ] {
         let mut state = typical_state(lines);
-        state.cols = cols;
-        state.rows = rows;
+        state.runtime.cols = cols;
+        state.runtime.rows = rows;
         let area = Rect {
             x: 0,
             y: 0,
@@ -674,10 +674,10 @@ fn bench_scaling(c: &mut Criterion) {
         let layout = flex::place(&element, area, &state);
         let mut grid = CellGrid::new(cols, rows);
         // Populate both buffers with the same content
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
         grid.swap();
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
 
         group.bench_function(BenchmarkId::new("diff_incremental", label), |b| {
@@ -704,7 +704,7 @@ fn bench_scene_cache_cold(c: &mut Criterion) {
     c.bench_function("scene_cache_cold", |b| {
         b.iter(|| {
             let (cmds, result, _) = scene_render_pipeline(&state, &registry.view(), cs);
-            criterion::black_box((cmds.len(), result));
+            std::hint::black_box((cmds.len(), result));
         });
     });
 }
@@ -721,7 +721,7 @@ fn bench_scene_cache_warm(c: &mut Criterion) {
     c.bench_function("scene_cache_warm", |b| {
         b.iter(|| {
             let (cmds, result, _) = scene_render_pipeline(&state, &registry.view(), cs);
-            criterion::black_box((cmds.len(), result));
+            std::hint::black_box((cmds.len(), result));
         });
     });
 }
@@ -738,7 +738,7 @@ fn bench_scene_cache_menu_select(c: &mut Criterion) {
     c.bench_function("scene_cache_menu_select", |b| {
         b.iter(|| {
             let (cmds, result, _) = scene_render_pipeline(&state, &registry.view(), cs);
-            criterion::black_box((cmds.len(), result));
+            std::hint::black_box((cmds.len(), result));
         });
     });
 }
@@ -752,7 +752,7 @@ fn bench_cached_pipeline_dirty_flags(c: &mut Criterion) {
 
     // ALL dirty (full pipeline)
     group.bench_function("all_dirty", |b| {
-        let mut grid = CellGrid::new(state.cols, state.rows);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
         b.iter(|| {
             render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
         });
@@ -760,7 +760,7 @@ fn bench_cached_pipeline_dirty_flags(c: &mut Criterion) {
 
     // MENU_SELECTION only
     group.bench_function("menu_select_only", |b| {
-        let mut grid = CellGrid::new(state.cols, state.rows);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
         render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
         grid.swap_with_dirty();
         b.iter(|| {
@@ -784,7 +784,7 @@ fn bench_cached_pipeline_dirty_flags(c: &mut Criterion) {
 fn bench_section_paint_status_only(c: &mut Criterion) {
     let state = typical_state(23);
     let registry = PluginRuntime::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Initial full render
     render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
@@ -799,7 +799,7 @@ fn bench_section_paint_status_only(c: &mut Criterion) {
 fn bench_section_paint_menu_select(c: &mut Criterion) {
     let state = state_with_menu(50);
     let registry = PluginRuntime::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Initial full render
     render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
@@ -825,7 +825,7 @@ fn bench_section_paint_menu_select(c: &mut Criterion) {
 fn bench_line_dirty_single_edit(c: &mut Criterion) {
     let state = typical_state(23);
     let registry = PluginRuntime::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Initial full render
     render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
@@ -835,12 +835,12 @@ fn bench_line_dirty_single_edit(c: &mut Criterion) {
     let edited_state = state_with_edit(&state, 10, 1);
     // Simulate apply(Draw) to get lines_dirty
     let mut state_after = state.clone();
-    let edited_lines = edited_state.lines.clone();
+    let edited_lines = edited_state.observed.lines.clone();
     state_after.apply(kasane_core::protocol::KakouneRequest::Draw {
         lines: edited_lines,
         cursor_pos: kasane_core::protocol::Coord::default(),
-        default_face: state.default_face,
-        padding_face: state.padding_face,
+        default_face: state.observed.default_face,
+        padding_face: state.observed.padding_face,
         widget_columns: 0,
     });
 
@@ -863,7 +863,7 @@ fn bench_line_dirty_single_edit(c: &mut Criterion) {
 fn bench_line_dirty_all_changed(c: &mut Criterion) {
     let state = typical_state(23);
     let registry = PluginRuntime::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Initial full render
     render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
@@ -917,7 +917,7 @@ fn bench_detect_cursors_incremental(c: &mut Criterion) {
         attributes: Attributes::FINAL_FG | Attributes::REVERSE,
         ..Face::default()
     };
-    state.lines[5] = vec![
+    state.observed.lines[5] = vec![
         Atom {
             face: Face::default(),
             contents: "hel".into(),
@@ -937,7 +937,7 @@ fn bench_detect_cursors_incremental(c: &mut Criterion) {
 
     // Full scan (baseline)
     group.bench_function("full_scan_23_lines", |b| {
-        b.iter(|| derived::detect_cursors(&state.lines, primary));
+        b.iter(|| derived::detect_cursors(&state.observed.lines, primary));
     });
 
     // Incremental with warm cache + 2 dirty lines
@@ -945,15 +945,25 @@ fn bench_detect_cursors_incremental(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut cache = CursorCache::default();
-                let all_dirty = vec![true; state.lines.len()];
-                derived::detect_cursors_incremental(&state.lines, primary, &all_dirty, &mut cache);
-                let mut lines_dirty = vec![false; state.lines.len()];
+                let all_dirty = vec![true; state.observed.lines.len()];
+                derived::detect_cursors_incremental(
+                    &state.observed.lines,
+                    primary,
+                    &all_dirty,
+                    &mut cache,
+                );
+                let mut lines_dirty = vec![false; state.observed.lines.len()];
                 lines_dirty[5] = true;
                 lines_dirty[6] = true;
                 (cache, lines_dirty)
             },
             |(mut cache, lines_dirty)| {
-                derived::detect_cursors_incremental(&state.lines, primary, &lines_dirty, &mut cache)
+                derived::detect_cursors_incremental(
+                    &state.observed.lines,
+                    primary,
+                    &lines_dirty,
+                    &mut cache,
+                )
             },
             BatchSize::SmallInput,
         );
@@ -964,12 +974,22 @@ fn bench_detect_cursors_incremental(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let mut cache = CursorCache::default();
-                let all_dirty = vec![true; state.lines.len()];
-                derived::detect_cursors_incremental(&state.lines, primary, &all_dirty, &mut cache);
+                let all_dirty = vec![true; state.observed.lines.len()];
+                derived::detect_cursors_incremental(
+                    &state.observed.lines,
+                    primary,
+                    &all_dirty,
+                    &mut cache,
+                );
                 (cache, all_dirty)
             },
             |(mut cache, all_dirty)| {
-                derived::detect_cursors_incremental(&state.lines, primary, &all_dirty, &mut cache)
+                derived::detect_cursors_incremental(
+                    &state.observed.lines,
+                    primary,
+                    &all_dirty,
+                    &mut cache,
+                )
             },
             BatchSize::SmallInput,
         );
@@ -987,9 +1007,9 @@ mod salsa_benches {
     use kasane_core::plugin::PluginRuntime;
     use kasane_core::render::CellGrid;
     use kasane_core::render::SceneCache;
+    use kasane_core::render::render_pipeline_cached;
     use kasane_core::render::scene::CellSize;
     use kasane_core::render::scene_render_pipeline_cached;
-    use kasane_core::render::{RenderPipelineOptions, render_pipeline_cached};
     use kasane_core::salsa_db::KasaneDatabase;
     use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
     use kasane_core::state::DirtyFlags;
@@ -1083,8 +1103,8 @@ mod salsa_benches {
         // ALL flags at 300x80
         {
             let mut state = typical_state(79);
-            state.cols = 300;
-            state.rows = 80;
+            state.runtime.cols = 300;
+            state.runtime.rows = 80;
             let (mut db, handles) = init_salsa(&state);
 
             group.bench_function("all_flags/300x80", |b| {
@@ -1110,7 +1130,7 @@ mod salsa_benches {
                 b.iter_batched(
                     || {
                         let (db, handles) = init_salsa(&state);
-                        let grid = CellGrid::new(state.cols, state.rows);
+                        let grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
                         (db, handles, grid)
                     },
                     |(db, handles, mut grid)| {
@@ -1130,7 +1150,7 @@ mod salsa_benches {
 
             group.bench_function("full_cold/legacy", |b| {
                 b.iter_batched(
-                    || CellGrid::new(state.cols, state.rows),
+                    || CellGrid::new(state.runtime.cols, state.runtime.rows),
                     |mut grid| {
                         kasane_core::render::render_pipeline_direct(
                             &state,
@@ -1151,7 +1171,7 @@ mod salsa_benches {
 
             group.bench_function("menu_select_warm/salsa", |b| {
                 let (db, handles) = init_salsa(&state);
-                let mut grid = CellGrid::new(state.cols, state.rows);
+                let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
                 render_pipeline_cached(
                     &db,
                     &handles,
@@ -1177,7 +1197,7 @@ mod salsa_benches {
             });
 
             group.bench_function("menu_select_warm/legacy", |b| {
-                let mut grid = CellGrid::new(state.cols, state.rows);
+                let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
                 kasane_core::render::render_pipeline_direct(
                     &state,
                     &registry.view(),
@@ -1207,7 +1227,7 @@ mod salsa_benches {
                 b.iter_batched(
                     || {
                         let (mut db, handles) = init_salsa(&state);
-                        let mut grid = CellGrid::new(state.cols, state.rows);
+                        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
                         render_pipeline_cached(
                             &db,
                             &handles,
@@ -1239,7 +1259,7 @@ mod salsa_benches {
             group.bench_function("incremental_edit/legacy", |b| {
                 b.iter_batched(
                     || {
-                        let mut grid = CellGrid::new(state.cols, state.rows);
+                        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
                         kasane_core::render::render_pipeline_direct(
                             &state,
                             &registry.view(),
@@ -1341,8 +1361,8 @@ mod salsa_benches {
 
         for (cols, rows, label) in [(80, 24, "80x24"), (200, 60, "200x60"), (300, 80, "300x80")] {
             let mut state = typical_state(rows as usize - 1);
-            state.cols = cols;
-            state.rows = rows;
+            state.runtime.cols = cols;
+            state.runtime.rows = rows;
             let registry = PluginRuntime::new();
 
             group.bench_function(BenchmarkId::new("full_frame", label), |b| {
@@ -1426,17 +1446,17 @@ fn bench_allocations(c: &mut Criterion) {
         let area = Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         };
-        let mut grid = CellGrid::new(state.cols, state.rows);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
         group.bench_function("full_frame", |b| {
             b.iter(|| {
                 alloc_counter::reset();
                 let element = view::view(&state, &registry.view());
                 let layout = flex::place(&element, area, &state);
-                grid.clear(&state.default_face);
+                grid.clear(&state.observed.default_face);
                 paint::paint(&element, &layout, &mut grid, &state);
                 let _diffs = grid.diff();
                 grid.swap();
@@ -1467,15 +1487,15 @@ fn bench_allocations(c: &mut Criterion) {
         let area = Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         };
-        let mut grid = CellGrid::new(state.cols, state.rows);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
         alloc_counter::reset();
         let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
         let _diffs = grid.diff();
         grid.swap();
@@ -1507,10 +1527,10 @@ fn bench_allocations(c: &mut Criterion) {
         let area = Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         };
-        let mut grid = CellGrid::new(state.cols, state.rows);
+        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
         // view
         alloc_counter::reset();
@@ -1524,7 +1544,7 @@ fn bench_allocations(c: &mut Criterion) {
 
         // clear + paint
         alloc_counter::reset();
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
         let (c3, b3) = alloc_counter::snapshot();
 

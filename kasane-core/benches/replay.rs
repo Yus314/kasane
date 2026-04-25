@@ -80,7 +80,7 @@ fn generate_mixed_session() -> Vec<Vec<u8>> {
 fn replay_session(msgs: &[Vec<u8>]) {
     let mut state = typical_state(23);
     let registry = PluginRuntime::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     for msg in msgs {
         let mut buf = msg.clone();

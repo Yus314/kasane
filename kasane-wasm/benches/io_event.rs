@@ -3,7 +3,7 @@
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use kasane_core::input::{Key, KeyEvent, Modifiers};
-use kasane_core::plugin::{IoEvent, PluginBackend, ProcessEvent};
+use kasane_core::plugin::{AppView, IoEvent, PluginBackend, ProcessEvent};
 use kasane_core::state::{AppState, DirtyFlags};
 
 fn load_fuzzy_finder() -> kasane_wasm::WasmPlugin {
@@ -39,8 +39,8 @@ fn bench_io_event_stdout(c: &mut Criterion) {
         key: Key::Char('p'),
         modifiers: Modifiers::CTRL,
     };
-    let _ = plugin.on_init_effects(&state);
-    let _ = plugin.handle_key(&ctrl_p, &state);
+    let _ = plugin.on_init_effects(&AppView::new(&state));
+    let _ = plugin.handle_key(&ctrl_p, &AppView::new(&state));
 
     // Small stdout event (single line)
     let small_event = IoEvent::Process(ProcessEvent::Stdout {
@@ -49,7 +49,7 @@ fn bench_io_event_stdout(c: &mut Criterion) {
     });
 
     group.bench_function("stdout_small", |b| {
-        b.iter(|| plugin.on_io_event_effects(&small_event, &state));
+        b.iter(|| plugin.on_io_event_effects(&small_event, &AppView::new(&state)));
     });
 
     // Medium stdout event (10 file paths)
@@ -63,7 +63,7 @@ fn bench_io_event_stdout(c: &mut Criterion) {
     });
 
     group.bench_function("stdout_medium_10", |b| {
-        b.iter(|| plugin.on_io_event_effects(&medium_event, &state));
+        b.iter(|| plugin.on_io_event_effects(&medium_event, &AppView::new(&state)));
     });
 
     // Large stdout event (100 file paths)
@@ -77,7 +77,7 @@ fn bench_io_event_stdout(c: &mut Criterion) {
     });
 
     group.bench_function("stdout_large_100", |b| {
-        b.iter(|| plugin.on_io_event_effects(&large_event, &state));
+        b.iter(|| plugin.on_io_event_effects(&large_event, &AppView::new(&state)));
     });
 
     group.finish();
@@ -101,12 +101,12 @@ fn bench_io_event_exit(c: &mut Criterion) {
                         // Setup: create fresh plugin, activate, feed stdout data
                         let mut plugin = load_fuzzy_finder();
                         let state = AppState::default();
-                        let _ = plugin.on_init_effects(&state);
+                        let _ = plugin.on_init_effects(&AppView::new(&state));
                         let ctrl_p = KeyEvent {
                             key: Key::Char('p'),
                             modifiers: Modifiers::CTRL,
                         };
-                        let _ = plugin.handle_key(&ctrl_p, &state);
+                        let _ = plugin.handle_key(&ctrl_p, &AppView::new(&state));
 
                         let data: Vec<u8> = (0..count)
                             .map(|i| format!("src/file_{i}.rs\n"))
@@ -114,7 +114,7 @@ fn bench_io_event_exit(c: &mut Criterion) {
                             .into_bytes();
                         let stdout_event =
                             IoEvent::Process(ProcessEvent::Stdout { job_id: 1, data });
-                        let _ = plugin.on_io_event_effects(&stdout_event, &state);
+                        let _ = plugin.on_io_event_effects(&stdout_event, &AppView::new(&state));
                         (plugin, state)
                     },
                     |(mut plugin, state)| {
@@ -122,7 +122,7 @@ fn bench_io_event_exit(c: &mut Criterion) {
                             job_id: 1,
                             exit_code: 0,
                         });
-                        plugin.on_io_event_effects(&exit_event, &state)
+                        plugin.on_io_event_effects(&exit_event, &AppView::new(&state))
                     },
                     criterion::BatchSize::SmallInput,
                 );
@@ -144,14 +144,14 @@ fn bench_handle_key(c: &mut Criterion) {
     {
         let mut plugin = load_fuzzy_finder();
         let state = AppState::default();
-        let _ = plugin.on_init_effects(&state);
+        let _ = plugin.on_init_effects(&AppView::new(&state));
         let key = KeyEvent {
             key: Key::Char('a'),
             modifiers: Modifiers::empty(),
         };
 
         group.bench_function("inactive_passthrough", |b| {
-            b.iter(|| plugin.handle_key(&key, &state));
+            b.iter(|| plugin.handle_key(&key, &AppView::new(&state)));
         });
     }
 
@@ -159,12 +159,12 @@ fn bench_handle_key(c: &mut Criterion) {
     {
         let mut plugin = load_fuzzy_finder();
         let state = AppState::default();
-        let _ = plugin.on_init_effects(&state);
+        let _ = plugin.on_init_effects(&AppView::new(&state));
         let ctrl_p = KeyEvent {
             key: Key::Char('p'),
             modifiers: Modifiers::CTRL,
         };
-        let _ = plugin.handle_key(&ctrl_p, &state);
+        let _ = plugin.handle_key(&ctrl_p, &AppView::new(&state));
 
         let key = KeyEvent {
             key: Key::Char('a'),
@@ -172,7 +172,7 @@ fn bench_handle_key(c: &mut Criterion) {
         };
 
         group.bench_function("active_char_input", |b| {
-            b.iter(|| plugin.handle_key(&key, &state));
+            b.iter(|| plugin.handle_key(&key, &AppView::new(&state)));
         });
     }
 
@@ -187,12 +187,12 @@ fn bench_cursor_line_baseline(c: &mut Criterion) {
     let mut group = c.benchmark_group("baseline");
     let mut plugin = load_cursor_line();
     let mut state = AppState::default();
-    state.cursor_pos.line = 10;
+    state.observed.cursor_pos.line = 10;
 
     group.bench_function("cursor_line_on_state_changed", |b| {
         b.iter(|| {
-            state.cursor_pos.line += 1;
-            plugin.on_state_changed_effects(&state, DirtyFlags::BUFFER)
+            state.observed.cursor_pos.line += 1;
+            plugin.on_state_changed_effects(&AppView::new(&state), DirtyFlags::BUFFER)
         });
     });
 
