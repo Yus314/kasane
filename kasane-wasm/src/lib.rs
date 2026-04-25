@@ -3,6 +3,7 @@ mod authority;
 mod cache;
 pub mod capability;
 mod convert;
+pub mod error;
 mod host;
 pub mod manifest;
 
@@ -15,6 +16,7 @@ mod bindings {
 
 pub use adapter::WasmPlugin;
 pub use capability::WasiCapabilityConfig;
+pub use error::WasmPluginError;
 
 use kasane_core::plugin::ProviderArtifactStage;
 use kasane_plugin_package::package;
@@ -70,8 +72,9 @@ pub struct WasmPluginLoader {
 }
 
 impl WasmPluginLoader {
-    pub fn new() -> anyhow::Result<Self> {
-        let (engine, linker) = Self::create_engine_and_linker()?;
+    pub fn new() -> Result<Self, WasmPluginError> {
+        let (engine, linker) =
+            Self::create_engine_and_linker().map_err(WasmPluginError::EngineInit)?;
         let cache = cache::ComponentCache::new(&engine);
         let epoch_ticker = EpochTicker::start(&engine);
         Ok(Self {
@@ -84,8 +87,9 @@ impl WasmPluginLoader {
 
     /// Create a loader with a custom cache base directory (for testing).
     #[doc(hidden)]
-    pub fn new_with_cache_base(cache_base: &std::path::Path) -> anyhow::Result<Self> {
-        let (engine, linker) = Self::create_engine_and_linker()?;
+    pub fn new_with_cache_base(cache_base: &std::path::Path) -> Result<Self, WasmPluginError> {
+        let (engine, linker) =
+            Self::create_engine_and_linker().map_err(WasmPluginError::EngineInit)?;
         let cache = cache::ComponentCache::new_with_base(&engine, cache_base);
         let epoch_ticker = EpochTicker::start(&engine);
         Ok(Self {
@@ -141,19 +145,27 @@ impl WasmPluginLoader {
         &self,
         wasm_bytes: &[u8],
         wasi_config: &WasiCapabilityConfig,
-    ) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
-        let component = self
-            .load_component(wasm_bytes)
-            .map_err(|err| (ProviderArtifactStage::Load, err))?;
+    ) -> Result<WasmPlugin, (ProviderArtifactStage, WasmPluginError)> {
+        let component = self.load_component(wasm_bytes).map_err(|err| {
+            (
+                ProviderArtifactStage::Load,
+                WasmPluginError::ComponentLoad(err),
+            )
+        })?;
         self.instantiate_component(component, wasi_config)
-            .map_err(|err| (ProviderArtifactStage::Instantiate, err))
+            .map_err(|err| {
+                (
+                    ProviderArtifactStage::Instantiate,
+                    WasmPluginError::Instantiate(err),
+                )
+            })
     }
 
     pub fn load(
         &self,
         wasm_bytes: &[u8],
         wasi_config: &WasiCapabilityConfig,
-    ) -> anyhow::Result<WasmPlugin> {
+    ) -> Result<WasmPlugin, WasmPluginError> {
         self.load_staged(wasm_bytes, wasi_config)
             .map_err(|(_, err)| err)
     }
@@ -212,12 +224,20 @@ impl WasmPluginLoader {
         wasm_bytes: &[u8],
         manifest: &manifest::PluginManifest,
         wasi_config: &WasiCapabilityConfig,
-    ) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
-        let component = self
-            .load_component(wasm_bytes)
-            .map_err(|err| (ProviderArtifactStage::Load, err))?;
+    ) -> Result<WasmPlugin, (ProviderArtifactStage, WasmPluginError)> {
+        let component = self.load_component(wasm_bytes).map_err(|err| {
+            (
+                ProviderArtifactStage::Load,
+                WasmPluginError::ComponentLoad(err),
+            )
+        })?;
         self.instantiate_with_manifest(component, manifest, wasi_config)
-            .map_err(|err| (ProviderArtifactStage::Instantiate, err))
+            .map_err(|err| {
+                (
+                    ProviderArtifactStage::Instantiate,
+                    WasmPluginError::Instantiate(err),
+                )
+            })
     }
 
     fn instantiate_with_manifest(
@@ -312,8 +332,8 @@ impl WasmPluginLoader {
         &self,
         path: &Path,
         wasi_config: &WasiCapabilityConfig,
-    ) -> anyhow::Result<WasmPlugin> {
-        let bytes = std::fs::read(path)?;
+    ) -> Result<WasmPlugin, WasmPluginError> {
+        let bytes = std::fs::read(path).map_err(|err| WasmPluginError::Other(err.into()))?;
         self.load(&bytes, wasi_config)
     }
 
@@ -321,13 +341,17 @@ impl WasmPluginLoader {
         &self,
         package_bytes: &[u8],
         wasi_config: &WasiCapabilityConfig,
-    ) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
-        let inspected = package::verify_package(package_bytes)
-            .map_err(|err| (ProviderArtifactStage::Manifest, err.into()))?;
+    ) -> Result<WasmPlugin, (ProviderArtifactStage, WasmPluginError)> {
+        let inspected = package::verify_package(package_bytes).map_err(|err| {
+            (
+                ProviderArtifactStage::Manifest,
+                WasmPluginError::Package(err),
+            )
+        })?;
         let manifest = inspected.header.to_manifest();
         let component =
             package::entry_bytes(package_bytes, &inspected, &inspected.header.plugin.entry)
-                .map_err(|err| (ProviderArtifactStage::Read, err.into()))?;
+                .map_err(|err| (ProviderArtifactStage::Read, WasmPluginError::Package(err)))?;
         self.load_with_manifest(component, &manifest, wasi_config)
     }
 
@@ -335,8 +359,13 @@ impl WasmPluginLoader {
         &self,
         path: &Path,
         wasi_config: &WasiCapabilityConfig,
-    ) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
-        let bytes = std::fs::read(path).map_err(|err| (ProviderArtifactStage::Read, err.into()))?;
+    ) -> Result<WasmPlugin, (ProviderArtifactStage, WasmPluginError)> {
+        let bytes = std::fs::read(path).map_err(|err| {
+            (
+                ProviderArtifactStage::Read,
+                WasmPluginError::Other(err.into()),
+            )
+        })?;
         self.load_package_bytes(&bytes, wasi_config)
     }
 }
@@ -421,7 +450,7 @@ fn bundled_plugin_specs() -> &'static [BundledPluginSpec] {
     ]
 }
 
-pub fn bundled_plugin_artifacts() -> anyhow::Result<Vec<BundledPluginArtifact>> {
+pub fn bundled_plugin_artifacts() -> Result<Vec<BundledPluginArtifact>, WasmPluginError> {
     bundled_plugin_specs()
         .iter()
         .map(bundled_plugin_artifact_from_spec)
@@ -430,7 +459,7 @@ pub fn bundled_plugin_artifacts() -> anyhow::Result<Vec<BundledPluginArtifact>> 
 
 pub fn bundled_plugin_artifact_by_plugin_id(
     plugin_id: &str,
-) -> anyhow::Result<Option<BundledPluginArtifact>> {
+) -> Result<Option<BundledPluginArtifact>, WasmPluginError> {
     for spec in bundled_plugin_specs() {
         let artifact = bundled_plugin_artifact_from_spec(spec)?;
         if artifact.plugin_id == plugin_id {
@@ -442,9 +471,10 @@ pub fn bundled_plugin_artifact_by_plugin_id(
 
 pub fn bundled_plugin_manifest_by_plugin_id(
     plugin_id: &str,
-) -> anyhow::Result<Option<manifest::PluginManifest>> {
+) -> Result<Option<manifest::PluginManifest>, WasmPluginError> {
     for spec in bundled_plugin_specs() {
-        let manifest = manifest::PluginManifest::parse(spec.manifest_toml)?;
+        let manifest = manifest::PluginManifest::parse(spec.manifest_toml)
+            .map_err(|err| WasmPluginError::Other(anyhow::anyhow!(err)))?;
         if manifest.plugin.id == plugin_id {
             return Ok(Some(manifest));
         }
@@ -455,12 +485,16 @@ pub fn bundled_plugin_manifest_by_plugin_id(
 pub fn load_bundled_plugin_by_plugin_id(
     plugin_id: &str,
     wasi_config: &WasiCapabilityConfig,
-) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
+) -> Result<WasmPlugin, (ProviderArtifactStage, WasmPluginError)> {
     let loader =
         WasmPluginLoader::new().map_err(|err| (ProviderArtifactStage::Instantiate, err))?;
     for spec in bundled_plugin_specs() {
-        let manifest = manifest::PluginManifest::parse(spec.manifest_toml)
-            .map_err(|err| (ProviderArtifactStage::Manifest, anyhow::anyhow!(err)))?;
+        let manifest = manifest::PluginManifest::parse(spec.manifest_toml).map_err(|err| {
+            (
+                ProviderArtifactStage::Manifest,
+                WasmPluginError::Other(anyhow::anyhow!(err)),
+            )
+        })?;
         if manifest.plugin.id != plugin_id {
             continue;
         }
@@ -468,14 +502,15 @@ pub fn load_bundled_plugin_by_plugin_id(
     }
     Err((
         ProviderArtifactStage::Manifest,
-        anyhow::anyhow!("unknown bundled plugin `{plugin_id}`"),
+        WasmPluginError::UnknownBundledPlugin(plugin_id.to_string()),
     ))
 }
 
 fn bundled_plugin_artifact_from_spec(
     spec: &BundledPluginSpec,
-) -> anyhow::Result<BundledPluginArtifact> {
-    let manifest = manifest::PluginManifest::parse(spec.manifest_toml)?;
+) -> Result<BundledPluginArtifact, WasmPluginError> {
+    let manifest = manifest::PluginManifest::parse(spec.manifest_toml)
+        .map_err(|err| WasmPluginError::Other(anyhow::anyhow!(err)))?;
     Ok(BundledPluginArtifact {
         name: spec.name,
         plugin_id: manifest.plugin.id.clone(),

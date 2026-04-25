@@ -103,7 +103,7 @@ pub(super) fn build_contribution_element(
             && let Some(style) = try_resolve_style(&active_parts[0].face_rules)
         {
             let atom = atoms.into_iter().next().unwrap();
-            return Some(Element::Text(atom.contents.into(), style));
+            return Some(Element::Text(atom.contents, style));
         }
     }
 

@@ -30,17 +30,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 unicode-width = "0.2"
 unicode-segmentation = "1.11"
-insta = "1"
 criterion = { version = "0.8", features = ["html_reports"] }
 iai-callgrind = "0.16"
-hdrhistogram = "7"
 toml = "0.9"
 bitflags = "2"
 compact_str = { version = "0.9", features = ["serde"] }
 dyn-clone = "1"
 salsa = "0.26"
 bytemuck = { version = "1", features = ["derive"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 itoa = "1"
 resvg = { version = "0.47", default-features = false, features = ["text", "system-fonts"] }
 kasane-gui = { path = "kasane-gui" }
@@ -53,9 +51,8 @@ lru = { version = "0.17", default-features = false }
 rustc-hash = "2"
 pollster = "0.4"
 base64 = "0.22"
-parking_lot = "0.12"
-rmp-serde = "1"
-sha2 = "0.11"
+postcard = { version = "1", features = ["alloc"] }
+sha2 = "0.10"
 kdl = "6.2"
 regex-lite = "0.1"
 glob = "0.3"

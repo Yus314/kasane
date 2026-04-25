@@ -425,7 +425,7 @@ pub struct BufferRefState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Element {
-    Text(String, Style),
+    Text(CompactString, Style),
     StyledLine(Vec<Atom>),
     SlotPlaceholder {
         slot_name: CompactString,
@@ -527,7 +527,7 @@ pub enum Element {
 }
 
 impl Element {
-    pub fn text(s: impl Into<String>, face: Face) -> Self {
+    pub fn text(s: impl Into<CompactString>, face: Face) -> Self {
         Element::Text(s.into(), Style::from(face))
     }
 

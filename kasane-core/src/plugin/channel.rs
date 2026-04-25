@@ -9,7 +9,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 /// A serialized value for cross-boundary plugin communication.
 ///
-/// Data is stored as MessagePack bytes with a type hint for diagnostics.
+/// Data is stored as postcard bytes with a type hint for diagnostics.
 /// Native plugins use typed wrappers; WASM plugins receive raw bytes.
 #[derive(Debug, Clone)]
 pub struct ChannelValue {
@@ -19,8 +19,8 @@ pub struct ChannelValue {
 
 impl ChannelValue {
     /// Create a new `ChannelValue` by serializing a value.
-    pub fn new<T: Serialize + 'static>(value: &T) -> Result<Self, rmp_serde::encode::Error> {
-        let data = rmp_serde::to_vec(value)?;
+    pub fn new<T: Serialize + 'static>(value: &T) -> Result<Self, postcard::Error> {
+        let data = postcard::to_allocvec(value)?;
         Ok(Self {
             data,
             type_hint: Cow::Borrowed(std::any::type_name::<T>()),
@@ -36,8 +36,8 @@ impl ChannelValue {
     }
 
     /// Deserialize the contained value.
-    pub fn deserialize<T: DeserializeOwned>(&self) -> Result<T, rmp_serde::decode::Error> {
-        rmp_serde::from_slice(&self.data)
+    pub fn deserialize<T: DeserializeOwned>(&self) -> Result<T, postcard::Error> {
+        postcard::from_bytes(&self.data)
     }
 
     /// Get the raw serialized data.

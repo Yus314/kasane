@@ -193,20 +193,22 @@ mod tests {
     fn extension_results_type_mismatch_filtered() {
         let mut results = ExtensionResults::new();
         let id = ExtensionPointId::new("test");
+        // Serialize a bool (1 byte in postcard)
         results.insert(
             id.clone(),
             ExtensionOutput {
                 plugin_id: PluginId("p".to_string()),
-                value: ChannelValue::new(&"string value".to_string()).unwrap(),
+                value: ChannelValue::new(&true).unwrap(),
             },
         );
 
-        // Request as u32 → filtered out (deserialization fails)
-        let values = results.get::<u32>(&id);
+        // Request as String → filtered out (deserialization fails: not enough bytes)
+        let values = results.get::<String>(&id);
         assert!(values.is_empty());
 
-        // Request as String → found
-        let values = results.get::<String>(&id);
+        // Request as bool → found
+        let values = results.get::<bool>(&id);
         assert_eq!(values.len(), 1);
+        assert_eq!(values[0], true);
     }
 }

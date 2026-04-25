@@ -4,7 +4,7 @@ use std::any::Any;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-use parking_lot::Mutex;
+use std::sync::Mutex;
 
 use compact_str::CompactString;
 use kasane_core::element::{Element, InteractiveId, PluginTag};
@@ -69,7 +69,7 @@ struct WasmPluginShared {
 
 impl WasmPluginShared {
     fn with_runtime<R>(&self, f: impl FnOnce(&mut WasmPluginRuntime) -> R) -> R {
-        let mut runtime = self.runtime.lock();
+        let mut runtime = self.runtime.lock().unwrap();
         runtime.store.set_epoch_deadline(1);
         f(&mut runtime)
     }
@@ -80,7 +80,7 @@ impl WasmPluginShared {
             method.to_string(),
             error.to_string(),
         );
-        let mut pending = self.pending_diagnostics.lock();
+        let mut pending = self.pending_diagnostics.lock().unwrap();
         if pending.len() >= MAX_PENDING_DIAGNOSTICS {
             pending.remove(0);
         }
@@ -100,7 +100,7 @@ impl WasmPluginShared {
                 state.as_app_state(),
                 self.cached_view_deps,
             );
-            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock();
+            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock().unwrap();
             match f(runtime) {
                 Ok(result) => result,
                 Err(e) => {
@@ -126,7 +126,7 @@ impl WasmPluginShared {
                 state.as_app_state(),
                 self.cached_view_deps,
             );
-            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock();
+            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock().unwrap();
             let result = match f(runtime) {
                 Ok(result) => result,
                 Err(e) => {
@@ -516,7 +516,7 @@ impl PluginBackend for WasmPlugin {
     }
 
     fn set_plugin_tag(&mut self, tag: PluginTag) {
-        *self.shared.plugin_tag.lock() = tag;
+        *self.shared.plugin_tag.lock().unwrap() = tag;
     }
 
     fn view_deps(&self) -> DirtyFlags {
@@ -524,7 +524,7 @@ impl PluginBackend for WasmPlugin {
     }
 
     fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
-        let mut pending = self.shared.pending_diagnostics.lock();
+        let mut pending = self.shared.pending_diagnostics.lock().unwrap();
         std::mem::take(&mut *pending)
     }
 
@@ -763,7 +763,7 @@ impl PluginBackend for WasmPlugin {
                 state.as_app_state(),
                 self.shared.cached_view_deps,
             );
-            runtime.store.data_mut().plugin_tag = *shared.plugin_tag.lock();
+            runtime.store.data_mut().plugin_tag = *shared.plugin_tag.lock().unwrap();
             let api = runtime.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
             let result = match api.call_invoke_action(&mut runtime.store, action_id, wit_key) {

@@ -173,7 +173,7 @@ pub mod authority {
     pub const WORKSPACE_MANAGEMENT: u8 = 2;
 }
 
-/// Helpers for ChannelValue (MessagePack) serialization at the WASM boundary.
+/// Helpers for ChannelValue (postcard) serialization at the WASM boundary.
 ///
 /// WASM plugins work with the WIT-generated `ChannelValue { data, type_hint }` struct.
 /// This module provides serialization/deserialization of the raw bytes.
@@ -182,14 +182,14 @@ pub mod channel {
 
     /// Serialize a value into `(data, type_hint)` for a WIT `channel-value`.
     pub fn serialize<T: Serialize>(value: &T) -> (Vec<u8>, String) {
-        let data = rmp_serde::to_vec(value).expect("ChannelValue serialize failed");
+        let data = postcard::to_allocvec(value).expect("ChannelValue serialize failed");
         let type_hint = std::any::type_name::<T>().to_string();
         (data, type_hint)
     }
 
     /// Deserialize from WIT `channel-value` data bytes.
     pub fn deserialize<T: DeserializeOwned>(data: &[u8]) -> Option<T> {
-        rmp_serde::from_slice(data).ok()
+        postcard::from_bytes(data).ok()
     }
 
     #[cfg(test)]

@@ -17,7 +17,7 @@ test-harness = []
 wit-bindgen = "0.53"
 kasane-plugin-sdk-macros = { path = "../kasane-plugin-sdk-macros", version = "=0.5.0" }
 serde = { version = "1", features = ["derive"] }
-rmp-serde = "1"
+postcard = { version = "1", features = ["alloc"] }
 
 [dev-dependencies]
 trybuild = "1"

@@ -762,13 +762,13 @@ pub(crate) fn define_plugin_impl(
                     STATE.with(|s| {
                         let state = s.borrow();
                         let tuple: ( #( #field_types, )* ) = ( #( #ser_exprs, )* );
-                        rmp_serde::to_vec(&tuple).unwrap_or_default()
+                        postcard::to_allocvec(&tuple).unwrap_or_default()
                     })
                 }
 
                 fn restore_state(data: Vec<u8>) -> bool {
                     STATE.with(|s| {
-                        let restored: ( #( #field_types, )* ) = match rmp_serde::from_slice(&data) {
+                        let restored: ( #( #field_types, )* ) = match postcard::from_bytes(&data) {
                             Ok(v) => v,
                             Err(_) => return false,
                         };
