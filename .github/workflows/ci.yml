@@ -46,6 +46,13 @@ jobs:
       - name: Clippy (with GUI)
         run: nix develop --command cargo clippy --features gui -- -D warnings
 
+      # Bench compile check — guards against AppState/Plugin trait drift that
+      # silently rots benchmark code (bench.yml runs the heavy criterion suite
+      # asynchronously and is easy to miss; this catches breakage in the same
+      # required CI run as build/test/clippy).
+      - name: Compile benchmarks
+        run: nix develop --command cargo bench --workspace --no-run
+
       - name: WIT symlink check
         run: |
           test -L kasane-plugin-sdk/wit/plugin.wit
