@@ -17,11 +17,16 @@ pub const DS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStenc
 
 /// Build the `DepthStencilState` descriptor used when creating render pipelines.
 /// All draw pipelines use this: stencil compare `Equal`, depth disabled.
+///
+/// `depth_write_enabled` / `depth_compare` must be `Some(_)` for any format
+/// with a depth aspect (wgpu 29 validation). We use `Some(false)` + `Always`
+/// to make depth effectively pass-through while satisfying the validator;
+/// only the stencil channel carries meaning here.
 pub fn pipeline_depth_stencil() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: DS_FORMAT,
-        depth_write_enabled: None,
-        depth_compare: None,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(wgpu::CompareFunction::Always),
         stencil: wgpu::StencilState {
             front: wgpu::StencilFaceState {
                 compare: wgpu::CompareFunction::Equal,
@@ -47,8 +52,8 @@ pub fn pipeline_depth_stencil() -> wgpu::DepthStencilState {
 pub fn stencil_write_increment() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: DS_FORMAT,
-        depth_write_enabled: None,
-        depth_compare: None,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(wgpu::CompareFunction::Always),
         stencil: wgpu::StencilState {
             front: wgpu::StencilFaceState {
                 compare: wgpu::CompareFunction::Always,
@@ -74,8 +79,8 @@ pub fn stencil_write_increment() -> wgpu::DepthStencilState {
 pub fn stencil_write_decrement() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: DS_FORMAT,
-        depth_write_enabled: None,
-        depth_compare: None,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(wgpu::CompareFunction::Always),
         stencil: wgpu::StencilState {
             front: wgpu::StencilFaceState {
                 compare: wgpu::CompareFunction::Always,
