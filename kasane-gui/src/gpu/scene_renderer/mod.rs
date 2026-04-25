@@ -493,6 +493,19 @@ impl SceneRenderer {
         self.clip_stack.clear();
         self.paragraph_cursor = None;
         self.paragraph_hit_data.clear();
+        // Emit last frame's hit/miss tally before clearing for the new frame.
+        // Filter to `kasane::line_cache=debug` to see per-frame summaries
+        // without the noisy per-line `trace` events.
+        let prev_stats = self.line_cache.take_stats();
+        if prev_stats.hits + prev_stats.misses + prev_stats.bypass > 0 {
+            tracing::debug!(
+                target: "kasane::line_cache",
+                hits = prev_stats.hits,
+                misses = prev_stats.misses,
+                bypass = prev_stats.bypass,
+                "frame summary",
+            );
+        }
         // Reset which buffer pool slots are claimed; cache entries are kept
         // so subsequent frames can hit them.
         self.line_cache.frame_start(self.text_buffers.len());

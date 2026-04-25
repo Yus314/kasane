@@ -256,6 +256,34 @@ Spans are emitted via the `tracing` crate. Use a subscriber like `tracing-subscr
 | `grid.diff()` | `grid_diff` |
 | `grid.swap()` | `grid_swap` |
 
+### GPU line shaping cache (kasane-gui)
+
+The GPU text pipeline caches cosmic-text shaping results per display line.
+Hit/miss telemetry is emitted unconditionally (no feature flag) under the
+`kasane::line_cache` target.
+
+```sh
+# Per-frame summary (one debug event per rendered frame):
+KASANE_LOG=kasane::line_cache=debug kasane file.txt
+# → DEBUG kasane::line_cache: hits=78 misses=2 bypass=1 frame summary
+
+# Per-line outcomes (very noisy; useful for chasing single-line cache misses):
+KASANE_LOG=kasane::line_cache=trace kasane file.txt
+# → TRACE kasane::line_cache: line_idx=42 outcome="hit"
+# → TRACE kasane::line_cache: line_idx=43 outcome="miss_changed" hash_match=false ...
+```
+
+Outcomes:
+- `hit` — same content_hash, max_width, font_size as cached entry; shaping reused.
+- `miss_unseen` — no cache entry yet for `line_idx` (first frame, or evicted).
+- `miss_changed` — entry exists but at least one input differs (extra fields show which).
+- `bypass` — caller passed `line_idx == u32::MAX` (e.g. border titles, opt-out).
+
+Expected ratios on typical workloads:
+- Cursor-only frames on a static buffer: ~95-100% hits.
+- Single-line edit: ~98% hits (only the edited line misses).
+- Scroll: high `miss_unseen` count for newly-revealed lines.
+
 ## Flamegraph Profiling
 
 ### Install cargo-flamegraph

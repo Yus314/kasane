@@ -33,12 +33,29 @@ struct CacheEntry {
     font_size_bits: u32,
 }
 
+/// Per-frame hit/miss tally for tracing. Reset on `frame_start()`.
+#[derive(Default, Clone, Copy)]
+pub(super) struct FrameStats {
+    pub hits: u32,
+    pub misses: u32,
+    pub bypass: u32, // line_idx == u32::MAX
+}
+
+impl FrameStats {
+    #[cfg(test)]
+    fn lookups(&self) -> u32 {
+        self.hits + self.misses + self.bypass
+    }
+}
+
 pub(super) struct LineShapingCache {
     /// Stable identity → cached buffer slot.
     entries: FxHashMap<u32, CacheEntry>,
     /// Per-frame: which `text_buffers` slots have been touched (hit or miss).
     /// Used by `alloc_text_buffer` to find a slot free for new shaping work.
     in_use: Vec<bool>,
+    /// Per-frame hit/miss/bypass counters; emitted via tracing at frame end.
+    stats: FrameStats,
 }
 
 impl LineShapingCache {
@@ -46,7 +63,15 @@ impl LineShapingCache {
         Self {
             entries: FxHashMap::default(),
             in_use: Vec::with_capacity(128),
+            stats: FrameStats::default(),
         }
+    }
+
+    /// Take the per-frame stats and reset them. Call before `frame_start()`
+    /// (or read just before — `frame_start` itself does not reset stats so
+    /// the last frame's counts can be inspected from outside).
+    pub fn take_stats(&mut self) -> FrameStats {
+        std::mem::take(&mut self.stats)
     }
 
     /// Reset per-frame "in use" tracking. Cache entries are preserved so the
@@ -71,7 +96,8 @@ impl LineShapingCache {
     }
 
     /// Look up a cached buffer for `line_idx`. Returns the buffer pool index
-    /// if and only if every shaping input matches.
+    /// if and only if every shaping input matches. Updates per-frame stats
+    /// for tracing (hit / miss / bypass).
     pub fn lookup(
         &mut self,
         line_idx: u32,
@@ -80,16 +106,36 @@ impl LineShapingCache {
         font_size: f32,
     ) -> Option<usize> {
         if line_idx == u32::MAX {
-            return None; // Sentinel: caller opted out of caching.
+            self.stats.bypass += 1;
+            tracing::trace!(target: "kasane::line_cache", line_idx, outcome = "bypass");
+            return None;
         }
-        let entry = *self.entries.get(&line_idx)?;
+        let entry = match self.entries.get(&line_idx) {
+            Some(e) => *e,
+            None => {
+                self.stats.misses += 1;
+                tracing::trace!(target: "kasane::line_cache", line_idx, outcome = "miss_unseen");
+                return None;
+            }
+        };
         if entry.content_hash == content_hash
             && entry.max_width_bits == max_width.to_bits()
             && entry.font_size_bits == font_size.to_bits()
         {
             self.mark_in_use(entry.buffer_idx);
+            self.stats.hits += 1;
+            tracing::trace!(target: "kasane::line_cache", line_idx, outcome = "hit");
             Some(entry.buffer_idx)
         } else {
+            self.stats.misses += 1;
+            tracing::trace!(
+                target: "kasane::line_cache",
+                line_idx,
+                outcome = "miss_changed",
+                hash_match = entry.content_hash == content_hash,
+                width_match = entry.max_width_bits == max_width.to_bits(),
+                font_match = entry.font_size_bits == font_size.to_bits(),
+            );
             None
         }
     }
