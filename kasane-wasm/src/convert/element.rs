@@ -127,6 +127,53 @@ pub(crate) fn wit_image_fit_to_image_fit(wf: &wit::ImageFit) -> ImageFit {
     }
 }
 
+pub(crate) fn wit_canvas_op_to_canvas_op(
+    op: &wit::CanvasDrawOp,
+) -> kasane_core::plugin::canvas::CanvasDrawOp {
+    use kasane_core::plugin::canvas::CanvasDrawOp as CoreOp;
+    match op {
+        wit::CanvasDrawOp::FillRect(r) => CoreOp::FillRect {
+            x: r.x,
+            y: r.y,
+            w: r.w,
+            h: r.h,
+            color: super::wit_color_to_color(&r.color),
+        },
+        wit::CanvasDrawOp::RoundedRect(r) => CoreOp::RoundedRect {
+            x: r.x,
+            y: r.y,
+            w: r.w,
+            h: r.h,
+            corner_radius: r.corner_radius,
+            border_width: r.border_width,
+            fill_color: super::wit_color_to_color(&r.fill_color),
+            border_color: super::wit_color_to_color(&r.border_color),
+        },
+        wit::CanvasDrawOp::Line(l) => CoreOp::Line {
+            x1: l.x1,
+            y1: l.y1,
+            x2: l.x2,
+            y2: l.y2,
+            color: super::wit_color_to_color(&l.color),
+            width: l.width,
+        },
+        wit::CanvasDrawOp::Text(t) => CoreOp::Text {
+            x: t.x,
+            y: t.y,
+            text: t.text.clone(),
+            color: super::wit_color_to_color(&t.color),
+        },
+        wit::CanvasDrawOp::Circle(c) => CoreOp::Circle {
+            cx: c.cx,
+            cy: c.cy,
+            radius: c.radius,
+            fill_color: c.fill_color.as_ref().map(super::wit_color_to_color),
+            stroke_color: c.stroke_color.as_ref().map(super::wit_color_to_color),
+            stroke_width: c.stroke_width,
+        },
+    }
+}
+
 // ---------------------------------------------------------------------------
 // ElementPatch conversion (WIT list<element-patch-op> → core ElementPatch)
 // ---------------------------------------------------------------------------

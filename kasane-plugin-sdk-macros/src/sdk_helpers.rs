@@ -315,6 +315,14 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 )
             }
 
+            /// Create a canvas element for GPU drawing operations.
+            ///
+            /// Size is in cells (width, height). The ops are rendered by the GPU
+            /// backend; the TUI backend shows an empty area.
+            pub fn canvas(width: u16, height: u16, ops: &[CanvasDrawOp]) -> ElementHandle {
+                super::kasane::plugin::element_builder::create_canvas(width, height, ops)
+            }
+
             /// Create a `FlexEntry` pairing a child element with a flex weight.
             pub fn flex_entry(child: ElementHandle, flex: f32) -> FlexEntry {
                 FlexEntry { child, flex }

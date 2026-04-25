@@ -871,6 +871,23 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
         self.store_element(element)
     }
 
+    fn create_canvas(
+        &mut self,
+        width: u16,
+        height: u16,
+        ops: Vec<bindings::kasane::plugin::types::CanvasDrawOp>,
+    ) -> u32 {
+        let mut content = kasane_core::plugin::canvas::CanvasContent::new();
+        for op in &ops {
+            content.push(convert::wit_canvas_op_to_canvas_op(op));
+        }
+        let element = Element::Canvas {
+            size: (width, height),
+            content,
+        };
+        self.store_element(element)
+    }
+
     fn create_text_panel(
         &mut self,
         lines: Vec<Vec<bindings::kasane::plugin::types::Atom>>,

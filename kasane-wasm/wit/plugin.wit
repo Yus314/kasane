@@ -1049,6 +1049,67 @@ interface types {
         fill,
     }
 
+    // --- v0.26.0: Canvas drawing operations ---
+
+    /// A canvas drawing operation submitted by a plugin.
+    /// Coordinates are relative to the element's top-left corner, in cells.
+    variant canvas-draw-op {
+        /// Fill a rectangle with a solid color.
+        fill-rect(canvas-rect),
+        /// Draw a rounded rectangle with optional border.
+        rounded-rect(canvas-rounded-rect),
+        /// Draw a line between two points.
+        line(canvas-line),
+        /// Draw text at a position.
+        text(canvas-text),
+        /// Draw a circle (filled or stroked).
+        circle(canvas-circle),
+    }
+
+    record canvas-rect {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        color: color,
+    }
+
+    record canvas-rounded-rect {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        corner-radius: f32,
+        border-width: f32,
+        fill-color: color,
+        border-color: color,
+    }
+
+    record canvas-line {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        color: color,
+        width: f32,
+    }
+
+    record canvas-text {
+        x: f32,
+        y: f32,
+        text: string,
+        color: color,
+    }
+
+    record canvas-circle {
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        fill-color: option<color>,
+        stroke-color: option<color>,
+        stroke-width: f32,
+    }
+
     // --- v0.24.0: Channel value (Phase 5) ---
 
     /// Serialized value for cross-boundary plugin communication.
@@ -1209,7 +1270,7 @@ interface host-state {
 /// Host-provided functions for building Element trees.
 /// Handles are valid only within the current plugin call scope.
 interface element-builder {
-    use types.{face, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry, overlay, slot-id, layout-direction, image-source, image-fit};
+    use types.{face, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry, overlay, slot-id, layout-direction, image-source, image-fit, canvas-draw-op};
 
     /// Create a text element with a direct face.
     create-text: func(content: string, face: face) -> element-handle;
@@ -1276,6 +1337,13 @@ interface element-builder {
     create-text-panel: func(lines: list<list<atom>>, scroll-offset: u32,
                             cursor-line: option<u32>, cursor-col: option<u32>,
                             line-numbers: bool, wrap: bool) -> element-handle;
+
+    // --- v0.26.0: Canvas element ---
+
+    /// Create a canvas element with GPU drawing operations.
+    /// Size is in cells (width, height). The ops are rendered by the GPU backend;
+    /// the TUI backend shows an empty area.
+    create-canvas: func(width: u16, height: u16, ops: list<canvas-draw-op>) -> element-handle;
 }
 
 interface plugin-api {
