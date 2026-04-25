@@ -221,6 +221,45 @@ fn inject_owner_in_patch(patch: &mut super::ElementPatch, tag: PluginTag) {
     }
 }
 
+/// Dispatch a state+effects handler: call handler, update state, check change, return effects.
+macro_rules! dispatch_state_effect {
+    ($self:expr, $field:ident $(, $arg:expr)*) => {
+        if let Some(handler) = &$self.table.$field {
+            let (new_state, effects) = handler(&*$self.state, $($arg),*);
+            $self.state = new_state;
+            $self.check_state_change();
+            effects
+        } else {
+            Effects::default()
+        }
+    };
+}
+
+/// Dispatch a state-only handler: call handler, update state, check change.
+macro_rules! dispatch_state_only {
+    ($self:expr, $field:ident $(, $arg:expr)*) => {
+        if let Some(handler) = &$self.table.$field {
+            $self.state = handler(&*$self.state, $($arg),*);
+            $self.check_state_change();
+        }
+    };
+}
+
+/// Dispatch an optional-consume handler: call handler, update state if Some, return mapped result.
+macro_rules! dispatch_optional_consume {
+    ($self:expr, $field:ident $(, $arg:expr)*) => {
+        if let Some(handler) = &$self.table.$field {
+            handler(&*$self.state, $($arg),*).map(|(new_state, result)| {
+                $self.state = new_state;
+                $self.check_state_change();
+                result
+            })
+        } else {
+            None
+        }
+    };
+}
+
 impl PluginBackend for PluginBridge {
     fn id(&self) -> PluginId {
         self.id.clone()
@@ -281,25 +320,11 @@ impl PluginBackend for PluginBridge {
     // === Lifecycle ===
 
     fn on_init_effects(&mut self, app: &AppView<'_>) -> Effects {
-        if let Some(handler) = &self.table.init_handler {
-            let (new_state, effects) = handler(&*self.state, app);
-            self.state = new_state;
-            self.check_state_change();
-            effects
-        } else {
-            Effects::default()
-        }
+        dispatch_state_effect!(self, init_handler, app)
     }
 
     fn on_active_session_ready_effects(&mut self, app: &AppView<'_>) -> Effects {
-        if let Some(handler) = &self.table.session_ready_handler {
-            let (new_state, effects) = handler(&*self.state, app);
-            self.state = new_state;
-            self.check_state_change();
-            effects
-        } else {
-            Effects::default()
-        }
+        dispatch_state_effect!(self, session_ready_handler, app)
     }
 
     fn on_shutdown(&mut self) {
@@ -309,14 +334,7 @@ impl PluginBackend for PluginBridge {
     }
 
     fn on_state_changed_effects(&mut self, app: &AppView<'_>, dirty: DirtyFlags) -> Effects {
-        if let Some(handler) = &self.table.state_changed_handler {
-            let (new_state, effects) = handler(&*self.state, app, dirty);
-            self.state = new_state;
-            self.check_state_change();
-            effects
-        } else {
-            Effects::default()
-        }
+        dispatch_state_effect!(self, state_changed_handler, app, dirty)
     }
 
     fn on_io_event_effects(&mut self, event: &IoEvent, app: &AppView<'_>) -> Effects {
@@ -328,22 +346,11 @@ impl PluginBackend for PluginBridge {
         }
 
         // Fall through to the manual io_event handler.
-        if let Some(handler) = &self.table.io_event_handler {
-            let (new_state, effects) = handler(&*self.state, event, app);
-            self.state = new_state;
-            self.check_state_change();
-            effects
-        } else {
-            Effects::default()
-        }
+        dispatch_state_effect!(self, io_event_handler, event, app)
     }
 
     fn on_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
-        if let Some(handler) = &self.table.workspace_changed_handler {
-            let new_state = handler(&*self.state, query);
-            self.state = new_state;
-            self.check_state_change();
-        }
+        dispatch_state_only!(self, workspace_changed_handler, query);
     }
 
     fn workspace_save(&self) -> Option<serde_json::Value> {
@@ -354,11 +361,7 @@ impl PluginBackend for PluginBridge {
     }
 
     fn workspace_restore(&mut self, data: &serde_json::Value) {
-        if let Some(handler) = &self.table.workspace_restore_handler {
-            let new_state = handler(&*self.state, data);
-            self.state = new_state;
-            self.check_state_change();
-        }
+        dispatch_state_only!(self, workspace_restore_handler, data);
     }
 
     fn start_process_task(&mut self, name: &str) -> Vec<Command> {
@@ -381,59 +384,27 @@ impl PluginBackend for PluginBridge {
     // === Input ===
 
     fn observe_key(&mut self, key: &KeyEvent, app: &AppView<'_>) {
-        if let Some(handler) = &self.table.observe_key_handler {
-            let new_state = handler(&*self.state, key, app);
-            self.state = new_state;
-            self.check_state_change();
-        }
+        dispatch_state_only!(self, observe_key_handler, key, app);
     }
 
     fn observe_text_input(&mut self, text: &str, app: &AppView<'_>) {
-        if let Some(handler) = &self.table.observe_text_input_handler {
-            let new_state = handler(&*self.state, text, app);
-            self.state = new_state;
-            self.check_state_change();
-        }
+        dispatch_state_only!(self, observe_text_input_handler, text, app);
     }
 
     fn observe_mouse(&mut self, event: &MouseEvent, app: &AppView<'_>) {
-        if let Some(handler) = &self.table.observe_mouse_handler {
-            let new_state = handler(&*self.state, event, app);
-            self.state = new_state;
-            self.check_state_change();
-        }
+        dispatch_state_only!(self, observe_mouse_handler, event, app);
     }
 
     fn observe_drop(&mut self, event: &DropEvent, app: &AppView<'_>) {
-        if let Some(handler) = &self.table.observe_drop_handler {
-            let new_state = handler(&*self.state, event, app);
-            self.state = new_state;
-            self.check_state_change();
-        }
+        dispatch_state_only!(self, observe_drop_handler, event, app);
     }
 
     fn handle_key(&mut self, key: &KeyEvent, app: &AppView<'_>) -> Option<Vec<Command>> {
-        if let Some(handler) = &self.table.key_handler {
-            handler(&*self.state, key, app).map(|(new_state, cmds)| {
-                self.state = new_state;
-                self.check_state_change();
-                cmds
-            })
-        } else {
-            None
-        }
+        dispatch_optional_consume!(self, key_handler, key, app)
     }
 
     fn handle_text_input(&mut self, text: &str, app: &AppView<'_>) -> Option<Vec<Command>> {
-        if let Some(handler) = &self.table.text_input_handler {
-            handler(&*self.state, text, app).map(|(new_state, cmds)| {
-                self.state = new_state;
-                self.check_state_change();
-                cmds
-            })
-        } else {
-            None
-        }
+        dispatch_optional_consume!(self, text_input_handler, text, app)
     }
 
     fn handle_key_middleware(&mut self, key: &KeyEvent, app: &AppView<'_>) -> KeyHandleResult {
@@ -457,15 +428,7 @@ impl PluginBackend for PluginBridge {
         id: InteractiveId,
         app: &AppView<'_>,
     ) -> Option<Vec<Command>> {
-        if let Some(handler) = &self.table.handle_mouse_handler {
-            handler(&*self.state, event, id, app).map(|(new_state, cmds)| {
-                self.state = new_state;
-                self.check_state_change();
-                cmds
-            })
-        } else {
-            None
-        }
+        dispatch_optional_consume!(self, handle_mouse_handler, event, id, app)
     }
 
     fn handle_drop(
@@ -474,15 +437,7 @@ impl PluginBackend for PluginBridge {
         id: InteractiveId,
         app: &AppView<'_>,
     ) -> Option<Vec<Command>> {
-        if let Some(handler) = &self.table.handle_drop_handler {
-            handler(&*self.state, event, id, app).map(|(new_state, cmds)| {
-                self.state = new_state;
-                self.check_state_change();
-                cmds
-            })
-        } else {
-            None
-        }
+        dispatch_optional_consume!(self, handle_drop_handler, event, id, app)
     }
 
     fn handle_default_scroll(
@@ -490,15 +445,7 @@ impl PluginBackend for PluginBridge {
         candidate: DefaultScrollCandidate,
         app: &AppView<'_>,
     ) -> Option<ScrollPolicyResult> {
-        if let Some(handler) = &self.table.default_scroll_handler {
-            handler(&*self.state, candidate, app).map(|(new_state, result)| {
-                self.state = new_state;
-                self.check_state_change();
-                result
-            })
-        } else {
-            None
-        }
+        dispatch_optional_consume!(self, default_scroll_handler, candidate, app)
     }
 
     fn compiled_key_map(&self) -> Option<&CompiledKeyMap> {
@@ -525,14 +472,7 @@ impl PluginBackend for PluginBridge {
     }
 
     fn update_effects(&mut self, msg: &mut dyn Any, app: &AppView<'_>) -> Effects {
-        if let Some(handler) = &self.table.update_handler {
-            let (new_state, effects) = handler(&*self.state, msg, app);
-            self.state = new_state;
-            self.check_state_change();
-            effects
-        } else {
-            Effects::default()
-        }
+        dispatch_state_effect!(self, update_handler, msg, app)
     }
 
     // === View contributions ===
