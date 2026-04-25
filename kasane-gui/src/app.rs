@@ -39,6 +39,7 @@ use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::pane_map::PaneStates;
 
 use crate::animation::CursorAnimation;
+use crate::animation::SpringPhysics;
 use crate::animation::track::{EasingFn, TrackId};
 use crate::backend::GuiBackend;
 use crate::colors::ColorResolver;
@@ -93,6 +94,9 @@ where
     scroll_amount: i32,
     scroll_runtime: ScrollRuntime,
     scroll_runtime_session: Option<kasane_core::session::SessionId>,
+    /// Spring physics for sub-pixel smooth scroll offset.
+    scroll_spring: SpringPhysics,
+    scroll_spring_last_tick: std::time::Instant,
 
     // Scene cache
     scene_cache: SceneCache,
@@ -290,6 +294,8 @@ where
                 scroll_amount,
                 scroll_runtime: ScrollRuntime::default(),
                 scroll_runtime_session,
+                scroll_spring: SpringPhysics::critically_damped(300.0),
+                scroll_spring_last_tick: std::time::Instant::now(),
                 config,
                 color_resolver: None,
                 scene_cache: SceneCache::new(),
@@ -1285,6 +1291,7 @@ where
                 SceneRenderOptions {
                     surface_registry: Some(&self.surface_registry),
                     pane_states: pane_states_opt,
+                    pixel_y_offset: self.scroll_spring.position as f32,
                 },
             );
             self.last_render_result = Some(result.clone());
@@ -1693,6 +1700,20 @@ where
                 .sync_active_from_manager(&self.session_manager, &self.state);
         }
 
+        // Sub-pixel scroll spring tick
+        if !self.scroll_spring.is_at_rest() {
+            let now = std::time::Instant::now();
+            let dt = now
+                .duration_since(self.scroll_spring_last_tick)
+                .as_secs_f64();
+            self.scroll_spring_last_tick = now;
+            self.scroll_spring.tick(dt);
+            if let Some(ref window) = self.window {
+                window.request_redraw();
+            }
+            self.cursor_dirty = true;
+        }
+
         // Cursor/overlay animation drives continuous redraw when active
         if (self.cursor_animation.is_animating || self.cursor_animation.engine().is_animating())
             && let Some(ref window) = self.window
@@ -1715,12 +1736,23 @@ where
             .scroll_runtime
             .active_frame_interval()
             .map(|d| std::time::Instant::now() + d);
+        let spring_deadline = if self.scroll_spring.is_at_rest() {
+            None
+        } else {
+            // 60fps for spring animation
+            Some(std::time::Instant::now() + std::time::Duration::from_nanos(16_666_667))
+        };
         let cursor_deadline = self.cursor_animation.next_frame_deadline();
         let engine_deadline = self.cursor_animation.engine().next_frame_deadline();
-        let deadline = [scroll_deadline, cursor_deadline, engine_deadline]
-            .into_iter()
-            .flatten()
-            .min();
+        let deadline = [
+            scroll_deadline,
+            spring_deadline,
+            cursor_deadline,
+            engine_deadline,
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         match deadline {
             Some(t) => event_loop.set_control_flow(ControlFlow::WaitUntil(t)),
             None => event_loop.set_control_flow(ControlFlow::Wait),

@@ -1,8 +1,8 @@
 //! Shared GPU infrastructure for instanced rendering pipelines.
 //!
-//! Both `BgPipeline` and `BorderPipeline` use the same uniform buffer layout
-//! (8-byte `vec2<f32>` screen size) and the same instance buffer growth strategy.
-//! This module extracts that common code.
+//! Provides uniform buffer layout (8-byte `vec2<f32>` screen size) and
+//! dynamically resizable instance buffers used by `QuadPipeline` and
+//! `ImagePipeline`.
 
 /// 8-byte uniform buffer (`vec2<f32>` screen_size) + bind group.
 pub(crate) struct ScreenUniforms {
@@ -101,5 +101,14 @@ impl InstanceBuffer {
     /// Access the underlying `wgpu::Buffer`.
     pub fn buffer(&self) -> &wgpu::Buffer {
         &self.buffer
+    }
+
+    /// Write a sub-range of float data to the buffer at the given float offset.
+    ///
+    /// `float_offset` and `data` are in units of `f32`. This enables partial
+    /// uploads when only a subset of instances changed.
+    pub fn write_range(&self, queue: &wgpu::Queue, float_offset: usize, data: &[f32]) {
+        let byte_offset = (float_offset * 4) as u64;
+        queue.write_buffer(&self.buffer, byte_offset, bytemuck::cast_slice(data));
     }
 }

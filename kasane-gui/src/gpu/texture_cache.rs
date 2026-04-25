@@ -75,6 +75,8 @@ struct CachedTexture {
     /// Kept alive to prevent GPU resource deallocation.
     _texture: wgpu::Texture,
     view: wgpu::TextureView,
+    /// Pre-built bind group for this texture (avoids per-frame allocation).
+    bind_group: wgpu::BindGroup,
     width: u32,
     height: u32,
     byte_size: usize,
@@ -275,6 +277,11 @@ impl TextureCache {
         self.entries.get(key).map(|e| &e.view)
     }
 
+    /// Get the pre-built bind group for a cached texture.
+    pub fn get_bind_group(&self, key: &TextureKey) -> Option<&wgpu::BindGroup> {
+        self.entries.get(key).map(|e| &e.bind_group)
+    }
+
     /// Create a bind group for a texture view in this cache.
     pub fn create_bind_group(
         &self,
@@ -379,6 +386,7 @@ impl TextureCache {
             size,
         );
         let view = texture.create_view(&Default::default());
+        let bind_group = self.create_bind_group(device, &view);
         let byte_size = data.len();
 
         self.entries.insert(
@@ -386,6 +394,7 @@ impl TextureCache {
             CachedTexture {
                 _texture: texture,
                 view,
+                bind_group,
                 width,
                 height,
                 byte_size,

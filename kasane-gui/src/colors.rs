@@ -78,9 +78,27 @@ impl ColorResolver {
         }
     }
 
+    /// Convert a kasane-core `Color` to a GPU-ready `[f32; 4]` in **linear** color space.
+    pub fn resolve_linear(&self, color: Color, is_fg: bool) -> [f32; 4] {
+        srgb_color_to_linear(self.resolve(color, is_fg))
+    }
+
+    /// Resolve face fg/bg to GPU colors in **linear** color space, applying REVERSE.
+    ///
+    /// Returns `(visual_fg, visual_bg, needs_bg)`.
+    pub fn resolve_face_colors_linear(&self, face: &Face) -> ([f32; 4], [f32; 4], bool) {
+        let (fg, bg, needs_bg) = self.resolve_face_colors(face);
+        (srgb_color_to_linear(fg), srgb_color_to_linear(bg), needs_bg)
+    }
+
     /// Default background color as `[f32; 4]`.
     pub fn default_bg(&self) -> [f32; 4] {
         self.palette[1]
+    }
+
+    /// Default background color in linear color space.
+    pub fn default_bg_linear(&self) -> [f32; 4] {
+        srgb_color_to_linear(self.palette[1])
     }
 }
 
@@ -103,6 +121,16 @@ fn named_color_index(c: NamedColor) -> usize {
         NamedColor::BrightCyan => 14,
         NamedColor::BrightWhite => 15,
     }
+}
+
+/// Convert all RGB components of a color from sRGB to linear, preserving alpha.
+pub fn srgb_color_to_linear(c: [f32; 4]) -> [f32; 4] {
+    [
+        srgb_to_linear(c[0]),
+        srgb_to_linear(c[1]),
+        srgb_to_linear(c[2]),
+        c[3],
+    ]
 }
 
 /// Convert a single sRGB component (0.0–1.0) to linear light.

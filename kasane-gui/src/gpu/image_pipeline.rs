@@ -106,10 +106,10 @@ impl ImagePipeline {
                     strip_index_format: None,
                     ..Default::default()
                 },
-                depth_stencil: None,
+                depth_stencil: Some(super::depth_stencil::pipeline_depth_stencil()),
                 multisample: MultisampleState::default(),
                 multiview_mask: None,
-                cache: None,
+                cache: gpu.pipeline_cache.as_ref(),
             });
 
         let instance_buf = InstanceBuffer::new(

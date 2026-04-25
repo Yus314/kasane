@@ -14,13 +14,13 @@ use kasane_core::element::BorderLineStyle;
 
 use kasane_core::protocol::Attributes;
 
-use super::bg_pipeline::BgPipeline;
-use super::border_pipeline::BorderPipeline;
 use super::compositor::{BlitPipeline, BlurPipeline, RenderTarget};
-use super::decoration_pipeline::{self, DecorationPipeline};
-use super::gradient_pipeline::GradientPipeline;
+use super::depth_stencil::DepthStencilState;
 use super::image_pipeline::ImagePipeline;
+use super::quad_pipeline::{self, QuadPipeline};
+use super::text_effects::TextEffects;
 use super::texture_cache::{LoadState, TextureCache, TextureKey};
+use super::timing::GpuTimingState;
 use super::{CURSOR_BAR_WIDTH, CURSOR_OUTLINE_THICKNESS, CURSOR_UNDERLINE_HEIGHT, CellMetrics};
 use crate::colors::ColorResolver;
 
@@ -32,11 +32,7 @@ pub struct SceneRenderer {
     viewport: Viewport,
     text_atlas: TextAtlas,
     text_renderer: TextRenderer,
-    shadow: BorderPipeline,
-    gradient: GradientPipeline,
-    bg: BgPipeline,
-    border: BorderPipeline,
-    decoration: DecorationPipeline,
+    quad: QuadPipeline,
     image: ImagePipeline,
     texture_cache: TextureCache,
     metrics: CellMetrics,
@@ -82,6 +78,15 @@ pub struct SceneRenderer {
     blit: BlitPipeline,
     blur: BlurPipeline,
     base_target: Option<RenderTarget>,
+
+    /// GPU pass timing measurement.
+    timing: GpuTimingState,
+
+    /// Depth/stencil buffer for clip stencil and z-order.
+    depth_stencil: DepthStencilState,
+
+    /// Text post-processing effects (shadow, glow).
+    text_effects: TextEffects,
 }
 
 impl SceneRenderer {
@@ -115,7 +120,7 @@ impl SceneRenderer {
             &mut text_atlas,
             &gpu.device,
             MultisampleState::default(),
-            None,
+            Some(super::depth_stencil::pipeline_depth_stencil()),
         );
         let mut viewport = Viewport::new(&gpu.device, &cache);
         viewport.update(
@@ -126,13 +131,19 @@ impl SceneRenderer {
             },
         );
 
-        let shadow = BorderPipeline::new(gpu, surface_format);
-        let gradient = GradientPipeline::new(gpu, surface_format);
+        let timing = GpuTimingState::new(&gpu.device, &gpu.queue);
+
+        let depth_stencil = DepthStencilState::new(
+            &gpu.device,
+            window_size.width.max(1),
+            window_size.height.max(1),
+        );
+
+        let text_effects = TextEffects::new(&gpu.device, surface_format);
+
+        let quad = QuadPipeline::new(gpu, surface_format);
         let blit = BlitPipeline::new(&gpu.device, surface_format);
         let blur = BlurPipeline::new(&gpu.device, surface_format);
-        let bg = BgPipeline::new(gpu, surface_format);
-        let border = BorderPipeline::new(gpu, surface_format);
-        let decoration = DecorationPipeline::new(gpu, surface_format);
         let texture_cache = TextureCache::new(&gpu.device, 128 * 1024 * 1024); // 128 MB budget
         let image = ImagePipeline::new(gpu, surface_format, texture_cache.bind_group_layout());
 
@@ -142,11 +153,7 @@ impl SceneRenderer {
             viewport,
             text_atlas,
             text_renderer,
-            shadow,
-            gradient,
-            bg,
-            border,
-            decoration,
+            quad,
             image,
             texture_cache,
             metrics,
@@ -169,6 +176,9 @@ impl SceneRenderer {
             blit,
             blur,
             base_target: None,
+            timing,
+            depth_stencil,
+            text_effects,
         }
     }
 
@@ -219,6 +229,11 @@ impl SceneRenderer {
         )
     }
 
+    /// Get the latest GPU timing data.
+    pub fn gpu_timings(&self) -> Option<&super::timing::GpuFrameTimings> {
+        self.timing.latest_timings()
+    }
+
     pub fn cell_size(&self) -> CellSize {
         CellSize {
             width: self.metrics.cell_width,
@@ -237,7 +252,7 @@ impl SceneRenderer {
         if self.effects.gradient_start.is_none() {
             return false;
         }
-        let dbg = color_resolver.default_bg();
+        let dbg = color_resolver.default_bg_linear();
         (bg[0] - dbg[0]).abs() < 0.002
             && (bg[1] - dbg[1]).abs() < 0.002
             && (bg[2] - dbg[2]).abs() < 0.002
@@ -254,22 +269,23 @@ impl SceneRenderer {
 
         // Top strip (above focused pane)
         if pane.y > 0.0 {
-            self.bg.push_rect(0.0, 0.0, sw, pane.y, dim_color);
+            self.quad.push_solid(0.0, 0.0, sw, pane.y, dim_color);
         }
         // Bottom strip (below focused pane)
         let bottom = pane.y + pane.h;
         if bottom < sh {
-            self.bg.push_rect(0.0, bottom, sw, sh - bottom, dim_color);
+            self.quad
+                .push_solid(0.0, bottom, sw, sh - bottom, dim_color);
         }
         // Left strip (within pane row)
         if pane.x > 0.0 {
-            self.bg.push_rect(0.0, pane.y, pane.x, pane.h, dim_color);
+            self.quad.push_solid(0.0, pane.y, pane.x, pane.h, dim_color);
         }
         // Right strip (within pane row)
         let right = pane.x + pane.w;
         if right < sw {
-            self.bg
-                .push_rect(right, pane.y, sw - right, pane.h, dim_color);
+            self.quad
+                .push_solid(right, pane.y, sw - right, pane.h, dim_color);
         }
     }
 
@@ -307,6 +323,11 @@ impl SceneRenderer {
                 width: window_size.width.max(1),
                 height: window_size.height.max(1),
             },
+        );
+        self.depth_stencil.resize(
+            &gpu.device,
+            window_size.width.max(1),
+            window_size.height.max(1),
         );
         self.text_buffers.clear();
         self.text_positions.clear();
@@ -422,14 +443,7 @@ impl SceneRenderer {
         // Update screen size uniforms
         let screen_size = [screen_w, screen_h];
         let screen_size_data = bytemuck::cast_slice(&screen_size);
-        for buffer in [
-            self.shadow.uniform_buffer(),
-            self.gradient.uniform_buffer(),
-            self.bg.uniform_buffer(),
-            self.border.uniform_buffer(),
-            self.decoration.uniform_buffer(),
-            self.image.uniform_buffer(),
-        ] {
+        for buffer in [self.quad.uniform_buffer(), self.image.uniform_buffer()] {
             gpu.queue.write_buffer(buffer, 0, screen_size_data);
         }
 
@@ -441,6 +455,7 @@ impl SceneRenderer {
         self.clip_stack.clear();
         self.paragraph_cursor = None;
         self.paragraph_hit_data.clear();
+        self.timing.begin_frame();
 
         // Split commands into layers at BeginOverlay boundaries.
         // layer_ranges[i] = (start, end) index into `commands`.
@@ -490,11 +505,7 @@ impl SceneRenderer {
         // data is flushed before the next layer overwrites shared GPU buffers.
         for (layer_idx, &(range_start, range_end)) in layer_ranges.iter().enumerate() {
             // Reset per-layer pipeline instances
-            self.shadow.instances.clear();
-            self.gradient.instances.clear();
-            self.bg.instances.clear();
-            self.border.instances.clear();
-            self.decoration.instances.clear();
+            self.quad.instances.clear();
             self.image.clear_frame();
             let layer_text_start = self.text_buffer_count;
 
@@ -509,7 +520,14 @@ impl SceneRenderer {
                 if let (Some(start), Some(end)) =
                     (self.effects.gradient_start, self.effects.gradient_end)
                 {
-                    self.gradient.push(0.0, 0.0, screen_w, screen_h, start, end);
+                    self.quad.push_gradient(
+                        0.0,
+                        0.0,
+                        screen_w,
+                        screen_h,
+                        crate::colors::srgb_color_to_linear(start),
+                        crate::colors::srgb_color_to_linear(end),
+                    );
                 }
 
                 // Cursor line highlight
@@ -517,11 +535,12 @@ impl SceneRenderer {
                     && self.effects.cursor_line_highlight
                         != kasane_core::config::CursorLineHighlightMode::Off
                 {
-                    let fg = color_resolver.resolve(kasane_core::protocol::Color::Default, true);
+                    let fg =
+                        color_resolver.resolve_linear(kasane_core::protocol::Color::Default, true);
                     let highlight_color = [fg[0], fg[1], fg[2], 0.03];
                     let line_y = (cy / cell_h).floor() * cell_h;
-                    self.bg
-                        .push_rect(0.0, line_y, screen_w, cell_h, highlight_color);
+                    self.quad
+                        .push_solid(0.0, line_y, screen_w, cell_h, highlight_color);
                 }
 
                 self.render_cursor(cursor, color_resolver, cell_w, cell_h);
@@ -536,41 +555,17 @@ impl SceneRenderer {
             if layer_idx > 0 {
                 let opacity = overlay_opacities.get(layer_idx - 1).copied().unwrap_or(1.0);
                 if opacity < 1.0 {
-                    // Multiply alpha channel of all bg instances (stride=8, alpha at offset 7)
-                    for chunk in self.bg.instances.chunks_exact_mut(8) {
-                        chunk[7] *= opacity;
-                    }
-                    // Border instances (stride=14, fill alpha at offset 9, border alpha at offset 13)
-                    for chunk in self.border.instances.chunks_exact_mut(14) {
-                        chunk[9] *= opacity;
-                        chunk[13] *= opacity;
-                    }
-                    // Decoration instances (stride=10, alpha at offset 7)
-                    for chunk in self.decoration.instances.chunks_exact_mut(10) {
-                        chunk[7] *= opacity;
-                    }
-                    // Shadow instances (stride=14, fill alpha at offset 9)
-                    for chunk in self.shadow.instances.chunks_exact_mut(14) {
-                        chunk[9] *= opacity;
+                    // Unified quad stride=20: fill alpha at 7, border alpha at 11, extra alpha at 19
+                    for chunk in self.quad.instances.chunks_exact_mut(20) {
+                        chunk[7] *= opacity; // fill_color.a
+                        chunk[11] *= opacity; // border_color.a
+                        chunk[19] *= opacity; // extra.a (gradient end_color)
                     }
                 }
             }
 
             // Ensure GPU buffers are large enough for this layer
-            let shadow_count = self.shadow.instances.len() / 14;
-            self.shadow.ensure_buffer(gpu, shadow_count);
-
-            let gradient_count = self.gradient.instances.len() / 12;
-            self.gradient.ensure_buffer(gpu, gradient_count);
-
-            let bg_count = self.bg.instances.len() / 8;
-            self.bg.ensure_buffer(gpu, bg_count);
-
-            let border_count = self.border.instances.len() / 14;
-            self.border.ensure_buffer(gpu, border_count);
-
-            let deco_count = self.decoration.instances.len() / 10;
-            self.decoration.ensure_buffer(gpu, deco_count);
+            self.quad.ensure_buffer(gpu, self.quad.instance_count());
 
             let image_count = self.image.instances.len() / 9;
             self.image.ensure_buffer(gpu, image_count);
@@ -616,7 +611,7 @@ impl SceneRenderer {
 
             {
                 let load_op = if layer_idx == 0 {
-                    let default_bg = color_resolver.default_bg();
+                    let default_bg = color_resolver.default_bg_linear();
                     wgpu::LoadOp::Clear(wgpu::Color {
                         r: default_bg[0] as f64,
                         g: default_bg[1] as f64,
@@ -635,6 +630,10 @@ impl SceneRenderer {
                     &view
                 };
 
+                let pass_label = if layer_idx == 0 { "base" } else { "overlay" };
+                let ts_writes = self.timing.timestamp_writes(pass_label);
+
+                let ds_attachment = self.depth_stencil.attachment(layer_idx == 0);
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("scene_layer_pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -646,21 +645,105 @@ impl SceneRenderer {
                             store: wgpu::StoreOp::Store,
                         },
                     })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
+                    depth_stencil_attachment: Some(ds_attachment),
+                    timestamp_writes: ts_writes,
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
 
-                self.shadow.upload_and_draw(gpu, &mut render_pass);
-                self.gradient.upload_and_draw(gpu, &mut render_pass);
-                self.bg.upload_and_draw(gpu, &mut render_pass);
-                self.border.upload_and_draw(gpu, &mut render_pass);
-                self.text_renderer
-                    .render(&self.text_atlas, &self.viewport, &mut render_pass)
-                    .map_err(|e| anyhow::anyhow!("glyphon render failed: {e}"))?;
+                // Stencil reference 0 matches the cleared stencil buffer.
+                // PushClip/PopClip modify the clip_stack for software clipping;
+                // hardware stencil-based clipping can be layered on top later.
+                render_pass.set_stencil_reference(0);
+
+                self.quad.upload_and_draw(gpu, &mut render_pass);
+
+                let text_effects_active = self.effects.text_effects.is_active();
+                if !text_effects_active {
+                    // Standard path: text directly to the main render target
+                    self.text_renderer
+                        .render(&self.text_atlas, &self.viewport, &mut render_pass)
+                        .map_err(|e| anyhow::anyhow!("glyphon render failed: {e}"))?;
+                }
+
                 self.image.upload_and_draw(gpu, &mut render_pass);
-                self.decoration.upload_and_draw(gpu, &mut render_pass);
+
+                if text_effects_active {
+                    // Apply text effects: shadow/glow from intermediate RT
+                    self.text_effects.apply(
+                        &gpu.device,
+                        &gpu.queue,
+                        &mut render_pass,
+                        &self.effects.text_effects,
+                        screen_w,
+                        screen_h,
+                    );
+                }
+            }
+
+            // When text effects are active, render text to intermediate RT
+            // in a separate pass, then blit it to the main target.
+            if self.effects.text_effects.is_active() {
+                self.text_effects.ensure_target(
+                    &gpu.device,
+                    gpu.config.width,
+                    gpu.config.height,
+                    gpu.config.format,
+                );
+                let text_target_view = &self.text_effects.text_target.as_ref().unwrap().view;
+
+                // Render text to intermediate RT
+                {
+                    let mut text_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("text_effects_text_pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: text_target_view,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    self.text_renderer
+                        .render(&self.text_atlas, &self.viewport, &mut text_pass)
+                        .map_err(|e| anyhow::anyhow!("glyphon render failed: {e}"))?;
+                }
+
+                // Blit sharp text to main target
+                let target_view = if use_compositor && layer_idx == 0 {
+                    &self.base_target.as_ref().unwrap().view
+                } else {
+                    &view
+                };
+                let text_blit_bg = self
+                    .blit
+                    .create_texture_bind_group(&gpu.device, text_target_view);
+                {
+                    let mut blit_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("text_effects_blit_pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: target_view,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    self.blit
+                        .draw(&gpu.queue, &mut blit_pass, &text_blit_bg, 1.0);
+                }
             }
 
             let _submit_span = tracing::info_span!("encoder_submit", layer = layer_idx).entered();
@@ -735,6 +818,21 @@ impl SceneRenderer {
             }
         }
 
+        // Resolve GPU timing queries
+        if self.timing.is_enabled() {
+            let mut timing_encoder =
+                gpu.device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("timing_resolve_encoder"),
+                    });
+            self.timing.resolve(&mut timing_encoder);
+            gpu.queue.submit(std::iter::once(timing_encoder.finish()));
+            self.timing.readback(&gpu.device);
+            if let Some(timings) = self.timing.latest_timings() {
+                tracing::info!("{timings}");
+            }
+        }
+
         output.present();
 
         self.texture_cache.evict_to_budget();
@@ -783,7 +881,7 @@ impl SceneRenderer {
                 let Some((cx, cy, cw, ch)) = self.clip_rect(rect.x, rect.y, rect.w, rect.h) else {
                     return;
                 };
-                let (_, mut bg, _) = color_resolver.resolve_face_colors(face);
+                let (_, mut bg, _) = color_resolver.resolve_face_colors_linear(face);
 
                 // When gradient is active, skip fills matching default bg
                 // so the gradient shows through.
@@ -792,9 +890,9 @@ impl SceneRenderer {
                 }
                 if *elevated {
                     // Subtle elevation: ~10/255 in sRGB ≈ VS Code's floating window offset
-                    bg[0] = (bg[0] + 0.04).min(1.0);
-                    bg[1] = (bg[1] + 0.04).min(1.0);
-                    bg[2] = (bg[2] + 0.04).min(1.0);
+                    bg[0] = (bg[0] + 0.003).min(1.0);
+                    bg[1] = (bg[1] + 0.003).min(1.0);
+                    bg[2] = (bg[2] + 0.003).min(1.0);
                     tracing::debug!(
                         "elevated FillRect: bg=[{:.3},{:.3},{:.3}] rect=({:.0},{:.0},{:.0},{:.0})",
                         bg[0],
@@ -806,7 +904,7 @@ impl SceneRenderer {
                         ch,
                     );
                 }
-                self.bg.push_rect(cx, cy, cw, ch, bg);
+                self.quad.push_solid(cx, cy, cw, ch, bg);
             }
             DrawCommand::DrawAtoms {
                 pos,
@@ -829,7 +927,7 @@ impl SceneRenderer {
                 ch,
                 face,
             } => {
-                let (visual_fg, _, _) = color_resolver.resolve_face_colors(face);
+                let (visual_fg, _, _) = color_resolver.resolve_face_colors_linear(face);
                 let buf_idx = self.alloc_text_buffer(screen_w);
                 self.text_positions.push((pos.x, pos.y));
                 self.push_text_clip_bounds();
@@ -851,19 +949,19 @@ impl SceneRenderer {
                 face,
                 fill_face,
             } => {
-                let (visual_fg, _, _) = color_resolver.resolve_face_colors(face);
+                let (visual_fg, _, _) = color_resolver.resolve_face_colors_linear(face);
                 let border_color = visual_fg;
                 let (corner_radius, border_width) =
                     super::text_helpers::border_style_params(line_style.clone(), cell_h);
                 let fill = match fill_face {
                     Some(ff) => {
-                        let (_, ff_bg, _) = color_resolver.resolve_face_colors(ff);
+                        let (_, ff_bg, _) = color_resolver.resolve_face_colors_linear(ff);
                         ff_bg
                     }
                     None => [0.0, 0.0, 0.0, 0.0],
                 };
                 if *line_style == BorderLineStyle::Double {
-                    self.border.push_rounded_rect(
+                    self.quad.push_rounded_rect(
                         rect.x,
                         rect.y,
                         rect.w,
@@ -875,7 +973,7 @@ impl SceneRenderer {
                     );
                     let inset = border_width + 1.0;
                     if rect.w > inset * 2.0 && rect.h > inset * 2.0 {
-                        self.border.push_rounded_rect(
+                        self.quad.push_rounded_rect(
                             rect.x + inset,
                             rect.y + inset,
                             rect.w - inset * 2.0,
@@ -887,7 +985,7 @@ impl SceneRenderer {
                         );
                     }
                 } else {
-                    self.border.push_rounded_rect(
+                    self.quad.push_rounded_rect(
                         rect.x,
                         rect.y,
                         rect.w,
@@ -913,15 +1011,15 @@ impl SceneRenderer {
                 let title_x = rect.x + (rect.w - title_w) / 2.0;
                 let title_y = rect.y - cell_h * 0.35;
 
-                let (_, mut title_bg, _) = color_resolver.resolve_face_colors(border_face);
+                let (_, mut title_bg, _) = color_resolver.resolve_face_colors_linear(border_face);
                 if *elevated {
                     // Subtle elevation: ~10/255 in sRGB ≈ VS Code's floating window offset
-                    title_bg[0] = (title_bg[0] + 0.04).min(1.0);
-                    title_bg[1] = (title_bg[1] + 0.04).min(1.0);
-                    title_bg[2] = (title_bg[2] + 0.04).min(1.0);
+                    title_bg[0] = (title_bg[0] + 0.003).min(1.0);
+                    title_bg[1] = (title_bg[1] + 0.003).min(1.0);
+                    title_bg[2] = (title_bg[2] + 0.003).min(1.0);
                 }
 
-                self.border.push_rounded_rect(
+                self.quad.push_rounded_rect(
                     title_x - pad_x,
                     title_y,
                     title_w + pad_x * 2.0,
@@ -941,14 +1039,14 @@ impl SceneRenderer {
                 color,
             } => {
                 let expand = *blur_radius;
-                self.shadow.push_rounded_rect(
+                self.quad.push_rounded_rect(
                     rect.x + offset.0 - expand,
                     rect.y + offset.1 - expand,
                     rect.w + expand * 2.0,
                     rect.h + expand * 2.0,
                     expand,
                     0.0,
-                    *color,
+                    crate::colors::srgb_color_to_linear(*color),
                     [0.0, 0.0, 0.0, 0.0],
                 );
             }
@@ -1025,7 +1123,13 @@ impl SceneRenderer {
                                 }
                                 Err(e) => {
                                     tracing::warn!("SVG render failed: {e}");
-                                    self.bg.push_rect(cx, cy, cw, ch, [0.2, 0.2, 0.2, 1.0]);
+                                    self.quad.push_solid(
+                                        cx,
+                                        cy,
+                                        cw,
+                                        ch,
+                                        crate::colors::srgb_color_to_linear([0.2, 0.2, 0.2, 1.0]),
+                                    );
                                     return;
                                 }
                             }
@@ -1036,8 +1140,7 @@ impl SceneRenderer {
                 // Look up or dispatch async load
                 match self.texture_cache.get_or_load(&key, &self.event_proxy) {
                     LoadState::Ready(tex_w, tex_h) => {
-                        let view = self.texture_cache.get_view(&key).unwrap();
-                        let bind_group = self.texture_cache.create_bind_group(&gpu.device, view);
+                        let bind_group = self.texture_cache.get_bind_group(&key).unwrap().clone();
                         self.image.push_textured_quad(
                             bind_group,
                             tex_w as f32,
@@ -1052,11 +1155,135 @@ impl SceneRenderer {
                     }
                     LoadState::Pending => {
                         // Loading in progress — draw semi-transparent placeholder
-                        self.bg.push_rect(cx, cy, cw, ch, [0.15, 0.15, 0.15, 0.6]);
+                        self.quad.push_solid(
+                            cx,
+                            cy,
+                            cw,
+                            ch,
+                            crate::colors::srgb_color_to_linear([0.15, 0.15, 0.15, 0.6]),
+                        );
                     }
                     LoadState::Failed => {
                         // Failed — draw grey placeholder
-                        self.bg.push_rect(cx, cy, cw, ch, [0.2, 0.2, 0.2, 1.0]);
+                        self.quad.push_solid(
+                            cx,
+                            cy,
+                            cw,
+                            ch,
+                            crate::colors::srgb_color_to_linear([0.2, 0.2, 0.2, 1.0]),
+                        );
+                    }
+                }
+            }
+            DrawCommand::DrawCanvas { rect, content } => {
+                // Convert canvas ops to quad pipeline instances.
+                // Canvas coordinates are relative to rect origin.
+                for op in &content.ops {
+                    match op {
+                        kasane_core::plugin::canvas::CanvasDrawOp::FillRect {
+                            x,
+                            y,
+                            w,
+                            h,
+                            color,
+                        } => {
+                            let c = color_resolver.resolve_linear(*color, false);
+                            self.quad.push_solid(rect.x + x, rect.y + y, *w, *h, c);
+                        }
+                        kasane_core::plugin::canvas::CanvasDrawOp::RoundedRect {
+                            x,
+                            y,
+                            w,
+                            h,
+                            corner_radius,
+                            border_width,
+                            fill_color,
+                            border_color,
+                        } => {
+                            let fill = color_resolver.resolve_linear(*fill_color, false);
+                            let border = color_resolver.resolve_linear(*border_color, true);
+                            self.quad.push_rounded_rect(
+                                rect.x + x,
+                                rect.y + y,
+                                *w,
+                                *h,
+                                *corner_radius,
+                                *border_width,
+                                fill,
+                                border,
+                            );
+                        }
+                        kasane_core::plugin::canvas::CanvasDrawOp::Line {
+                            x1,
+                            y1,
+                            x2,
+                            y2,
+                            color,
+                            width,
+                        } => {
+                            // Approximate line as a thin solid rect
+                            let c = color_resolver.resolve_linear(*color, true);
+                            let dx = x2 - x1;
+                            let dy = y2 - y1;
+                            let len = (dx * dx + dy * dy).sqrt();
+                            if len > 0.0 {
+                                // For simplicity, draw horizontal/vertical lines as rects
+                                let min_x = x1.min(*x2);
+                                let min_y = y1.min(*y2);
+                                let w = dx.abs().max(*width);
+                                let h = dy.abs().max(*width);
+                                self.quad
+                                    .push_solid(rect.x + min_x, rect.y + min_y, w, h, c);
+                            }
+                        }
+                        kasane_core::plugin::canvas::CanvasDrawOp::Text {
+                            x,
+                            y,
+                            text,
+                            color,
+                            ..
+                        } => {
+                            let fg = color_resolver.resolve_linear(*color, true);
+                            let face = kasane_core::protocol::Face {
+                                fg: *color,
+                                ..Default::default()
+                            };
+                            self.process_draw_text(
+                                rect.x + x,
+                                rect.y + y,
+                                text,
+                                &face,
+                                rect.w,
+                                color_resolver,
+                            );
+                            let _ = fg; // text rendering uses face-based color
+                        }
+                        kasane_core::plugin::canvas::CanvasDrawOp::Circle {
+                            cx,
+                            cy,
+                            radius,
+                            fill_color,
+                            stroke_color,
+                            stroke_width,
+                        } => {
+                            // Approximate circle as a rounded rect with radius = half-extent
+                            let fill = fill_color
+                                .map(|c| color_resolver.resolve_linear(c, false))
+                                .unwrap_or([0.0, 0.0, 0.0, 0.0]);
+                            let border = stroke_color
+                                .map(|c| color_resolver.resolve_linear(c, true))
+                                .unwrap_or([0.0, 0.0, 0.0, 0.0]);
+                            self.quad.push_rounded_rect(
+                                rect.x + cx - radius,
+                                rect.y + cy - radius,
+                                radius * 2.0,
+                                radius * 2.0,
+                                *radius,
+                                *stroke_width,
+                                fill,
+                                border,
+                            );
+                        }
                     }
                 }
             }
@@ -1091,17 +1318,17 @@ impl SceneRenderer {
             .paragraph_cursor
             .map(|(gx, gw)| (gx, gw.max(CURSOR_BAR_WIDTH)))
             .unwrap_or((cell_x, cell_w));
-        let mut cc = color_resolver.resolve(cursor_color, true);
+        let mut cc = color_resolver.resolve_linear(cursor_color, true);
         cc[3] = opacity;
         match style {
             CursorStyle::Block => {
-                self.bg.push_rect(x, y, w, cell_h, cc);
+                self.quad.push_solid(x, y, w, cell_h, cc);
             }
             CursorStyle::Bar => {
-                self.bg.push_rect(x, y, CURSOR_BAR_WIDTH, cell_h, cc);
+                self.quad.push_solid(x, y, CURSOR_BAR_WIDTH, cell_h, cc);
             }
             CursorStyle::Underline => {
-                self.bg.push_rect(
+                self.quad.push_solid(
                     x,
                     y + cell_h - CURSOR_UNDERLINE_HEIGHT,
                     w,
@@ -1111,10 +1338,10 @@ impl SceneRenderer {
             }
             CursorStyle::Outline => {
                 let t = CURSOR_OUTLINE_THICKNESS;
-                self.bg.push_rect(x, y, w, t, cc);
-                self.bg.push_rect(x, y + cell_h - t, w, t, cc);
-                self.bg.push_rect(x, y, t, cell_h, cc);
-                self.bg.push_rect(x + w - t, y, t, cell_h, cc);
+                self.quad.push_solid(x, y, w, t, cc);
+                self.quad.push_solid(x, y + cell_h - t, w, t, cc);
+                self.quad.push_solid(x, y, t, cell_h, cc);
+                self.quad.push_solid(x + w - t, y, t, cell_h, cc);
             }
         }
     }
@@ -1147,58 +1374,46 @@ impl SceneRenderer {
 
         // Underline color: use face.underline if set, otherwise fallback to fg
         let ul_color = if face.underline != kasane_core::protocol::Color::Default {
-            color_resolver.resolve(face.underline, true)
+            color_resolver.resolve_linear(face.underline, true)
         } else {
             fg
         };
 
         if attrs.contains(Attributes::UNDERLINE) {
             let y = py + baseline + thickness;
-            self.decoration.push(
-                x,
-                y,
-                w,
-                thickness,
-                ul_color,
-                decoration_pipeline::DECO_SOLID,
-            );
+            self.quad
+                .push_decoration(x, y, w, thickness, ul_color, quad_pipeline::DECO_SOLID);
         }
         if attrs.contains(Attributes::CURLY_UNDERLINE) {
             // Curly needs more height for the wave amplitude
             let wave_h = (cell_h * 0.2).max(4.0);
             let y = py + baseline + thickness - wave_h * 0.25;
-            self.decoration
-                .push(x, y, w, wave_h, ul_color, decoration_pipeline::DECO_CURLY);
+            self.quad
+                .push_decoration(x, y, w, wave_h, ul_color, quad_pipeline::DECO_CURLY);
         }
         if attrs.contains(Attributes::DOUBLE_UNDERLINE) {
             let double_h = (cell_h * 0.15).max(4.0);
             let y = py + baseline + thickness - double_h * 0.1;
-            self.decoration.push(
-                x,
-                y,
-                w,
-                double_h,
-                ul_color,
-                decoration_pipeline::DECO_DOUBLE,
-            );
+            self.quad
+                .push_decoration(x, y, w, double_h, ul_color, quad_pipeline::DECO_DOUBLE);
         }
         if attrs.contains(Attributes::DOTTED_UNDERLINE) {
             let dot_h = (cell_h * 0.15).max(4.0);
             let y = py + baseline + thickness - dot_h * 0.1;
-            self.decoration
-                .push(x, y, w, dot_h, ul_color, decoration_pipeline::DECO_DOTTED);
+            self.quad
+                .push_decoration(x, y, w, dot_h, ul_color, quad_pipeline::DECO_DOTTED);
         }
         if attrs.contains(Attributes::DASHED_UNDERLINE) {
             let y = py + baseline + thickness;
             let dash_h = (cell_h * 0.08).max(2.0);
-            self.decoration
-                .push(x, y, w, dash_h, ul_color, decoration_pipeline::DECO_DASHED);
+            self.quad
+                .push_decoration(x, y, w, dash_h, ul_color, quad_pipeline::DECO_DASHED);
         }
         if attrs.contains(Attributes::STRIKETHROUGH) {
             // Strikethrough at approximately the x-height center
             let y = py + baseline * 0.55;
-            self.decoration
-                .push(x, y, w, thickness, fg, decoration_pipeline::DECO_SOLID);
+            self.quad
+                .push_decoration(x, y, w, thickness, fg, quad_pipeline::DECO_SOLID);
         }
     }
 
@@ -1217,6 +1432,8 @@ impl SceneRenderer {
         color_resolver: &ColorResolver,
     ) {
         let cell_h = self.metrics.cell_height;
+        let cell_w = self.metrics.cell_width;
+        let mut x = px;
 
         // === Step 1: Concatenate text + track atom byte boundaries + build spans ===
         self.row_text.clear();
@@ -1225,8 +1442,30 @@ impl SceneRenderer {
         let mut atom_faces: Vec<&kasane_core::protocol::Face> = Vec::new();
 
         for atom in atoms {
-            let (visual_fg, _, _) = color_resolver.resolve_face_colors(&atom.face);
+            let atom_display_w = line_display_width_str(&atom.contents) as f32 * cell_w;
+            let remaining = max_width - (x - px);
+            if remaining <= 0.0 {
+                break;
+            }
+
+            let actual_w = atom_display_w.min(remaining);
+            let (visual_fg, visual_bg, needs_bg) =
+                color_resolver.resolve_face_colors_linear(&atom.face);
             let fg = visual_fg;
+
+            // Background rectangle — skip when not needed so the parent
+            // element's background (e.g. an elevated Container) shows through.
+            if actual_w > 0.0
+                && needs_bg
+                && !self.should_skip_default_bg(&visual_bg, color_resolver)
+            {
+                self.quad.push_solid(x, py, actual_w, cell_h, visual_bg);
+            }
+
+            // Text decorations (underline, strikethrough, etc.)
+            if actual_w > 0.0 {
+                self.emit_decorations(x, py, actual_w, &atom.face, visual_fg, color_resolver);
+            }
 
             // Text span — merge with previous span if same fg color
             if let Some(last) = self.span_ranges.last_mut() {
@@ -1246,6 +1485,7 @@ impl SceneRenderer {
 
             atom_byte_boundaries.push(self.row_text.len());
             atom_faces.push(&atom.face);
+            x += actual_w;
         }
 
         if self.row_text.is_empty() {
@@ -1298,10 +1538,10 @@ impl SceneRenderer {
             let w = (atom_x_max[i] - atom_x_min[i]).min(max_width);
             let x = px + atom_x_min[i];
             let (visual_fg, visual_bg, needs_bg) =
-                color_resolver.resolve_face_colors(atom_faces[i]);
+                color_resolver.resolve_face_colors_linear(atom_faces[i]);
 
             if w > 0.0 && needs_bg && !self.should_skip_default_bg(&visual_bg, color_resolver) {
-                self.bg.push_rect(x, py, w, cell_h, visual_bg);
+                self.quad.push_solid(x, py, w, cell_h, visual_bg);
             }
             if w > 0.0 {
                 self.emit_decorations(x, py, w, atom_faces[i], visual_fg, color_resolver);
@@ -1331,9 +1571,9 @@ impl SceneRenderer {
 
         // 1. Line-wide background fill (always drawn, matching old FillRect behavior).
         // Only skip when gradient is active and bg matches default.
-        let (_, base_bg, _) = color_resolver.resolve_face_colors(&para.base_face);
+        let (_, base_bg, _) = color_resolver.resolve_face_colors_linear(&para.base_face);
         if !self.should_skip_default_bg(&base_bg, color_resolver) {
-            self.bg.push_rect(px, py, max_width, cell_h, base_bg);
+            self.quad.push_solid(px, py, max_width, cell_h, base_bg);
         }
 
         if para.atoms.is_empty() {
@@ -1377,7 +1617,7 @@ impl SceneRenderer {
                 atom.face
             };
 
-            let (visual_fg, _, _) = color_resolver.resolve_face_colors(&face);
+            let (visual_fg, _, _) = color_resolver.resolve_face_colors_linear(&face);
             let fg = visual_fg;
 
             if let Some(last) = self.span_ranges.last_mut() {
@@ -1448,10 +1688,10 @@ impl SceneRenderer {
             let w = (atom_x_max[i] - atom_x_min[i]).min(max_width);
             let x = px + atom_x_min[i];
             let (visual_fg, visual_bg, needs_bg) =
-                color_resolver.resolve_face_colors(&atom_faces[i]);
+                color_resolver.resolve_face_colors_linear(&atom_faces[i]);
 
             if w > 0.0 && needs_bg && !self.should_skip_default_bg(&visual_bg, color_resolver) {
-                self.bg.push_rect(x, py, w, cell_h, visual_bg);
+                self.quad.push_solid(x, py, w, cell_h, visual_bg);
             }
             if w > 0.0 {
                 self.emit_decorations(x, py, w, &atom_faces[i], visual_fg, color_resolver);
@@ -1483,7 +1723,7 @@ impl SceneRenderer {
                             cursor_color[2] * blend_ratio + bg_color[2] * (1.0 - blend_ratio),
                             1.0,
                         ];
-                        self.bg.push_rect(x, py, w, cell_h, blended);
+                        self.quad.push_solid(x, py, w, cell_h, blended);
                     }
                 }
             }
@@ -1511,12 +1751,12 @@ impl SceneRenderer {
 
         let text_w = line_display_width_str(text) as f32 * self.metrics.cell_width;
         let actual_w = text_w.min(max_width);
-        let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_face_colors(face);
+        let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_face_colors_linear(face);
 
         // Background — skip when not needed (parent bg shows through)
         if actual_w > 0.0 && needs_bg && !self.should_skip_default_bg(&visual_bg, color_resolver) {
-            self.bg
-                .push_rect(px, py, actual_w, self.metrics.cell_height, visual_bg);
+            self.quad
+                .push_solid(px, py, actual_w, self.metrics.cell_height, visual_bg);
         }
 
         // Text decorations

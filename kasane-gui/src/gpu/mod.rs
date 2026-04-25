@@ -3,19 +3,21 @@
 //! Changes here should be coordinated with `kasane-core/src/render/scene/` which
 //! defines the `DrawCommand` and scene cache layer consumed by this renderer.
 
-pub mod bg_pipeline;
-pub mod border_pipeline;
 pub mod cell_renderer;
 pub mod compositor;
-pub mod decoration_pipeline;
-pub mod gradient_pipeline;
+pub mod depth_stencil;
 pub mod image_pipeline;
 pub mod metrics;
 pub(crate) mod pipeline_common;
+pub mod quad_pipeline;
+pub mod retained_scene;
+pub mod scene_graph;
 pub mod scene_renderer;
+pub mod text_effects;
 mod text_helpers;
 pub(crate) mod text_pipeline;
 pub mod texture_cache;
+pub mod timing;
 
 pub use metrics::CellMetrics;
 
@@ -53,6 +55,8 @@ pub struct GpuState {
     pub config: wgpu::SurfaceConfiguration,
     /// Set to `true` when the device reports an error (e.g. device loss).
     pub device_error: Arc<AtomicBool>,
+    /// Pipeline cache for faster subsequent pipeline creation.
+    pub pipeline_cache: Option<wgpu::PipelineCache>,
 }
 
 impl GpuState {
@@ -81,8 +85,20 @@ impl GpuState {
             adapter.get_info().backend
         );
 
+        // Request optional features if the adapter supports them.
+        let mut required_features = wgpu::Features::empty();
+        if adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+            required_features |= wgpu::Features::TIMESTAMP_QUERY;
+        }
+        if adapter.features().contains(wgpu::Features::PIPELINE_CACHE) {
+            required_features |= wgpu::Features::PIPELINE_CACHE;
+        }
+
         let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor::default())
+            .request_device(&wgpu::DeviceDescriptor {
+                required_features,
+                ..Default::default()
+            })
             .await?;
 
         let device_error = Arc::new(AtomicBool::new(false));
@@ -117,12 +133,28 @@ impl GpuState {
         );
         surface.configure(&device, &config);
 
+        // Create pipeline cache if the device supports it.
+        let pipeline_cache = if device.features().contains(wgpu::Features::PIPELINE_CACHE) {
+            // SAFETY: We pass no initial data, so this is safe.
+            let cache = unsafe {
+                device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                    label: Some("kasane_pipeline_cache"),
+                    data: None,
+                    fallback: true,
+                })
+            };
+            Some(cache)
+        } else {
+            None
+        };
+
         Ok(GpuState {
             surface,
             device,
             queue,
             config,
             device_error,
+            pipeline_cache,
         })
     }
 
