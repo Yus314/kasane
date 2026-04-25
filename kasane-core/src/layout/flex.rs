@@ -59,8 +59,7 @@ pub fn measure(element: &Element, constraints: Constraints, state: &AppState) ->
             }
         }
         Element::StyledLine(atoms) => {
-            let line = atoms.to_vec();
-            let w = line_display_width(&line) as u16;
+            let w = line_display_width(atoms) as u16;
             Size {
                 width: w.clamp(constraints.min_width, constraints.max_width),
                 height: 1u16.clamp(constraints.min_height, constraints.max_height),
