@@ -2,7 +2,7 @@
 
 use std::any::Any;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
 
 use std::sync::Mutex;
 
@@ -50,7 +50,7 @@ const HASH_SENTINEL: u64 = u64::MAX;
 struct WasmPluginShared {
     runtime: Mutex<WasmPluginRuntime>,
     plugin_id: PluginId,
-    plugin_tag: Mutex<PluginTag>,
+    plugin_tag: AtomicU16,
     cached_state_hash: AtomicU64,
     cached_view_deps: DirtyFlags,
     cached_capabilities: PluginCapabilities,
@@ -68,6 +68,10 @@ struct WasmPluginShared {
 }
 
 impl WasmPluginShared {
+    fn plugin_tag(&self) -> PluginTag {
+        PluginTag(self.plugin_tag.load(Ordering::Relaxed))
+    }
+
     fn with_runtime<R>(&self, f: impl FnOnce(&mut WasmPluginRuntime) -> R) -> R {
         let mut runtime = self.runtime.lock().unwrap();
         runtime.store.set_epoch_deadline(1);
@@ -87,11 +91,12 @@ impl WasmPluginShared {
         pending.push(diag);
     }
 
-    /// Lock runtime, sync state, call function, log error on failure.
-    fn call_synced<R: Default>(
+    /// Lock runtime, sync state, call function, optionally update hash, log error on failure.
+    fn call_synced_inner<R: Default>(
         &self,
         state: &AppView<'_>,
         method: &str,
+        update_hash: bool,
         f: impl FnOnce(&mut WasmPluginRuntime) -> anyhow::Result<R>,
     ) -> R {
         self.with_runtime(|runtime| {
@@ -100,33 +105,7 @@ impl WasmPluginShared {
                 state.as_app_state(),
                 self.cached_view_deps,
             );
-            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock().unwrap();
-            match f(runtime) {
-                Ok(result) => result,
-                Err(e) => {
-                    tracing::error!("WASM plugin {}.{method} failed: {e}", self.plugin_id.0);
-                    self.record_diagnostic(method, &e);
-                    self.set_state_hash(HASH_SENTINEL);
-                    R::default()
-                }
-            }
-        })
-    }
-
-    /// Like call_synced but also updates the cached state hash afterwards.
-    fn call_synced_with_hash<R: Default>(
-        &self,
-        state: &AppView<'_>,
-        method: &str,
-        f: impl FnOnce(&mut WasmPluginRuntime) -> anyhow::Result<R>,
-    ) -> R {
-        self.with_runtime(|runtime| {
-            host::sync_from_app_state(
-                runtime.store.data_mut(),
-                state.as_app_state(),
-                self.cached_view_deps,
-            );
-            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock().unwrap();
+            runtime.store.data_mut().plugin_tag = self.plugin_tag();
             let result = match f(runtime) {
                 Ok(result) => result,
                 Err(e) => {
@@ -136,12 +115,34 @@ impl WasmPluginShared {
                     return R::default();
                 }
             };
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-            if let Ok(h) = plugin_api.call_state_hash(&mut runtime.store) {
-                self.set_state_hash(h);
+            if update_hash {
+                let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+                if let Ok(h) = plugin_api.call_state_hash(&mut runtime.store) {
+                    self.set_state_hash(h);
+                }
             }
             result
         })
+    }
+
+    /// Lock runtime, sync state, call function, log error on failure.
+    fn call_synced<R: Default>(
+        &self,
+        state: &AppView<'_>,
+        method: &str,
+        f: impl FnOnce(&mut WasmPluginRuntime) -> anyhow::Result<R>,
+    ) -> R {
+        self.call_synced_inner(state, method, false, f)
+    }
+
+    /// Like call_synced but also updates the cached state hash afterwards.
+    fn call_synced_with_hash<R: Default>(
+        &self,
+        state: &AppView<'_>,
+        method: &str,
+        f: impl FnOnce(&mut WasmPluginRuntime) -> anyhow::Result<R>,
+    ) -> R {
+        self.call_synced_inner(state, method, true, f)
     }
 
     fn state_hash(&self) -> u64 {
@@ -413,7 +414,7 @@ impl WasmPlugin {
             shared: Arc::new(WasmPluginShared {
                 runtime: Mutex::new(WasmPluginRuntime { store, instance }),
                 plugin_id: PluginId(id),
-                plugin_tag: Mutex::new(PluginTag::UNASSIGNED),
+                plugin_tag: AtomicU16::new(PluginTag::UNASSIGNED.0),
                 cached_state_hash: AtomicU64::new(0),
                 cached_view_deps,
                 cached_capabilities,
@@ -489,7 +490,7 @@ impl WasmPlugin {
             shared: Arc::new(WasmPluginShared {
                 runtime: Mutex::new(WasmPluginRuntime { store, instance }),
                 plugin_id: PluginId(id),
-                plugin_tag: Mutex::new(PluginTag::UNASSIGNED),
+                plugin_tag: AtomicU16::new(PluginTag::UNASSIGNED.0),
                 cached_state_hash: AtomicU64::new(0),
                 cached_view_deps,
                 cached_capabilities,
@@ -516,7 +517,7 @@ impl PluginBackend for WasmPlugin {
     }
 
     fn set_plugin_tag(&mut self, tag: PluginTag) {
-        *self.shared.plugin_tag.lock().unwrap() = tag;
+        self.shared.plugin_tag.store(tag.0, Ordering::Relaxed);
     }
 
     fn view_deps(&self) -> DirtyFlags {
@@ -763,7 +764,7 @@ impl PluginBackend for WasmPlugin {
                 state.as_app_state(),
                 self.shared.cached_view_deps,
             );
-            runtime.store.data_mut().plugin_tag = *shared.plugin_tag.lock().unwrap();
+            runtime.store.data_mut().plugin_tag = shared.plugin_tag();
             let api = runtime.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
             let result = match api.call_invoke_action(&mut runtime.store, action_id, wit_key) {
