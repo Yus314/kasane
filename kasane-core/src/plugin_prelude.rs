@@ -22,9 +22,9 @@ pub use crate::plugin::{
     PluginRuntime, PluginSource, PluginState, RecoveryMechanism, RecoveryWitness,
     RenderOrnamentContext, SafeDisplayDirective, SemanticRole, SlotId, SourceStrength, SurfaceOrn,
     SurfaceOrnAnchor, SurfaceOrnKind, Topic, TopicBus, TopicId, TransformContext,
-    TransformDescriptor, TransformScope, TransformSubject, TransformTarget, TransparentCommand,
-    TransparentEffects, TransparentKeyResult, UnitSource, VirtualTextItem, builtin_plugin,
-    debug_overlay::DebugOverlayPlugin, host_plugin, host_plugin_with_provider,
+    TransformDescriptor, TransformScope, TransformSubject, TransformTarget, Transparency,
+    TransparentCommand, TransparentEffects, TransparentKeyResult, UnitSource, VirtualTextItem,
+    builtin_plugin, debug_overlay::DebugOverlayPlugin, host_plugin, host_plugin_with_provider,
 };
 
 // Element tree

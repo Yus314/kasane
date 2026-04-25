@@ -165,7 +165,7 @@ fn non_transparent_lifecycle_handler_means_not_fully_transparent() {
 #[test]
 fn transparent_lifecycle_handler_is_lifecycle_transparent() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_state_changed_transparent(
+    registry.on_state_changed(
         |state: &TestState, _app: &AppView<'_>, _dirty: DirtyFlags| {
             (state.clone(), TransparentEffects::none())
         },
@@ -177,7 +177,7 @@ fn transparent_lifecycle_handler_is_lifecycle_transparent() {
 #[test]
 fn mixed_transparent_and_non_transparent_lifecycle_is_not_transparent() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_state_changed_transparent(
+    registry.on_state_changed(
         |state: &TestState, _app: &AppView<'_>, _dirty: DirtyFlags| {
             (state.clone(), TransparentEffects::none())
         },
@@ -189,21 +189,21 @@ fn mixed_transparent_and_non_transparent_lifecycle_is_not_transparent() {
 #[test]
 fn all_transparent_lifecycle_handlers() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_init_transparent(|state: &TestState, _app: &AppView<'_>| {
+    registry.on_init(|state: &TestState, _app: &AppView<'_>| {
         (state.clone(), TransparentEffects::none())
     });
-    registry.on_session_ready_transparent(|state: &TestState, _app: &AppView<'_>| {
+    registry.on_session_ready(|state: &TestState, _app: &AppView<'_>| {
         (state.clone(), TransparentEffects::none())
     });
-    registry.on_state_changed_transparent(
+    registry.on_state_changed(
         |state: &TestState, _app: &AppView<'_>, _dirty: DirtyFlags| {
             (state.clone(), TransparentEffects::none())
         },
     );
-    registry.on_io_event_transparent(|state: &TestState, _event: &IoEvent, _app: &AppView<'_>| {
+    registry.on_io_event(|state: &TestState, _event: &IoEvent, _app: &AppView<'_>| {
         (state.clone(), TransparentEffects::none())
     });
-    registry.on_update_transparent(
+    registry.on_update(
         |state: &TestState, _msg: &mut dyn std::any::Any, _app: &AppView<'_>| {
             (state.clone(), TransparentEffects::none())
         },
@@ -215,7 +215,9 @@ fn all_transparent_lifecycle_handlers() {
 #[test]
 fn transparent_input_but_non_transparent_lifecycle_is_not_fully_transparent() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_key_transparent(|_state, _key, _app| None);
+    registry.on_key(
+        |_state: &TestState, _key, _app| -> Option<(TestState, Vec<TransparentCommand>)> { None },
+    );
     registry.on_state_changed(
         |state: &TestState, _app: &AppView<'_>, _dirty: DirtyFlags| {
             (state.clone(), Effects::none())
@@ -229,7 +231,7 @@ fn transparent_input_but_non_transparent_lifecycle_is_not_fully_transparent() {
 #[test]
 fn transparent_process_task_is_lifecycle_transparent() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_process_task_transparent(
+    registry.on_process_task(
         "test_task",
         ProcessTaskSpec::new("echo", &["hello"]),
         |state: &TestState, _result: &ProcessTaskResult, _app: &AppView<'_>| {

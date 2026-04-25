@@ -260,6 +260,24 @@ macro_rules! dispatch_optional_consume {
     };
 }
 
+/// Dispatch an immutable view handler, returning the default if not registered.
+macro_rules! dispatch_view_or {
+    ($self:expr, $field:ident, $default:expr $(, $arg:expr)*) => {
+        if let Some(handler) = &$self.table.$field {
+            handler(&*$self.state, $($arg),*)
+        } else {
+            $default
+        }
+    };
+}
+
+/// Dispatch an immutable view handler, returning Option via `and_then`.
+macro_rules! dispatch_view_option {
+    ($self:expr, $field:ident $(, $arg:expr)*) => {
+        $self.table.$field.as_ref().and_then(|h| h(&*$self.state, $($arg),*))
+    };
+}
+
 impl PluginBackend for PluginBridge {
     fn id(&self) -> PluginId {
         self.id.clone()
@@ -611,10 +629,7 @@ impl PluginBackend for PluginBridge {
         app: &AppView<'_>,
         ctx: &AnnotateContext,
     ) -> Option<BackgroundLayer> {
-        self.table
-            .background_handler
-            .as_ref()
-            .and_then(|h| h(&*self.state, line, app, ctx))
+        dispatch_view_option!(self, background_handler, line, app, ctx)
     }
 
     fn annotate_inline(
@@ -623,10 +638,7 @@ impl PluginBackend for PluginBridge {
         app: &AppView<'_>,
         ctx: &AnnotateContext,
     ) -> Option<crate::render::InlineDecoration> {
-        self.table
-            .inline_handler
-            .as_ref()
-            .and_then(|h| h(&*self.state, line, app, ctx))
+        dispatch_view_option!(self, inline_handler, line, app, ctx)
     }
 
     fn annotate_virtual_text(
@@ -635,11 +647,7 @@ impl PluginBackend for PluginBridge {
         app: &AppView<'_>,
         ctx: &AnnotateContext,
     ) -> Vec<VirtualTextItem> {
-        self.table
-            .virtual_text_handler
-            .as_ref()
-            .map(|h| h(&*self.state, line, app, ctx))
-            .unwrap_or_default()
+        dispatch_view_or!(self, virtual_text_handler, vec![], line, app, ctx)
     }
 
     fn compute_display_scroll_offset(
@@ -649,18 +657,14 @@ impl PluginBackend for PluginBridge {
         default_offset: usize,
         state: &AppView<'_>,
     ) -> Option<usize> {
-        self.table
-            .display_scroll_offset_handler
-            .as_ref()
-            .and_then(|h| {
-                h(
-                    &*self.state,
-                    cursor_display_y,
-                    viewport_height,
-                    default_offset,
-                    state,
-                )
-            })
+        dispatch_view_option!(
+            self,
+            display_scroll_offset_handler,
+            cursor_display_y,
+            viewport_height,
+            default_offset,
+            state
+        )
     }
 
     fn render_menu_overlay(
@@ -668,10 +672,7 @@ impl PluginBackend for PluginBridge {
         state: &AppView<'_>,
         _view: &super::PluginView<'_>,
     ) -> Option<Overlay> {
-        self.table
-            .menu_renderer_handler
-            .as_ref()
-            .and_then(|h| h(&*self.state, state))
+        dispatch_view_option!(self, menu_renderer_handler, state)
     }
 
     fn render_info_overlays(
@@ -680,10 +681,7 @@ impl PluginBackend for PluginBridge {
         avoid: &[crate::layout::Rect],
         _view: &super::PluginView<'_>,
     ) -> Option<Vec<Overlay>> {
-        self.table
-            .info_renderer_handler
-            .as_ref()
-            .and_then(|h| h(&*self.state, state, avoid))
+        dispatch_view_option!(self, info_renderer_handler, state, avoid)
     }
 
     fn contribute_overlay_with_ctx(
@@ -706,11 +704,13 @@ impl PluginBackend for PluginBridge {
         app: &AppView<'_>,
         ctx: &super::RenderOrnamentContext,
     ) -> super::OrnamentBatch {
-        if let Some(handler) = &self.table.render_ornament_handler {
-            handler(&*self.state, app, ctx)
-        } else {
-            super::OrnamentBatch::default()
-        }
+        dispatch_view_or!(
+            self,
+            render_ornament_handler,
+            super::OrnamentBatch::default(),
+            app,
+            ctx
+        )
     }
 
     fn transform_menu_item(
@@ -720,11 +720,15 @@ impl PluginBackend for PluginBridge {
         selected: bool,
         app: &AppView<'_>,
     ) -> Option<Vec<crate::protocol::Atom>> {
-        if let Some(handler) = &self.table.menu_transform_handler {
-            handler(&*self.state, item, index, selected, app)
-        } else {
-            None
-        }
+        dispatch_view_or!(
+            self,
+            menu_transform_handler,
+            None,
+            item,
+            index,
+            selected,
+            app
+        )
     }
 
     fn content_annotations(
@@ -732,19 +736,11 @@ impl PluginBackend for PluginBridge {
         state: &AppView<'_>,
         ctx: &AnnotateContext,
     ) -> Vec<crate::display::ContentAnnotation> {
-        if let Some(handler) = &self.table.content_annotation_handler {
-            handler(&*self.state, state, ctx)
-        } else {
-            vec![]
-        }
+        dispatch_view_or!(self, content_annotation_handler, vec![], state, ctx)
     }
 
     fn display_directives(&self, app: &AppView<'_>) -> Vec<DisplayDirective> {
-        if let Some(handler) = &self.table.display_handler {
-            handler(&*self.state, app)
-        } else {
-            vec![]
-        }
+        dispatch_view_or!(self, display_handler, vec![], app)
     }
 
     fn has_unified_display(&self) -> bool {
@@ -752,11 +748,7 @@ impl PluginBackend for PluginBridge {
     }
 
     fn unified_display(&self, app: &AppView<'_>) -> Vec<DisplayDirective> {
-        if let Some(handler) = &self.table.unified_display_handler {
-            handler(&*self.state, app)
-        } else {
-            vec![]
-        }
+        dispatch_view_or!(self, unified_display_handler, vec![], app)
     }
 
     fn projection_descriptors(&self) -> &[crate::display::ProjectionDescriptor] {
@@ -780,8 +772,10 @@ impl PluginBackend for PluginBridge {
         &self,
         unit: &crate::display::unit::DisplayUnit,
     ) -> Option<crate::display::navigation::NavigationPolicy> {
-        let handler = self.table.navigation_policy_handler.as_ref()?;
-        Some(handler(&*self.state, unit))
+        self.table
+            .navigation_policy_handler
+            .as_ref()
+            .map(|h| h(&*self.state, unit))
     }
 
     fn navigation_action(
@@ -1511,7 +1505,7 @@ mod tests {
                 let inv = self.invoked.clone();
                 r.on_key(move |s, _key, _app| {
                     inv.lock().unwrap().insert("key");
-                    Some((*s, vec![]))
+                    Some((*s, Vec::<Command>::new()))
                 });
 
                 let inv = self.invoked.clone();
@@ -1529,7 +1523,7 @@ mod tests {
                 let inv = self.invoked.clone();
                 r.on_text_input(move |s, _text, _app| {
                     inv.lock().unwrap().insert("text_input");
-                    Some((*s, vec![]))
+                    Some((*s, Vec::<Command>::new()))
                 });
 
                 let inv = self.invoked.clone();
@@ -1547,7 +1541,7 @@ mod tests {
                 let inv = self.invoked.clone();
                 r.on_handle_mouse(move |s, _event, _id, _app| {
                     inv.lock().unwrap().insert("handle_mouse");
-                    Some((*s, vec![]))
+                    Some((*s, Vec::<Command>::new()))
                 });
 
                 let inv = self.invoked.clone();

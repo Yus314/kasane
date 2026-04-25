@@ -87,7 +87,7 @@ pub use registry::{
 #[deprecated(note = "renamed to PluginRuntime")]
 pub type PluginRegistry = PluginRuntime;
 
-pub use handler_registry::VirtualEditContext;
+pub use handler_registry::{Transparency, VirtualEditContext};
 
 // Re-export display types for plugin API
 pub use crate::display::{

@@ -292,7 +292,11 @@ pub(crate) fn paint_buffer_ref(
             skip_clean,
         ) {
             BufferLineAction::Skip => continue,
-            BufferLineAction::Synthetic { atoms } => {
+            BufferLineAction::Synthetic { atoms }
+            | BufferLineAction::EditableSynthetic {
+                atoms,
+                shadow_override: _,
+            } => {
                 let fill_face = atoms.first().map(|a| a.face).unwrap_or(params.default_face);
                 grid.fill_region(y, area.x, area.w, &fill_face);
                 grid.put_line_with_base(y, area.x, atoms, area.w, None);
@@ -323,17 +327,6 @@ pub(crate) fn paint_buffer_ref(
             BufferLineAction::Padding { face, char_face } => {
                 grid.fill_region(y, area.x, area.w, &face);
                 grid.put_char(area.x, y, params.padding_char, &char_face);
-            }
-            BufferLineAction::EditableSynthetic {
-                atoms,
-                shadow_override: _,
-            } => {
-                // Render editable synthetic content identically to Synthetic for now.
-                // When shadow_override is Some, the caller will have already patched
-                // the atoms or the grid will be updated in the pipeline layer.
-                let fill_face = atoms.first().map(|a| a.face).unwrap_or(params.default_face);
-                grid.fill_region(y, area.x, area.w, &fill_face);
-                grid.put_line_with_base(y, area.x, atoms, area.w, None);
             }
         }
     }

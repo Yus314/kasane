@@ -54,8 +54,43 @@ use super::transparent_effects::TransparentEffects;
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, IoEvent, OrnamentBatch, OverlayContext, OverlayContribution,
-    PluginState, RenderOrnamentContext, SlotId, TransformContext, TransformTarget, VirtualTextItem,
+    PluginState, RenderOrnamentContext, SlotId, TransformContext, TransformTarget,
+    TransparentCommand, VirtualTextItem,
 };
+
+/// Marker trait for handler return types that carry transparency metadata.
+///
+/// When `IS_TRANSPARENT` is true, the framework records that the handler was
+/// registered with a transparent type, enabling compile-time guarantees about
+/// the absence of Kakoune writes (ADR-030).
+pub trait Transparency {
+    /// Whether this type represents a transparent handler return.
+    const IS_TRANSPARENT: bool;
+}
+
+impl Transparency for Effects {
+    const IS_TRANSPARENT: bool = false;
+}
+
+impl Transparency for TransparentEffects {
+    const IS_TRANSPARENT: bool = true;
+}
+
+impl Transparency for Command {
+    const IS_TRANSPARENT: bool = false;
+}
+
+impl Transparency for TransparentCommand {
+    const IS_TRANSPARENT: bool = true;
+}
+
+impl Transparency for KeyHandleResult {
+    const IS_TRANSPARENT: bool = false;
+}
+
+impl Transparency for super::TransparentKeyResult {
+    const IS_TRANSPARENT: bool = true;
+}
 
 /// Context passed to `on_virtual_edit` handlers when a shadow cursor edit is committed.
 #[derive(Debug, Clone)]
@@ -72,13 +107,13 @@ pub struct VirtualEditContext {
     pub buffer_byte_range: std::ops::Range<usize>,
 }
 
-/// Downcast state, call handler, box the new state and return `(BoxedState, second)`.
+/// Downcast state, call handler, box the new state and return `(BoxedState, second.into())`.
 macro_rules! register_state_effect {
     ($self:ident, $field:ident, $handler:ident $(, $arg:ident)*) => {
         $self.table.$field = Some(Box::new(move |state, $($arg),*| {
             let s = state.as_any().downcast_ref::<S>().expect("state type mismatch");
             let (new_state, effects) = $handler(s, $($arg),*);
-            (Box::new(new_state) as Box<dyn PluginState>, effects)
+            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
         }));
     };
 }
@@ -166,35 +201,57 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     // =========================================================================
 
     /// Register an initialization handler.
-    pub fn on_init(
+    ///
+    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    /// Using `TransparentEffects` provides a compile-time guarantee of no
+    /// Kakoune writes (ADR-030 Level 5).
+    pub fn on_init<E: Into<Effects> + Transparency + 'static>(
         &mut self,
-        handler: impl Fn(&S, &AppView<'_>) -> (S, Effects) + Send + Sync + 'static,
+        handler: impl Fn(&S, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
     ) {
         register_state_effect!(self, init_handler, handler, app);
+        if E::IS_TRANSPARENT {
+            self.table.transparency.init_handler = true;
+        }
     }
 
     /// Register a session-ready handler.
-    pub fn on_session_ready(
+    ///
+    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    pub fn on_session_ready<E: Into<Effects> + Transparency + 'static>(
         &mut self,
-        handler: impl Fn(&S, &AppView<'_>) -> (S, Effects) + Send + Sync + 'static,
+        handler: impl Fn(&S, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
     ) {
         register_state_effect!(self, session_ready_handler, handler, app);
+        if E::IS_TRANSPARENT {
+            self.table.transparency.session_ready_handler = true;
+        }
     }
 
     /// Register a state-changed handler.
-    pub fn on_state_changed(
+    ///
+    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    pub fn on_state_changed<E: Into<Effects> + Transparency + 'static>(
         &mut self,
-        handler: impl Fn(&S, &AppView<'_>, DirtyFlags) -> (S, Effects) + Send + Sync + 'static,
+        handler: impl Fn(&S, &AppView<'_>, DirtyFlags) -> (S, E) + Send + Sync + 'static,
     ) {
         register_state_effect!(self, state_changed_handler, handler, app, dirty);
+        if E::IS_TRANSPARENT {
+            self.table.transparency.state_changed_handler = true;
+        }
     }
 
     /// Register an I/O event handler.
-    pub fn on_io_event(
+    ///
+    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    pub fn on_io_event<E: Into<Effects> + Transparency + 'static>(
         &mut self,
-        handler: impl Fn(&S, &IoEvent, &AppView<'_>) -> (S, Effects) + Send + Sync + 'static,
+        handler: impl Fn(&S, &IoEvent, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
     ) {
         register_state_effect!(self, io_event_handler, handler, event, app);
+        if E::IS_TRANSPARENT {
+            self.table.transparency.io_event_handler = true;
+        }
     }
 
     /// Register a declarative process task.
@@ -205,6 +262,8 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// mode) produces output.
     ///
     /// The task is started by calling [`start_process_task`] on the plugin bridge.
+    ///
+    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
     ///
     /// ```ignore
     /// r.on_process_task(
@@ -218,11 +277,11 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     ///     },
     /// );
     /// ```
-    pub fn on_process_task(
+    pub fn on_process_task<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         name: &'static str,
         spec: ProcessTaskSpec,
-        handler: impl Fn(&S, &ProcessTaskResult, &AppView<'_>) -> (S, Effects) + Send + Sync + 'static,
+        handler: impl Fn(&S, &ProcessTaskResult, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
     ) {
         self.table.process_tasks.push(ProcessTaskEntry {
             name,
@@ -233,10 +292,10 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                     .downcast_ref::<S>()
                     .expect("state type mismatch");
                 let (new_state, effects) = handler(s, result, app);
-                (Box::new(new_state) as Box<dyn PluginState>, effects)
+                (Box::new(new_state) as Box<dyn PluginState>, effects.into())
             }),
             streaming: false,
-            transparent: false,
+            transparent: E::IS_TRANSPARENT,
         });
     }
 
@@ -245,11 +304,13 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Like [`on_process_task`](Self::on_process_task), but delivers stdout
     /// chunks incrementally via [`ProcessTaskResult::Stdout`] instead of
     /// accumulating them until process exit.
-    pub fn on_process_task_streaming(
+    ///
+    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    pub fn on_process_task_streaming<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         name: &'static str,
         spec: ProcessTaskSpec,
-        handler: impl Fn(&S, &ProcessTaskResult, &AppView<'_>) -> (S, Effects) + Send + Sync + 'static,
+        handler: impl Fn(&S, &ProcessTaskResult, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
     ) {
         self.table.process_tasks.push(ProcessTaskEntry {
             name,
@@ -260,10 +321,10 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                     .downcast_ref::<S>()
                     .expect("state type mismatch");
                 let (new_state, effects) = handler(s, result, app);
-                (Box::new(new_state) as Box<dyn PluginState>, effects)
+                (Box::new(new_state) as Box<dyn PluginState>, effects.into())
             }),
             streaming: true,
-            transparent: false,
+            transparent: E::IS_TRANSPARENT,
         });
     }
 
@@ -316,153 +377,16 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     /// Register an update (message) handler.
-    pub fn on_update(
+    ///
+    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    pub fn on_update<E: Into<Effects> + Transparency + 'static>(
         &mut self,
-        handler: impl Fn(&S, &mut dyn Any, &AppView<'_>) -> (S, Effects) + Send + Sync + 'static,
+        handler: impl Fn(&S, &mut dyn Any, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
     ) {
         register_state_effect!(self, update_handler, handler, msg, app);
-    }
-
-    // =========================================================================
-    // Transparent lifecycle handlers (ADR-030 Level 5)
-    // =========================================================================
-
-    /// Register a transparent initialization handler (compile-time guarantee of no Kakoune writes).
-    pub fn on_init_transparent(
-        &mut self,
-        handler: impl Fn(&S, &AppView<'_>) -> (S, TransparentEffects) + Send + Sync + 'static,
-    ) {
-        self.table.init_handler = Some(Box::new(move |state, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            let (new_state, effects) = handler(s, app);
-            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
-        }));
-        self.table.transparency.init_handler = true;
-    }
-
-    /// Register a transparent session-ready handler.
-    pub fn on_session_ready_transparent(
-        &mut self,
-        handler: impl Fn(&S, &AppView<'_>) -> (S, TransparentEffects) + Send + Sync + 'static,
-    ) {
-        self.table.session_ready_handler = Some(Box::new(move |state, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            let (new_state, effects) = handler(s, app);
-            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
-        }));
-        self.table.transparency.session_ready_handler = true;
-    }
-
-    /// Register a transparent state-changed handler.
-    pub fn on_state_changed_transparent(
-        &mut self,
-        handler: impl Fn(&S, &AppView<'_>, DirtyFlags) -> (S, TransparentEffects)
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        self.table.state_changed_handler = Some(Box::new(move |state, app, dirty| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            let (new_state, effects) = handler(s, app, dirty);
-            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
-        }));
-        self.table.transparency.state_changed_handler = true;
-    }
-
-    /// Register a transparent I/O event handler.
-    pub fn on_io_event_transparent(
-        &mut self,
-        handler: impl Fn(&S, &IoEvent, &AppView<'_>) -> (S, TransparentEffects) + Send + Sync + 'static,
-    ) {
-        self.table.io_event_handler = Some(Box::new(move |state, event, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            let (new_state, effects) = handler(s, event, app);
-            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
-        }));
-        self.table.transparency.io_event_handler = true;
-    }
-
-    /// Register a transparent update (message) handler.
-    pub fn on_update_transparent(
-        &mut self,
-        handler: impl Fn(&S, &mut dyn Any, &AppView<'_>) -> (S, TransparentEffects)
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        self.table.update_handler = Some(Box::new(move |state, msg, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            let (new_state, effects) = handler(s, msg, app);
-            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
-        }));
-        self.table.transparency.update_handler = true;
-    }
-
-    /// Register a transparent declarative process task.
-    pub fn on_process_task_transparent(
-        &mut self,
-        name: &'static str,
-        spec: ProcessTaskSpec,
-        handler: impl Fn(&S, &ProcessTaskResult, &AppView<'_>) -> (S, TransparentEffects)
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        self.table.process_tasks.push(ProcessTaskEntry {
-            name,
-            spec,
-            handler: Box::new(move |state, result, app| {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                let (new_state, effects) = handler(s, result, app);
-                (Box::new(new_state) as Box<dyn PluginState>, effects.into())
-            }),
-            streaming: false,
-            transparent: true,
-        });
-    }
-
-    /// Register a transparent streaming process task.
-    pub fn on_process_task_streaming_transparent(
-        &mut self,
-        name: &'static str,
-        spec: ProcessTaskSpec,
-        handler: impl Fn(&S, &ProcessTaskResult, &AppView<'_>) -> (S, TransparentEffects)
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        self.table.process_tasks.push(ProcessTaskEntry {
-            name,
-            spec,
-            handler: Box::new(move |state, result, app| {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                let (new_state, effects) = handler(s, result, app);
-                (Box::new(new_state) as Box<dyn PluginState>, effects.into())
-            }),
-            streaming: true,
-            transparent: true,
-        });
+        if E::IS_TRANSPARENT {
+            self.table.transparency.update_handler = true;
+        }
     }
 
     // =========================================================================
@@ -470,27 +394,37 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     // =========================================================================
 
     /// Register a key handler (consumes keys, returns commands).
-    pub fn on_key(
+    ///
+    /// Accepts closures returning `Option<(S, Vec<Command>)>` or
+    /// `Option<(S, Vec<TransparentCommand>)>` for compile-time transparency.
+    pub fn on_key<C: Into<Command> + Transparency + 'static>(
         &mut self,
-        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> Option<(S, Vec<Command>)>
-        + Send
-        + Sync
-        + 'static,
+        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> Option<(S, Vec<C>)> + Send + Sync + 'static,
     ) {
         self.table.key_handler = Some(Box::new(move |state, key, app| {
             let s = state
                 .as_any()
                 .downcast_ref::<S>()
                 .expect("state type mismatch");
-            handler(s, key, app)
-                .map(|(new_state, cmds)| (Box::new(new_state) as Box<dyn PluginState>, cmds))
+            handler(s, key, app).map(|(new_state, cmds)| {
+                (
+                    Box::new(new_state) as Box<dyn PluginState>,
+                    cmds.into_iter().map(Into::into).collect(),
+                )
+            })
         }));
+        if C::IS_TRANSPARENT {
+            self.table.transparency.key_handler = true;
+        }
     }
 
     /// Register a key middleware handler.
-    pub fn on_key_middleware(
+    ///
+    /// Accepts closures returning `(S, KeyHandleResult)` or
+    /// `(S, TransparentKeyResult)` for compile-time transparency.
+    pub fn on_key_middleware<R: Into<KeyHandleResult> + Transparency + 'static>(
         &mut self,
-        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> (S, KeyHandleResult) + Send + Sync + 'static,
+        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> (S, R) + Send + Sync + 'static,
     ) {
         self.table.key_middleware_handler = Some(Box::new(move |state, key, app| {
             let s = state
@@ -498,8 +432,11 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 .downcast_ref::<S>()
                 .expect("state type mismatch");
             let (new_state, result) = handler(s, key, app);
-            (Box::new(new_state) as Box<dyn PluginState>, result)
+            (Box::new(new_state) as Box<dyn PluginState>, result.into())
         }));
+        if R::IS_TRANSPARENT {
+            self.table.transparency.key_middleware = true;
+        }
     }
 
     /// Register a key observer (notification only, cannot consume).
@@ -517,18 +454,28 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     /// Register a committed text input handler (consumes text, returns commands).
-    pub fn on_text_input(
+    ///
+    /// Accepts closures returning `Option<(S, Vec<Command>)>` or
+    /// `Option<(S, Vec<TransparentCommand>)>` for compile-time transparency.
+    pub fn on_text_input<C: Into<Command> + Transparency + 'static>(
         &mut self,
-        handler: impl Fn(&S, &str, &AppView<'_>) -> Option<(S, Vec<Command>)> + Send + Sync + 'static,
+        handler: impl Fn(&S, &str, &AppView<'_>) -> Option<(S, Vec<C>)> + Send + Sync + 'static,
     ) {
         self.table.text_input_handler = Some(Box::new(move |state, text, app| {
             let s = state
                 .as_any()
                 .downcast_ref::<S>()
                 .expect("state type mismatch");
-            handler(s, text, app)
-                .map(|(new_state, cmds)| (Box::new(new_state) as Box<dyn PluginState>, cmds))
+            handler(s, text, app).map(|(new_state, cmds)| {
+                (
+                    Box::new(new_state) as Box<dyn PluginState>,
+                    cmds.into_iter().map(Into::into).collect(),
+                )
+            })
         }));
+        if C::IS_TRANSPARENT {
+            self.table.transparency.text_input = true;
+        }
     }
 
     /// Register a committed text input observer (notification only, cannot consume).
@@ -560,9 +507,12 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     /// Register a mouse handler (interactive element click).
-    pub fn on_handle_mouse(
+    ///
+    /// Accepts closures returning `Option<(S, Vec<Command>)>` or
+    /// `Option<(S, Vec<TransparentCommand>)>` for compile-time transparency.
+    pub fn on_handle_mouse<C: Into<Command> + Transparency + 'static>(
         &mut self,
-        handler: impl Fn(&S, &MouseEvent, InteractiveId, &AppView<'_>) -> Option<(S, Vec<Command>)>
+        handler: impl Fn(&S, &MouseEvent, InteractiveId, &AppView<'_>) -> Option<(S, Vec<C>)>
         + Send
         + Sync
         + 'static,
@@ -572,9 +522,16 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 .as_any()
                 .downcast_ref::<S>()
                 .expect("state type mismatch");
-            handler(s, event, id, app)
-                .map(|(new_state, cmds)| (Box::new(new_state) as Box<dyn PluginState>, cmds))
+            handler(s, event, id, app).map(|(new_state, cmds)| {
+                (
+                    Box::new(new_state) as Box<dyn PluginState>,
+                    cmds.into_iter().map(Into::into).collect(),
+                )
+            })
         }));
+        if C::IS_TRANSPARENT {
+            self.table.transparency.mouse_handler = true;
+        }
     }
 
     /// Register a drop observer (notification only, cannot consume).
@@ -592,129 +549,12 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     /// Register a drop handler (interactive element drop target).
-    pub fn on_drop(
+    ///
+    /// Accepts closures returning `Option<(S, Vec<Command>)>` or
+    /// `Option<(S, Vec<TransparentCommand>)>` for compile-time transparency.
+    pub fn on_drop<C: Into<Command> + Transparency + 'static>(
         &mut self,
-        handler: impl Fn(&S, &DropEvent, InteractiveId, &AppView<'_>) -> Option<(S, Vec<Command>)>
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        self.table.handle_drop_handler = Some(Box::new(move |state, event, id, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            handler(s, event, id, app)
-                .map(|(new_state, cmds)| (Box::new(new_state) as Box<dyn PluginState>, cmds))
-        }));
-    }
-
-    // =========================================================================
-    // Transparent input handlers (ADR-030 Level 3)
-    // =========================================================================
-
-    /// Register a transparent key handler (compile-time guarantee of no Kakoune writes).
-    pub fn on_key_transparent(
-        &mut self,
-        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> Option<(S, Vec<super::TransparentCommand>)>
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        self.table.key_handler = Some(Box::new(move |state, key, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            handler(s, key, app).map(|(new_state, cmds)| {
-                (
-                    Box::new(new_state) as Box<dyn PluginState>,
-                    cmds.into_iter().map(Into::into).collect(),
-                )
-            })
-        }));
-        self.table.transparency.key_handler = true;
-    }
-
-    /// Register a transparent key middleware handler.
-    pub fn on_key_middleware_transparent(
-        &mut self,
-        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> (S, super::TransparentKeyResult)
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        self.table.key_middleware_handler = Some(Box::new(move |state, key, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            let (new_state, result) = handler(s, key, app);
-            (Box::new(new_state) as Box<dyn PluginState>, result.into())
-        }));
-        self.table.transparency.key_middleware = true;
-    }
-
-    /// Register a transparent text input handler.
-    pub fn on_text_input_transparent(
-        &mut self,
-        handler: impl Fn(&S, &str, &AppView<'_>) -> Option<(S, Vec<super::TransparentCommand>)>
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        self.table.text_input_handler = Some(Box::new(move |state, text, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            handler(s, text, app).map(|(new_state, cmds)| {
-                (
-                    Box::new(new_state) as Box<dyn PluginState>,
-                    cmds.into_iter().map(Into::into).collect(),
-                )
-            })
-        }));
-        self.table.transparency.text_input = true;
-    }
-
-    /// Register a transparent mouse handler.
-    pub fn on_handle_mouse_transparent(
-        &mut self,
-        handler: impl Fn(
-            &S,
-            &MouseEvent,
-            InteractiveId,
-            &AppView<'_>,
-        ) -> Option<(S, Vec<super::TransparentCommand>)>
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        self.table.handle_mouse_handler = Some(Box::new(move |state, event, id, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            handler(s, event, id, app).map(|(new_state, cmds)| {
-                (
-                    Box::new(new_state) as Box<dyn PluginState>,
-                    cmds.into_iter().map(Into::into).collect(),
-                )
-            })
-        }));
-        self.table.transparency.mouse_handler = true;
-    }
-
-    /// Register a transparent drop handler.
-    pub fn on_drop_transparent(
-        &mut self,
-        handler: impl Fn(
-            &S,
-            &DropEvent,
-            InteractiveId,
-            &AppView<'_>,
-        ) -> Option<(S, Vec<super::TransparentCommand>)>
+        handler: impl Fn(&S, &DropEvent, InteractiveId, &AppView<'_>) -> Option<(S, Vec<C>)>
         + Send
         + Sync
         + 'static,
@@ -731,7 +571,9 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 )
             })
         }));
-        self.table.transparency.drop_handler = true;
+        if C::IS_TRANSPARENT {
+            self.table.transparency.drop_handler = true;
+        }
     }
 
     // =========================================================================
@@ -1742,6 +1584,7 @@ mod tests {
     use super::*;
     use crate::plugin::PluginCapabilities;
     use crate::plugin::traits::PluginBackend;
+    use crate::plugin::transparent_command::TransparentCommand;
     use crate::state::DirtyFlags;
 
     #[derive(Clone, Debug, PartialEq, Default)]
@@ -1888,7 +1731,7 @@ mod tests {
     #[test]
     fn on_key_sets_input_handler_capability() {
         let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_key(|_state, _key, _app| None);
+        registry.on_key(|_state, _key, _app| None::<(TestState, Vec<Command>)>);
         let table = registry.into_table();
         assert!(
             table
@@ -1900,7 +1743,7 @@ mod tests {
     #[test]
     fn on_text_input_sets_input_handler_capability() {
         let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_text_input(|_state, _text, _app| None);
+        registry.on_text_input(|_state, _text, _app| None::<(TestState, Vec<Command>)>);
         let table = registry.into_table();
         assert!(
             table
@@ -1968,7 +1811,7 @@ mod tests {
         let mut registry = HandlerRegistry::<TestState>::new();
         registry.on_annotate_background(|_s, _l, _a, _c| None);
         registry.on_overlay(|_s, _a, _c| None);
-        registry.on_key(|_s, _k, _a| None);
+        registry.on_key(|_s, _k, _a| None::<(TestState, Vec<Command>)>);
         let table = registry.into_table();
         let caps = table.capabilities();
         assert!(caps.contains(PluginCapabilities::ANNOTATOR));
@@ -2081,7 +1924,11 @@ mod tests {
     #[test]
     fn on_key_transparent_sets_input_handler_and_transparency() {
         let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_key_transparent(|_state, _key, _app| None);
+        registry.on_key(
+            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<TransparentCommand>)> {
+                None
+            },
+        );
         assert!(registry.is_input_transparent());
         let table = registry.into_table();
         assert!(
@@ -2095,23 +1942,35 @@ mod tests {
     #[test]
     fn on_key_non_transparent_means_not_input_transparent() {
         let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_key(|_state, _key, _app| None);
+        registry.on_key(|_state, _key, _app| None::<(TestState, Vec<Command>)>);
         assert!(!registry.is_input_transparent());
     }
 
     #[test]
     fn mixed_transparent_and_non_transparent_is_not_transparent() {
         let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_key_transparent(|_state, _key, _app| None);
-        registry.on_text_input(|_state, _text, _app| None);
+        registry.on_key(
+            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<TransparentCommand>)> {
+                None
+            },
+        );
+        registry.on_text_input(|_state, _text, _app| None::<(TestState, Vec<Command>)>);
         assert!(!registry.is_input_transparent());
     }
 
     #[test]
     fn all_transparent_handlers_means_input_transparent() {
         let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_key_transparent(|_state, _key, _app| None);
-        registry.on_text_input_transparent(|_state, _text, _app| None);
+        registry.on_key(
+            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<TransparentCommand>)> {
+                None
+            },
+        );
+        registry.on_text_input(
+            |_state: &TestState, _text, _app| -> Option<(TestState, Vec<TransparentCommand>)> {
+                None
+            },
+        );
         assert!(registry.is_input_transparent());
     }
 

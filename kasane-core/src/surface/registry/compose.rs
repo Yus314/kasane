@@ -119,7 +119,6 @@ impl SurfaceRegistry {
         plugin_registry: &PluginView<'_>,
         total: Rect,
     ) -> SurfaceComposeResult {
-        use crate::element::FlexChild;
         let rects = self.workspace.compute_rects(total);
         let (workspace_content, mut surface_reports) = self.compose_node_with_reports(
             self.workspace.root(),
@@ -177,15 +176,7 @@ impl SurfaceRegistry {
 
         let base = match status_bar {
             Some(status) => {
-                let mut children = Vec::new();
-                if state.config.status_at_top {
-                    children.push(FlexChild::fixed(status));
-                    children.push(FlexChild::flexible(workspace_content, 1.0));
-                } else {
-                    children.push(FlexChild::flexible(workspace_content, 1.0));
-                    children.push(FlexChild::fixed(status));
-                }
-                Element::column(children)
+                combine_with_status(workspace_content, status, state.config.status_at_top)
             }
             None => workspace_content,
         };
@@ -320,15 +311,14 @@ impl SurfaceRegistry {
                             .map(|tree| tree.into_root())
                             .unwrap_or(Element::Empty);
 
-                        let mut children = Vec::new();
-                        if state.config.status_at_top {
-                            children.push(FlexChild::fixed(status_elem));
-                            children.push(FlexChild::flexible(buffer_elem, 1.0));
-                        } else {
-                            children.push(FlexChild::flexible(buffer_elem, 1.0));
-                            children.push(FlexChild::fixed(status_elem));
-                        }
-                        return (Element::column(children), reports);
+                        return (
+                            combine_with_status(
+                                buffer_elem,
+                                status_elem,
+                                state.config.status_at_top,
+                            ),
+                            reports,
+                        );
                     }
 
                     (buffer_elem, reports)
@@ -480,4 +470,15 @@ impl SurfaceRegistry {
             }
         }
     }
+}
+
+/// Combine a content element with a status bar element, respecting `status_at_top`.
+fn combine_with_status(content: Element, status: Element, status_at_top: bool) -> Element {
+    use crate::element::FlexChild;
+    let children = if status_at_top {
+        vec![FlexChild::fixed(status), FlexChild::flexible(content, 1.0)]
+    } else {
+        vec![FlexChild::flexible(content, 1.0), FlexChild::fixed(status)]
+    };
+    Element::column(children)
 }
