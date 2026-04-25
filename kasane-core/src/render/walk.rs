@@ -912,17 +912,18 @@ fn display_col_to_byte_offset(
     atoms: &[super::scene::ResolvedAtom],
     display_col: usize,
 ) -> Option<usize> {
-    use unicode_width::UnicodeWidthChar;
+    use unicode_segmentation::UnicodeSegmentation;
+    use unicode_width::UnicodeWidthStr;
     let mut col = 0usize;
     let mut byte = 0usize;
     for atom in atoms {
-        for ch in atom.contents.chars() {
-            let w = ch.width().unwrap_or(0);
+        for grapheme in atom.contents.graphemes(true) {
+            let w = UnicodeWidthStr::width(grapheme);
             if col == display_col || (w > 1 && display_col > col && display_col < col + w) {
                 return Some(byte);
             }
             col += w;
-            byte += ch.len_utf8();
+            byte += grapheme.len();
         }
     }
     // display_col at or past end → return total byte length

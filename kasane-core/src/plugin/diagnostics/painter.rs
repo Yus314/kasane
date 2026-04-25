@@ -1,3 +1,6 @@
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
 use crate::protocol::{Attributes, Color, Face, NamedColor};
 
 use super::scoring::{OverlayBackdropTone, overlay_backdrop_tone_for_title};
@@ -48,11 +51,11 @@ fn plugin_diagnostic_overlay_layout_with_title(
     };
     let body_width = lines
         .iter()
-        .map(|line| line.display_text().chars().count() as u16)
+        .map(|line| UnicodeWidthStr::width(line.display_text().as_ref()) as u16)
         .max()
         .unwrap_or(0);
     let inner_width = (body_width + 2) // +2 for tag (1) + space (1) between tag and text
-        .max(header.chars().count() as u16)
+        .max(UnicodeWidthStr::width(header.as_str()) as u16)
         .min(cols.saturating_sub(4));
     let width = (inner_width + 2).min(cols);
     let height = ((lines.len() as u16) + 2).min(rows);
@@ -542,5 +545,16 @@ pub fn plugin_diagnostic_overlay_tag_text(kind: PluginDiagnosticOverlayTagKind) 
 }
 
 fn truncate_to_width(text: &str, width: u16) -> String {
-    text.chars().take(width as usize).collect()
+    let max = width as usize;
+    let mut used = 0usize;
+    let mut result = String::new();
+    for grapheme in text.graphemes(true) {
+        let w = UnicodeWidthStr::width(grapheme);
+        if used + w > max {
+            break;
+        }
+        result.push_str(grapheme);
+        used += w;
+    }
+    result
 }

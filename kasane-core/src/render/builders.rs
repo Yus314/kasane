@@ -4,6 +4,7 @@
 //! `salsa_views` path, avoiding code duplication.
 
 use compact_str::CompactString;
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::element::{Element, FlexChild};
@@ -60,16 +61,16 @@ pub(crate) fn truncate_atoms(
     for atom in atoms {
         let face = resolve_face(&atom.face, base_face);
         let mut buf = String::new();
-        for ch in atom.contents.chars() {
-            let cw = if ch.is_control() {
+        for grapheme in atom.contents.graphemes(true) {
+            let cw = if grapheme.starts_with(|c: char| c.is_control()) {
                 0
             } else {
-                UnicodeWidthStr::width(ch.encode_utf8(&mut [0; 4]) as &str)
+                UnicodeWidthStr::width(grapheme)
             };
             if used + cw > limit {
                 break;
             }
-            buf.push(ch);
+            buf.push_str(grapheme);
             used += cw;
         }
         if !buf.is_empty() {
@@ -149,7 +150,7 @@ pub(crate) fn wrap_content_lines(
         let mut graphemes: Vec<(&str, Face, u16)> = Vec::new();
         for atom in line {
             let face = resolve_face(&atom.face, base_face);
-            for grapheme in atom.contents.split_inclusive(|_: char| true) {
+            for grapheme in atom.contents.graphemes(true) {
                 if grapheme.is_empty() || grapheme.starts_with(|c: char| c.is_control()) {
                     continue;
                 }
@@ -224,4 +225,33 @@ pub(crate) fn build_content_column(
         .map(|line| FlexChild::fixed(Element::StyledLine(line.clone())))
         .collect();
     Element::column(content_rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::make_line;
+
+    #[test]
+    fn test_wrap_content_lines_combining_character() {
+        let line = make_line("e\u{0301}x");
+        let base_face = Face::default();
+        let result = wrap_content_lines(&[line], 20, 10, &base_face);
+        assert_eq!(result.len(), 1);
+        let text: String = result[0].iter().map(|a| a.contents.as_str()).collect();
+        assert_eq!(text, "e\u{0301}x");
+    }
+
+    #[test]
+    fn test_truncate_atoms_combining_character() {
+        let atoms = vec![Atom {
+            face: Face::default(),
+            contents: "e\u{0301}xyz".into(),
+        }];
+        let base_face = Face::default();
+        // width 3 limit → "éx" (2 cols) + "…" (1 col) = 3
+        let result = truncate_atoms(&atoms, 3, &base_face, "\u{2026}");
+        let text: String = result.iter().map(|a| a.contents.as_str()).collect();
+        assert_eq!(text, "e\u{0301}x\u{2026}");
+    }
 }

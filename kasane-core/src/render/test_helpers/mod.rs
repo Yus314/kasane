@@ -73,6 +73,7 @@ pub(super) fn render_wrapped_line(
     base_face: Option<&crate::protocol::Face>,
     y_limit: u16,
 ) -> u16 {
+    use unicode_segmentation::UnicodeSegmentation;
     use unicode_width::UnicodeWidthStr;
     if max_width == 0 {
         return 1;
@@ -85,7 +86,7 @@ pub(super) fn render_wrapped_line(
             Some(base) => crate::protocol::resolve_face(&atom.face, base),
             None => atom.face,
         };
-        for grapheme in atom.contents.split_inclusive(|_: char| true) {
+        for grapheme in atom.contents.graphemes(true) {
             if grapheme.is_empty() {
                 continue;
             }

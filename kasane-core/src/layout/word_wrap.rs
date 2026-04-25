@@ -1,3 +1,4 @@
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use super::text::is_word_char;
@@ -19,7 +20,7 @@ pub struct WrapSegment {
 pub(super) fn collect_metrics(line: &Line) -> Vec<(u16, bool)> {
     let mut metrics: Vec<(u16, bool)> = Vec::new();
     for atom in line {
-        for grapheme in atom.contents.split_inclusive(|_: char| true) {
+        for grapheme in atom.contents.graphemes(true) {
             if grapheme.is_empty() {
                 continue;
             }
@@ -341,5 +342,29 @@ mod tests {
                 WrapSegment { start: 1, end: 2 },
             ]
         );
+    }
+
+    // ----- grapheme cluster tests -----
+
+    #[test]
+    fn test_collect_metrics_combining_character() {
+        // "e\u{0301}x" → 2 graphemes ("é" and "x"), not 3
+        let line = make_line("e\u{0301}x");
+        let metrics = collect_metrics(&line);
+        assert_eq!(metrics.len(), 2);
+    }
+
+    #[test]
+    fn test_word_wrap_combining_character() {
+        // "é" is a single grapheme of width 1, total "éx" fits in any reasonable width
+        let line = make_line("e\u{0301}x");
+        assert_eq!(word_wrap_line_height(&line, 10), 1);
+    }
+
+    #[test]
+    fn test_word_wrap_combining_character_width() {
+        // "éx" → 2 display columns
+        let line = make_line("e\u{0301}x");
+        assert_eq!(word_wrap_max_row_width(&line, 10), 2);
     }
 }
