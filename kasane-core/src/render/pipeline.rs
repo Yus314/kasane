@@ -509,8 +509,8 @@ pub(crate) fn scene_render_core<'a>(
 
     let theme = &state.config.theme;
 
-    // Base section
-    if scene_cache.base_commands.is_none() {
+    // Base section (buffer + status combined)
+    if !scene_cache.has_base_commands() {
         let mut cmds = walk::walk_paint_scene_section(
             &frame.sections.base,
             &frame.base_layout,
@@ -528,7 +528,7 @@ pub(crate) fn scene_render_core<'a>(
         if !surface_ornaments.is_empty() {
             cmds.extend(lower_surface_ornaments_gui(&surface_ornaments, cell_size));
         }
-        scene_cache.base_commands = Some(cmds);
+        scene_cache.set_base_commands(cmds);
     }
 
     // Overlay section (menu + info + plugin, unified)

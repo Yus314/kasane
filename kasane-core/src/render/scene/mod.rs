@@ -162,6 +162,12 @@ pub enum DrawCommand {
         paragraph: BufferParagraph,
     },
 
+    /// Draw plugin canvas operations within a pixel rectangle.
+    DrawCanvas {
+        rect: PixelRect,
+        content: crate::plugin::canvas::CanvasContent,
+    },
+
     /// Layer boundary: all subsequent commands belong to a new overlay layer.
     ///
     /// The renderer must flush (bg → border → text) before starting the new

@@ -12,13 +12,16 @@ fn test_scene_cache_invalidate_buffer_clears_base_only() {
         height: 20.0,
     };
     let mut cache = SceneCache::new();
-    cache.base_commands = Some(vec![]);
+    cache.buffer_commands = Some(vec![]);
     cache.overlay_commands = Some(vec![]);
     cache.cached_cell_size = Some((cs.width.to_bits(), cs.height.to_bits()));
     cache.cached_dims = Some((80, 24));
 
     cache.invalidate(DirtyFlags::BUFFER, cs, 80, 24);
-    assert!(cache.base_commands.is_none(), "BUFFER should clear base");
+    assert!(
+        cache.buffer_commands.is_none(),
+        "BUFFER should clear buffer_commands"
+    );
     assert!(
         cache.overlay_commands.is_some(),
         "BUFFER should preserve overlays"
@@ -32,15 +35,15 @@ fn test_scene_cache_invalidate_menu_clears_overlays() {
         height: 20.0,
     };
     let mut cache = SceneCache::new();
-    cache.base_commands = Some(vec![]);
+    cache.buffer_commands = Some(vec![]);
     cache.overlay_commands = Some(vec![]);
     cache.cached_cell_size = Some((cs.width.to_bits(), cs.height.to_bits()));
     cache.cached_dims = Some((80, 24));
 
     cache.invalidate(DirtyFlags::MENU_SELECTION, cs, 80, 24);
     assert!(
-        cache.base_commands.is_some(),
-        "MENU_SELECTION should preserve base"
+        cache.buffer_commands.is_some(),
+        "MENU_SELECTION should preserve buffer"
     );
     assert!(
         cache.overlay_commands.is_none(),
@@ -55,13 +58,16 @@ fn test_scene_cache_invalidate_info_clears_overlays() {
         height: 20.0,
     };
     let mut cache = SceneCache::new();
-    cache.base_commands = Some(vec![]);
+    cache.buffer_commands = Some(vec![]);
     cache.overlay_commands = Some(vec![]);
     cache.cached_cell_size = Some((cs.width.to_bits(), cs.height.to_bits()));
     cache.cached_dims = Some((80, 24));
 
     cache.invalidate(DirtyFlags::INFO, cs, 80, 24);
-    assert!(cache.base_commands.is_some(), "INFO should preserve base");
+    assert!(
+        cache.buffer_commands.is_some(),
+        "INFO should preserve buffer"
+    );
     assert!(
         cache.overlay_commands.is_none(),
         "INFO should clear overlays"
@@ -79,15 +85,15 @@ fn test_scene_cache_cell_size_change_clears_all() {
         height: 24.0,
     };
     let mut cache = SceneCache::new();
-    cache.base_commands = Some(vec![]);
+    cache.buffer_commands = Some(vec![]);
     cache.overlay_commands = Some(vec![]);
     cache.cached_cell_size = Some((cs1.width.to_bits(), cs1.height.to_bits()));
     cache.cached_dims = Some((80, 24));
 
     cache.invalidate(DirtyFlags::empty(), cs2, 80, 24);
     assert!(
-        cache.base_commands.is_none(),
-        "cell size change should clear base"
+        cache.buffer_commands.is_none(),
+        "cell size change should clear buffer"
     );
     assert!(
         cache.overlay_commands.is_none(),
@@ -102,19 +108,47 @@ fn test_scene_cache_dims_change_clears_all() {
         height: 20.0,
     };
     let mut cache = SceneCache::new();
-    cache.base_commands = Some(vec![]);
+    cache.buffer_commands = Some(vec![]);
     cache.overlay_commands = Some(vec![]);
     cache.cached_cell_size = Some((cs.width.to_bits(), cs.height.to_bits()));
     cache.cached_dims = Some((80, 24));
 
     cache.invalidate(DirtyFlags::empty(), cs, 100, 30);
     assert!(
-        cache.base_commands.is_none(),
-        "dims change should clear base"
+        cache.buffer_commands.is_none(),
+        "dims change should clear buffer"
     );
     assert!(
         cache.overlay_commands.is_none(),
         "dims change should clear overlays"
+    );
+}
+
+#[test]
+fn test_scene_cache_status_only_preserves_buffer() {
+    let cs = scene::CellSize {
+        width: 10.0,
+        height: 20.0,
+    };
+    let mut cache = SceneCache::new();
+    cache.buffer_commands = Some(vec![]);
+    cache.status_commands = Some(vec![]);
+    cache.overlay_commands = Some(vec![]);
+    cache.cached_cell_size = Some((cs.width.to_bits(), cs.height.to_bits()));
+    cache.cached_dims = Some((80, 24));
+
+    cache.invalidate(DirtyFlags::STATUS, cs, 80, 24);
+    assert!(
+        cache.buffer_commands.is_some(),
+        "STATUS should preserve buffer_commands"
+    );
+    assert!(
+        cache.status_commands.is_none(),
+        "STATUS should clear status_commands"
+    );
+    assert!(
+        cache.overlay_commands.is_some(),
+        "STATUS should preserve overlays"
     );
 }
 

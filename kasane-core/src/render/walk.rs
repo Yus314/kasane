@@ -98,6 +98,9 @@ pub(crate) trait PaintVisitor {
         area: Rect,
     );
 
+    /// Render a Canvas element. GPU: convert ops to draw primitives. TUI: no-op.
+    fn visit_canvas(&mut self, content: &crate::plugin::canvas::CanvasContent, area: Rect);
+
     /// Pre-visit for Scrollable: set up clip region (GPU only).
     fn visit_scrollable_pre(&mut self, area: Rect);
 
@@ -168,6 +171,9 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
             ..
         } => {
             visitor.visit_image(source, *fit, *opacity, area);
+        }
+        Element::Canvas { content, .. } => {
+            visitor.visit_canvas(content, area);
         }
         Element::SlotPlaceholder { .. } => {
             debug_assert!(false, "unresolved SlotPlaceholder reached walk_paint");
@@ -470,6 +476,10 @@ impl PaintVisitor for GridPaintVisitor<'_> {
 
     fn visit_scrollable_pre(&mut self, _area: Rect) {
         // No-op for TUI: no pixel-level clipping in cell grid
+    }
+
+    fn visit_canvas(&mut self, _content: &crate::plugin::canvas::CanvasContent, _area: Rect) {
+        // No-op for TUI: canvas ops are GPU-only
     }
 
     fn visit_scrollable_post(&mut self) {
@@ -874,6 +884,17 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
     fn visit_scrollable_pre(&mut self, area: Rect) {
         let pr = to_pixel_rect(&area, self.cell_size);
         self.out.push(DrawCommand::PushClip(pr));
+    }
+
+    fn visit_canvas(&mut self, content: &crate::plugin::canvas::CanvasContent, area: Rect) {
+        if content.is_empty() {
+            return;
+        }
+        let pr = to_pixel_rect(&area, self.cell_size);
+        self.out.push(DrawCommand::DrawCanvas {
+            rect: pr,
+            content: content.clone(),
+        });
     }
 
     fn visit_scrollable_post(&mut self) {

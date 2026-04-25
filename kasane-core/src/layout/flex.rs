@@ -77,7 +77,7 @@ pub fn measure(element: &Element, constraints: Constraints, state: &AppState) ->
             width: constraints.min_width,
             height: constraints.min_height,
         },
-        Element::Image { size, .. } => Size {
+        Element::Image { size, .. } | Element::Canvas { size, .. } => Size {
             width: size.0.clamp(constraints.min_width, constraints.max_width),
             height: size.1.clamp(constraints.min_height, constraints.max_height),
         },
@@ -243,6 +243,7 @@ pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
         | Element::BufferRef { .. }
         | Element::SlotPlaceholder { .. }
         | Element::Image { .. }
+        | Element::Canvas { .. }
         | Element::TextPanel { .. }
         | Element::Empty => LayoutResult {
             area,

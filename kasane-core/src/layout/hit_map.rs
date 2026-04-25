@@ -151,6 +151,7 @@ fn collect_interactive(
         | Element::BufferRef { .. }
         | Element::SlotPlaceholder { .. }
         | Element::Image { .. }
+        | Element::Canvas { .. }
         | Element::TextPanel { .. }
         | Element::Empty => {}
     }

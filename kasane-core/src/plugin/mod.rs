@@ -2,6 +2,7 @@
 
 pub mod app_view;
 pub mod bridge;
+pub mod canvas;
 pub mod channel;
 mod command;
 pub mod compose;

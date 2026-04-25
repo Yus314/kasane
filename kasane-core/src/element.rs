@@ -500,6 +500,15 @@ pub enum Element {
         /// Whether to wrap long lines (false = truncate).
         wrap: bool,
     },
+    /// GPU canvas element: plugin-submitted draw operations.
+    /// TUI backend renders a placeholder; GPU backend converts ops to primitives.
+    Canvas {
+        /// Size in cells (width, height).
+        size: (u16, u16),
+        /// Drawing operations submitted by the plugin.
+        content: crate::plugin::canvas::CanvasContent,
+    },
+
     /// Zero-copy buffer reference: renders lines[line_range] from AppState.
     BufferRef {
         line_range: Range<usize>,

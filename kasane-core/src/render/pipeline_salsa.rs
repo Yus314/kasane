@@ -461,6 +461,9 @@ pub fn render_pipeline_cached(
 pub struct SceneRenderOptions<'a> {
     pub surface_registry: Option<&'a SurfaceRegistry>,
     pub pane_states: Option<&'a PaneStates<'a>>,
+    /// Sub-pixel vertical scroll offset in pixels (GPU-only).
+    /// Applied by the GPU renderer to offset buffer content for smooth scrolling.
+    pub pixel_y_offset: f32,
 }
 
 /// Salsa-backed scene rendering pipeline (GPU).
