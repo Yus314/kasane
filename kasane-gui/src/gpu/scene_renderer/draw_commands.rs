@@ -602,6 +602,12 @@ impl SceneRenderer {
         line_idx: u32,
         color_resolver: &ColorResolver,
     ) {
+        // ADR-031 Phase 9b Step 4e — divert to Parley path when env var on.
+        if super::parley_backend_requested() {
+            self.process_draw_atoms_parley(px, py, atoms, max_width, color_resolver);
+            return;
+        }
+
         let cell_h = self.metrics.cell_height;
         let cell_w = self.metrics.cell_width;
         let mut x = px;
@@ -744,6 +750,51 @@ impl SceneRenderer {
         // === Step 5: Register text position ===
         self.text_draws.push((px, py, buf_idx));
         self.push_text_clip_bounds();
+    }
+
+    /// ADR-031 Phase 9b Step 4e — Parley alternative to process_draw_atoms.
+    /// Runs the per-atom backgrounds + decorations using cell-grid
+    /// estimates (no glyph extents from cosmic), then routes glyph
+    /// rendering through Parley.
+    fn process_draw_atoms_parley(
+        &mut self,
+        px: f32,
+        py: f32,
+        atoms: &[kasane_core::render::ResolvedAtom],
+        max_width: f32,
+        color_resolver: &ColorResolver,
+    ) {
+        let cell_h = self.metrics.cell_height;
+        let cell_w = self.metrics.cell_width;
+        let mut x = px;
+
+        // Per-atom backgrounds + decorations using cell-grid estimates.
+        // Glyph-accurate widths from Parley are deferred (would require
+        // a second pass collecting parley::Layout extents).
+        for atom in atoms {
+            let atom_display_w = line_display_width_str(&atom.contents) as f32 * cell_w;
+            let remaining = max_width - (x - px);
+            if remaining <= 0.0 {
+                break;
+            }
+            let actual_w = atom_display_w.min(remaining);
+            let (visual_fg, visual_bg, needs_bg) =
+                color_resolver.resolve_face_colors_linear(&atom.face);
+
+            if actual_w > 0.0
+                && needs_bg
+                && !self.should_skip_default_bg(&visual_bg, color_resolver)
+            {
+                self.quad.push_solid(x, py, actual_w, cell_h, visual_bg);
+            }
+            if actual_w > 0.0 {
+                self.emit_decorations(x, py, actual_w, &atom.face, visual_fg, color_resolver);
+            }
+            x += actual_w;
+        }
+
+        // Route glyph rendering through Parley.
+        self.parley_emit_atoms(atoms, px, py, color_resolver);
     }
 
     /// Process RenderParagraph: buffer line with semantic annotations.

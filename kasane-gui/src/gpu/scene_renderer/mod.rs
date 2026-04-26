@@ -382,6 +382,112 @@ impl SceneRenderer {
     /// fine for a smoke test of fixed-size content.
     ///
     /// No-op unless `KASANE_TEXT_BACKEND=parley` is set.
+    /// Emit a multi-atom run through Parley. Each atom keeps its own
+    /// face / colour because [`StyledLine::from_atoms`] preserves per-atom
+    /// brushes via `StyleProperty::Brush` spans, and the glyph walk below
+    /// extracts the run's brush from `cluster.first_style().brush`.
+    pub(crate) fn parley_emit_atoms(
+        &mut self,
+        atoms: &[kasane_core::render::ResolvedAtom],
+        px: f32,
+        py: f32,
+        _color_resolver: &ColorResolver,
+    ) {
+        use super::parley_text::Brush as PBrush;
+        use super::parley_text::frame_builder::DrawableGlyph;
+        use super::parley_text::glyph_rasterizer::{ContentKind, SubpixelX};
+        use super::parley_text::shaper::shape_line_with_default_family;
+        use super::parley_text::styled_line::StyledLine;
+        use kasane_core::protocol::{Atom, Style};
+        use parley::PositionedLayoutItem;
+
+        if atoms.is_empty() {
+            return;
+        }
+
+        let kasane_atoms: Vec<Atom> = atoms
+            .iter()
+            .map(|r| Atom {
+                face: r.face,
+                contents: r.contents.as_str().into(),
+            })
+            .collect();
+        let line = StyledLine::from_atoms(
+            &kasane_atoms,
+            &Style::default(),
+            PBrush::opaque(255, 255, 255),
+            self.font_size,
+            None,
+        );
+        let parley_layout = shape_line_with_default_family(&mut self.parley_text, &line);
+
+        for layout_line in parley_layout.layout.lines() {
+            let line_metrics = layout_line.metrics();
+            let line_baseline = py + line_metrics.baseline;
+
+            for item in layout_line.items() {
+                let PositionedLayoutItem::GlyphRun(run) = item else {
+                    continue;
+                };
+                let parley_run = run.run();
+                let font = parley_run.font();
+                let font_size = parley_run.font_size();
+                let Some(font_ref) =
+                    swash::FontRef::from_index(font.data.data(), font.index as usize)
+                else {
+                    continue;
+                };
+                // Per-run brush from the first cluster's resolved style.
+                let brush = parley_run
+                    .clusters()
+                    .next()
+                    .map(|c| c.first_style().brush)
+                    .unwrap_or_default();
+
+                for glyph in run.positioned_glyphs() {
+                    let abs_x = px + glyph.x;
+                    let abs_y = line_baseline + glyph.y;
+                    let subpx = SubpixelX::from_fract(abs_x);
+                    let glyph_id = glyph.id as u16;
+
+                    let raster = match self
+                        .parley_glyph_rasterizer
+                        .rasterize(font_ref, glyph_id, font_size, subpx, true)
+                    {
+                        Some(r) => r,
+                        None => continue,
+                    };
+
+                    let atlas = match raster.content {
+                        ContentKind::Mask => &mut self.parley_mask_atlas,
+                        ContentKind::Color => &mut self.parley_color_atlas,
+                    };
+                    let raster_w = raster.width;
+                    let raster_h = raster.height;
+                    let raster_left = raster.left;
+                    let raster_top = raster.top;
+                    let raster_content = raster.content;
+                    let Some(slot) = atlas.allocate_and_queue(raster_w, raster_h, raster.data)
+                    else {
+                        continue;
+                    };
+
+                    self.parley_drawables.push(DrawableGlyph {
+                        px: abs_x,
+                        py: abs_y,
+                        width: raster_w,
+                        height: raster_h,
+                        left: raster_left,
+                        top: raster_top,
+                        content: raster_content,
+                        atlas_slot: slot,
+                        brush,
+                    });
+                }
+            }
+        }
+    }
+
     pub(crate) fn parley_emit_text(
         &mut self,
         text: &str,
@@ -492,9 +598,12 @@ impl SceneRenderer {
         self.parley_color_atlas.clear();
     }
 
-    /// Hand accumulated drawables to the Parley renderer. Called once
-    /// per frame, after all process_draw_* have run, before the render
-    /// pass begins.
+    /// Hand drawables accumulated since the last call to the Parley
+    /// renderer. Called once per layer (so each layer's overlay text
+    /// reaches the GPU before that layer's render pass begins). The
+    /// drawables vector is then cleared so the next layer accumulates
+    /// fresh entries; atlases keep their slots across layers within the
+    /// frame.
     fn parley_finalize_frame(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         tracing::trace!(
             target: "kasane::parley::frame",
@@ -511,6 +620,7 @@ impl SceneRenderer {
             &mut self.parley_color_atlas,
             &self.parley_drawables,
         );
+        self.parley_drawables.clear();
     }
 
     /// Proportional-aware mouse hit test.
@@ -951,12 +1061,13 @@ impl SceneRenderer {
                 .map_err(|e| anyhow::anyhow!("glyphon prepare failed: {e}"))?;
             drop(_text_span);
 
-            // ADR-031 Phase 9b Step 4d — Parley path finalisation.
-            // process_draw_text has accumulated DrawableGlyphs into
-            // self.parley_drawables during the per-layer processing
-            // above. Hand them off to parley_renderer once per layer 0;
-            // overlay layers reuse the same prepared frame state.
-            if layer_idx == 0 && parley_backend_requested() {
+            // ADR-031 Phase 9b Step 4e — finalize the Parley draw for
+            // this layer. process_draw_* has accumulated DrawableGlyphs
+            // into self.parley_drawables during this layer's
+            // processing. parley_finalize_frame uploads atlas pixels +
+            // writes vertex buffer + clears the accumulator so the next
+            // layer starts fresh.
+            if parley_backend_requested() {
                 self.parley_finalize_frame(&gpu.device, &gpu.queue);
             }
 
@@ -1025,11 +1136,10 @@ impl SceneRenderer {
                     self.text_renderer
                         .render(&self.text_atlas, &self.viewport, &mut render_pass)
                         .map_err(|e| anyhow::anyhow!("glyphon render failed: {e}"))?;
-                    // ADR-031 Phase 9b Step 4b smoke — Parley path overlays
-                    // the cosmic-text output. Only on the base layer. Inlined
-                    // to avoid a `&self` borrow re-entering through a helper
-                    // while text_renderer's borrow chain is still resolving.
-                    if layer_idx == 0 && parley_backend_requested() {
+                    // ADR-031 Phase 9b Step 4e — Parley draw for this
+                    // layer. parley_finalize_frame above wrote the vertex
+                    // buffer with this layer's accumulated drawables.
+                    if parley_backend_requested() {
                         self.parley_renderer
                             .render(&self.viewport, &mut render_pass);
                     }
