@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::window::WindowId;
 
@@ -153,6 +153,28 @@ where
         self.pending_events.push(event);
     }
 
+    /// Wake-up handler. Only triggers a redraw when the wake came from the
+    /// `WaitUntil` deadline (`ResumeTimeReached`) and an animation is still
+    /// active; previously the redraw was requested unconditionally inside
+    /// `about_to_wait`, which queued a `RedrawRequested` event that winit
+    /// dispatched immediately, bypassing the deadline and producing a tight
+    /// render loop (~360-680 fps observed). Routing the wake-up redraw
+    /// through `new_events` lets `WaitUntil` actually gate the frame rate
+    /// at the configured 60/30 fps cadence.
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
+        if !matches!(cause, StartCause::ResumeTimeReached { .. }) {
+            return;
+        }
+        let needs_animation_frame = self.cursor_animation.is_animating
+            || self.cursor_animation.engine().is_animating()
+            || !self.scroll_spring.is_at_rest()
+            || self.scroll_runtime.active_frame_interval().is_some();
+        if needs_animation_frame && let Some(ref window) = self.window {
+            window.request_redraw();
+            self.cursor_dirty = true;
+        }
+    }
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let _frame_span = tracing::debug_span!("frame").entered();
         let pending_count = self.pending_events.len();
@@ -192,7 +214,12 @@ where
                 .sync_active_from_manager(&self.session_manager, &self.state);
         }
 
-        // Sub-pixel scroll spring tick
+        // Sub-pixel scroll spring tick. Only advance the physics here; the
+        // wake-up that drives the next render comes from `new_events` when
+        // the WaitUntil deadline fires, so we do NOT call request_redraw
+        // from this branch (doing so would queue a RedrawRequested that
+        // winit dispatches immediately, defeating WaitUntil and tight-
+        // looping at hundreds of fps).
         if !self.scroll_spring.is_at_rest() {
             let now = std::time::Instant::now();
             let dt = now
@@ -200,19 +227,13 @@ where
                 .as_secs_f64();
             self.scroll_spring_last_tick = now;
             self.scroll_spring.tick(dt);
-            if let Some(ref window) = self.window {
-                window.request_redraw();
-            }
             self.cursor_dirty = true;
         }
 
-        // Cursor/overlay animation drives continuous redraw when active
-        if (self.cursor_animation.is_animating || self.cursor_animation.engine().is_animating())
-            && let Some(ref window) = self.window
-        {
-            window.request_redraw();
-            self.cursor_dirty = true;
-        }
+        // Cursor/overlay animation: redraw is requested in `new_events` when
+        // the WaitUntil deadline fires (see comment there). No work needed
+        // here beyond letting the deadline computation below schedule the
+        // wake-up.
 
         if !self.dirty.is_empty()
             && let Some(ref window) = self.window
