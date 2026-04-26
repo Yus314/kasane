@@ -419,6 +419,15 @@ and reuses the previously shaped buffer for `layout_runs()` queries. See
 [profiling.md §GPU line shaping cache](./profiling.md#gpu-line-shaping-cache-kasane-gui)
 for the tracing instrumentation that produced the numbers below.
 
+> **ADR-031 status**: A parallel Parley-backed pipeline (`parley_text::layout_cache`)
+> is being staged to replace this cache. Steady-state cursor-only frame
+> ~62 µs at 24 lines from the `parley/frame_warm_24_lines` bench (within
+> the ≤ 70 µs Phase 11 target); typing-pattern frame ~81 µs is the Phase 11
+> micro-optimisation candidate. Numbers are shape + raster only — direct
+> comparison to the cosmic-text full-frame budget below requires the
+> Phase 9b `SceneRenderer` swap to land first. See
+> [ADR-031](./decisions.md#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign).
+
 Hit-rate measurements collected on a 2026-04-26 host run by emitting the
 `kasane::line_cache=debug` per-frame summary across three workloads:
 
