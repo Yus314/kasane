@@ -670,27 +670,43 @@ impl SceneRenderer {
         self.parley_emit_atoms(atoms, px, py, color_resolver);
     }
 
-    /// ADR-031 Phase 9b Step 4f — Parley alternative to
-    /// `process_render_paragraph`. Renders the paragraph's line bg,
-    /// per-atom backgrounds, decorations, glyph runs and cursors using
-    /// cell-grid estimates. The cosmic-derived shaping cache and
-    /// glyph-accurate cursor metrics are skipped here because Parley's
-    /// L1 LayoutCache + per-glyph hit test (Phase 9b Step 7) are not
-    /// yet wired into the paragraph path. ASCII rendering matches the
-    /// cosmic path; CJK / proportional cursors degrade to cell width.
+    /// Render a buffer paragraph through Parley with **whole-line
+    /// shaping**: builds one `StyledLine` from all atoms, shapes it
+    /// (with L1 cache reuse on cursor-only frames), and uses the
+    /// resulting `ParleyLayout` for both glyph emission and
+    /// glyph-accurate per-atom backgrounds + cursor placement.
+    ///
+    /// This replaces the earlier per-atom snap path. Per-atom shaping
+    /// snapped each atom to cell-grid x positions; the resulting
+    /// emit_decorations bg widths and `cell_grid_cursor` lookups
+    /// matched the snap, but cursors landed at cell boundaries instead
+    /// of true glyph edges (visible on CJK / ligature boundaries).
+    /// Whole-line shaping fixes that — bg widths come from glyph
+    /// extents, cursors come from `parley::Cluster::visual_offset`.
     fn process_render_paragraph_parley(
         &mut self,
         px: f32,
         py: f32,
         max_width: f32,
         para: &BufferParagraph,
+        line_idx: u32,
         color_resolver: &ColorResolver,
     ) {
+        use super::super::parley_text::Brush as PBrush;
+        use super::super::parley_text::frame_builder::DrawableGlyph;
+        use super::super::parley_text::glyph_rasterizer::SubpixelX;
+        use super::super::parley_text::hit_test::byte_to_advance;
+        use super::super::parley_text::shaper::shape_line_with_default_family;
+        use super::super::parley_text::styled_line::StyledLine;
+        use kasane_core::protocol::{Atom, Style};
+        use parley::PositionedLayoutItem;
+
         let cell_h = self.metrics.cell_height;
         let cell_w = self.metrics.cell_width;
 
-        // 1. Line-wide background fill (mirrors the cosmic path).
-        let (_, base_bg, _) = color_resolver.resolve_face_colors_linear(&para.base_face);
+        // 1. Line-wide background fill.
+        let (base_visual_fg, base_bg, _) =
+            color_resolver.resolve_face_colors_linear(&para.base_face);
         if !self.should_skip_default_bg(&base_bg, color_resolver) {
             self.quad.push_solid(px, py, max_width, cell_h, base_bg);
         }
@@ -699,9 +715,8 @@ impl SceneRenderer {
             return;
         }
 
-        // 2. Strip the cursor face on the atom under the primary cursor —
-        // render_cursor() owns the cursor block, so the atom must not
-        // also paint a REVERSE bg over it.
+        // 2. Locate the atom under the primary cursor (its face is
+        // stripped so render_cursor() owns the visual cursor block).
         let mut clear_cursor_atom_idx: Option<usize> = None;
         for ann in &para.annotations {
             if let ParagraphAnnotation::PrimaryCursor { byte_offset, .. } = ann {
@@ -717,71 +732,157 @@ impl SceneRenderer {
             }
         }
 
-        // 3. Per-atom background quads + decorations + cumulative byte
-        // boundaries (used for cursor lookup below). Widths are
-        // cell-grid estimates; that matches the snap policy used in
-        // parley_emit_atoms so the bg / glyph alignment is consistent.
-        let mut atom_byte_starts: Vec<usize> = vec![0];
-        let mut atom_x_starts: Vec<f32> = Vec::with_capacity(para.atoms.len());
-        let mut x = px;
-        let mut byte_accum = 0usize;
-        for (i, atom) in para.atoms.iter().enumerate() {
-            let face = if clear_cursor_atom_idx == Some(i) {
-                para.base_face
-            } else {
-                atom.face
-            };
-            let atom_display_w = line_display_width_str(&atom.contents) as f32 * cell_w;
-            let remaining = max_width - (x - px);
-            if remaining <= 0.0 {
-                break;
-            }
-            let actual_w = atom_display_w.min(remaining);
-            let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_face_colors_linear(&face);
+        // 3. Build a StyledLine from all atoms (face-stripped if needed)
+        // and shape it once via Parley. The L1 LayoutCache returns the
+        // same `Arc<ParleyLayout>` on cursor-only frames where the line
+        // text + style + width + size are unchanged.
+        let kasane_atoms: Vec<Atom> = para
+            .atoms
+            .iter()
+            .enumerate()
+            .map(|(i, atom)| {
+                let face = if clear_cursor_atom_idx == Some(i) {
+                    para.base_face
+                } else {
+                    atom.face
+                };
+                Atom {
+                    face,
+                    contents: atom.contents.clone().into(),
+                }
+            })
+            .collect();
+        let fallback_brush = PBrush::rgba(
+            (base_visual_fg[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+            (base_visual_fg[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+            (base_visual_fg[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+            (base_visual_fg[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+        );
+        let line = StyledLine::from_atoms(
+            &kasane_atoms,
+            &Style::default(),
+            fallback_brush,
+            self.font_size,
+            None,
+        );
+        let parley_text = &mut self.parley_text;
+        let layout = self
+            .parley_layout_cache
+            .get_or_compute(line_idx, &line, |l| {
+                shape_line_with_default_family(parley_text, l)
+            });
 
-            if actual_w > 0.0
-                && needs_bg
-                && !self.should_skip_default_bg(&visual_bg, color_resolver)
-            {
-                self.quad.push_solid(x, py, actual_w, cell_h, visual_bg);
-            }
-            if actual_w > 0.0 {
-                self.emit_decorations(x, py, actual_w, &face, visual_fg, color_resolver);
-            }
-            atom_x_starts.push(x);
-            x += actual_w;
+        // 4. Build atom-byte-start prefix sums + per-atom (x_min, x_max)
+        // from the shaped layout. atom_x ranges are absolute pixel
+        // positions (already include `px`).
+        let atom_count = para.atoms.len();
+        let mut atom_byte_starts: Vec<usize> = vec![0];
+        let mut byte_accum = 0usize;
+        for atom in &para.atoms {
             byte_accum += atom.contents.len();
             atom_byte_starts.push(byte_accum);
         }
+        let mut atom_x_min: Vec<f32> = vec![f32::MAX; atom_count];
+        let mut atom_x_max: Vec<f32> = vec![f32::MIN; atom_count];
+        for layout_line in layout.layout.lines() {
+            for item in layout_line.items() {
+                let PositionedLayoutItem::GlyphRun(run) = item else {
+                    continue;
+                };
+                let parley_run = run.run();
+                for cluster in parley_run.clusters() {
+                    let byte = cluster.text_range().start;
+                    let idx = atom_byte_starts
+                        .partition_point(|&b| b <= byte)
+                        .saturating_sub(1);
+                    if idx >= atom_count {
+                        continue;
+                    }
+                    if let Some(advance) = cluster.visual_offset() {
+                        let cluster_w = cluster.advance();
+                        let x0 = px + advance;
+                        let x1 = x0 + cluster_w;
+                        if x0 < atom_x_min[idx] {
+                            atom_x_min[idx] = x0;
+                        }
+                        if x1 > atom_x_max[idx] {
+                            atom_x_max[idx] = x1;
+                        }
+                    }
+                }
+            }
+        }
 
-        // 4. Cursors. Cell-grid resolution: locate the atom containing
-        // the byte offset, then compute the offset within the atom in
-        // display columns. Glyph-accurate metrics (CJK, ligatures,
-        // RTL) come in Phase 10 once parley hit_test is wired here.
+        // 5. Per-atom background + decorations using the glyph extents
+        // we just measured. Atoms whose extent is unset (no glyphs:
+        // pure whitespace handled by parley as advance-only, or face
+        // stripped by max_width clipping) fall back to a cell-grid
+        // estimate so non-default backgrounds + decorations still
+        // render.
+        let mut cell_x_cursor = px;
+        for i in 0..atom_count {
+            let face = if clear_cursor_atom_idx == Some(i) {
+                para.base_face
+            } else {
+                para.atoms[i].face
+            };
+            let atom_display_w = line_display_width_str(&para.atoms[i].contents) as f32 * cell_w;
+            let (x, w) = if atom_x_min[i] <= atom_x_max[i] {
+                let w = (atom_x_max[i] - atom_x_min[i]).min(max_width);
+                (atom_x_min[i], w)
+            } else {
+                let remaining = max_width - (cell_x_cursor - px);
+                if remaining <= 0.0 {
+                    cell_x_cursor += atom_display_w;
+                    continue;
+                }
+                (cell_x_cursor, atom_display_w.min(remaining))
+            };
+            cell_x_cursor += atom_display_w;
+            if w <= 0.0 {
+                continue;
+            }
+            let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_face_colors_linear(&face);
+            if needs_bg && !self.should_skip_default_bg(&visual_bg, color_resolver) {
+                self.quad.push_solid(x, py, w, cell_h, visual_bg);
+            }
+            self.emit_decorations(x, py, w, &face, visual_fg, color_resolver);
+        }
+
+        // 6. Cursors via parley hit_test. byte_to_advance returns the
+        // x advance of the cluster covering the byte offset; cursor
+        // width is the cluster's own advance. Falls back to one cell
+        // when the offset lies past the last cluster (EOL).
+        let cursor_width_at = |offset: usize| -> Option<f32> {
+            for layout_line in layout.layout.lines() {
+                for item in layout_line.items() {
+                    let PositionedLayoutItem::GlyphRun(run) = item else {
+                        continue;
+                    };
+                    for cluster in run.run().clusters() {
+                        let r = cluster.text_range();
+                        if offset >= r.start && offset < r.end {
+                            return Some(cluster.advance());
+                        }
+                    }
+                }
+            }
+            None
+        };
         for ann in &para.annotations {
             match ann {
                 ParagraphAnnotation::PrimaryCursor { byte_offset, .. } => {
-                    if let Some((cx, cw)) = cell_grid_cursor(
-                        &para.atoms,
-                        &atom_byte_starts,
-                        &atom_x_starts,
-                        *byte_offset,
-                        cell_w,
-                    ) {
-                        self.paragraph_cursor = Some((cx, cw));
+                    if let Some(advance) = byte_to_advance(&layout, *byte_offset) {
+                        let cw = cursor_width_at(*byte_offset).unwrap_or(cell_w);
+                        self.paragraph_cursor = Some((px + advance, cw));
                     }
                 }
                 ParagraphAnnotation::SecondaryCursor {
                     byte_offset,
                     blend_ratio,
                 } => {
-                    if let Some((cx, cw)) = cell_grid_cursor(
-                        &para.atoms,
-                        &atom_byte_starts,
-                        &atom_x_starts,
-                        *byte_offset,
-                        cell_w,
-                    ) {
+                    if let Some(advance) = byte_to_advance(&layout, *byte_offset) {
+                        let cw = cursor_width_at(*byte_offset).unwrap_or(cell_w);
                         let cursor_color = [1.0_f32, 1.0, 1.0, 1.0];
                         let blended = [
                             cursor_color[0] * blend_ratio + base_bg[0] * (1.0 - blend_ratio),
@@ -790,24 +891,82 @@ impl SceneRenderer {
                             1.0,
                         ];
                         self.quad
-                            .push_solid(cx, py, cw.max(cell_w), cell_h, blended);
+                            .push_solid(px + advance, py, cw.max(cell_w), cell_h, blended);
                     }
                 }
             }
         }
 
-        // 5. Glyph emission via Parley (snapped per atom to cell grid).
-        // When the primary cursor sits inside an atom, swap that atom's
-        // face with the paragraph base_face so render_cursor() owns the
-        // visual cursor block (matches the cosmic path's stripping).
-        if let Some(strip_idx) = clear_cursor_atom_idx {
-            let mut stripped = para.atoms.clone();
-            if let Some(a) = stripped.get_mut(strip_idx) {
-                a.face = para.base_face;
+        // 7. Emit glyphs from the shared layout. Each atom carries its
+        // own face → fg colour; the shaper already pushed
+        // `StyleProperty::Brush` per StyleRun, so the cluster's first
+        // style brush is the right rasterisation colour.
+        let rasterizer = &mut self.parley_glyph_rasterizer;
+        let cache = &mut self.parley_raster_cache;
+        let mut atlases = super::super::parley_text::raster_cache_glue::ParleyAtlasPair {
+            mask: &mut self.parley_mask_atlas,
+            color: &mut self.parley_color_atlas,
+        };
+        let drawables = &mut self.parley_drawables;
+        for layout_line in layout.layout.lines() {
+            let lm = layout_line.metrics();
+            let leading = (cell_h - lm.line_height).max(0.0);
+            let layout_origin_y = py + leading * 0.5;
+            for item in layout_line.items() {
+                let PositionedLayoutItem::GlyphRun(run) = item else {
+                    continue;
+                };
+                let parley_run = run.run();
+                let font = parley_run.font();
+                let font_id = super::super::parley_text::font_id::font_id_from_data(font);
+                let var_hash = super::super::parley_text::font_id::var_hash_from_coords(
+                    parley_run.normalized_coords(),
+                );
+                let font_size = parley_run.font_size();
+                let size_q = (font_size * 64.0).round().clamp(0.0, u16::MAX as f32) as u16;
+                let Some(font_ref) =
+                    swash::FontRef::from_index(font.data.data(), font.index as usize)
+                else {
+                    continue;
+                };
+                let brush = parley_run
+                    .clusters()
+                    .next()
+                    .map(|c| c.first_style().brush)
+                    .unwrap_or(fallback_brush);
+
+                for glyph in run.positioned_glyphs() {
+                    let abs_x = px + glyph.x;
+                    let abs_y = layout_origin_y + glyph.y;
+                    let subpx = SubpixelX::from_fract(abs_x);
+                    let glyph_id = glyph.id as u16;
+                    let key = super::super::parley_text::raster_cache::GlyphRasterKey {
+                        font_id,
+                        glyph_id,
+                        size_q,
+                        subpx_x: subpx.0,
+                        var_hash,
+                        hint: true,
+                    };
+                    let entry = cache.get_or_insert(key, &mut atlases, || {
+                        rasterizer.rasterize(font_ref, glyph_id, font_size, subpx, true)
+                    });
+                    let Some(entry) = entry else {
+                        continue;
+                    };
+                    drawables.push(DrawableGlyph {
+                        px: abs_x,
+                        py: abs_y,
+                        width: entry.width,
+                        height: entry.height,
+                        left: entry.left,
+                        top: entry.top,
+                        content: entry.content,
+                        atlas_slot: entry.atlas_slot,
+                        brush,
+                    });
+                }
             }
-            self.parley_emit_atoms(&stripped, px, py, color_resolver);
-        } else {
-            self.parley_emit_atoms(&para.atoms, px, py, color_resolver);
         }
     }
 
@@ -822,13 +981,10 @@ impl SceneRenderer {
         py: f32,
         max_width: f32,
         para: &BufferParagraph,
-        _line_idx: u32,
+        line_idx: u32,
         color_resolver: &ColorResolver,
     ) {
-        // Phase 11 — Parley-only path. `_line_idx` was the cosmic
-        // shaping cache key; the Parley emitter currently re-shapes
-        // each frame and ignores it.
-        self.process_render_paragraph_parley(px, py, max_width, para, color_resolver);
+        self.process_render_paragraph_parley(px, py, max_width, para, line_idx, color_resolver);
     }
 
     /// Process DrawText: simple single-face text.
@@ -861,61 +1017,6 @@ impl SceneRenderer {
         }
 
         self.parley_emit_text(text, face, px, py, color_resolver);
-    }
-}
-
-/// Cell-grid cursor lookup used by the Phase 9b Step 4f Parley
-/// paragraph path. Walks the atom-byte boundaries to find the atom
-/// containing `byte_offset`, then advances by the display width of
-/// the atom's leading bytes (cell columns) to compute the cursor's
-/// pixel x. Width is `cell_w × char_columns` for the char under the
-/// cursor; one cell when the cursor sits past EOL.
-///
-/// Glyph-accurate positions (CJK ligatures, RTL, proportional fonts)
-/// are deferred to Phase 10 once `parley_text::hit_test` is wired in.
-/// The char-based width estimate is enough for Latin / monospace CJK
-/// where one codepoint = one grapheme; complex scripts would need
-/// `unicode_segmentation::graphemes`, deferred with the rest of the
-/// hit-test work.
-fn cell_grid_cursor(
-    atoms: &[kasane_core::render::ResolvedAtom],
-    atom_byte_starts: &[usize],
-    atom_x_starts: &[f32],
-    byte_offset: usize,
-    cell_w: f32,
-) -> Option<(f32, f32)> {
-    let owner_idx = atom_byte_starts
-        .windows(2)
-        .position(|w| byte_offset >= w[0] && byte_offset < w[1]);
-    match owner_idx {
-        Some(i) if i < atoms.len() && i < atom_x_starts.len() => {
-            let atom = &atoms[i];
-            let atom_start = atom_byte_starts[i];
-            let leading_bytes = byte_offset.saturating_sub(atom_start);
-            let leading_text = atom.contents.get(..leading_bytes).unwrap_or("");
-            let leading_cols = line_display_width_str(leading_text) as f32;
-            let cx = atom_x_starts[i] + leading_cols * cell_w;
-            // First char's display columns approximates the grapheme
-            // width — Latin / CJK monospace renders one column per
-            // codepoint, which covers the common cursor geometry.
-            let rest = &atom.contents.as_str()[leading_bytes..];
-            let cw_cols = rest
-                .chars()
-                .next()
-                .map(|c| {
-                    let mut buf = [0u8; 4];
-                    let s: &str = c.encode_utf8(&mut buf);
-                    line_display_width_str(s) as f32
-                })
-                .unwrap_or(1.0);
-            Some((cx, cw_cols * cell_w))
-        }
-        _ => {
-            let last_x = *atom_x_starts.last()?;
-            let last_atom = atoms.last()?;
-            let last_w = line_display_width_str(&last_atom.contents) as f32 * cell_w;
-            Some((last_x + last_w, cell_w))
-        }
     }
 }
 
