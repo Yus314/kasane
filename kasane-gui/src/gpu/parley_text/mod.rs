@@ -16,6 +16,7 @@ pub mod font_stack;
 pub mod frame_builder;
 pub mod glyph_emitter;
 pub mod glyph_rasterizer;
+pub mod gpu_atlas;
 pub mod hit_test;
 pub mod layout;
 pub mod layout_cache;
