@@ -87,21 +87,29 @@ impl SceneRenderer {
                 ch,
                 face,
             } => {
-                let (visual_fg, _, _) = color_resolver.resolve_face_colors_linear(face);
-                let buf_idx = self.alloc_text_buffer(screen_w);
-                self.text_draws.push((pos.x, pos.y, buf_idx));
-                self.push_text_clip_bounds();
-                let attrs = super::super::text_helpers::default_attrs(&self.font_family);
-                let color = super::super::text_helpers::to_glyphon_color(visual_fg);
-                let buffer = &mut self.text_buffers[buf_idx];
-                buffer.set_rich_text(
-                    &mut self.font_system,
-                    [(ch.as_str(), attrs.clone().color(color))],
-                    &attrs,
-                    Shaping::Advanced,
-                    None,
-                );
-                buffer.shape_until_scroll(&mut self.font_system, false);
+                // ADR-031 Phase 9b Step 4g — Parley path. The padding
+                // row just paints a single fill char (`~`) at the row
+                // origin; cosmic and Parley both treat it as a tiny
+                // DrawText, so reuse parley_emit_text.
+                if super::parley_backend_requested() {
+                    self.parley_emit_text(ch, face, pos.x, pos.y, color_resolver);
+                } else {
+                    let (visual_fg, _, _) = color_resolver.resolve_face_colors_linear(face);
+                    let buf_idx = self.alloc_text_buffer(screen_w);
+                    self.text_draws.push((pos.x, pos.y, buf_idx));
+                    self.push_text_clip_bounds();
+                    let attrs = super::super::text_helpers::default_attrs(&self.font_family);
+                    let color = super::super::text_helpers::to_glyphon_color(visual_fg);
+                    let buffer = &mut self.text_buffers[buf_idx];
+                    buffer.set_rich_text(
+                        &mut self.font_system,
+                        [(ch.as_str(), attrs.clone().color(color))],
+                        &attrs,
+                        Shaping::Advanced,
+                        None,
+                    );
+                    buffer.shape_until_scroll(&mut self.font_system, false);
+                }
             }
             DrawCommand::DrawBorder {
                 rect,
