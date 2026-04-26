@@ -1,6 +1,5 @@
-use super::text_pipeline::{Cache, ColorMode, Resolution, TextAtlas, TextRenderer, Viewport};
+use super::text_pipeline::{Cache, Resolution, Viewport};
 use crate::animation::CursorRenderState;
-use cosmic_text::{Buffer as GlyphonBuffer, FontSystem, SwashCache};
 use kasane_core::config::FontConfig;
 use kasane_core::render::scene::line_display_width_str;
 use kasane_core::render::{CellSize, CursorStyle, DrawCommand, PixelRect};
@@ -8,9 +7,6 @@ use wgpu::MultisampleState;
 use winit::dpi::PhysicalSize;
 
 mod draw_commands;
-mod line_cache;
-
-use line_cache::LineShapingCache;
 
 use super::CellMetrics;
 use super::compositor::{BlitPipeline, BlurPipeline, RenderTarget};
@@ -25,54 +21,16 @@ use crate::colors::ColorResolver;
 /// Scene-based GPU renderer that processes DrawCommands directly,
 /// bypassing the CellGrid intermediate representation.
 pub struct SceneRenderer {
-    font_system: FontSystem,
-    swash_cache: SwashCache,
     viewport: Viewport,
-    text_atlas: TextAtlas,
-    text_renderer: TextRenderer,
     quad: QuadPipeline,
     image: ImagePipeline,
     texture_cache: TextureCache,
     metrics: CellMetrics,
 
-    // Reusable text buffers (growable pool). Slots are addressed by index;
-    // unused slots may exist between live ones because the line cache returns
-    // arbitrary slots on hit.
-    text_buffers: Vec<GlyphonBuffer>,
-    /// Per-emission render record: (left, top, buffer_idx). One entry per
-    /// DrawAtoms / RenderParagraph / DrawText / DrawPaddingRow processed.
-    text_draws: Vec<(f32, f32, usize)>,
-    /// Clip bounds (left, top, right, bottom) parallel to `text_draws`.
-    text_clip_bounds: Vec<(i32, i32, i32, i32)>,
-
-    /// Per-line cosmic-text shaping cache. Cache hits skip the dominant
-    /// CPU cost (shape_until_scroll, ~100 µs/line) for unchanged lines on
-    /// cursor-only frames.
-    line_cache: LineShapingCache,
-
-    // Scratch buffers
-    row_text: String,
-    span_ranges: Vec<(usize, usize, [f32; 4])>,
-    /// Per-frame scratch: byte offsets where each atom starts in `row_text`.
-    atom_byte_boundaries: Vec<usize>,
-    /// Per-frame scratch: face per atom (cloned from input).
-    atom_faces: Vec<kasane_core::protocol::Face>,
-    /// Per-frame scratch: glyph-derived per-atom min X.
-    atom_x_min: Vec<f32>,
-    /// Per-frame scratch: glyph-derived per-atom max X.
-    atom_x_max: Vec<f32>,
-    /// Per-frame scratch: cell-aligned per-atom X (fallback when glyph extents missing).
-    atom_estimated_x: Vec<f32>,
-    /// Per-frame scratch: cell-aligned per-atom width (fallback).
-    atom_estimated_w: Vec<f32>,
-
-    /// Glyph-accurate primary cursor position and width from RenderParagraph.
-    /// Overrides the cell-based cursor position/width in render_cursor().
+    /// Glyph-accurate primary cursor position and width set by
+    /// [`process_render_paragraph`]. Overrides the cell-based cursor
+    /// in render_cursor() when set.
     paragraph_cursor: Option<(f32, f32)>,
-
-    /// Per-paragraph hit test data from the current frame.
-    /// Each entry is (origin_x, origin_y, buffer_idx) for a RenderParagraph.
-    paragraph_hit_data: Vec<(f32, f32, usize)>,
 
     // Font config
     font_family: String,
@@ -110,14 +68,8 @@ pub struct SceneRenderer {
     /// Currently parallel to the cosmic-text path: the field is initialised
     /// in [`SceneRenderer::new`] and exercised by hit-test/metrics helpers,
     /// but the production rendering path still runs through cosmic-text. The
-    /// `KASANE_TEXT_BACKEND=parley` environment variable opts into the
-    /// Parley path where it has been implemented (Phase 11 retires the
-    /// legacy renderer entirely).
+    /// Parley text shaping + font context (FontContext + LayoutContext).
     parley_text: super::parley_text::ParleyText,
-    /// Cached Parley-side `CellMetrics`. Computed alongside the cosmic-text
-    /// version so Phase 11 can swap by deleting the legacy field. Currently
-    /// only consulted when `KASANE_TEXT_BACKEND=parley`.
-    parley_metrics: CellMetrics,
 
     // ADR-031 Phase 9b Step 4a — Parley render pipeline integration.
     //
@@ -159,14 +111,6 @@ pub struct SceneRenderer {
     parley_drawables: Vec<super::parley_text::frame_builder::DrawableGlyph>,
 }
 
-/// Phase 11 — Parley is now the only backend. The function is kept
-/// (returning `true`) so callers don't need restructuring this commit;
-/// the cosmic branches they guard become dead code that the next
-/// commit removes outright.
-pub(crate) fn parley_backend_requested() -> bool {
-    true
-}
-
 /// Diagnostic kill-switch for the Phase 9b Step 4c L2 raster cache.
 /// Set `KASANE_PARLEY_NO_CACHE=1` to invalidate the cache + clear both
 /// atlases at the start of every frame. Useful for atlas / eviction
@@ -188,78 +132,36 @@ impl SceneRenderer {
         window_size: PhysicalSize<u32>,
         event_proxy: winit::event_loop::EventLoopProxy<crate::GuiEvent>,
     ) -> Self {
-        let mut font_system = FontSystem::new();
         if !font_config.fallback_list.is_empty() {
             tracing::info!(
-                "font fallback list: {:?} (cosmic-text handles fallback via system fontconfig)",
+                "font fallback list: {:?} (parley resolves fallback via fontique)",
                 font_config.fallback_list
             );
         }
-        let swash_cache = SwashCache::new();
 
         let font_size = font_config.size * scale_factor as f32;
         let line_height = font_size * font_config.line_height;
 
-        let cosmic_metrics =
-            CellMetrics::calculate(&mut font_system, font_config, scale_factor, window_size);
-
-        // ADR-031 Phase 9: instantiate the Parley text stack alongside the
-        // cosmic-text path. Computing parley_metrics here also serves as a
-        // smoke test of the Parley shaper at startup.
         let mut parley_text = super::parley_text::ParleyText::new(font_config);
-        let parley_metrics = super::parley_text::metrics::calculate_with_parley(
+        let metrics = super::parley_text::metrics::calculate_with_parley(
             &mut parley_text,
             font_config,
             scale_factor,
             window_size,
         );
-        // When the Parley backend is selected, the canonical `metrics`
-        // field must match `parley_metrics` — otherwise the layout
-        // engine (which reads through `metrics()` and gets parley) and
-        // the per-atom snap inside `parley_emit_atoms` (which reads
-        // `self.metrics.cell_width` directly) disagree on cell width,
-        // and per-atom text overflows the layout box. The "menu items
-        // extend past the right edge" symptom that surfaced during
-        // Phase 9b Step 4e bring-up is exactly this mismatch.
-        let metrics = if parley_backend_requested() {
-            tracing::info!(
-                target: "kasane::parley",
-                cell_width = parley_metrics.cell_width,
-                cell_height = parley_metrics.cell_height,
-                baseline = parley_metrics.baseline,
-                cols = parley_metrics.cols,
-                rows = parley_metrics.rows,
-                "KASANE_TEXT_BACKEND=parley detected; Parley metrics will be used"
-            );
-            parley_metrics.clone()
-        } else {
-            cosmic_metrics
-        };
+        tracing::info!(
+            target: "kasane::parley",
+            cell_width = metrics.cell_width,
+            cell_height = metrics.cell_height,
+            baseline = metrics.baseline,
+            cols = metrics.cols,
+            rows = metrics.rows,
+            "Parley CellMetrics computed"
+        );
 
         let surface_format = gpu.config.format;
 
         let cache = Cache::new(&gpu.device);
-        // ColorMode::Web: vertex colors are passed through to fragment shader
-        // without sRGB→linear conversion. We pass linear-space colors via
-        // resolve_face_colors_linear() and the shader outputs them as-is to
-        // the linear framebuffer. ColorMode::Accurate would apply srgb_to_linear()
-        // a second time, producing dramatically darker text (the original bug).
-        // Note: Color glyphs (emoji) sampled from the linear-format atlas may
-        // appear slightly washed out compared to ColorMode::Accurate; tracked
-        // separately for follow-up.
-        let mut text_atlas = TextAtlas::with_color_mode(
-            &gpu.device,
-            &gpu.queue,
-            &cache,
-            surface_format,
-            ColorMode::Web,
-        );
-        let text_renderer = TextRenderer::new(
-            &mut text_atlas,
-            &gpu.device,
-            MultisampleState::default(),
-            Some(super::depth_stencil::pipeline_depth_stencil()),
-        );
         let mut viewport = Viewport::new(&gpu.device, &cache);
         viewport.update(
             &gpu.queue,
@@ -285,11 +187,6 @@ impl SceneRenderer {
         let texture_cache = TextureCache::new(&gpu.device, 128 * 1024 * 1024); // 128 MB budget
         let image = ImagePipeline::new(gpu, surface_format, texture_cache.bind_group_layout());
 
-        // ADR-031 Phase 9b Step 4a — Parley render pipeline state.
-        // Wired through Cache (shared with TextRenderer) so the new
-        // pipeline reuses the existing shader / vertex layout / bind
-        // layouts, which lets Phase 11's removal of cosmic-text be a
-        // pure subtraction rather than a wgpu re-derivation.
         let parley_layout_cache = super::parley_text::layout_cache::LayoutCache::new();
         let parley_glyph_rasterizer = super::parley_text::glyph_rasterizer::GlyphRasterizer::new();
         let parley_raster_cache =
@@ -311,29 +208,12 @@ impl SceneRenderer {
         );
 
         SceneRenderer {
-            font_system,
-            swash_cache,
             viewport,
-            text_atlas,
-            text_renderer,
             quad,
             image,
             texture_cache,
             metrics,
-            text_buffers: Vec::with_capacity(128),
-            text_draws: Vec::with_capacity(128),
-            text_clip_bounds: Vec::with_capacity(128),
-            line_cache: LineShapingCache::new(),
-            row_text: String::with_capacity(512),
-            span_ranges: Vec::with_capacity(256),
-            atom_byte_boundaries: Vec::with_capacity(64),
-            atom_faces: Vec::with_capacity(64),
-            atom_x_min: Vec::with_capacity(64),
-            atom_x_max: Vec::with_capacity(64),
-            atom_estimated_x: Vec::with_capacity(64),
-            atom_estimated_w: Vec::with_capacity(64),
             paragraph_cursor: None,
-            paragraph_hit_data: Vec::with_capacity(64),
             font_family: font_config.family.clone(),
             font_size,
             line_height,
@@ -349,7 +229,6 @@ impl SceneRenderer {
             depth_stencil,
             text_effects,
             parley_text,
-            parley_metrics,
             parley_layout_cache,
             parley_glyph_rasterizer,
             parley_raster_cache,
@@ -362,11 +241,7 @@ impl SceneRenderer {
     }
 
     pub fn metrics(&self) -> &CellMetrics {
-        if parley_backend_requested() {
-            &self.parley_metrics
-        } else {
-            &self.metrics
-        }
+        &self.metrics
     }
 
     /// Read access to the Parley state — used by future phases that need
@@ -612,42 +487,16 @@ impl SceneRenderer {
         self.parley_drawables.clear();
     }
 
-    /// Proportional-aware mouse hit test.
+    /// Cell-grid mouse hit test.
     ///
-    /// Uses the shaped paragraph buffers from the last frame to convert pixel
-    /// coordinates into a (display_col, row) pair. Falls back to cell-based
-    /// division for areas outside paragraph regions (status bar, menus, etc.).
+    /// Phase 11 — the cosmic-text glyph-accurate path is gone with
+    /// the rest of the cosmic code; the Parley path's per-cluster
+    /// hit_test (`super::parley_text::hit_test`) is not yet wired
+    /// here. Until then, mouse coordinates resolve to the cell grid.
     pub fn hit_test(&self, px: f64, py: f64) -> (u16, u16) {
         let cell_h = self.metrics.cell_height;
         let cell_w = self.metrics.cell_width;
         let row = (py as f32 / cell_h).floor().max(0.0) as u16;
-
-        // Find the paragraph buffer whose y range covers this pixel.
-        for &(origin_x, origin_y, buf_idx) in &self.paragraph_hit_data {
-            let rel_y = py as f32 - origin_y;
-            if rel_y < 0.0 || rel_y >= cell_h {
-                continue;
-            }
-            let rel_x = px as f32 - origin_x;
-            if rel_x < 0.0 {
-                break; // x is before the paragraph origin
-            }
-            let buffer = &self.text_buffers[buf_idx];
-            if let Some(cursor) = buffer.hit(rel_x, rel_y) {
-                // cursor.index is a byte offset into the shaped text.
-                // Convert to display column by measuring unicode widths
-                // using the run text (single-line buffers have one run).
-                if let Some(run) = buffer.layout_runs().next() {
-                    let col = byte_offset_to_display_col(run.text, cursor.index);
-                    return (
-                        col.min(self.metrics.cols.saturating_sub(1)),
-                        row.min(self.metrics.rows.saturating_sub(1)),
-                    );
-                }
-            }
-        }
-
-        // Fallback: cell-based grid division
         let col = (px as f32 / cell_w).floor().max(0.0) as u16;
         (
             col.min(self.metrics.cols.saturating_sub(1)),
@@ -737,25 +586,12 @@ impl SceneRenderer {
         self.font_size = font_config.size * scale_factor as f32;
         self.line_height = self.font_size * font_config.line_height;
         self.font_family.clone_from(&font_config.family);
-        let cosmic_metrics = CellMetrics::calculate(
-            &mut self.font_system,
-            font_config,
-            scale_factor,
-            window_size,
-        );
-        self.parley_metrics = super::parley_text::metrics::calculate_with_parley(
+        self.metrics = super::parley_text::metrics::calculate_with_parley(
             &mut self.parley_text,
             font_config,
             scale_factor,
             window_size,
         );
-        // Same reason as `new()`: keep `self.metrics` aligned with the
-        // backend that the layout engine sees through `metrics()`.
-        self.metrics = if parley_backend_requested() {
-            self.parley_metrics.clone()
-        } else {
-            cosmic_metrics
-        };
         self.viewport.update(
             &gpu.queue,
             Resolution {
@@ -768,11 +604,10 @@ impl SceneRenderer {
             window_size.width.max(1),
             window_size.height.max(1),
         );
-        self.text_buffers.clear();
-        self.text_draws.clear();
-        // Cached shaping is keyed on font_size; the text_buffers pool was
-        // also wiped above, so all cached buffer_idx values are invalid.
-        self.line_cache.invalidate_all();
+        // Font / scale changed → all cached glyph bitmaps are invalid.
+        self.parley_raster_cache.invalidate_all();
+        self.parley_mask_atlas.clear();
+        self.parley_color_atlas.clear();
     }
 
     /// Render with animated cursor state.
@@ -890,33 +725,10 @@ impl SceneRenderer {
 
         // Reset per-frame state
         self.texture_cache.frame_tick();
-        self.text_draws.clear();
-        self.text_clip_bounds.clear();
         self.clip_stack.clear();
         self.paragraph_cursor = None;
-        self.paragraph_hit_data.clear();
-        // ADR-031 Phase 9b Step 4d — clear Parley accumulator + atlases.
-        // Per-frame re-rasterisation while the L2 cache architecture
-        // (Step 4c) is still in flight.
-        if parley_backend_requested() {
-            self.parley_frame_start();
-        }
-        // Emit last frame's hit/miss tally before clearing for the new frame.
-        // Filter to `kasane::line_cache=debug` to see per-frame summaries
-        // without the noisy per-line `trace` events.
-        let prev_stats = self.line_cache.take_stats();
-        if prev_stats.hits + prev_stats.misses + prev_stats.bypass > 0 {
-            tracing::debug!(
-                target: "kasane::line_cache",
-                hits = prev_stats.hits,
-                misses = prev_stats.misses,
-                bypass = prev_stats.bypass,
-                "frame summary",
-            );
-        }
-        // Reset which buffer pool slots are claimed; cache entries are kept
-        // so subsequent frames can hit them.
-        self.line_cache.frame_start(self.text_buffers.len());
+        // Bump frame epoch + reset per-frame Parley state.
+        self.parley_frame_start();
         self.timing.begin_frame();
 
         // Split commands into layers at BeginOverlay boundaries.
@@ -969,11 +781,10 @@ impl SceneRenderer {
             // Reset per-layer pipeline instances
             self.quad.instances.clear();
             self.image.clear_frame();
-            let layer_text_start = self.text_draws.len();
 
             // Process this layer's DrawCommands
             for cmd in &commands[range_start..range_end] {
-                self.process_draw_command(cmd, gpu, color_resolver, cell_w, cell_h, screen_w);
+                self.process_draw_command(cmd, gpu, color_resolver, cell_w, cell_h);
             }
 
             // Cursor belongs to the base layer (layer 0)
@@ -1032,46 +843,12 @@ impl SceneRenderer {
             let image_count = self.image.instances.len() / 9;
             self.image.ensure_buffer(gpu, image_count);
 
-            // Build TextAreas for this layer's text emissions. Each emission
-            // carries its own buffer pool index (cache hits return arbitrary
-            // indices), so we look up buffers indirectly rather than slicing.
-            let layer_text_end = self.text_draws.len();
-            let layer_clips = &self.text_clip_bounds[layer_text_start..layer_text_end];
-            let has_clips = layer_clips.iter().any(|&(l, t, r, b)| {
-                l != 0 || t != 0 || r != screen_w as i32 || b != screen_h as i32
-            });
-            let text_areas = super::text_helpers::prepare_text_areas(
-                &self.text_draws[layer_text_start..layer_text_end],
-                &self.text_buffers,
-                screen_w,
-                screen_h,
-                if has_clips { Some(layer_clips) } else { None },
-            );
-
-            // Prepare this layer's text
-            let _text_span = tracing::info_span!("text_prepare", layer = layer_idx).entered();
-            self.text_renderer
-                .prepare(
-                    &gpu.device,
-                    &gpu.queue,
-                    &mut self.font_system,
-                    &mut self.text_atlas,
-                    &self.viewport,
-                    text_areas,
-                    &mut self.swash_cache,
-                )
-                .map_err(|e| anyhow::anyhow!("glyphon prepare failed: {e}"))?;
-            drop(_text_span);
-
-            // ADR-031 Phase 9b Step 4e — finalize the Parley draw for
-            // this layer. process_draw_* has accumulated DrawableGlyphs
-            // into self.parley_drawables during this layer's
-            // processing. parley_finalize_frame uploads atlas pixels +
-            // writes vertex buffer + clears the accumulator so the next
-            // layer starts fresh.
-            if parley_backend_requested() {
-                self.parley_finalize_frame(&gpu.device, &gpu.queue);
-            }
+            // Phase 11 — finalize the Parley draw for this layer.
+            // process_draw_* has accumulated DrawableGlyphs into
+            // self.parley_drawables during this layer's processing.
+            // parley_finalize_frame uploads atlas pixels + writes the
+            // vertex buffer + clears the accumulator for the next layer.
+            self.parley_finalize_frame(&gpu.device, &gpu.queue);
 
             // Draw this layer: bg → border → text.
             // Each layer needs its own encoder + submit so that
@@ -1134,23 +911,16 @@ impl SceneRenderer {
 
                 let text_effects_active = self.effects.text_effects.is_active();
                 if !text_effects_active {
-                    // Standard path: text directly to the main render target
-                    self.text_renderer
-                        .render(&self.text_atlas, &self.viewport, &mut render_pass)
-                        .map_err(|e| anyhow::anyhow!("glyphon render failed: {e}"))?;
-                    // ADR-031 Phase 9b Step 4e — Parley draw for this
-                    // layer. parley_finalize_frame above wrote the vertex
-                    // buffer with this layer's accumulated drawables.
-                    if parley_backend_requested() {
-                        self.parley_renderer
-                            .render(&self.viewport, &mut render_pass);
-                    }
+                    // Standard path: Parley text directly into the main
+                    // render pass. parley_finalize_frame above already
+                    // wrote the vertex buffer for this layer.
+                    self.parley_renderer
+                        .render(&self.viewport, &mut render_pass);
                 }
 
                 self.image.upload_and_draw(gpu, &mut render_pass);
 
                 if text_effects_active {
-                    // Apply text effects: shadow/glow from intermediate RT
                     self.text_effects.apply(
                         &gpu.device,
                         &gpu.queue,
@@ -1191,9 +961,7 @@ impl SceneRenderer {
                         occlusion_query_set: None,
                         multiview_mask: None,
                     });
-                    self.text_renderer
-                        .render(&self.text_atlas, &self.viewport, &mut text_pass)
-                        .map_err(|e| anyhow::anyhow!("glyphon render failed: {e}"))?;
+                    self.parley_renderer.render(&self.viewport, &mut text_pass);
                 }
 
                 // Blit sharp text to main target
@@ -1317,7 +1085,6 @@ impl SceneRenderer {
         output.present();
 
         self.texture_cache.evict_to_budget();
-        self.text_atlas.trim();
 
         Ok(())
     }
@@ -1342,10 +1109,4 @@ impl SceneRenderer {
             Some((x1, y1, x2 - x1, y2 - y1))
         }
     }
-}
-
-/// Convert a byte offset into text to a display column (unicode width).
-fn byte_offset_to_display_col(text: &str, byte_offset: usize) -> u16 {
-    let prefix = &text[..byte_offset.min(text.len())];
-    line_display_width_str(prefix) as u16
 }

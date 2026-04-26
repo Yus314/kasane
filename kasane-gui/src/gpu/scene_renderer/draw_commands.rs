@@ -3,8 +3,6 @@
 //! Handles dispatch of individual [`DrawCommand`] variants to the quad, text,
 //! and image pipelines, plus text shaping helpers.
 
-use cosmic_text::{Buffer as GlyphonBuffer, Metrics, Shaping};
-
 use kasane_core::element::BorderLineStyle;
 use kasane_core::protocol::Attributes;
 use kasane_core::render::scene::line_display_width_str;
@@ -29,7 +27,6 @@ impl SceneRenderer {
         color_resolver: &ColorResolver,
         cell_w: f32,
         cell_h: f32,
-        screen_w: f32,
     ) {
         match cmd {
             DrawCommand::FillRect {
@@ -97,8 +94,7 @@ impl SceneRenderer {
             } => {
                 let (visual_fg, _, _) = color_resolver.resolve_face_colors_linear(face);
                 let border_color = visual_fg;
-                let (corner_radius, border_width) =
-                    super::super::text_helpers::border_style_params(line_style.clone(), cell_h);
+                let (corner_radius, border_width) = border_style_params(line_style.clone(), cell_h);
                 let fill = match fill_face {
                     Some(ff) => {
                         let (_, ff_bg, _) = color_resolver.resolve_face_colors_linear(ff);
@@ -866,60 +862,6 @@ impl SceneRenderer {
 
         self.parley_emit_text(text, face, px, py, color_resolver);
     }
-
-    /// Push the current clip bounds for the most recently allocated text buffer.
-    fn push_text_clip_bounds(&mut self) {
-        let bounds = if let Some(clip) = self.current_clip() {
-            (
-                clip.x as i32,
-                clip.y as i32,
-                (clip.x + clip.w) as i32,
-                (clip.y + clip.h) as i32,
-            )
-        } else {
-            (0, 0, self.frame_screen_w as i32, self.frame_screen_h as i32)
-        };
-        self.text_clip_bounds.push(bounds);
-    }
-
-    /// Allocate (or reuse) a text buffer. Returns the index.
-    /// Reserve a text buffer slot for fresh shaping work.
-    ///
-    /// Slot assignment cooperates with `LineShapingCache`: we pick the lowest
-    /// slot that has not been claimed this frame, so cached buffers from
-    /// earlier frames remain pinned to their addresses (a hit returns the same
-    /// `buffer_idx` repeatedly across frames). When every slot is claimed we
-    /// grow the pool.
-    fn alloc_text_buffer(&mut self, max_width: f32) -> usize {
-        let glyph_metrics = Metrics::new(self.font_size, self.line_height);
-        let idx = if let Some(free) = self.line_cache.find_free_slot() {
-            self.text_buffers[free].set_metrics(&mut self.font_system, glyph_metrics);
-            self.text_buffers[free].set_wrap(&mut self.font_system, cosmic_text::Wrap::None);
-            self.text_buffers[free].set_size(
-                &mut self.font_system,
-                Some(max_width),
-                Some(self.metrics.cell_height),
-            );
-            free
-        } else {
-            let mut buffer = GlyphonBuffer::new(&mut self.font_system, glyph_metrics);
-            buffer.set_hinting(&mut self.font_system, cosmic_text::Hinting::Enabled);
-            buffer.set_wrap(&mut self.font_system, cosmic_text::Wrap::None);
-            buffer.set_size(
-                &mut self.font_system,
-                Some(max_width),
-                Some(self.metrics.cell_height),
-            );
-            self.text_buffers.push(buffer);
-            self.text_buffers.len() - 1
-        };
-        // Mark the slot in_use so subsequent allocations skip it. The cache
-        // also marks slots in_use on hit/insert; this branch covers the
-        // process_draw_padding_row and similar paths that bypass the cache.
-        self.line_cache.mark_in_use(idx);
-        self.line_cache.note_pool_size(self.text_buffers.len());
-        idx
-    }
 }
 
 /// Cell-grid cursor lookup used by the Phase 9b Step 4f Parley
@@ -977,15 +919,18 @@ fn cell_grid_cursor(
     }
 }
 
-/// Find the glyph covering the given byte offset in a shaped buffer.
-/// Returns `(glyph_x, glyph_w)` if found.
-fn find_glyph_at_byte_offset(buffer: &GlyphonBuffer, byte_offset: usize) -> Option<(f32, f32)> {
-    for run in buffer.layout_runs() {
-        for glyph in run.glyphs.iter() {
-            if byte_offset >= glyph.start && byte_offset < glyph.end {
-                return Some((glyph.x, glyph.w));
-            }
-        }
+/// Map [`BorderLineStyle`] to the `(corner_radius, border_width)` pair
+/// the quad pipeline expects. Width scales with cell height so the
+/// border looks proportional across DPI / font sizes. Was previously in
+/// `text_helpers`; inlined here as the only caller.
+fn border_style_params(style: BorderLineStyle, cell_height: f32) -> (f32, f32) {
+    let base = (cell_height * 0.08).max(1.5);
+    match style {
+        BorderLineStyle::Single => (0.0, base),
+        BorderLineStyle::Rounded => (cell_height * 0.3, base),
+        BorderLineStyle::Double => (0.0, base),
+        BorderLineStyle::Heavy => (0.0, base * 2.0),
+        BorderLineStyle::Ascii => (0.0, base),
+        BorderLineStyle::Custom(_) => (0.0, base),
     }
-    None
 }

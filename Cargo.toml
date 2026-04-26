@@ -45,9 +45,8 @@ kasane-gui = { path = "kasane-gui" }
 kasane-wasm = { path = "kasane-wasm" }
 winit = "0.30"
 wgpu = "29"
-cosmic-text = "0.18"
-# ADR-031 text stack migration: parley + companions are added as scaffold for
-# Phase 6+. Coexist with cosmic-text until Phase 11 cuts the legacy path.
+# ADR-031 — Parley + swash are the production text stack
+# (cosmic-text retired in Phase 11).
 parley = "0.9"
 swash = "0.2"
 etagere = "0.3"

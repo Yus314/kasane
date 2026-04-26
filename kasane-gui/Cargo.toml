@@ -8,9 +8,7 @@ license.workspace = true
 kasane-core = { workspace = true, features = ["svg"] }
 winit = { workspace = true }
 wgpu = { workspace = true }
-cosmic-text = { workspace = true }
-# ADR-031: Parley scaffold (Phase 6). Coexists with cosmic-text until
-# Phase 11 retires the legacy text pipeline.
+# ADR-031 Phase 11 — cosmic-text retired in favour of Parley + swash.
 parley = { workspace = true }
 swash = { workspace = true }
 etagere = { workspace = true }

@@ -8,8 +8,6 @@ pub mod compositor;
 pub mod depth_stencil;
 pub mod image_pipeline;
 pub mod metrics;
-/// ADR-031 scaffold for the Parley text stack. Coexists with `text_pipeline`
-/// (cosmic-text) until Phase 11 retires the legacy renderer.
 pub mod parley_text;
 pub(crate) mod pipeline_common;
 pub mod quad_pipeline;
@@ -17,7 +15,6 @@ pub mod retained_scene;
 pub mod scene_graph;
 pub mod scene_renderer;
 pub mod text_effects;
-mod text_helpers;
 pub(crate) mod text_pipeline;
 pub mod texture_cache;
 pub mod timing;
@@ -34,21 +31,7 @@ pub(crate) const CURSOR_OUTLINE_THICKNESS: f32 = 1.0;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use cosmic_text::Family;
 use winit::window::Window;
-
-/// Map generic CSS family names to glyphon's `Family` enum variants.
-/// Specific font names (e.g. "JetBrains Mono") pass through as `Family::Name`.
-pub fn to_family(name: &str) -> Family<'_> {
-    match name {
-        "monospace" => Family::Monospace,
-        "serif" => Family::Serif,
-        "sans-serif" => Family::SansSerif,
-        "cursive" => Family::Cursive,
-        "fantasy" => Family::Fantasy,
-        _ => Family::Name(name),
-    }
-}
 
 /// Holds all wgpu state: instance, adapter, device, queue, surface.
 pub struct GpuState {
