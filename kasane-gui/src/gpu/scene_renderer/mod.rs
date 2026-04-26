@@ -125,24 +125,23 @@ pub struct SceneRenderer {
     // L1/L2 caches, the rasteriser). Phase 9b Step 4b will branch the
     // process_draw_* handlers into a Parley path that drives them.
     /// L1: per-line shaped Parley layouts. Hit on cursor-only frames.
-    #[allow(dead_code)]
     parley_layout_cache: super::parley_text::layout_cache::LayoutCache,
     /// swash::ScaleContext owner — reused across frames.
-    #[allow(dead_code)]
     parley_glyph_rasterizer: super::parley_text::glyph_rasterizer::GlyphRasterizer,
     /// L2 + L3: glyph bitmap cache + atlas-slot bookkeeping.
-    #[allow(dead_code)]
     parley_raster_cache: super::parley_text::raster_cache::GlyphRasterCache,
     /// L3 GPU mask atlas (R8Unorm). Pairs with the CPU side inside
     /// `parley_raster_cache`. Phase 9b Step 4b uploads to this.
-    #[allow(dead_code)]
     parley_mask_atlas: super::parley_text::gpu_atlas::GpuAtlasShelf,
     /// L3 GPU colour atlas (Rgba8Unorm). Used for emoji glyphs.
-    #[allow(dead_code)]
     parley_color_atlas: super::parley_text::gpu_atlas::GpuAtlasShelf,
     /// wgpu glue: vertex buffer + pipeline + bind groups.
-    #[allow(dead_code)]
     parley_renderer: super::parley_text::parley_text_renderer::ParleyTextRenderer,
+    /// Shared shader / bind-group-layout cache (owns the wgpu pipeline
+    /// state). Reused by both `text_renderer` (cosmic-text) and
+    /// `parley_renderer` so the two renderers issue compatible draw calls
+    /// against the same pipeline.
+    cache: Cache,
 }
 
 /// Returns true when the user opted into the Parley text backend through
@@ -323,6 +322,7 @@ impl SceneRenderer {
             parley_mask_atlas,
             parley_color_atlas,
             parley_renderer,
+            cache,
         }
     }
 
@@ -346,6 +346,67 @@ impl SceneRenderer {
     #[allow(dead_code)]
     pub(crate) fn parley_text_mut(&mut self) -> &mut super::parley_text::ParleyText {
         &mut self.parley_text
+    }
+
+    /// ADR-031 Phase 9b Step 4b smoke test — render a hard-coded "PARLEY"
+    /// string at top-left through the full Parley pipeline (L1 + shape +
+    /// rasterise + L2/L3 + wgpu vertex buffer). Drives every layer end to
+    /// end so a successful visual confirms wgpu integration before the
+    /// process_draw_* handlers branch to Parley.
+    ///
+    /// No-op unless `KASANE_TEXT_BACKEND=parley` is set.
+    fn parley_smoke_prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        use super::parley_text::Brush as PBrush;
+        use super::parley_text::frame_builder::{FrameLine, build_frame};
+        use super::parley_text::styled_line::StyledLine;
+        use kasane_core::protocol::{Atom, Color, Face, NamedColor, Style};
+
+        let atoms = vec![Atom {
+            face: Face {
+                fg: Color::Named(NamedColor::Cyan),
+                ..Face::default()
+            },
+            contents: "PARLEY".into(),
+        }];
+        let line = StyledLine::from_atoms(
+            &atoms,
+            &Style::default(),
+            PBrush::opaque(255, 255, 255),
+            self.font_size,
+            None,
+        );
+        let lines = [FrameLine {
+            // u32::MAX bypasses the L1 cache so the smoke draw never goes
+            // stale even if the rest of the pipeline accumulates state.
+            line_idx: u32::MAX,
+            origin_x: 10.0,
+            origin_y: 10.0,
+            line: &line,
+        }];
+        let (drawables, stats) = build_frame(
+            &mut self.parley_text,
+            &mut self.parley_layout_cache,
+            &mut self.parley_glyph_rasterizer,
+            &mut self.parley_raster_cache,
+            &lines,
+            true,
+        );
+        tracing::trace!(
+            target: "kasane::parley::smoke",
+            glyphs = stats.glyphs_emitted,
+            rastered = stats.glyphs_rastered,
+            dropped_no_font = stats.glyphs_dropped_no_font_ref,
+            dropped_atlas_full = stats.glyphs_dropped_atlas_full,
+            "smoke build_frame"
+        );
+        self.parley_renderer.prepare(
+            device,
+            queue,
+            &self.cache,
+            &mut self.parley_mask_atlas,
+            &mut self.parley_color_atlas,
+            &drawables,
+        );
     }
 
     /// Proportional-aware mouse hit test.
@@ -780,6 +841,14 @@ impl SceneRenderer {
                 .map_err(|e| anyhow::anyhow!("glyphon prepare failed: {e}"))?;
             drop(_text_span);
 
+            // ADR-031 Phase 9b Step 4b smoke — only on the base layer to
+            // avoid stamping "PARLEY" on every overlay. The smoke pipeline
+            // shape+raster cost is paid once per frame; it is tracing
+            // instrumented for cache-hit observation.
+            if layer_idx == 0 && parley_backend_requested() {
+                self.parley_smoke_prepare(&gpu.device, &gpu.queue);
+            }
+
             // Draw this layer: bg → border → text.
             // Each layer needs its own encoder + submit so that
             // queue.write_buffer data is committed before the next
@@ -845,6 +914,14 @@ impl SceneRenderer {
                     self.text_renderer
                         .render(&self.text_atlas, &self.viewport, &mut render_pass)
                         .map_err(|e| anyhow::anyhow!("glyphon render failed: {e}"))?;
+                    // ADR-031 Phase 9b Step 4b smoke — Parley path overlays
+                    // the cosmic-text output. Only on the base layer. Inlined
+                    // to avoid a `&self` borrow re-entering through a helper
+                    // while text_renderer's borrow chain is still resolving.
+                    if layer_idx == 0 && parley_backend_requested() {
+                        self.parley_renderer
+                            .render(&self.viewport, &mut render_pass);
+                    }
                 }
 
                 self.image.upload_and_draw(gpu, &mut render_pass);
