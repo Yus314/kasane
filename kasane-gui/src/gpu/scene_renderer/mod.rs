@@ -192,7 +192,7 @@ impl SceneRenderer {
         let font_size = font_config.size * scale_factor as f32;
         let line_height = font_size * font_config.line_height;
 
-        let metrics =
+        let cosmic_metrics =
             CellMetrics::calculate(&mut font_system, font_config, scale_factor, window_size);
 
         // ADR-031 Phase 9: instantiate the Parley text stack alongside the
@@ -205,7 +205,15 @@ impl SceneRenderer {
             scale_factor,
             window_size,
         );
-        if parley_backend_requested() {
+        // When the Parley backend is selected, the canonical `metrics`
+        // field must match `parley_metrics` — otherwise the layout
+        // engine (which reads through `metrics()` and gets parley) and
+        // the per-atom snap inside `parley_emit_atoms` (which reads
+        // `self.metrics.cell_width` directly) disagree on cell width,
+        // and per-atom text overflows the layout box. The "menu items
+        // extend past the right edge" symptom that surfaced during
+        // Phase 9b Step 4e bring-up is exactly this mismatch.
+        let metrics = if parley_backend_requested() {
             tracing::info!(
                 target: "kasane::parley",
                 cell_width = parley_metrics.cell_width,
@@ -215,7 +223,10 @@ impl SceneRenderer {
                 rows = parley_metrics.rows,
                 "KASANE_TEXT_BACKEND=parley detected; Parley metrics will be used"
             );
-        }
+            parley_metrics.clone()
+        } else {
+            cosmic_metrics
+        };
 
         let surface_format = gpu.config.format;
 
@@ -693,12 +704,25 @@ impl SceneRenderer {
         self.font_size = font_config.size * scale_factor as f32;
         self.line_height = self.font_size * font_config.line_height;
         self.font_family.clone_from(&font_config.family);
-        self.metrics = CellMetrics::calculate(
+        let cosmic_metrics = CellMetrics::calculate(
             &mut self.font_system,
             font_config,
             scale_factor,
             window_size,
         );
+        self.parley_metrics = super::parley_text::metrics::calculate_with_parley(
+            &mut self.parley_text,
+            font_config,
+            scale_factor,
+            window_size,
+        );
+        // Same reason as `new()`: keep `self.metrics` aligned with the
+        // backend that the layout engine sees through `metrics()`.
+        self.metrics = if parley_backend_requested() {
+            self.parley_metrics.clone()
+        } else {
+            cosmic_metrics
+        };
         self.viewport.update(
             &gpu.queue,
             Resolution {
