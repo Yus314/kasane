@@ -469,10 +469,26 @@ impl SceneRenderer {
         // cosmic does, pull the parley ascent and add half of the
         // cell-grid leading.
         let cell_h = self.metrics.cell_height;
+        let cosmic_baseline = self.metrics.baseline;
         for layout_line in parley_layout.layout.lines() {
             let lm = layout_line.metrics();
             let leading = (cell_h - lm.line_height).max(0.0);
             let line_baseline = py + lm.ascent + leading * 0.5;
+            // ADR-031 Phase 9b — one-shot trace so we can compare cosmic vs
+            // Parley's notion of baseline, ascent, descent, line_height.
+            tracing::info!(
+                target: "kasane::parley::baseline",
+                text = %text,
+                py,
+                cell_h,
+                cosmic_baseline,
+                parley_ascent = lm.ascent,
+                parley_descent = lm.descent,
+                parley_line_height = lm.line_height,
+                parley_baseline_attr = lm.baseline,
+                computed_line_baseline = line_baseline,
+                "parley baseline trace"
+            );
 
             for item in layout_line.items() {
                 let PositionedLayoutItem::GlyphRun(run) = item else {
