@@ -125,10 +125,18 @@ pub struct SceneRenderer {
     // L1/L2 caches, the rasteriser). Phase 9b Step 4b will branch the
     // process_draw_* handlers into a Parley path that drives them.
     /// L1: per-line shaped Parley layouts. Hit on cursor-only frames.
+    /// Smoke bypasses this; production text routing (Phase 9b Step 4c+)
+    /// will route through it once the L2/L3 architecture issue is fixed.
+    #[allow(dead_code)]
     parley_layout_cache: super::parley_text::layout_cache::LayoutCache,
     /// swash::ScaleContext owner — reused across frames.
     parley_glyph_rasterizer: super::parley_text::glyph_rasterizer::GlyphRasterizer,
     /// L2 + L3: glyph bitmap cache + atlas-slot bookkeeping.
+    /// Currently unused: the L2's CPU-only `AtlasShelf` produces slot
+    /// coordinates that do not match the GPU `parley_*_atlas` layouts.
+    /// Phase 9b Step 4c will fix the architecture so L2 owns the GPU
+    /// atlases directly.
+    #[allow(dead_code)]
     parley_raster_cache: super::parley_text::raster_cache::GlyphRasterCache,
     /// L3 GPU mask atlas (R8Unorm). Pairs with the CPU side inside
     /// `parley_raster_cache`. Phase 9b Step 4b uploads to this.
@@ -349,17 +357,35 @@ impl SceneRenderer {
     }
 
     /// ADR-031 Phase 9b Step 4b smoke test — render a hard-coded "PARLEY"
-    /// string at top-left through the full Parley pipeline (L1 + shape +
-    /// rasterise + L2/L3 + wgpu vertex buffer). Drives every layer end to
-    /// end so a successful visual confirms wgpu integration before the
-    /// process_draw_* handlers branch to Parley.
+    /// string at top-left through the Parley pipeline.
+    ///
+    /// **L2 cache bypass**: this smoke deliberately bypasses the
+    /// `parley_raster_cache`. The L2 cache currently owns its own
+    /// CPU-only `AtlasShelf` allocator, but the GPU bind group reads
+    /// from `parley_mask_atlas` / `parley_color_atlas` (separate
+    /// `GpuAtlasShelf` allocators). Routing through L2 would produce
+    /// atlas slot coordinates that point at empty regions of the GPU
+    /// texture. The architectural fix (raster_cache should own the
+    /// `GpuAtlasShelf`s) is staged separately; for the visual smoke we
+    /// rasterise + allocate + queue + render directly.
+    ///
+    /// Atlases are cleared each frame to keep memory bounded — every
+    /// "PARLEY" frame re-allocates and re-uploads. Per-frame waste is
+    /// fine for a smoke test of fixed-size content.
     ///
     /// No-op unless `KASANE_TEXT_BACKEND=parley` is set.
     fn parley_smoke_prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         use super::parley_text::Brush as PBrush;
-        use super::parley_text::frame_builder::{FrameLine, build_frame};
+        use super::parley_text::frame_builder::DrawableGlyph;
+        use super::parley_text::glyph_rasterizer::{ContentKind, SubpixelX};
+        use super::parley_text::shaper::shape_line_with_default_family;
         use super::parley_text::styled_line::StyledLine;
         use kasane_core::protocol::{Atom, Color, Face, NamedColor, Style};
+        use parley::PositionedLayoutItem;
+
+        // Reset GPU atlases so per-frame leaks do not accumulate.
+        self.parley_mask_atlas.clear();
+        self.parley_color_atlas.clear();
 
         let atoms = vec![Atom {
             face: Face {
@@ -375,29 +401,91 @@ impl SceneRenderer {
             self.font_size,
             None,
         );
-        let lines = [FrameLine {
-            // u32::MAX bypasses the L1 cache so the smoke draw never goes
-            // stale even if the rest of the pipeline accumulates state.
-            line_idx: u32::MAX,
-            origin_x: 10.0,
-            origin_y: 10.0,
-            line: &line,
-        }];
-        let (drawables, stats) = build_frame(
-            &mut self.parley_text,
-            &mut self.parley_layout_cache,
-            &mut self.parley_glyph_rasterizer,
-            &mut self.parley_raster_cache,
-            &lines,
-            true,
-        );
+        let parley_layout = shape_line_with_default_family(&mut self.parley_text, &line);
+
+        // Cyan brush packed for vertex_builder (linear-space tint of the mask).
+        let brush = PBrush::opaque(0, 205, 205);
+
+        let mut drawables: Vec<DrawableGlyph> = Vec::new();
+        let mut emitted = 0u32;
+        let mut dropped_font = 0u32;
+        let mut dropped_raster = 0u32;
+        let mut dropped_atlas = 0u32;
+        let origin_x = 10.0_f32;
+        let origin_y = 10.0_f32;
+
+        for layout_line in parley_layout.layout.lines() {
+            let line_metrics = layout_line.metrics();
+            let line_baseline = origin_y + line_metrics.baseline;
+
+            for item in layout_line.items() {
+                let PositionedLayoutItem::GlyphRun(run) = item else {
+                    continue;
+                };
+                let parley_run = run.run();
+                let font = parley_run.font();
+                let font_size = parley_run.font_size();
+                let Some(font_ref) =
+                    swash::FontRef::from_index(font.data.data(), font.index as usize)
+                else {
+                    dropped_font += 1;
+                    continue;
+                };
+
+                for glyph in run.positioned_glyphs() {
+                    emitted += 1;
+                    let abs_x = origin_x + glyph.x;
+                    let abs_y = line_baseline + glyph.y;
+                    let subpx = SubpixelX::from_fract(abs_x);
+                    let glyph_id = glyph.id as u16;
+
+                    let raster = match self
+                        .parley_glyph_rasterizer
+                        .rasterize(font_ref, glyph_id, font_size, subpx, true)
+                    {
+                        Some(r) => r,
+                        None => {
+                            dropped_raster += 1;
+                            continue;
+                        }
+                    };
+
+                    let atlas = match raster.content {
+                        ContentKind::Mask => &mut self.parley_mask_atlas,
+                        ContentKind::Color => &mut self.parley_color_atlas,
+                    };
+                    let raster_w = raster.width;
+                    let raster_h = raster.height;
+                    let raster_left = raster.left;
+                    let raster_top = raster.top;
+                    let raster_content = raster.content;
+                    let Some(slot) = atlas.allocate_and_queue(raster_w, raster_h, raster.data)
+                    else {
+                        dropped_atlas += 1;
+                        continue;
+                    };
+
+                    drawables.push(DrawableGlyph {
+                        px: abs_x,
+                        py: abs_y,
+                        width: raster_w,
+                        height: raster_h,
+                        left: raster_left,
+                        top: raster_top,
+                        content: raster_content,
+                        atlas_slot: slot,
+                        brush,
+                    });
+                }
+            }
+        }
         tracing::trace!(
             target: "kasane::parley::smoke",
-            glyphs = stats.glyphs_emitted,
-            rastered = stats.glyphs_rastered,
-            dropped_no_font = stats.glyphs_dropped_no_font_ref,
-            dropped_atlas_full = stats.glyphs_dropped_atlas_full,
-            "smoke build_frame"
+            emitted, drawables = drawables.len() as u32,
+            dropped_font, dropped_raster, dropped_atlas,
+            mask_pending = self.parley_mask_atlas.pending_uploads().len() as u32,
+            color_pending = self.parley_color_atlas.pending_uploads().len() as u32,
+            "smoke direct rasterise"
         );
         self.parley_renderer.prepare(
             device,
