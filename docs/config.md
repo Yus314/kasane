@@ -96,6 +96,13 @@ the daily-rotating file. The TUI owns stdout for ANSI escapes, so callers
 should redirect stderr (e.g. `KASANE_LOG=debug KASANE_LOG_STDERR=1 kasane file 2> trace.log`)
 unless they are running a non-TUI subcommand.
 
+Set `KASANE_TEXT_BACKEND=parley` to opt the GUI backend into the new Parley
+text stack (cosmic-text remains the default until ADR-031 Phase 11). This
+flag is read once at startup; restart the editor to switch back. Used by
+contributors validating the in-progress migration; end users have no reason
+to set it yet. See [ADR-031](decisions.md#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign)
+for the migration plan.
+
 ```kdl
 log {
     level "info"
