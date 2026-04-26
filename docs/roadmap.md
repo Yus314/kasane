@@ -38,6 +38,8 @@ No active workstream. All prior workstreams (ADR-030 Levels 1–6, Semantic Zoom
 | Semantic Zoom Phase 3 | Per-pane zoom (requires plugin instance state) |
 | Semantic Zoom Phase 4 | WIT extension (WASM plugins define custom zoom strategies) |
 | Semantic Zoom Phase 5 | Level 5 MAP (module dependency graph display) |
+| GPU cursor-only fast path | Skip full DrawCommand processing on cursor-animation-only frames. Defer until line-shaping cache telemetry (`KASANE_LOG=kasane::line_cache=debug`) shows residual CPU >2 ms on cursor-move frames |
+| GPU hardware stencil clipping | Activate the existing `depth_stencil.rs` infrastructure (stencil_write_increment / stencil_write_decrement). Defer until a UI feature requires non-rectangular clipping (e.g. rounded `Container` border radius) |
 
 ## 3. Completed Workstreams
 
@@ -62,7 +64,7 @@ All implementation phases are complete.
 | Phase 1 | MVP (TUI core features + declarative UI foundation) | Element + TEA + basic slots |
 | Phase 2 | Enhanced floating windows + plugin foundation | |
 | Phase 3 | Input, clipboard, and scroll enhancements | |
-| Phase G | GUI backend | DecorationPipeline, image element GPU pipeline + texture cache |
+| Phase G | GUI backend | DecorationPipeline, image element GPU pipeline + texture cache, line-shaping cache, glyph atlas grow via copy_texture_to_texture, sRGB color pipeline correction |
 | Phase W | WASM plugin runtime foundation | plugin manifest, settings API, precompiled cache |
 | Phase 4 | Shared Plugin API validation | Proof artifacts for public extension points |
 | Phase 5 | Surface / Workspace / multi-pane foundation | Session/surface, multi-pane split/focus/routing, pane layout persistence |
