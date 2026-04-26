@@ -458,9 +458,18 @@ impl SceneRenderer {
             (visual_fg[3].clamp(0.0, 1.0) * 255.0).round() as u8,
         );
 
+        // ADR-031 Phase 9b — use the *cosmic-derived* baseline so the
+        // Parley path lines up with the rest of the renderer's
+        // expectations (background quads, cursor positioning, status
+        // bar geometry). Parley's own LineMetrics::baseline depends on
+        // the LineHeight property which we have not pushed yet, so it
+        // defaults to the font-intrinsic value (~ascent), about 1-2 px
+        // above the cell-grid baseline cosmic computes from
+        // `font_size × 1.2`. That tiny offset is enough to lift status
+        // bar text off its background.
+        let cell_baseline = self.metrics.baseline;
         for layout_line in parley_layout.layout.lines() {
-            let line_metrics = layout_line.metrics();
-            let line_baseline = py + line_metrics.baseline;
+            let line_baseline = py + cell_baseline;
 
             for item in layout_line.items() {
                 let PositionedLayoutItem::GlyphRun(run) = item else {
