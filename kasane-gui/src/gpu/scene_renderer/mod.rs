@@ -534,17 +534,18 @@ impl SceneRenderer {
             color: &mut self.parley_color_atlas,
         };
         let drawables = &mut self.parley_drawables;
-        // One-shot trace: log per-run font_id + per-glyph (id, x) only
-        // for "long" emissions where the rendering bug surfaces. Short
-        // emissions (status bar / menu) are silenced to keep the trace
-        // readable.
-        let trace_run = text.len() > 30;
+        // Trace every emission (short or long) so we can compare the
+        // font_id resolved for menu items vs status bar vs info-popup
+        // text. Font drift across emissions would indicate fontique
+        // stickiness, which is the leading hypothesis for the
+        // "unrecognisable glyphs" symptom.
+        let trace_run = true;
         if trace_run {
             tracing::info!(
                 target: "kasane::parley::run",
                 text = %text,
                 line_count = parley_layout.layout.lines().count(),
-                "long emission — per-run trace"
+                "emission — per-run trace"
             );
         }
         for layout_line in parley_layout.layout.lines() {
