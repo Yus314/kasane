@@ -797,6 +797,147 @@ impl SceneRenderer {
         self.parley_emit_atoms(atoms, px, py, color_resolver);
     }
 
+    /// ADR-031 Phase 9b Step 4f — Parley alternative to
+    /// `process_render_paragraph`. Renders the paragraph's line bg,
+    /// per-atom backgrounds, decorations, glyph runs and cursors using
+    /// cell-grid estimates. The cosmic-derived shaping cache and
+    /// glyph-accurate cursor metrics are skipped here because Parley's
+    /// L1 LayoutCache + per-glyph hit test (Phase 9b Step 7) are not
+    /// yet wired into the paragraph path. ASCII rendering matches the
+    /// cosmic path; CJK / proportional cursors degrade to cell width.
+    fn process_render_paragraph_parley(
+        &mut self,
+        px: f32,
+        py: f32,
+        max_width: f32,
+        para: &BufferParagraph,
+        color_resolver: &ColorResolver,
+    ) {
+        let cell_h = self.metrics.cell_height;
+        let cell_w = self.metrics.cell_width;
+
+        // 1. Line-wide background fill (mirrors the cosmic path).
+        let (_, base_bg, _) = color_resolver.resolve_face_colors_linear(&para.base_face);
+        if !self.should_skip_default_bg(&base_bg, color_resolver) {
+            self.quad.push_solid(px, py, max_width, cell_h, base_bg);
+        }
+
+        if para.atoms.is_empty() {
+            return;
+        }
+
+        // 2. Strip the cursor face on the atom under the primary cursor —
+        // render_cursor() owns the cursor block, so the atom must not
+        // also paint a REVERSE bg over it.
+        let mut clear_cursor_atom_idx: Option<usize> = None;
+        for ann in &para.annotations {
+            if let ParagraphAnnotation::PrimaryCursor { byte_offset, .. } = ann {
+                let mut accum = 0usize;
+                for (i, atom) in para.atoms.iter().enumerate() {
+                    let atom_end = accum + atom.contents.len();
+                    if *byte_offset >= accum && *byte_offset < atom_end {
+                        clear_cursor_atom_idx = Some(i);
+                        break;
+                    }
+                    accum = atom_end;
+                }
+            }
+        }
+
+        // 3. Per-atom background quads + decorations + cumulative byte
+        // boundaries (used for cursor lookup below). Widths are
+        // cell-grid estimates; that matches the snap policy used in
+        // parley_emit_atoms so the bg / glyph alignment is consistent.
+        let mut atom_byte_starts: Vec<usize> = vec![0];
+        let mut atom_x_starts: Vec<f32> = Vec::with_capacity(para.atoms.len());
+        let mut x = px;
+        let mut byte_accum = 0usize;
+        for (i, atom) in para.atoms.iter().enumerate() {
+            let face = if clear_cursor_atom_idx == Some(i) {
+                para.base_face
+            } else {
+                atom.face
+            };
+            let atom_display_w = line_display_width_str(&atom.contents) as f32 * cell_w;
+            let remaining = max_width - (x - px);
+            if remaining <= 0.0 {
+                break;
+            }
+            let actual_w = atom_display_w.min(remaining);
+            let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_face_colors_linear(&face);
+
+            if actual_w > 0.0
+                && needs_bg
+                && !self.should_skip_default_bg(&visual_bg, color_resolver)
+            {
+                self.quad.push_solid(x, py, actual_w, cell_h, visual_bg);
+            }
+            if actual_w > 0.0 {
+                self.emit_decorations(x, py, actual_w, &face, visual_fg, color_resolver);
+            }
+            atom_x_starts.push(x);
+            x += actual_w;
+            byte_accum += atom.contents.len();
+            atom_byte_starts.push(byte_accum);
+        }
+
+        // 4. Cursors. Cell-grid resolution: locate the atom containing
+        // the byte offset, then compute the offset within the atom in
+        // display columns. Glyph-accurate metrics (CJK, ligatures,
+        // RTL) come in Phase 10 once parley hit_test is wired here.
+        for ann in &para.annotations {
+            match ann {
+                ParagraphAnnotation::PrimaryCursor { byte_offset, .. } => {
+                    if let Some((cx, cw)) = cell_grid_cursor(
+                        &para.atoms,
+                        &atom_byte_starts,
+                        &atom_x_starts,
+                        *byte_offset,
+                        cell_w,
+                    ) {
+                        self.paragraph_cursor = Some((cx, cw));
+                    }
+                }
+                ParagraphAnnotation::SecondaryCursor {
+                    byte_offset,
+                    blend_ratio,
+                } => {
+                    if let Some((cx, cw)) = cell_grid_cursor(
+                        &para.atoms,
+                        &atom_byte_starts,
+                        &atom_x_starts,
+                        *byte_offset,
+                        cell_w,
+                    ) {
+                        let cursor_color = [1.0_f32, 1.0, 1.0, 1.0];
+                        let blended = [
+                            cursor_color[0] * blend_ratio + base_bg[0] * (1.0 - blend_ratio),
+                            cursor_color[1] * blend_ratio + base_bg[1] * (1.0 - blend_ratio),
+                            cursor_color[2] * blend_ratio + base_bg[2] * (1.0 - blend_ratio),
+                            1.0,
+                        ];
+                        self.quad
+                            .push_solid(cx, py, cw.max(cell_w), cell_h, blended);
+                    }
+                }
+            }
+        }
+
+        // 5. Glyph emission via Parley (snapped per atom to cell grid).
+        // When the primary cursor sits inside an atom, swap that atom's
+        // face with the paragraph base_face so render_cursor() owns the
+        // visual cursor block (matches the cosmic path's stripping).
+        if let Some(strip_idx) = clear_cursor_atom_idx {
+            let mut stripped = para.atoms.clone();
+            if let Some(a) = stripped.get_mut(strip_idx) {
+                a.face = para.base_face;
+            }
+            self.parley_emit_atoms(&stripped, px, py, color_resolver);
+        } else {
+            self.parley_emit_atoms(&para.atoms, px, py, color_resolver);
+        }
+    }
+
     /// Process RenderParagraph: buffer line with semantic annotations.
     ///
     /// Shapes text first, then draws per-atom backgrounds and decorations from
@@ -811,6 +952,16 @@ impl SceneRenderer {
         line_idx: u32,
         color_resolver: &ColorResolver,
     ) {
+        // ADR-031 Phase 9b Step 4f — divert buffer text to Parley path
+        // when the env var is on. Mirrors Step 4e (DrawAtoms): line bg
+        // fill + per-atom bg/decoration via cell-grid estimates +
+        // glyph emission via parley_emit_atoms. Cursor positions are
+        // tracked at cell granularity for now; glyph-accurate hit test
+        // and cursor metrics are deferred to Step 4f-ext (Phase 10).
+        if super::parley_backend_requested() {
+            self.process_render_paragraph_parley(px, py, max_width, para, color_resolver);
+            return;
+        }
         let cell_h = self.metrics.cell_height;
         let cell_w = self.metrics.cell_width;
 
@@ -1112,6 +1263,61 @@ impl SceneRenderer {
         self.line_cache.mark_in_use(idx);
         self.line_cache.note_pool_size(self.text_buffers.len());
         idx
+    }
+}
+
+/// Cell-grid cursor lookup used by the Phase 9b Step 4f Parley
+/// paragraph path. Walks the atom-byte boundaries to find the atom
+/// containing `byte_offset`, then advances by the display width of
+/// the atom's leading bytes (cell columns) to compute the cursor's
+/// pixel x. Width is `cell_w × char_columns` for the char under the
+/// cursor; one cell when the cursor sits past EOL.
+///
+/// Glyph-accurate positions (CJK ligatures, RTL, proportional fonts)
+/// are deferred to Phase 10 once `parley_text::hit_test` is wired in.
+/// The char-based width estimate is enough for Latin / monospace CJK
+/// where one codepoint = one grapheme; complex scripts would need
+/// `unicode_segmentation::graphemes`, deferred with the rest of the
+/// hit-test work.
+fn cell_grid_cursor(
+    atoms: &[kasane_core::render::ResolvedAtom],
+    atom_byte_starts: &[usize],
+    atom_x_starts: &[f32],
+    byte_offset: usize,
+    cell_w: f32,
+) -> Option<(f32, f32)> {
+    let owner_idx = atom_byte_starts
+        .windows(2)
+        .position(|w| byte_offset >= w[0] && byte_offset < w[1]);
+    match owner_idx {
+        Some(i) if i < atoms.len() && i < atom_x_starts.len() => {
+            let atom = &atoms[i];
+            let atom_start = atom_byte_starts[i];
+            let leading_bytes = byte_offset.saturating_sub(atom_start);
+            let leading_text = atom.contents.get(..leading_bytes).unwrap_or("");
+            let leading_cols = line_display_width_str(leading_text) as f32;
+            let cx = atom_x_starts[i] + leading_cols * cell_w;
+            // First char's display columns approximates the grapheme
+            // width — Latin / CJK monospace renders one column per
+            // codepoint, which covers the common cursor geometry.
+            let rest = &atom.contents.as_str()[leading_bytes..];
+            let cw_cols = rest
+                .chars()
+                .next()
+                .map(|c| {
+                    let mut buf = [0u8; 4];
+                    let s: &str = c.encode_utf8(&mut buf);
+                    line_display_width_str(s) as f32
+                })
+                .unwrap_or(1.0);
+            Some((cx, cw_cols * cell_w))
+        }
+        _ => {
+            let last_x = *atom_x_starts.last()?;
+            let last_atom = atoms.last()?;
+            let last_w = line_display_width_str(&last_atom.contents) as f32 * cell_w;
+            Some((last_x + last_w, cell_w))
+        }
     }
 }
 
