@@ -534,6 +534,19 @@ impl SceneRenderer {
             color: &mut self.parley_color_atlas,
         };
         let drawables = &mut self.parley_drawables;
+        // One-shot trace: log per-run font_id + per-glyph (id, x) only
+        // for "long" emissions where the rendering bug surfaces. Short
+        // emissions (status bar / menu) are silenced to keep the trace
+        // readable.
+        let trace_run = text.len() > 30;
+        if trace_run {
+            tracing::info!(
+                target: "kasane::parley::run",
+                text = %text,
+                line_count = parley_layout.layout.lines().count(),
+                "long emission — per-run trace"
+            );
+        }
         for layout_line in parley_layout.layout.lines() {
             let lm = layout_line.metrics();
             let leading = (cell_h - lm.line_height).max(0.0);
@@ -556,6 +569,22 @@ impl SceneRenderer {
                 else {
                     continue;
                 };
+                if trace_run {
+                    let glyphs_in_run: Vec<(u16, f32)> = run
+                        .positioned_glyphs()
+                        .map(|g| (g.id as u16, g.x))
+                        .take(20)
+                        .collect();
+                    tracing::info!(
+                        target: "kasane::parley::run",
+                        font_id,
+                        var_hash,
+                        font_size,
+                        text_range = ?(parley_run.text_range()),
+                        first_20_glyphs = ?glyphs_in_run,
+                        "run"
+                    );
+                }
 
                 for glyph in run.positioned_glyphs() {
                     let abs_x = px + glyph.x;
