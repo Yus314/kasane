@@ -897,10 +897,14 @@ impl SceneRenderer {
             }
         }
 
-        // 7. Emit glyphs from the shared layout. Each atom carries its
-        // own face → fg colour; the shaper already pushed
-        // `StyleProperty::Brush` per StyleRun, so the cluster's first
-        // style brush is the right rasterisation colour.
+        // 7. Emit glyphs from the shared layout. Brush is read **per
+        // glyph** via the layout's style table (`Glyph::style_index`).
+        // Reading just the run's first cluster brush would collapse a
+        // multi-style shaping run (multiple syntax-coloured atoms that
+        // share a font and so end up in one shape Run) onto the first
+        // atom's colour — visible as "all text in one colour" / "no
+        // syntax highlighting".
+        let styles_table = layout.layout.styles();
         let rasterizer = &mut self.parley_glyph_rasterizer;
         let cache = &mut self.parley_raster_cache;
         let mut atlases = super::super::parley_text::raster_cache_glue::ParleyAtlasPair {
@@ -929,17 +933,16 @@ impl SceneRenderer {
                 else {
                     continue;
                 };
-                let brush = parley_run
-                    .clusters()
-                    .next()
-                    .map(|c| c.first_style().brush)
-                    .unwrap_or(fallback_brush);
 
                 for glyph in run.positioned_glyphs() {
                     let abs_x = px + glyph.x;
                     let abs_y = layout_origin_y + glyph.y;
                     let subpx = SubpixelX::from_fract(abs_x);
                     let glyph_id = glyph.id as u16;
+                    let brush = styles_table
+                        .get(glyph.style_index())
+                        .map(|s| s.brush)
+                        .unwrap_or(fallback_brush);
                     let key = super::super::parley_text::raster_cache::GlyphRasterKey {
                         font_id,
                         glyph_id,
