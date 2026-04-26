@@ -479,6 +479,16 @@ impl SceneRenderer {
             return;
         }
 
+        tracing::info!(
+            target: "kasane::parley::emit",
+            text = %text,
+            text_bytes = text.len(),
+            text_chars = text.chars().count(),
+            face_attrs = ?face.attributes,
+            face_fg = ?face.fg,
+            "parley_emit_text"
+        );
+
         let atoms = vec![Atom {
             face: *face,
             contents: text.into(),
