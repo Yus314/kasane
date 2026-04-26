@@ -458,18 +458,21 @@ impl SceneRenderer {
             (visual_fg[3].clamp(0.0, 1.0) * 255.0).round() as u8,
         );
 
-        // ADR-031 Phase 9b — use the *cosmic-derived* baseline so the
-        // Parley path lines up with the rest of the renderer's
-        // expectations (background quads, cursor positioning, status
-        // bar geometry). Parley's own LineMetrics::baseline depends on
-        // the LineHeight property which we have not pushed yet, so it
-        // defaults to the font-intrinsic value (~ascent), about 1-2 px
-        // above the cell-grid baseline cosmic computes from
-        // `font_size × 1.2`. That tiny offset is enough to lift status
-        // bar text off its background.
-        let cell_baseline = self.metrics.baseline;
+        // ADR-031 Phase 9b — compute baseline so the glyph sits inside
+        // the cell-grid line that backgrounds + decorations target.
+        // Parley's `LineMetrics::baseline` defaults to the font-intrinsic
+        // value (= ascent) because we have not pushed
+        // `StyleProperty::LineHeight`; cosmic on the other hand uses
+        // `font_size × line_height_em` (1.2 by default), which leaves
+        // `(cell_h - intrinsic_line_height)` of "leading" room split
+        // above and below the glyph. To land glyphs in the same place
+        // cosmic does, pull the parley ascent and add half of the
+        // cell-grid leading.
+        let cell_h = self.metrics.cell_height;
         for layout_line in parley_layout.layout.lines() {
-            let line_baseline = py + cell_baseline;
+            let lm = layout_line.metrics();
+            let leading = (cell_h - lm.line_height).max(0.0);
+            let line_baseline = py + lm.ascent + leading * 0.5;
 
             for item in layout_line.items() {
                 let PositionedLayoutItem::GlyphRun(run) = item else {
