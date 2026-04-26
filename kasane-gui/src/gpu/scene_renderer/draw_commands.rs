@@ -979,6 +979,19 @@ impl SceneRenderer {
         if actual_w > 0.0 {
             self.emit_decorations(px, py, actual_w, face, visual_fg, color_resolver);
         }
+
+        // ADR-031 Phase 9b Step 4d — when the Parley backend is
+        // requested, route glyph rendering through Parley exclusively
+        // and skip the cosmic-text shaping/buffer recording for this
+        // DrawText. Background and decorations stay on the quad pipeline
+        // (Parley does not draw them). text_renderer continues to
+        // handle other DrawCommand variants (DrawAtoms, RenderParagraph)
+        // until those are routed in subsequent steps.
+        if super::parley_backend_requested() {
+            self.parley_emit_text(text, face, px, py, color_resolver);
+            return;
+        }
+
         let buf_idx = self.alloc_text_buffer(max_width);
         self.text_draws.push((px, py, buf_idx));
         self.push_text_clip_bounds();
@@ -994,15 +1007,6 @@ impl SceneRenderer {
             None,
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
-
-        // ADR-031 Phase 9b Step 4d — also emit through Parley when the
-        // env var is on. The Parley path layers on top of the cosmic-text
-        // output (both render); this lets us visually confirm Parley
-        // covers DrawText before flipping the cosmic-text path off in a
-        // later step.
-        if super::parley_backend_requested() {
-            self.parley_emit_text(text, face, px, py, color_resolver);
-        }
     }
 
     /// Push the current clip bounds for the most recently allocated text buffer.
