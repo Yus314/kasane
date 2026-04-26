@@ -994,6 +994,15 @@ impl SceneRenderer {
             None,
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
+
+        // ADR-031 Phase 9b Step 4d — also emit through Parley when the
+        // env var is on. The Parley path layers on top of the cosmic-text
+        // output (both render); this lets us visually confirm Parley
+        // covers DrawText before flipping the cosmic-text path off in a
+        // later step.
+        if super::parley_backend_requested() {
+            self.parley_emit_text(text, face, px, py, color_resolver);
+        }
     }
 
     /// Push the current clip bounds for the most recently allocated text buffer.

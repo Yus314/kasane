@@ -150,6 +150,13 @@ pub struct SceneRenderer {
     /// `parley_renderer` so the two renderers issue compatible draw calls
     /// against the same pipeline.
     cache: Cache,
+    /// Per-frame Parley drawable accumulator. Populated by
+    /// `parley_emit_text` (called from `process_draw_text` when the env
+    /// var is on) and drained by `parley_finalize_frame` before the
+    /// render pass starts. Currently only DrawText is wired into Parley;
+    /// DrawAtoms / RenderParagraph / DrawPaddingRow continue on the
+    /// cosmic-text path until later steps.
+    parley_drawables: Vec<super::parley_text::frame_builder::DrawableGlyph>,
 }
 
 /// Returns true when the user opted into the Parley text backend through
@@ -331,6 +338,7 @@ impl SceneRenderer {
             parley_color_atlas,
             parley_renderer,
             cache,
+            parley_drawables: Vec::with_capacity(2048),
         }
     }
 
@@ -374,25 +382,29 @@ impl SceneRenderer {
     /// fine for a smoke test of fixed-size content.
     ///
     /// No-op unless `KASANE_TEXT_BACKEND=parley` is set.
-    fn parley_smoke_prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+    pub(crate) fn parley_emit_text(
+        &mut self,
+        text: &str,
+        face: &kasane_core::protocol::Face,
+        px: f32,
+        py: f32,
+        color_resolver: &ColorResolver,
+    ) {
         use super::parley_text::Brush as PBrush;
         use super::parley_text::frame_builder::DrawableGlyph;
         use super::parley_text::glyph_rasterizer::{ContentKind, SubpixelX};
         use super::parley_text::shaper::shape_line_with_default_family;
         use super::parley_text::styled_line::StyledLine;
-        use kasane_core::protocol::{Atom, Color, Face, NamedColor, Style};
+        use kasane_core::protocol::{Atom, Style};
         use parley::PositionedLayoutItem;
 
-        // Reset GPU atlases so per-frame leaks do not accumulate.
-        self.parley_mask_atlas.clear();
-        self.parley_color_atlas.clear();
+        if text.is_empty() {
+            return;
+        }
 
         let atoms = vec![Atom {
-            face: Face {
-                fg: Color::Named(NamedColor::Cyan),
-                ..Face::default()
-            },
-            contents: "PARLEY".into(),
+            face: *face,
+            contents: text.into(),
         }];
         let line = StyledLine::from_atoms(
             &atoms,
@@ -403,20 +415,17 @@ impl SceneRenderer {
         );
         let parley_layout = shape_line_with_default_family(&mut self.parley_text, &line);
 
-        // Cyan brush packed for vertex_builder (linear-space tint of the mask).
-        let brush = PBrush::opaque(0, 205, 205);
-
-        let mut drawables: Vec<DrawableGlyph> = Vec::new();
-        let mut emitted = 0u32;
-        let mut dropped_font = 0u32;
-        let mut dropped_raster = 0u32;
-        let mut dropped_atlas = 0u32;
-        let origin_x = 10.0_f32;
-        let origin_y = 10.0_f32;
+        let (visual_fg, _bg, _needs_bg) = color_resolver.resolve_face_colors_linear(face);
+        let brush = PBrush::rgba(
+            (visual_fg[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+            (visual_fg[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+            (visual_fg[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+            (visual_fg[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+        );
 
         for layout_line in parley_layout.layout.lines() {
             let line_metrics = layout_line.metrics();
-            let line_baseline = origin_y + line_metrics.baseline;
+            let line_baseline = py + line_metrics.baseline;
 
             for item in layout_line.items() {
                 let PositionedLayoutItem::GlyphRun(run) = item else {
@@ -428,13 +437,11 @@ impl SceneRenderer {
                 let Some(font_ref) =
                     swash::FontRef::from_index(font.data.data(), font.index as usize)
                 else {
-                    dropped_font += 1;
                     continue;
                 };
 
                 for glyph in run.positioned_glyphs() {
-                    emitted += 1;
-                    let abs_x = origin_x + glyph.x;
+                    let abs_x = px + glyph.x;
                     let abs_y = line_baseline + glyph.y;
                     let subpx = SubpixelX::from_fract(abs_x);
                     let glyph_id = glyph.id as u16;
@@ -444,10 +451,7 @@ impl SceneRenderer {
                         .rasterize(font_ref, glyph_id, font_size, subpx, true)
                     {
                         Some(r) => r,
-                        None => {
-                            dropped_raster += 1;
-                            continue;
-                        }
+                        None => continue,
                     };
 
                     let atlas = match raster.content {
@@ -461,11 +465,10 @@ impl SceneRenderer {
                     let raster_content = raster.content;
                     let Some(slot) = atlas.allocate_and_queue(raster_w, raster_h, raster.data)
                     else {
-                        dropped_atlas += 1;
                         continue;
                     };
 
-                    drawables.push(DrawableGlyph {
+                    self.parley_drawables.push(DrawableGlyph {
                         px: abs_x,
                         py: abs_y,
                         width: raster_w,
@@ -479,13 +482,26 @@ impl SceneRenderer {
                 }
             }
         }
+    }
+
+    /// Reset Parley per-frame state. Called once at the start of each
+    /// frame.
+    fn parley_frame_start(&mut self) {
+        self.parley_drawables.clear();
+        self.parley_mask_atlas.clear();
+        self.parley_color_atlas.clear();
+    }
+
+    /// Hand accumulated drawables to the Parley renderer. Called once
+    /// per frame, after all process_draw_* have run, before the render
+    /// pass begins.
+    fn parley_finalize_frame(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         tracing::trace!(
-            target: "kasane::parley::smoke",
-            emitted, drawables = drawables.len() as u32,
-            dropped_font, dropped_raster, dropped_atlas,
+            target: "kasane::parley::frame",
+            drawables = self.parley_drawables.len() as u32,
             mask_pending = self.parley_mask_atlas.pending_uploads().len() as u32,
             color_pending = self.parley_color_atlas.pending_uploads().len() as u32,
-            "smoke direct rasterise"
+            "parley finalize"
         );
         self.parley_renderer.prepare(
             device,
@@ -493,7 +509,7 @@ impl SceneRenderer {
             &self.cache,
             &mut self.parley_mask_atlas,
             &mut self.parley_color_atlas,
-            &drawables,
+            &self.parley_drawables,
         );
     }
 
@@ -767,6 +783,12 @@ impl SceneRenderer {
         self.clip_stack.clear();
         self.paragraph_cursor = None;
         self.paragraph_hit_data.clear();
+        // ADR-031 Phase 9b Step 4d — clear Parley accumulator + atlases.
+        // Per-frame re-rasterisation while the L2 cache architecture
+        // (Step 4c) is still in flight.
+        if parley_backend_requested() {
+            self.parley_frame_start();
+        }
         // Emit last frame's hit/miss tally before clearing for the new frame.
         // Filter to `kasane::line_cache=debug` to see per-frame summaries
         // without the noisy per-line `trace` events.
@@ -929,12 +951,13 @@ impl SceneRenderer {
                 .map_err(|e| anyhow::anyhow!("glyphon prepare failed: {e}"))?;
             drop(_text_span);
 
-            // ADR-031 Phase 9b Step 4b smoke — only on the base layer to
-            // avoid stamping "PARLEY" on every overlay. The smoke pipeline
-            // shape+raster cost is paid once per frame; it is tracing
-            // instrumented for cache-hit observation.
+            // ADR-031 Phase 9b Step 4d — Parley path finalisation.
+            // process_draw_text has accumulated DrawableGlyphs into
+            // self.parley_drawables during the per-layer processing
+            // above. Hand them off to parley_renderer once per layer 0;
+            // overlay layers reuse the same prepared frame state.
             if layer_idx == 0 && parley_backend_requested() {
-                self.parley_smoke_prepare(&gpu.device, &gpu.queue);
+                self.parley_finalize_frame(&gpu.device, &gpu.queue);
             }
 
             // Draw this layer: bg → border → text.
