@@ -8,6 +8,9 @@ pub mod compositor;
 pub mod depth_stencil;
 pub mod image_pipeline;
 pub mod metrics;
+/// ADR-031 scaffold for the Parley text stack. Coexists with `text_pipeline`
+/// (cosmic-text) until Phase 11 retires the legacy renderer.
+pub mod parley_text;
 pub(crate) mod pipeline_common;
 pub mod quad_pipeline;
 pub mod retained_scene;
