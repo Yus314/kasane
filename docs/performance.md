@@ -410,26 +410,31 @@ Measured with `cargo bench --bench rendering_pipeline -- cache\|section`.
 | `line_dirty_buffer_status/1_line_changed` | 12.5 us | BUFFER|STATUS combo, 1 line |
 <!-- /BENCH:line_dirty -->
 
-### GPU Line Shaping Cache
+### GPU Glyph Caches (Parley path)
 
-The GPU text pipeline keeps a per-display-line cache of cosmic-text shaping
-results, keyed by `(line_idx, content_hash, max_width, font_size)`. A hit
-skips `set_rich_text` + `shape_until_scroll` (~100 µs/line of dominant CPU)
-and reuses the previously shaped buffer for `layout_runs()` queries. See
-[profiling.md §GPU line shaping cache](./profiling.md#gpu-line-shaping-cache-kasane-gui)
-for the tracing instrumentation that produced the numbers below.
+The GPU text pipeline now caches at two levels:
 
-> **ADR-031 status**: A parallel Parley-backed pipeline (`parley_text::layout_cache`)
-> is being staged to replace this cache. Steady-state cursor-only frame
-> ~62 µs at 24 lines from the `parley/frame_warm_24_lines` bench (within
-> the ≤ 70 µs Phase 11 target); typing-pattern frame ~81 µs is the Phase 11
-> micro-optimisation candidate. Numbers are shape + raster only — direct
-> comparison to the cosmic-text full-frame budget below requires the
-> Phase 9b `SceneRenderer` swap to land first. See
+- **L1 `LayoutCache`** (`parley_text::layout_cache`) — shaped
+  `Arc<ParleyLayout>` per display line, keyed by content + style +
+  font_size + max_width. Allocation is in place but not yet wired into
+  `process_render_paragraph_parley`; the per-line shape runs on every
+  frame until that lands.
+- **L2 `GlyphRasterCache`** + GPU atlas — per-glyph mask / colour
+  bitmaps keyed by `(font_id, glyph_id, size_q, subpx_x, var_hash,
+  hint)`. Frame-epoch eviction guarantees same-frame entries stay live;
+  cross-frame eviction handles long-running sessions.
+
+> **ADR-031 status (2026-04-26)**: cosmic-text and the glyphon-derived
+> `LineShapingCache` are gone (Phase 11). Numbers below were captured
+> with the cosmic stack pre-Phase-11 and are kept for historical
+> reference; a fresh Parley-only baseline is pending. The Parley
+> `parley/frame_warm_24_lines` bench reported ~62 µs steady-state and
+> ~81 µs on a typing pattern at the time of the swap. See
 > [ADR-031](./decisions.md#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign).
 
-Hit-rate measurements collected on a 2026-04-26 host run by emitting the
-`kasane::line_cache=debug` per-frame summary across three workloads:
+The historical hit-rate measurements below were collected on a
+2026-04-26 host run with the cosmic-era `kasane::line_cache=debug`
+per-frame summary across three workloads (no longer reproducible):
 
 | Scenario | Description | Frames | Lookups | Hits | Misses | Bypass |
 |---|---|---:|---:|---:|---:|---:|

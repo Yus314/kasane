@@ -26,7 +26,12 @@ for the current specification from a plugin's perspective, see
 
 ### 2.1 Now
 
-**ADR-031 Parley text stack migration** — staged migration from cosmic-text to the Linebender stack (Parley + HarfRust + Skrifa + Fontique + ICU4X + swash). 13 phases over ~14 weeks; `KASANE_TEXT_BACKEND=parley` opts into the new path where it has been implemented. cosmic-text remains the production renderer until Phase 11.
+**ADR-031 Parley text stack migration** — Parley + swash is the production
+GPU text stack as of 2026-04-26. cosmic-text and the glyphon-derived
+`text_pipeline` are gone; the `KASANE_TEXT_BACKEND` opt-in is removed.
+Several follow-up phases remain pending — they cover the protocol-side
+`Style` rollout and WIT/plugin ABI work, which run independently of the
+GPU swap.
 
 | Phase | Status | Notes |
 |---|---|---|
@@ -37,18 +42,20 @@ for the current specification from a plugin's perspective, see
 | 3 — TUI `TerminalStyle` | Pending | Depends on 2 |
 | 4 — WIT plugin ABI redesign | Pending | Independent of 1–3; cascades to 5 |
 | 5 — Bundled WASM plugins rebuild | Pending | 10 plugins + native examples |
-| 6 — `parley_text` facade + cargo deps | ✅ | parley 0.9 + swash 0.2.7 alongside cosmic-text |
+| 6 — `parley_text` facade + cargo deps | ✅ | parley 0.9 + swash 0.2.7 |
 | 7 — Parley shaper + L1 `LayoutCache` | ✅ | `Arc<ParleyLayout>`, content/style/font_size key |
 | 8 — swash rasteriser + L2/L3 caches | ✅ | LRU + etagere atlas, mask + color split |
-| 9a — `SceneRenderer` scaffold | ✅ | `parley_text` + `parley_metrics` fields |
-| 9b — `draw_commands` Parley path | Pending | TextRenderer wgpu vertex integration |
-| 10 — RTL/InlineBox/Variable/Subpixel/Underline | Pending | Depends on 9b |
-| 11 — cosmic-text removal + perf tune | Pending | Target: ≤ 70 µs warm 80×24 frame |
-| 12 — Docs + golden image tests | Pending | ADR closeout; CHANGELOG |
+| 9 — `SceneRenderer` Parley path | ✅ | All four DrawCommand text variants routed through Parley |
+| 9b Step 4c — L2 cache refactor + frame-epoch eviction | ✅ | Same-frame entries protected from eviction |
+| 10 — Rich underlines (font metrics) | ✅ | `RunMetrics::underline_offset/size` drives quad geometry |
+| 10 — RTL hit_test, InlineBox, Variable font | Pending | Glyph-accurate paragraph hit_test wires next |
+| 11 — cosmic-text removal | ✅ | ~1900 LOC dropped; deps gone |
+| 11 — perf tune | Pending | Re-baseline pending; target: ≤ 70 µs warm 80×24 frame |
+| 12 — Docs + golden image tests | In progress | ADR / CHANGELOG updated; goldens pending |
 
-Phase 9b benchmarks (Parley pipeline only):
+Phase 9b benchmarks (Parley pipeline only, captured pre-Phase-11):
 - `frame_warm_24_lines`: 61.8 µs (within ≤ 70 µs target)
-- `frame_one_line_changed_24_lines`: 80.6 µs (typing pattern; +15% over target — Phase 11 micro-opt candidate)
+- `frame_one_line_changed_24_lines`: 80.6 µs (typing pattern; +15% over target — perf-tune candidate)
 
 ### 2.2 Backlog
 

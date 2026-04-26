@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Kasane
 
-Kasane is an alternative frontend for the [Kakoune](https://kakoune.org/) text editor, written in Rust. It communicates with Kakoune via the JSON-RPC protocol (`kak -ui json`) and provides both a TUI (crossterm) and GPU (wgpu+glyphon) backend. The UI is built using a declarative architecture: Element tree + TEA (The Elm Architecture) + a plugin system with Contribution/Transform/Annotation/Overlay extension points.
+Kasane is an alternative frontend for the [Kakoune](https://kakoune.org/) text editor, written in Rust. It communicates with Kakoune via the JSON-RPC protocol (`kak -ui json`) and provides both a TUI (crossterm) and GPU (wgpu + Parley + swash) backend. The UI is built using a declarative architecture: Element tree + TEA (The Elm Architecture) + a plugin system with Contribution/Transform/Annotation/Overlay extension points.
 
 ## Build & Test Commands
 
@@ -40,7 +40,7 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane/` | Main binary + library — CLI parsing, Kakoune process management, `kasane::run()` entry point for custom plugin binaries |
 | `kasane-core/` | Core library — protocol, state (TEA), element tree, layout, rendering, plugin system |
 | `kasane-tui/` | TUI backend — crossterm-based terminal rendering |
-| `kasane-gui/` | GPU backend — winit+wgpu+glyphon (feature-gated via `--features gui`) |
+| `kasane-gui/` | GPU backend — winit + wgpu + Parley + swash (feature-gated via `--features gui`) |
 | `kasane-macros/` | Proc macros — `#[kasane::plugin]` and `#[kasane::component]` |
 | `kasane-wasm/` | WASM plugin runtime — wasmtime Component Model host, pre-built example plugins (`bundled/`) |
 | `kasane-plugin-model/` | Shared plugin model types — `PluginId`, `SettingValue`, serialization formats |

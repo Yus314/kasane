@@ -2,18 +2,51 @@
 
 ## [Unreleased]
 
-### Added — ADR-031 Parley text stack migration (in progress)
+### Changed — ADR-031 Parley text stack migration (Phase 11 lands)
 
-This is a multi-phase migration; the changes below ship the foundation. The cosmic-text path remains the production renderer until Phase 11 cuts it.
+The GPU text pipeline is now Parley + swash end-to-end; cosmic-text and the
+glyphon-derived `text_pipeline` (`TextRenderer`, `TextAtlas`, `TextArea`,
+`TextBounds`, `ColorMode`) are gone, along with the cosmic-text-backed
+`LineShapingCache` and the `text_helpers` shim. The
+`KASANE_TEXT_BACKEND=parley` opt-in is removed; Parley is the only backend.
 
-- **core**: `protocol::Style` Parley-native text style alongside the legacy `Face`. Continuous `FontWeight` (100..=900), `FontSlant`, `FontFeatures` bitset, `FontVariation` axes, `BidiOverride`, and `TextDecoration` with five `DecorationStyle` variants (Solid/Curly/Dotted/Dashed/Double). `Atom::style()` projects the wire-format `Face` into a `Style` for the new path; `Style::from_face` / `to_face` support round-tripping during migration.
-- **gui**: `kasane-gui::gpu::parley_text` module — facade (`ParleyText` owning `FontContext` + `LayoutContext` + swash `ScaleContext`), shaper (`shape_line` driving `parley::RangedBuilder`), L1 `LayoutCache` (`Arc<ParleyLayout>` keyed by content + style + font_size + max_width with `O(1)` `invalidate_all`), swash glyph rasteriser (4-level subpixel x quantisation, color emoji via `Source::ColorOutline` → `ColorBitmap` → `Outline` → `Bitmap` priority), L2 `GlyphRasterCache` + L3 `AtlasShelf` with bidirectional eviction link.
-- **gui**: `SceneRenderer` carries the new state alongside the cosmic-text fields. `KASANE_TEXT_BACKEND=parley` opts into Parley `CellMetrics` at startup; full rendering swap arrives in Phase 9b.
-- **gui**: `parley_text::hit_test` provides `(x, y) → byte_offset` and `byte → x_advance` helpers built on `parley::Cluster::from_point` / `from_byte_index`. Bidi-aware (`HitResult::is_rtl`).
-- **bench**: `cargo bench --bench parley_pipeline` measures the new pipeline. Steady-state cursor-only frame ~62 µs at 24 lines (within the ≤ 70 µs Phase 11 target); typing-pattern frame ~81 µs (Phase 11 micro-optimisation candidate).
-- **deps**: `parley = 0.9`, `swash = 0.2` added at the workspace level. `kasane-gui` carries both alongside `cosmic-text = 0.18` until Phase 11.
+- **gui**: `SceneRenderer` is Parley-only. Buffer text, atom rows, status bar,
+  menus, info popups, padding rows, and decorations all flow through
+  `parley_text::shaper` → swash rasteriser → L2 `GlyphRasterCache` →
+  `GpuAtlasShelf` → `ParleyTextRenderer`.
+- **gui**: L2 cache uses frame-epoch eviction. Same-frame entries cannot be
+  evicted (their drawables are already queued); stale entries from earlier
+  frames remain candidates. Fixes the "info-popup glyphs scramble" symptom
+  caused by mid-frame slot reuse.
+- **gui**: Decoration geometry (underline / strikethrough offset + thickness)
+  is driven from the font's own `RunMetrics`, not a `cell_h × ratio`
+  heuristic.
+- **gui**: Mouse hit_test temporarily falls back to cell-grid resolution.
+  Glyph-accurate per-cluster hit testing through `parley_text::hit_test` is
+  still on the roadmap; CJK and ligature cursor positioning may be off by
+  fractions of a cell until that wires in.
+- **deps**: `cosmic-text` removed from `kasane-gui` and the workspace.
+  `parley = 0.9` + `swash = 0.2` are now the production text stack.
+- **diagnostics**: `KASANE_PARLEY_NO_CACHE=1` invalidates the L2 cache and
+  clears both atlases per frame for atlas / eviction debugging.
 
-See [ADR-031](docs/decisions.md#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign) for the full decision record and phase plan; [docs/roadmap.md §2.1](docs/roadmap.md#21-now) for current phase status.
+### Added — earlier ADR-031 phases (already shipped)
+
+- **core**: `protocol::Style` Parley-native text style alongside the legacy
+  `Face`. Continuous `FontWeight` (100..=900), `FontSlant`, `FontFeatures`
+  bitset, `FontVariation` axes, `BidiOverride`, and `TextDecoration` with
+  five `DecorationStyle` variants (Solid/Curly/Dotted/Dashed/Double).
+- **gui**: `kasane-gui::gpu::parley_text` module — facade (`ParleyText`),
+  shaper, L1 `LayoutCache`, swash glyph rasteriser (4-level subpixel x
+  quantisation, color emoji via `Source::ColorOutline` → `ColorBitmap` →
+  `Outline` → `Bitmap` priority), L2 `GlyphRasterCache` + `GpuAtlasShelf`
+  with frame-epoch-aware eviction.
+- **gui**: `parley_text::hit_test` provides `(x, y) → byte_offset` and
+  `byte → x_advance` helpers built on `parley::Cluster::from_point` /
+  `from_byte_index`. Bidi-aware (`HitResult::is_rtl`).
+- **bench**: `cargo bench --bench parley_pipeline` measures the new pipeline.
+
+See [ADR-031](docs/decisions.md#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign) for the full decision record and phase plan.
 
 ## [0.5.0] - 2026-04-10
 

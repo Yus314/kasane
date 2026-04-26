@@ -15,7 +15,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Scope | Current | **Complete frontend replacement** | Replaces Kakoune's terminal UI, adds frontend-native capabilities |
 | Rendering approach | Current | **TUI + GUI hybrid** | TUI for SSH/tmux, GUI for native window |
 | TUI library | Current | **crossterm direct** | Full rendering control |
-| GUI toolkit | Current | **winit + wgpu + glyphon** | Text stack migration to Parley + swash in progress (see [ADR-031](#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign)). Window/GPU layer unchanged. Original decision in [ADR-014](#adr-014-gui-technology-stack--winit--wgpu--glyphon) |
+| GUI toolkit | Current | **winit + wgpu + Parley + swash** | cosmic-text + glyphon retired in [ADR-031](#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign). Window/GPU layer unchanged. Original ADR-014 selection of glyphon is superseded for the text stack only. |
 | Configuration format | Current | **Unified KDL + ui_options** | Single `kasane.kdl` for config + widgets. Supersedes ADR-003 (TOML + separate widgets.kdl) |
 | Crate structure | Current | **Cargo workspace** | `kasane-core` / `kasane-tui` / `kasane-gui` / `kasane` / `kasane-macros` / `kasane-wasm` / `kasane-wasm-bench` |
 | Kakoune version | Current | **Latest stable only** | Leverages new protocol features |
@@ -2024,7 +2024,13 @@ Phase 5b — `EffectCategory` + `EffectFootprint`:
 
 ## ADR-031: Text Stack Migration — cosmic-text → Parley + swash, with Protocol Style Redesign
 
-**Status:** Proposed (Phase 0 — baseline capture and ADR drafting)
+**Status:** Accepted — Parley + swash is the production stack as of
+2026-04-26. Phases 0, 1, 6, 7, 8, 9, 9b (Step 4a–g + 4c L2 cache fix +
+frame-epoch eviction guard), and 11 (cosmic-text removal) are landed.
+Phase 10's rich underlines ship with the font's own `RunMetrics`;
+subpixel positioning and bidi shaping are inherent to the Parley path.
+Glyph-accurate paragraph hit testing and the protocol-side `Style`
+migration (Phases 2–5) remain on the roadmap.
 
 **Supersedes (text stack only):** [ADR-014](#adr-014-gui-technology-stack--winit--wgpu--glyphon) §14-1's selection of glyphon (cosmic-text + swash + etagere). Window management (winit) and GPU API (wgpu) are unchanged. The atlas allocator (etagere) and the swash rasterizer are retained — only cosmic-text's layout/buffer abstraction and the glyphon-derived text pipeline are replaced.
 

@@ -63,55 +63,37 @@ pub struct SceneRenderer {
     /// Text post-processing effects (shadow, glow).
     text_effects: TextEffects,
 
-    /// ADR-031 Parley text stack — Phase 9 scaffold integration.
-    ///
-    /// Currently parallel to the cosmic-text path: the field is initialised
-    /// in [`SceneRenderer::new`] and exercised by hit-test/metrics helpers,
-    /// but the production rendering path still runs through cosmic-text. The
-    /// Parley text shaping + font context (FontContext + LayoutContext).
+    // ADR-031: Parley text stack. See `parley_text/mod.rs` for the
+    // module decomposition.
+    /// Parley shaping + font context (FontContext + LayoutContext).
     parley_text: super::parley_text::ParleyText,
-
-    // ADR-031 Phase 9b Step 4a — Parley render pipeline integration.
-    //
-    // These fields hold the GPU-side Parley state (renderer, atlases, the
-    // L1/L2 caches, the rasteriser). Phase 9b Step 4b will branch the
-    // process_draw_* handlers into a Parley path that drives them.
-    /// L1: per-line shaped Parley layouts. Hit on cursor-only frames.
-    /// Smoke bypasses this; production text routing (Phase 9b Step 4c+)
-    /// will route through it once the L2/L3 architecture issue is fixed.
+    /// L1: per-line shaped Parley layouts. Cache hits on cursor-only
+    /// frames skip the dominant CPU cost (whole-line shaping).
+    /// Currently allocated but not yet referenced — wiring it through
+    /// `process_render_paragraph_parley` is staged with the proper
+    /// glyph-accurate cursor work.
     #[allow(dead_code)]
     parley_layout_cache: super::parley_text::layout_cache::LayoutCache,
     /// swash::ScaleContext owner — reused across frames.
     parley_glyph_rasterizer: super::parley_text::glyph_rasterizer::GlyphRasterizer,
-    /// L2 + L3: glyph bitmap cache + atlas-slot bookkeeping.
-    /// Currently unused: the L2's CPU-only `AtlasShelf` produces slot
-    /// coordinates that do not match the GPU `parley_*_atlas` layouts.
-    /// Phase 9b Step 4c will fix the architecture so L2 owns the GPU
-    /// atlases directly.
-    #[allow(dead_code)]
+    /// L2 glyph bitmap cache. Owns the LRU; the atlases live below.
     parley_raster_cache: super::parley_text::raster_cache::GlyphRasterCache,
-    /// L3 GPU mask atlas (R8Unorm). Pairs with the CPU side inside
-    /// `parley_raster_cache`. Phase 9b Step 4b uploads to this.
+    /// L3 GPU mask atlas (R8Unorm).
     parley_mask_atlas: super::parley_text::gpu_atlas::GpuAtlasShelf,
-    /// L3 GPU colour atlas (Rgba8Unorm). Used for emoji glyphs.
+    /// L3 GPU colour atlas (Rgba8Unorm) — emoji and colour outlines.
     parley_color_atlas: super::parley_text::gpu_atlas::GpuAtlasShelf,
     /// wgpu glue: vertex buffer + pipeline + bind groups.
     parley_renderer: super::parley_text::parley_text_renderer::ParleyTextRenderer,
     /// Shared shader / bind-group-layout cache (owns the wgpu pipeline
-    /// state). Reused by both `text_renderer` (cosmic-text) and
-    /// `parley_renderer` so the two renderers issue compatible draw calls
-    /// against the same pipeline.
+    /// state). Used by `parley_renderer`.
     cache: Cache,
-    /// Per-frame Parley drawable accumulator. Populated by
-    /// `parley_emit_text` (called from `process_draw_text` when the env
-    /// var is on) and drained by `parley_finalize_frame` before the
-    /// render pass starts. Currently only DrawText is wired into Parley;
-    /// DrawAtoms / RenderParagraph / DrawPaddingRow continue on the
-    /// cosmic-text path until later steps.
+    /// Per-frame drawable accumulator. Populated by `parley_emit_text`
+    /// during the layer's DrawCommand walk and drained by
+    /// `parley_finalize_frame` before the render pass executes.
     parley_drawables: Vec<super::parley_text::frame_builder::DrawableGlyph>,
 }
 
-/// Diagnostic kill-switch for the Phase 9b Step 4c L2 raster cache.
+/// Diagnostic kill-switch for the Parley L2 raster cache.
 /// Set `KASANE_PARLEY_NO_CACHE=1` to invalidate the cache + clear both
 /// atlases at the start of every frame. Useful for atlas / eviction
 /// debugging; harmless otherwise. Cached on first read.
