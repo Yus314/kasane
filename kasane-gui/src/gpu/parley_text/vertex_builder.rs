@@ -77,6 +77,11 @@ impl ParleyGlyphVertex {
         // y grows downward).
         let left = (g.px + f32::from(g.left)).round() as i32;
         let top = (g.py - f32::from(g.top)).round() as i32;
+        tracing::info!(
+            target: "kasane::parley::vertex",
+            "vert: baseline_x={:.2} baseline_y={:.2} swash_left={} swash_top={} dim=({},{}) -> pos=({},{})",
+            g.px, g.py, g.left, g.top, g.width, g.height, left, top
+        );
         Self {
             pos: [left, top],
             dim: [g.width, g.height],
