@@ -38,7 +38,6 @@ No active workstream. All prior workstreams (ADR-030 Levels 1–6, Semantic Zoom
 | Semantic Zoom Phase 3 | Per-pane zoom (requires plugin instance state) |
 | Semantic Zoom Phase 4 | WIT extension (WASM plugins define custom zoom strategies) |
 | Semantic Zoom Phase 5 | Level 5 MAP (module dependency graph display) |
-| GPU cursor-only fast path | Skip full DrawCommand processing on cursor-animation-only frames. Defer until line-shaping cache telemetry (`KASANE_LOG=kasane::line_cache=debug`) shows residual CPU >2 ms on cursor-move frames |
 | GPU hardware stencil clipping | Activate the existing `depth_stencil.rs` infrastructure (stencil_write_increment / stencil_write_decrement). Defer until a UI feature requires non-rectangular clipping (e.g. rounded `Container` border radius) |
 
 ## 3. Completed Workstreams
