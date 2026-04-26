@@ -382,109 +382,38 @@ impl SceneRenderer {
     /// fine for a smoke test of fixed-size content.
     ///
     /// No-op unless `KASANE_TEXT_BACKEND=parley` is set.
-    /// Emit a multi-atom run through Parley. Each atom keeps its own
-    /// face / colour because [`StyledLine::from_atoms`] preserves per-atom
-    /// brushes via `StyleProperty::Brush` spans, and the glyph walk below
-    /// extracts the run's brush from `cluster.first_style().brush`.
+    /// Emit a multi-atom run through Parley by shaping each atom
+    /// independently and snapping each to its cell-grid x. Mirrors the
+    /// cosmic-text DrawAtoms layout strategy (atom_estimated_x =
+    /// cumulative cell_w × unicode_width), so per-atom positions match
+    /// the cell-grid backgrounds + decorations emitted in
+    /// `process_draw_atoms_parley`.
+    ///
+    /// We deliberately do NOT shape the whole `[atom]` slice as one
+    /// Parley `StyledLine`: a single Parley layout would lay glyphs out
+    /// at Parley's continuous advance, drifting from the cell-grid
+    /// coordinates the rest of the renderer assumes. Per-atom shaping
+    /// loses cross-atom shaping (ligatures across atom boundaries) but
+    /// that boundary is rare in Kakoune UI atoms (which differ in
+    /// face/colour and so already break ligatures naturally).
     pub(crate) fn parley_emit_atoms(
         &mut self,
         atoms: &[kasane_core::render::ResolvedAtom],
         px: f32,
         py: f32,
-        _color_resolver: &ColorResolver,
+        color_resolver: &ColorResolver,
     ) {
-        use super::parley_text::Brush as PBrush;
-        use super::parley_text::frame_builder::DrawableGlyph;
-        use super::parley_text::glyph_rasterizer::{ContentKind, SubpixelX};
-        use super::parley_text::shaper::shape_line_with_default_family;
-        use super::parley_text::styled_line::StyledLine;
-        use kasane_core::protocol::{Atom, Style};
-        use parley::PositionedLayoutItem;
-
         if atoms.is_empty() {
             return;
         }
-
-        let kasane_atoms: Vec<Atom> = atoms
-            .iter()
-            .map(|r| Atom {
-                face: r.face,
-                contents: r.contents.as_str().into(),
-            })
-            .collect();
-        let line = StyledLine::from_atoms(
-            &kasane_atoms,
-            &Style::default(),
-            PBrush::opaque(255, 255, 255),
-            self.font_size,
-            None,
-        );
-        let parley_layout = shape_line_with_default_family(&mut self.parley_text, &line);
-
-        for layout_line in parley_layout.layout.lines() {
-            let line_metrics = layout_line.metrics();
-            let line_baseline = py + line_metrics.baseline;
-
-            for item in layout_line.items() {
-                let PositionedLayoutItem::GlyphRun(run) = item else {
-                    continue;
-                };
-                let parley_run = run.run();
-                let font = parley_run.font();
-                let font_size = parley_run.font_size();
-                let Some(font_ref) =
-                    swash::FontRef::from_index(font.data.data(), font.index as usize)
-                else {
-                    continue;
-                };
-                // Per-run brush from the first cluster's resolved style.
-                let brush = parley_run
-                    .clusters()
-                    .next()
-                    .map(|c| c.first_style().brush)
-                    .unwrap_or_default();
-
-                for glyph in run.positioned_glyphs() {
-                    let abs_x = px + glyph.x;
-                    let abs_y = line_baseline + glyph.y;
-                    let subpx = SubpixelX::from_fract(abs_x);
-                    let glyph_id = glyph.id as u16;
-
-                    let raster = match self
-                        .parley_glyph_rasterizer
-                        .rasterize(font_ref, glyph_id, font_size, subpx, true)
-                    {
-                        Some(r) => r,
-                        None => continue,
-                    };
-
-                    let atlas = match raster.content {
-                        ContentKind::Mask => &mut self.parley_mask_atlas,
-                        ContentKind::Color => &mut self.parley_color_atlas,
-                    };
-                    let raster_w = raster.width;
-                    let raster_h = raster.height;
-                    let raster_left = raster.left;
-                    let raster_top = raster.top;
-                    let raster_content = raster.content;
-                    let Some(slot) = atlas.allocate_and_queue(raster_w, raster_h, raster.data)
-                    else {
-                        continue;
-                    };
-
-                    self.parley_drawables.push(DrawableGlyph {
-                        px: abs_x,
-                        py: abs_y,
-                        width: raster_w,
-                        height: raster_h,
-                        left: raster_left,
-                        top: raster_top,
-                        content: raster_content,
-                        atlas_slot: slot,
-                        brush,
-                    });
-                }
+        let cell_w = self.metrics.cell_width;
+        let mut x = px;
+        for atom in atoms {
+            let atom_w = line_display_width_str(&atom.contents) as f32 * cell_w;
+            if !atom.contents.is_empty() {
+                self.parley_emit_text(&atom.contents, &atom.face, x, py, color_resolver);
             }
+            x += atom_w;
         }
     }
 
