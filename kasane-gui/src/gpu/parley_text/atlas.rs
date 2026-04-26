@@ -34,12 +34,18 @@ pub struct AtlasSlot {
 /// overhead and almost always need to grow on the first emoji.
 pub const MIN_ATLAS_SIZE: u16 = 256;
 
-/// Default starting atlas dimension. Picked to fit ~80×24 ASCII at
-/// 14 px without growth (each glyph ~9×16 ≈ 144 px²; 1920 cells ×
-/// 144 = 276 480 px², comfortably below 256² = 65 536 ✗ — wait, 256² is
-/// only 65 536, far too small). Setting to 512² = 262 144 covers ASCII
-/// + emoji + multi-size variants up to mid-size buffers.
-pub const DEFAULT_ATLAS_SIZE: u16 = 512;
+/// Default starting atlas dimension. Sized to comfortably fit a full
+/// frame's worth of glyphs at HiDPI without growth, since the Phase 9b
+/// renderer clears the atlas every frame (no L2 cache reuse yet).
+///
+/// Budget at 40 px font (HiDPI mid-size): ~24×40 ≈ 960 px² per glyph.
+/// 2048² = 4 194 304 px² → ~4 350 glyph slots, enough for a buffer view
+/// plus a long command-palette menu plus the status bar in one frame.
+/// Smaller defaults (e.g. 512²) cause silent skip when the menu opens:
+/// only narrow glyphs (`-`, `.`, `_`) fit the leftover slot pattern,
+/// producing the "menu items collapse to a row of dashes" symptom that
+/// surfaced during Phase 9b Step 4e bring-up.
+pub const DEFAULT_ATLAS_SIZE: u16 = 2048;
 
 /// Maximum atlas dimension. wgpu requires textures ≤ device max (typically
 /// 8192 or 16384); we cap at 4096 to stay below the smaller WebGPU
