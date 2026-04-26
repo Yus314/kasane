@@ -15,7 +15,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Scope | Current | **Complete frontend replacement** | Replaces Kakoune's terminal UI, adds frontend-native capabilities |
 | Rendering approach | Current | **TUI + GUI hybrid** | TUI for SSH/tmux, GUI for native window |
 | TUI library | Current | **crossterm direct** | Full rendering control |
-| GUI toolkit | Current | **winit + wgpu + glyphon** | Details in [ADR-014](#adr-014-gui-technology-stack--winit--wgpu--glyphon) |
+| GUI toolkit | Current | **winit + wgpu + glyphon** | Text stack migration to Parley + swash in progress (see [ADR-031](#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign)). Window/GPU layer unchanged. Original decision in [ADR-014](#adr-014-gui-technology-stack--winit--wgpu--glyphon) |
 | Configuration format | Current | **Unified KDL + ui_options** | Single `kasane.kdl` for config + widgets. Supersedes ADR-003 (TOML + separate widgets.kdl) |
 | Crate structure | Current | **Cargo workspace** | `kasane-core` / `kasane-tui` / `kasane-gui` / `kasane` / `kasane-macros` / `kasane-wasm` / `kasane-wasm-bench` |
 | Kakoune version | Current | **Latest stable only** | Leverages new protocol features |
@@ -2021,6 +2021,167 @@ Phase 5b — `EffectCategory` + `EffectFootprint`:
   error. The `&mut AppState` surface remains available for non-protocol
   paths (plugin lifecycle, user commands) where broader mutation is
   intentional.
+
+## ADR-031: Text Stack Migration — cosmic-text → Parley + swash, with Protocol Style Redesign
+
+**Status:** Proposed (Phase 0 — baseline capture and ADR drafting)
+
+**Supersedes (text stack only):** [ADR-014](#adr-014-gui-technology-stack--winit--wgpu--glyphon) §14-1's selection of glyphon (cosmic-text + swash + etagere). Window management (winit) and GPU API (wgpu) are unchanged. The atlas allocator (etagere) and the swash rasterizer are retained — only cosmic-text's layout/buffer abstraction and the glyphon-derived text pipeline are replaced.
+
+### Context
+
+ADR-014 selected glyphon in 2024 because cosmic-term (the COSMIC Desktop terminal) demonstrated proven monospace grid rendering on the same stack, and Vello was rejected for lacking a glyph cache, having unstable APIs, and requiring compute shaders.
+
+Operational experience since then has surfaced four limitations of the cosmic-text portion of the stack:
+
+1. **Internal layout maintenance velocity.** cosmic-text implements its own bidi/script-segmentation layout layer in safe Rust. Recent fixes for RTL cursor double-rendering (`2f7c0ab9`) and CJK cursor width clamping (`4d48bbd9`) were symptomatic patches over the layout layer; an ICU4X-based layout would have eliminated the underlying class of bug.
+2. **No inline widget primitive.** `DisplayDirective::InsertInline` currently materialises virtual text as cell-grid-level atoms, which interacts awkwardly with display column accounting. Parley exposes `inline_box(width, height)` as a first-class layout primitive, dissolving the impedance mismatch.
+3. **Decoration expressiveness.** The current pipeline hard-codes four underline styles via `quad_pipeline.rs::DECO_*` quads with `cell_h * 0.2` amplitude. cosmic-text does not surface per-font underline metrics; Parley's `LineMetrics::underline_offset/size` does.
+4. **Variable font support.** cosmic-text exposes weight as a discrete enum (`Weight::BOLD` etc.). Parley accepts continuous `FontWeight(u16)` and arbitrary `FontVariations`, opening LSP semantic highlighting use cases that the current API cannot represent.
+
+The Linebender ecosystem has matured during 2025-2026: Parley v0.5 ships with full UAX#9 bidi via ICU4X, Bevy migrated from cosmic-text to Parley, an egui PR is in flight, and CuTTY (Alacritty fork ported to Vello + Parley) demonstrates that Parley handles terminal-class workloads. The ADR-014 critique of Vello (no glyph cache, compute shader requirement) does **not** apply to Parley used directly with swash and an existing atlas — that combination preserves Kasane's L1/L2/L3 caching architecture.
+
+A user-facing constraint reinforces the timing: any new feature added to the text path (rich underline, variable font, inline boxes) requires plugin authors to update plugins regardless of the choice of layout engine. Bundling the migration with these features amortises the disruption into a single ABI break instead of three sequential ones.
+
+### Decision
+
+Adopt the full Linebender text stack: **Parley** (layout) + **HarfRust** (shaping, internal to Parley) + **Skrifa** (font analysis) + **Fontique** (font discovery) + **ICU4X** (bidi/segmentation) + **swash** (rasterization, called directly). Remove `cosmic-text` from the workspace.
+
+Concurrently redesign the protocol-level text representation across `kasane-core`, `kasane-tui`, `kasane-wasm`/WIT, and all bundled plugins. **No backward compatibility is preserved** for internal types or the WIT plugin ABI; the Kakoune wire format (which Kasane does not control) is the only invariant.
+
+| Library | Role | Replaces |
+|---------|------|----------|
+| Parley | Rich text layout, line breaking, bidi runs, glyph positioning, inline boxes | cosmic-text `Buffer` / `LayoutRun` |
+| HarfRust | Shaping engine (called by Parley) | rustybuzz (called by cosmic-text) |
+| Skrifa | Font table parsing | swash internal (overlapping) |
+| Fontique | Font discovery, fallback chains | cosmic-text `FontSystem` + fontdb |
+| ICU4X | Unicode bidi / grapheme / line break | cosmic-text custom implementation |
+| swash | Glyph rasterization (called directly, not via SwashCache) | cosmic-text `SwashCache` |
+| etagere | Texture atlas packing (retained) | — |
+| wgpu, winit | GPU and window (retained) | — |
+
+### Type Redesign
+
+A canonical `Style` type replaces the two coexisting representations (`Face` + `cosmic_text::Attrs`):
+
+```rust
+// kasane-core/src/protocol/style.rs (new)
+pub struct Style {
+    pub fg: Brush,
+    pub bg: Brush,
+    pub font_weight: FontWeight,                       // u16, 100..=900
+    pub font_slant: FontSlant,                         // Normal | Italic | Oblique
+    pub font_features: FontFeatures,                   // bitset
+    pub font_variations: SmallVec<[FontVariation; 2]>,
+    pub underline: Option<TextDecoration>,
+    pub strikethrough: Option<TextDecoration>,
+    pub letter_spacing: f32,
+    pub bidi_override: Option<BidiOverride>,
+    pub blink: bool,
+    pub reverse: bool,
+}
+pub enum Brush { Default, Solid([u8; 4]), Named(NamedColor) }
+pub struct TextDecoration {
+    pub style: DecorationStyle,    // Solid | Curly | Dotted | Dashed | Double
+    pub color: Brush,
+    pub thickness: Option<f32>,    // None = font metrics
+}
+
+// kasane-core/src/protocol/message.rs (redesigned)
+pub struct Atom { pub text: CompactString, pub style: Style }
+```
+
+The TUI backend consumes a `TerminalStyle` projection of `Style` (continuous `FontWeight` collapses to bool, `FontVariations` are dropped, `Brush` resolves to the closest 24-bit / 256-colour / 16-colour value). The WIT plugin ABI mirrors `Style` / `Brush` / `TextDecoration` and bumps to a major version. Old plugin binaries are rejected at load time; bundled plugins (`examples/wasm/*`, `examples/line-numbers/`, `examples/virtual-text-demo/`, `examples/image-test/`) are rewritten against the new SDK as part of the migration.
+
+### GPU Pipeline Redesign
+
+```
+StyledLine                              kasane-gui/src/gpu/parley_text/styled_line.rs
+   │                       (atom stream + base style + InlineBoxSlot table)
+   ▼
+[L1 LayoutCache]            line_idx → Arc<ParleyLayout>           parley_text/layout_cache.rs
+   ▼                       Wholesale invalidate on font/metrics change.
+ParleyLayout                                                         parley_text/layout.rs
+   │
+   ▼
+[GlyphRasterizer]           swash::scale::ScaleContext (1 per app)  parley_text/glyph_rasterizer.rs
+   │                       Subpixel x quantised to 4 levels (0,1/4,2/4,3/4).
+   ▼                       Color emoji via Source::ColorOutline.
+[L2 GlyphRasterCache]       (font_id, glyph_id, size_q, subpx_x,    parley_text/raster_cache.rs
+   │                        var_hash, hint) → bitmap + atlas slot.
+   ▼                       L2 ↔ L3 bidirectional evict link.
+[L3 AtlasShelf]             etagere allocator + LRU (retained)      parley_text/atlas.rs
+   ▼
+GlyphInstance → wgpu pipeline (vertex layout retained)              parley_text/text_pipeline.rs
+```
+
+L1 invalidation triggers (font_size / metrics / max_width / context generation) match the existing `LineShapingCache` semantics, so cursor-only frame hit-rate (≥ 90%) is preserved. The 3-tier separation gives sharing across lines for hot glyphs, which the existing 2-tier (Buffer slot + SwashCache) cannot.
+
+### Phased Execution
+
+13 phases, ~14 weeks, each terminating in a `parley-phase-N` git tag for partial revert capability. Detail in `/home/kaki/.claude/plans/majestic-bubbling-planet.md` (planning artefact, not a project file).
+
+| Phase | Scope | Duration |
+|---|---|---|
+| 0 | Capture pre-parley benchmark baselines (4 scenarios), draft this ADR | 3-4 days |
+| 1 | Design and implement `Style` / `Atom` / `Brush`; rewrite Kakoune protocol parser; update kasane-core unit tests | 2 weeks |
+| 2 | Migrate kasane-core internal types (DrawCommand, BufferParagraph, CellGrid, DisplayDirective, widgets, state) | 2 weeks |
+| 3 | Update kasane-tui (`emit_sgr_diff` → TerminalStyle) and TUI bench | 1 week |
+| 4 | Redesign WIT plugin ABI (style record, decoration record, brush variant), regenerate SDK bindings | 1 week |
+| 5 | Rewrite all 10 bundled WASM plugins, native example, virtual-text-demo, image-test against new SDK | 1 week |
+| 6 | Add Parley/swash/fontique/skrifa/icu deps to kasane-gui, scaffold ParleyText facade | 0.5 week |
+| 7 | Implement StyledLineBuilder, ParleyShaper, ParleyLayout, L1 LayoutCache, port line_cache.rs tests | 1.5 weeks |
+| 8 | Implement GlyphRasterizer (swash direct), L2 GlyphRasterCache, L2↔L3 evict link, new text pipeline | 1 week |
+| 9 | Switch SceneRenderer to Parley path (cosmic-text retained behind `KASANE_TEXT_BACKEND` for A/B verification only) | 1 week |
+| 10 | Implement 5 features: RTL hit-test (ICU4X cluster), InlineBox (parley `push_inline_box`), Variable font, Subpixel positioning, rich underline (Parley `LineMetrics`) | 1 week |
+| 11 | Remove cosmic-text from Cargo.toml, delete legacy text_pipeline / line_cache, hot-path optimisation, baseline comparison | 1 week |
+| 12 | Documentation finalisation, golden image test skeleton (4 scenarios), CHANGELOG | 1 week |
+
+### Performance Targets
+
+Captured at Phase 0 against current main; verified at Phase 11 against the same machine.
+
+| Metric | pre-parley baseline | Phase 11 target |
+|---|---|---|
+| 80×24 mean (`gpu/cpu_rendering`) | ~57 μs | ≤ 70 μs (+23 %) |
+| 200×60 mean | TBD@Phase 0 | pre-parley + 25 % |
+| 95p latency | TBD@Phase 0 | regression ≤ +30 % |
+| iai-callgrind instructions | TBD@Phase 0 | pre-parley + 10 % |
+| L1 hit-rate (cursor-only frame) | (existing `LineShapingCache`) | ≥ 90 % |
+| Atlas memory @1080p | (current) | ≤ 1.5× (4-step subpixel cost) |
+
+The +23 % CPU budget reflects the deliberate trade: Parley's richer feature set (variable font axes per glyph, ICU4X bidi runs, inline box layout, real subpixel positioning) is paid for in steady-state cost. ADR-024 (perception-oriented performance policy) governs the acceptability of the new absolute number — 70 μs at 80×24 remains comfortably below the 16 ms frame budget.
+
+### Rejected Alternatives
+
+| Alternative | Reason for rejection |
+|---|---|
+| Parley with the existing `Atom { face: Face }` retained | Forces a permanent `Face → parley::StyleProperty` adapter layer with bitflags-to-structured-style translation on every line. Doubles the impedance mismatch instead of resolving it. |
+| Phase-0-only spike with no full migration commitment | The user explicitly opted out of backward compatibility; partial commitment leaves two parallel face systems indefinitely. |
+| Vello (full compute path) | Per ADR-014: requires compute shaders, no glyph cache, no API stability. Mismatched with cell-grid + glyph workload. Re-evaluation possible after Vello 1.0; orthogonal to this ADR. |
+| Migrate text layout only, defer protocol/WIT redesign | Plugin authors face two ABI breaks (one for Parley features, one for protocol cleanup) instead of one. Worse for the plugin ecosystem. |
+| Stay on cosmic-text and patch around limitations | Layout-layer maintenance velocity is the primary motivator; patching extends the velocity gap rather than closing it. |
+
+### Risks and Mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Parley v0.5 → v0.6 introduces breaking changes mid-migration | `Cargo.lock` pinned for the entire 14-week window; version bump deferred to a follow-up issue |
+| Performance target unmet at Phase 11 | Phase 9 abort gate (>50 % regression triggers Phase 11 micro-opt block to be pulled forward); follow-up issue for residual regression |
+| ICU4X binary size increase | Release build strip + LTO; tolerated +15 MB |
+| Parley shape/raster differences vs cosmic-text on niche fonts | Issue tracker for per-font reports; minimum repros required |
+| WASM plugin authors disrupted | Bundled plugins all rewritten in Phase 5 as worked examples; ADR-031 referenced from CHANGELOG |
+| 14-week schedule overruns | Each phase tag is an interruptable boundary; partial merges acceptable |
+| Subpixel atlas growth (4× entries per glyph) | Strict L2 LRU bound; profiling-driven cap adjustment |
+
+### Implications
+
+- **ADR-014 §14-1 is partially superseded.** The text rendering portion of the GUI stack is replaced; the ADR-014 row in the Decision Summary is updated to point here. ADR-014's window/GPU portion (winit + wgpu) and the shared etagere atlas remain authoritative.
+- **WIT plugin ABI breaks.** Plugin authors must rebuild against the new SDK; the host rejects the old binary format at load time.
+- **Kakoune wire format is unchanged.** The Kakoune ↔ Kasane interaction is invariant under this ADR; only the internal Kasane-side representation of styled atoms is redesigned.
+- **TUI behaviour preserved within representable limits.** The Style → TerminalStyle projection is lossy (continuous weight → bold bool, variations dropped, brushes quantised to terminal palette). Where the current TUI displays a face, the new TUI displays the same approximation.
+- **Five new features ship together.** RTL/Bidi hit-testing, inline boxes, variable font axes, subpixel positioning, and rich underline (curly/dotted/dashed/double with font-metric-driven amplitude) become available to plugins via the redesigned WIT and Style API.
+- **Vello adoption is unblocked, not committed.** Migrating text to Parley reduces the integration cost of a future Vello evaluation, but Vello adoption itself is out of scope for this ADR.
 
 ## Related Documents
 
