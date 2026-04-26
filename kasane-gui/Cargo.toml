@@ -9,6 +9,10 @@ kasane-core = { workspace = true, features = ["svg"] }
 winit = { workspace = true }
 wgpu = { workspace = true }
 cosmic-text = { workspace = true }
+# ADR-031: Parley scaffold (Phase 6). Coexists with cosmic-text until
+# Phase 11 retires the legacy text pipeline.
+parley = { workspace = true }
+swash = { workspace = true }
 etagere = { workspace = true }
 lru = { workspace = true }
 rustc-hash = { workspace = true }
@@ -25,4 +29,8 @@ kasane-core = { workspace = true }
 
 [[bench]]
 name = "cpu_rendering"
+harness = false
+
+[[bench]]
+name = "parley_pipeline"
 harness = false

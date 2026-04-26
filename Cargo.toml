@@ -46,6 +46,10 @@ kasane-wasm = { path = "kasane-wasm" }
 winit = "0.30"
 wgpu = "29"
 cosmic-text = "0.18"
+# ADR-031 text stack migration: parley + companions are added as scaffold for
+# Phase 6+. Coexist with cosmic-text until Phase 11 cuts the legacy path.
+parley = "0.9"
+swash = "0.2"
 etagere = "0.3"
 lru = { version = "0.17", default-features = false }
 rustc-hash = "2"
