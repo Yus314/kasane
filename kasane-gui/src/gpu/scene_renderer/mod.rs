@@ -492,33 +492,6 @@ impl SceneRenderer {
         );
         let parley_layout = shape_line_with_default_family(&mut self.parley_text, &line);
 
-        // Debug: log per-emission font_id resolution (Phase 9b
-        // info-popup glyph regression triangulation). One info line
-        // per shape call; the user redirects stderr to a file via
-        // `2> /tmp/parley.log` and greps after exit, so SIGPIPE on
-        // `head` cannot kill the process.
-        for line_iter in parley_layout.layout.lines() {
-            for item in line_iter.items() {
-                if let parley::PositionedLayoutItem::GlyphRun(run) = item {
-                    let parley_run = run.run();
-                    let font_id = super::parley_text::font_id::font_id_from_data(parley_run.font());
-                    let glyphs: Vec<u16> = run
-                        .positioned_glyphs()
-                        .map(|g| g.id as u16)
-                        .take(6)
-                        .collect();
-                    tracing::info!(
-                        target: "kasane::parley::run",
-                        text_preview = %text.chars().take(20).collect::<String>(),
-                        text_chars = text.chars().count(),
-                        font_id,
-                        font_size = parley_run.font_size(),
-                        first_6_glyphs = ?glyphs,
-                    );
-                }
-            }
-        }
-
         let (visual_fg, _bg, _needs_bg) = color_resolver.resolve_face_colors_linear(face);
         let brush = PBrush::rgba(
             (visual_fg[0].clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -625,6 +598,11 @@ impl SceneRenderer {
     /// Used to confirm whether a bug originates in the cache layer.
     fn parley_frame_start(&mut self) {
         self.parley_drawables.clear();
+        // Bump the L2 cache's frame epoch so eviction can distinguish
+        // entries already drawable-pushed in this frame from older
+        // ones (Phase 9b Step 4c follow-up — fixes the "info popup
+        // glyphs appear scrambled" bug caused by mid-frame slot reuse).
+        self.parley_raster_cache.bump_epoch();
         if parley_cache_disabled() {
             self.parley_raster_cache.invalidate_all();
             self.parley_mask_atlas.clear();

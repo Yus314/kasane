@@ -87,6 +87,13 @@ pub struct GlyphRasterEntry {
     pub content: ContentKind,
     pub atlas_slot: AtlasSlot,
     pub data: Vec<u8>,
+    /// Last frame epoch in which this entry was hit or freshly inserted.
+    /// Eviction protocol refuses to drop entries with `last_used_epoch ==
+    /// current_epoch` because doing so would corrupt drawables already
+    /// pushed into the per-layer accumulator in the same frame: the
+    /// queued upload would overwrite the slot under their feet. See
+    /// [`GlyphRasterCache::bump_epoch`].
+    pub last_used_epoch: u64,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +129,11 @@ pub trait AtlasOps {
 pub struct GlyphRasterCache {
     entries: LruCache<GlyphRasterKey, GlyphRasterEntry, FxBuildHasher>,
     stats: CacheStats,
+    /// Monotonic frame counter. Bumped via [`Self::bump_epoch`] at the
+    /// start of every frame; entries record this on hit/insert so the
+    /// eviction loop can refuse to drop slots whose drawable is already
+    /// queued in the current frame's vertex buffer.
+    current_epoch: u64,
 }
 
 impl GlyphRasterCache {
@@ -130,7 +142,21 @@ impl GlyphRasterCache {
         Self {
             entries: LruCache::with_hasher(capacity, FxBuildHasher),
             stats: CacheStats::default(),
+            current_epoch: 1,
         }
+    }
+
+    /// Bump the frame epoch. Call once at the start of each frame
+    /// before any `get_or_insert` calls. Entries inserted or hit in
+    /// the new frame become non-evictable (within the frame); entries
+    /// from previous frames remain candidates for atlas-full eviction.
+    pub fn bump_epoch(&mut self) {
+        self.current_epoch = self.current_epoch.wrapping_add(1);
+    }
+
+    /// Current frame epoch. Exposed for diagnostics and tests.
+    pub fn current_epoch(&self) -> u64 {
+        self.current_epoch
     }
 
     /// Convenience constructor sized for a typical 80×24 viewport
@@ -145,13 +171,18 @@ impl GlyphRasterCache {
         self.entries.peek(key)
     }
 
-    /// Look up `key`. On hit, the entry is promoted to MRU and returned.
+    /// Look up `key`. On hit, the entry is promoted to MRU, its
+    /// `last_used_epoch` is updated to the current frame, and a
+    /// reference is returned.
     pub fn get(&mut self, key: &GlyphRasterKey) -> Option<&GlyphRasterEntry> {
-        let hit = self.entries.get(key);
-        if hit.is_some() {
+        let epoch = self.current_epoch;
+        let hit = self.entries.get_mut(key);
+        if let Some(entry) = hit {
             self.stats.hits += 1;
+            entry.last_used_epoch = epoch;
+            return Some(&*entry);
         }
-        hit
+        None
     }
 
     /// Hit-or-miss with on-demand rasterisation.
@@ -174,9 +205,15 @@ impl GlyphRasterCache {
     where
         R: FnOnce() -> Option<RasterizedGlyph>,
     {
+        let epoch = self.current_epoch;
         if self.entries.contains(&key) {
             self.stats.hits += 1;
-            return self.entries.get(&key);
+            // Tag as touched this frame so eviction-loops below leave
+            // it alone.
+            if let Some(entry) = self.entries.get_mut(&key) {
+                entry.last_used_epoch = epoch;
+            }
+            return self.entries.peek(&key);
         }
         let raster = rasterize()?;
         debug_assert_eq!(raster.data.len(), raster.expected_data_len());
@@ -191,12 +228,25 @@ impl GlyphRasterCache {
             data,
         } = raster;
 
-        // Atlas allocation with retry-on-full eviction.
+        // Atlas allocation with eviction restricted to entries from
+        // earlier frames. Same-frame entries already have drawables
+        // pointing at their slots; deallocating + reusing those slots
+        // would let the queued upload corrupt them mid-frame.
         let slot = loop {
             if let Some(slot) = atlases.allocate(content, width, height, &data) {
                 break slot;
             }
-            let (_, evicted) = self.entries.pop_lru()?;
+            let evictable = self
+                .entries
+                .peek_lru()
+                .map(|(_, v)| v.last_used_epoch < epoch)
+                .unwrap_or(false);
+            if !evictable {
+                // No safe candidate to evict — accept the loss for
+                // this glyph rather than corrupt an in-flight one.
+                return None;
+            }
+            let (_, evicted) = self.entries.pop_lru().expect("peek succeeded");
             atlases.deallocate(evicted.content, &evicted.atlas_slot);
             self.stats.atlas_evictions += 1;
         };
@@ -209,8 +259,25 @@ impl GlyphRasterCache {
             content,
             atlas_slot: slot,
             data,
+            last_used_epoch: epoch,
         };
 
+        // LRU push may evict the oldest entry; same-frame protection
+        // also applies here. If the oldest is from this frame, skip
+        // the insertion (the caller still gets the drawable for *this*
+        // glyph — we just don't keep it cached).
+        let oldest_in_frame = self
+            .entries
+            .peek_lru()
+            .map(|(_, v)| v.last_used_epoch == epoch)
+            .unwrap_or(false);
+        if self.entries.len() >= self.entries.cap().get() && oldest_in_frame {
+            // Cache full of in-frame entries: deallocate the slot we
+            // just allocated and return None so the caller skips the
+            // glyph (rather than corrupting a sibling).
+            atlases.deallocate(content, &slot);
+            return None;
+        }
         if let Some((_evicted_key, evicted)) = self.entries.push(key, entry) {
             atlases.deallocate(evicted.content, &evicted.atlas_slot);
             self.stats.lru_evictions += 1;
@@ -377,8 +444,14 @@ mod tests {
     fn lru_eviction_releases_atlas_slot() {
         let mut cache = GlyphRasterCache::new(NonZeroUsize::new(2).unwrap());
         let mut at = TestAtlases::new(256);
+        // Same-frame eviction is disallowed by design (the entry's
+        // drawable would be rendered with the new bitmap). Bump the
+        // epoch between inserts to simulate cross-frame evictions —
+        // the only kind the production cache performs.
         insert(&mut cache, &mut at, key(1, 1), mask_raster(8, 16));
+        cache.bump_epoch();
         insert(&mut cache, &mut at, key(1, 2), mask_raster(8, 16));
+        cache.bump_epoch();
         insert(&mut cache, &mut at, key(1, 3), mask_raster(8, 16));
         let stats = cache.take_stats();
         assert_eq!(stats.lru_evictions, 1);
@@ -394,8 +467,12 @@ mod tests {
     fn atlas_full_triggers_eviction_then_succeeds() {
         let mut cache = GlyphRasterCache::new(NonZeroUsize::new(1024).unwrap());
         let mut at = TestAtlases::new(256);
+        // Each glyph is in its own "frame" so atlas-full eviction can
+        // run; otherwise the same-frame guard refuses to evict and
+        // simply skips the new glyph.
         for i in 0..30u16 {
             insert(&mut cache, &mut at, key(1, i), mask_raster(64, 64));
+            cache.bump_epoch();
         }
         let stats = cache.take_stats();
         assert!(
@@ -403,6 +480,31 @@ mod tests {
             "expected atlas evictions, got {stats:?}"
         );
         assert!(cache.len() <= 30);
+    }
+
+    #[test]
+    fn same_frame_eviction_refused() {
+        // All inserts share the same epoch (no bump_epoch between
+        // them). Once the atlas runs out, the new insertion should be
+        // skipped rather than evict an in-flight entry.
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(1024).unwrap());
+        let mut at = TestAtlases::new(256);
+        let mut first_failure = None;
+        for i in 0..30u16 {
+            let ok = insert(&mut cache, &mut at, key(1, i), mask_raster(64, 64));
+            if !ok && first_failure.is_none() {
+                first_failure = Some(i);
+            }
+        }
+        assert!(
+            first_failure.is_some(),
+            "atlas should fill before all 30 glyphs are inserted"
+        );
+        let stats = cache.take_stats();
+        assert_eq!(
+            stats.atlas_evictions, 0,
+            "same-frame eviction must be refused, got {stats:?}"
+        );
     }
 
     #[test]
