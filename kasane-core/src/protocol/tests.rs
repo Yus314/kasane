@@ -582,3 +582,64 @@ fn test_parse_old_protocol_set_cursor() {
     assert!(msg.contains("Kakoune 2024.12.09"));
     assert!(msg.contains("older protocol"));
 }
+
+// ---------------------------------------------------------------------------
+// ADR-031: Atom::style() Parley-native projection from wire format
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_atom_style_projection_from_wire_format() {
+    let json = r#"{"face":{"fg":"red","bg":"black","underline":"default","attributes":["bold","italic"]},"contents":"hello"}"#;
+    let atom: Atom = serde_json::from_str(json).unwrap();
+    let style = atom.style();
+    assert_eq!(style.fg, Brush::Named(NamedColor::Red));
+    assert_eq!(style.bg, Brush::Named(NamedColor::Black));
+    assert_eq!(style.font_weight, FontWeight::BOLD);
+    assert_eq!(style.font_slant, FontSlant::Italic);
+    assert!(style.underline.is_none());
+    assert!(!style.blink);
+    assert!(!style.reverse);
+}
+
+#[test]
+fn test_atom_style_projection_decorations() {
+    let json = r#"{"face":{"fg":"default","bg":"default","underline":"red","attributes":["curly_underline","strikethrough"]},"contents":"x"}"#;
+    let atom: Atom = serde_json::from_str(json).unwrap();
+    let style = atom.style();
+    let underline = style.underline.expect("underline expected");
+    assert_eq!(underline.style, DecorationStyle::Curly);
+    assert_eq!(underline.color, Brush::Named(NamedColor::Red));
+    assert!(style.strikethrough.is_some());
+}
+
+#[test]
+fn test_atom_style_projection_final_flags() {
+    let json = r#"{"face":{"fg":"black","bg":"white","underline":"default","attributes":["final_fg","final_bg"]},"contents":"t"}"#;
+    let atom: Atom = serde_json::from_str(json).unwrap();
+    let style = atom.style();
+    assert!(style.final_fg);
+    assert!(style.final_bg);
+    assert!(!style.final_style);
+    assert_eq!(style.fg, Brush::Named(NamedColor::Black));
+}
+
+#[test]
+fn test_atom_style_projection_rgb_brushes() {
+    let json = r#"{"face":{"fg":"rgb:ff0080","bg":"rgb:204060","underline":"default","attributes":[]},"contents":"x"}"#;
+    let atom: Atom = serde_json::from_str(json).unwrap();
+    let style = atom.style();
+    assert_eq!(style.fg, Brush::rgb(0xff, 0x00, 0x80));
+    assert_eq!(style.bg, Brush::rgb(0x20, 0x40, 0x60));
+}
+
+#[test]
+fn test_atom_style_round_trip_face() {
+    // Atom.style().to_face() must equal the original face for any face whose
+    // attributes lie within the legacy bitset. This is the migration bridge
+    // contract: ported call sites can rely on style(), unported sites can
+    // still read .face directly, and the two views agree.
+    let json = r#"{"face":{"fg":"red","bg":"blue","underline":"green","attributes":["bold","italic","dim","curly_underline","final_fg"]},"contents":"x"}"#;
+    let atom: Atom = serde_json::from_str(json).unwrap();
+    let derived_face = atom.style().to_face();
+    assert_eq!(derived_face, atom.face);
+}

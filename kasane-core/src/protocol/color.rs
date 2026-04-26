@@ -8,7 +8,12 @@ use serde::{Deserialize, Deserializer, Serialize};
 // Color
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Serde derives produce variant-name strings (`"Red"`, `"BrightBlue"`).
+/// The Kakoune wire format does not use this representation directly — the
+/// outer [`Color`] type has a manual serialiser that emits `"red"`,
+/// `"bright-blue"`, etc. The derives here support the new internal
+/// [`Brush`](super::style::Brush) representation introduced in ADR-031.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum NamedColor {
     Black,
     Red,

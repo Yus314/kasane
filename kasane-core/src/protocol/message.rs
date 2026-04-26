@@ -4,6 +4,7 @@ use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
 use super::color::Face;
+use super::style::Style;
 
 // ---------------------------------------------------------------------------
 // Atom / Line / Coord
@@ -13,6 +14,19 @@ use super::color::Face;
 pub struct Atom {
     pub face: Face,
     pub contents: CompactString,
+}
+
+impl Atom {
+    /// Compute this atom's Parley-native [`Style`] view on demand.
+    ///
+    /// Allocation-free for atoms without variable-font axes (the common case);
+    /// the conversion is cheap (a few field copies + bitflag mapping). Used
+    /// during the ADR-031 migration at sites that have been ported to the
+    /// Parley API while [`Atom::face`] is still the wire-format storage.
+    #[inline]
+    pub fn style(&self) -> Style {
+        Style::from_face(&self.face)
+    }
 }
 
 pub type Line = Vec<Atom>;

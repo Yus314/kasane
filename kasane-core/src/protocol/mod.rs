@@ -3,9 +3,11 @@
 mod color;
 mod message;
 mod parse;
+mod style;
 #[cfg(test)]
 mod tests;
 
 pub use color::*;
 pub use message::*;
 pub use parse::*;
+pub use style::*;
