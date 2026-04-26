@@ -548,7 +548,21 @@ impl SceneRenderer {
 
         let baseline = self.metrics.baseline;
         let cell_h = self.metrics.cell_height;
-        let thickness = (cell_h * 0.06).max(1.0);
+        // Phase 10 — prefer the font's own underline geometry when the
+        // metrics layer captured it (Parley path). Falls back to the
+        // historical `cell_h × ratio` heuristic when zero (cosmic path).
+        let ul_thickness = if self.metrics.underline_thickness > 0.0 {
+            self.metrics.underline_thickness
+        } else {
+            (cell_h * 0.06).max(1.0)
+        };
+        // Parley reports underline_offset as the distance from the
+        // baseline to the *top* of the underline; positive = below.
+        let ul_top_below_baseline = if self.metrics.underline_offset > 0.0 {
+            self.metrics.underline_offset
+        } else {
+            ul_thickness
+        };
 
         // Underline color: use face.underline if set, otherwise fallback to fg
         let ul_color = if face.underline != kasane_core::protocol::Color::Default {
@@ -557,41 +571,61 @@ impl SceneRenderer {
             fg
         };
 
+        let ul_y = py + baseline + ul_top_below_baseline;
+
         if attrs.contains(Attributes::UNDERLINE) {
-            let y = py + baseline + thickness;
-            self.quad
-                .push_decoration(x, y, w, thickness, ul_color, quad_pipeline::DECO_SOLID);
+            self.quad.push_decoration(
+                x,
+                ul_y,
+                w,
+                ul_thickness,
+                ul_color,
+                quad_pipeline::DECO_SOLID,
+            );
         }
         if attrs.contains(Attributes::CURLY_UNDERLINE) {
-            // Curly needs more height for the wave amplitude
+            // Curly needs more height for the wave amplitude. Anchor the
+            // wave's mid-line on the underline's top so the visual
+            // weight stays close to where a solid underline would sit.
             let wave_h = (cell_h * 0.2).max(4.0);
-            let y = py + baseline + thickness - wave_h * 0.25;
+            let y = ul_y - wave_h * 0.25;
             self.quad
                 .push_decoration(x, y, w, wave_h, ul_color, quad_pipeline::DECO_CURLY);
         }
         if attrs.contains(Attributes::DOUBLE_UNDERLINE) {
             let double_h = (cell_h * 0.15).max(4.0);
-            let y = py + baseline + thickness - double_h * 0.1;
+            let y = ul_y - double_h * 0.1;
             self.quad
                 .push_decoration(x, y, w, double_h, ul_color, quad_pipeline::DECO_DOUBLE);
         }
         if attrs.contains(Attributes::DOTTED_UNDERLINE) {
             let dot_h = (cell_h * 0.15).max(4.0);
-            let y = py + baseline + thickness - dot_h * 0.1;
+            let y = ul_y - dot_h * 0.1;
             self.quad
                 .push_decoration(x, y, w, dot_h, ul_color, quad_pipeline::DECO_DOTTED);
         }
         if attrs.contains(Attributes::DASHED_UNDERLINE) {
-            let y = py + baseline + thickness;
             let dash_h = (cell_h * 0.08).max(2.0);
             self.quad
-                .push_decoration(x, y, w, dash_h, ul_color, quad_pipeline::DECO_DASHED);
+                .push_decoration(x, ul_y, w, dash_h, ul_color, quad_pipeline::DECO_DASHED);
         }
         if attrs.contains(Attributes::STRIKETHROUGH) {
-            // Strikethrough at approximately the x-height center
-            let y = py + baseline * 0.55;
+            let st_thickness = if self.metrics.strikethrough_thickness > 0.0 {
+                self.metrics.strikethrough_thickness
+            } else {
+                ul_thickness
+            };
+            // Parley strikethrough_offset is positive *above* the
+            // baseline (font convention). The historical fallback uses
+            // ~55% of the baseline height as a stand-in.
+            let st_top_above_baseline = if self.metrics.strikethrough_offset > 0.0 {
+                self.metrics.strikethrough_offset
+            } else {
+                baseline * 0.45
+            };
+            let y = py + baseline - st_top_above_baseline;
             self.quad
-                .push_decoration(x, y, w, thickness, fg, quad_pipeline::DECO_SOLID);
+                .push_decoration(x, y, w, st_thickness, fg, quad_pipeline::DECO_SOLID);
         }
     }
 

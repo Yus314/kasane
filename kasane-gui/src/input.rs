@@ -242,6 +242,10 @@ mod tests {
             baseline: 15.0,
             cols: 80,
             rows: 24,
+            underline_offset: 0.0,
+            underline_thickness: 0.0,
+            strikethrough_offset: 0.0,
+            strikethrough_thickness: 0.0,
         };
         assert_eq!(pixel_to_grid(0.0, 0.0, &metrics), (0, 0));
         assert_eq!(pixel_to_grid(15.0, 25.0, &metrics), (1, 1));
@@ -256,6 +260,10 @@ mod tests {
             baseline: 15.0,
             cols: 80,
             rows: 24,
+            underline_offset: 0.0,
+            underline_thickness: 0.0,
+            strikethrough_offset: 0.0,
+            strikethrough_thickness: 0.0,
         };
         assert_eq!(pixel_to_grid(10000.0, 10000.0, &metrics), (79, 23));
         assert_eq!(pixel_to_grid(-5.0, -5.0, &metrics), (0, 0));
@@ -270,6 +278,10 @@ mod tests {
             baseline: 30.0,
             cols: 80,
             rows: 24,
+            underline_offset: 0.0,
+            underline_thickness: 0.0,
+            strikethrough_offset: 0.0,
+            strikethrough_thickness: 0.0,
         };
         assert_eq!(pixel_to_grid(30.0, 50.0, &metrics), (1, 1));
     }
@@ -340,6 +352,10 @@ mod tests {
             baseline: 15.0,
             cols: 80,
             rows: 24,
+            underline_offset: 0.0,
+            underline_thickness: 0.0,
+            strikethrough_offset: 0.0,
+            strikethrough_thickness: 0.0,
         };
         let path = PathBuf::from("/tmp/drop file.txt");
         let event = WindowEvent::DroppedFile(path.clone());

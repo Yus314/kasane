@@ -12,6 +12,17 @@ pub struct CellMetrics {
     pub baseline: f32,
     pub cols: u16,
     pub rows: u16,
+    /// Distance from baseline to top of the underline decoration, in
+    /// physical pixels. Positive = below the baseline. `0.0` means the
+    /// font's own value was unavailable; the decoration emitter falls
+    /// back to a `cell_h × ratio` heuristic in that case.
+    pub underline_offset: f32,
+    /// Underline stroke thickness in physical pixels. `0.0` → fallback.
+    pub underline_thickness: f32,
+    /// Strikethrough offset (positive = below baseline) and thickness.
+    /// Same `0.0`-fallback contract as underline.
+    pub strikethrough_offset: f32,
+    pub strikethrough_thickness: f32,
 }
 
 impl CellMetrics {
@@ -64,6 +75,13 @@ impl CellMetrics {
             baseline,
             cols,
             rows,
+            // cosmic-text path leaves these zero — emit_decorations
+            // falls back to the historical ratio-based geometry when
+            // the field is 0.0.
+            underline_offset: 0.0,
+            underline_thickness: 0.0,
+            strikethrough_offset: 0.0,
+            strikethrough_thickness: 0.0,
         }
     }
 }

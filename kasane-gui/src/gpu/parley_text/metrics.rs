@@ -65,13 +65,48 @@ pub fn calculate_with_parley(
     let cols = (window_size.width as f32 / cell_width).floor().max(1.0) as u16;
     let rows = (window_size.height as f32 / cell_height).floor().max(1.0) as u16;
 
+    // Underline / strikethrough metrics from the first glyph run's font.
+    // Parley exposes these via `Run::metrics()` (parley v0.9). The values
+    // are in physical pixels at the line's font size, so they need no
+    // additional scaling.
+    let (underline_offset, underline_thickness, strikethrough_offset, strikethrough_thickness) =
+        first_decoration_metrics(&layout).unwrap_or((0.0, 0.0, 0.0, 0.0));
+
     CellMetrics {
         cell_width,
         cell_height,
         baseline,
         cols,
         rows,
+        underline_offset,
+        underline_thickness,
+        strikethrough_offset,
+        strikethrough_thickness,
     }
+}
+
+/// Pull `(underline_offset, underline_size, strikethrough_offset,
+/// strikethrough_size)` from the first GlyphRun in `layout`. All four
+/// are font-intrinsic and stable across glyphs at a given size, so
+/// computing them once per metric refresh is sufficient.
+fn first_decoration_metrics(layout: &super::layout::ParleyLayout) -> Option<(f32, f32, f32, f32)> {
+    use parley::PositionedLayoutItem;
+    layout
+        .layout
+        .lines()
+        .flat_map(|line| line.items())
+        .find_map(|item| match item {
+            PositionedLayoutItem::GlyphRun(run) => {
+                let m = run.run().metrics();
+                Some((
+                    m.underline_offset,
+                    m.underline_size,
+                    m.strikethrough_offset,
+                    m.strikethrough_size,
+                ))
+            }
+            _ => None,
+        })
 }
 
 /// Extract the advance width of the first glyph in the first line of a
