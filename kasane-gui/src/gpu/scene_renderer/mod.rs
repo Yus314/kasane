@@ -479,16 +479,6 @@ impl SceneRenderer {
             return;
         }
 
-        tracing::info!(
-            target: "kasane::parley::emit",
-            text = %text,
-            text_bytes = text.len(),
-            text_chars = text.chars().count(),
-            face_attrs = ?face.attributes,
-            face_fg = ?face.fg,
-            "parley_emit_text"
-        );
-
         let atoms = vec![Atom {
             face: *face,
             contents: text.into(),
@@ -534,20 +524,6 @@ impl SceneRenderer {
             color: &mut self.parley_color_atlas,
         };
         let drawables = &mut self.parley_drawables;
-        // Trace every emission (short or long) so we can compare the
-        // font_id resolved for menu items vs status bar vs info-popup
-        // text. Font drift across emissions would indicate fontique
-        // stickiness, which is the leading hypothesis for the
-        // "unrecognisable glyphs" symptom.
-        let trace_run = true;
-        if trace_run {
-            tracing::info!(
-                target: "kasane::parley::run",
-                text = %text,
-                line_count = parley_layout.layout.lines().count(),
-                "emission — per-run trace"
-            );
-        }
         for layout_line in parley_layout.layout.lines() {
             let lm = layout_line.metrics();
             let leading = (cell_h - lm.line_height).max(0.0);
@@ -570,23 +546,6 @@ impl SceneRenderer {
                 else {
                     continue;
                 };
-                if trace_run {
-                    let glyphs_in_run: Vec<(u16, f32)> = run
-                        .positioned_glyphs()
-                        .map(|g| (g.id as u16, g.x))
-                        .take(20)
-                        .collect();
-                    tracing::info!(
-                        target: "kasane::parley::run",
-                        font_id,
-                        var_hash,
-                        font_size,
-                        text_range = ?(parley_run.text_range()),
-                        first_20_glyphs = ?glyphs_in_run,
-                        "run"
-                    );
-                }
-
                 for glyph in run.positioned_glyphs() {
                     let abs_x = px + glyph.x;
                     let abs_y = layout_origin_y + glyph.y;
