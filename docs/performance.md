@@ -410,6 +410,57 @@ Measured with `cargo bench --bench rendering_pipeline -- cache\|section`.
 | `line_dirty_buffer_status/1_line_changed` | 12.5 us | BUFFER|STATUS combo, 1 line |
 <!-- /BENCH:line_dirty -->
 
+### GPU Line Shaping Cache
+
+The GPU text pipeline keeps a per-display-line cache of cosmic-text shaping
+results, keyed by `(line_idx, content_hash, max_width, font_size)`. A hit
+skips `set_rich_text` + `shape_until_scroll` (~100 µs/line of dominant CPU)
+and reuses the previously shaped buffer for `layout_runs()` queries. See
+[profiling.md §GPU line shaping cache](./profiling.md#gpu-line-shaping-cache-kasane-gui)
+for the tracing instrumentation that produced the numbers below.
+
+Hit-rate measurements collected on a 2026-04-26 host run by emitting the
+`kasane::line_cache=debug` per-frame summary across three workloads:
+
+| Scenario | Description | Frames | Lookups | Hits | Misses | Bypass |
+|---|---|---:|---:|---:|---:|---:|
+| A. Cursor move | `hjkl` / `<C-d>`/`<C-u>` on a static buffer | 8154 | 244K | **90.21%** | 6.26% | 3.53% |
+| B. Single-line edit | Insert mode + content changes per line | 8913 | 271K | **86.96%** | 8.93% | 4.11% |
+| C. Heavy scroll | Page jumps, `:N<CR>` jumps, `gg`/`ge` on Cargo.lock | 7119 | 527K | **93.31%** | 5.27% | 1.42% |
+
+Most of the hit-rate budget is consumed by **idle frames between input
+events**. The renderer wakes at high frame rate during animation/blink
+ticks; on those frames every line stays cached (`hits=N misses=1`
+pattern dominates the distribution). The actual mass of misses comes
+from the input-handling frames themselves:
+
+- A: cursor moves expose 1 new buffer line per frame edge (≈98% hit
+  during continuous `j`/`k` runs).
+- B: edits flip 1 atom face plus the cursor line (≈96% hit per edit
+  frame; lower aggregate due to follow-up animation churn).
+- C: page jumps invalidate ~all visible lines (`misses=74` on full-page
+  events), but the long pauses between scroll actions are pure cache
+  hits, so the aggregate stays high.
+
+Reproducing locally:
+
+```sh
+cargo build --release --features gui
+KASANE_LOG=kasane::line_cache=debug KASANE_LOG_STDERR=1 \
+    ./target/release/kasane --ui gui some_file.rs 2> /tmp/cache.log
+# After exercising the workload:
+grep "frame summary" /tmp/cache.log | awk '{
+  for (i=1; i<=NF; i++) {
+    if (match($i, /^hits=([0-9]+)/, h)) th += h[1]
+    if (match($i, /^misses=([0-9]+)/, m)) tm += m[1]
+    if (match($i, /^bypass=([0-9]+)/, b)) tb += b[1]
+  }
+} END {
+  t = th + tm + tb
+  printf "hits=%.2f%% misses=%.2f%% bypass=%.2f%%\n", 100*th/t, 100*tm/t, 100*tb/t
+}'
+```
+
 ## Bottleneck Analysis
 
 Ranked by severity with current measurements.
