@@ -102,13 +102,26 @@ pub fn build_vertices(glyphs: &[DrawableGlyph]) -> Vec<ParleyGlyphVertex> {
 /// Pack a brush into the wire-format `u32` colour. Colour glyphs ignore
 /// the brush in the shader (the bitmap supplies its own colour), but the
 /// field is still written for layout uniformity.
+///
+/// Channel order is dictated by `text_pipeline/shader.wgsl`, which
+/// extracts components as:
+///
+/// ```wgsl
+/// R = (color & 0x00ff0000) >> 16    // byte at offset 2
+/// G = (color & 0x0000ff00) >>  8    // byte at offset 1
+/// B = (color & 0x000000ff)          // byte at offset 0  ← lowest byte
+/// A = (color & 0xff000000) >> 24    // byte at offset 3
+/// ```
+///
+/// So the wire layout is `0xAARRGGBB` — A in the high byte, B in the
+/// low byte. Pack the brush accordingly.
 #[inline]
 fn pack_color(brush: Brush, content: ContentKind) -> u32 {
     match content {
         ContentKind::Color => 0xFFFF_FFFF, // shader ignores; full-alpha sentinel
         ContentKind::Mask => {
             let [r, g, b, a] = brush.0;
-            u32::from(r) | (u32::from(g) << 8) | (u32::from(b) << 16) | (u32::from(a) << 24)
+            u32::from(b) | (u32::from(g) << 8) | (u32::from(r) << 16) | (u32::from(a) << 24)
         }
     }
 }
@@ -168,7 +181,9 @@ mod tests {
     }
 
     #[test]
-    fn mask_color_packs_lsb_red_first() {
+    fn mask_color_packs_argb_for_shader() {
+        // Shader expects 0xAARRGGBB; for brush (R=0x12, G=0x34, B=0x56,
+        // A=0xFF) that is 0xFF12_3456.
         let g = drawable(
             0.0,
             0.0,
@@ -176,8 +191,7 @@ mod tests {
             Brush::rgba(0x12, 0x34, 0x56, 0xFF),
         );
         let v = ParleyGlyphVertex::from_drawable(&g);
-        // Little-endian: 0xFF56_3412
-        assert_eq!(v.color, 0xFF56_3412);
+        assert_eq!(v.color, 0xFF12_3456);
         assert_eq!(v.content_type, CONTENT_TYPE_MASK);
     }
 
