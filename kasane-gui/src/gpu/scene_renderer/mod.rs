@@ -172,6 +172,22 @@ pub(crate) fn parley_backend_requested() -> bool {
     })
 }
 
+/// Diagnostic kill-switch for the Phase 9b Step 4f RenderParagraph
+/// Parley path. Set `KASANE_PARLEY_NO_PARAGRAPH=1` to skip
+/// `process_render_paragraph_parley` and fall back to the cosmic-text
+/// implementation for buffer text only. DrawAtoms / DrawText /
+/// DrawPaddingRow continue to use Parley. Lets us isolate whether a
+/// rendering bug originates in the per-atom paragraph path versus the
+/// shared parley_emit_text routine.
+pub(crate) fn parley_paragraph_disabled() -> bool {
+    static DISABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *DISABLED.get_or_init(|| {
+        std::env::var("KASANE_PARLEY_NO_PARAGRAPH")
+            .map(|v| !v.is_empty() && v != "0")
+            .unwrap_or(false)
+    })
+}
+
 /// Diagnostic kill-switch for the Phase 9b Step 4c L2 raster cache.
 /// Set `KASANE_PARLEY_NO_CACHE=1` to invalidate the cache + clear both
 /// atlases at the start of every frame, reverting to the pre-Step-4c

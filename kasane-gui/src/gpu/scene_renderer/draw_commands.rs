@@ -1000,7 +1000,7 @@ impl SceneRenderer {
         // glyph emission via parley_emit_atoms. Cursor positions are
         // tracked at cell granularity for now; glyph-accurate hit test
         // and cursor metrics are deferred to Step 4f-ext (Phase 10).
-        if super::parley_backend_requested() {
+        if super::parley_backend_requested() && !super::parley_paragraph_disabled() {
             self.process_render_paragraph_parley(px, py, max_width, para, color_resolver);
             return;
         }
