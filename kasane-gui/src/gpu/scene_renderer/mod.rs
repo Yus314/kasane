@@ -118,6 +118,31 @@ pub struct SceneRenderer {
     /// version so Phase 11 can swap by deleting the legacy field. Currently
     /// only consulted when `KASANE_TEXT_BACKEND=parley`.
     parley_metrics: CellMetrics,
+
+    // ADR-031 Phase 9b Step 4a — Parley render pipeline integration.
+    //
+    // These fields hold the GPU-side Parley state (renderer, atlases, the
+    // L1/L2 caches, the rasteriser). Phase 9b Step 4b will branch the
+    // process_draw_* handlers into a Parley path that drives them.
+    /// L1: per-line shaped Parley layouts. Hit on cursor-only frames.
+    #[allow(dead_code)]
+    parley_layout_cache: super::parley_text::layout_cache::LayoutCache,
+    /// swash::ScaleContext owner — reused across frames.
+    #[allow(dead_code)]
+    parley_glyph_rasterizer: super::parley_text::glyph_rasterizer::GlyphRasterizer,
+    /// L2 + L3: glyph bitmap cache + atlas-slot bookkeeping.
+    #[allow(dead_code)]
+    parley_raster_cache: super::parley_text::raster_cache::GlyphRasterCache,
+    /// L3 GPU mask atlas (R8Unorm). Pairs with the CPU side inside
+    /// `parley_raster_cache`. Phase 9b Step 4b uploads to this.
+    #[allow(dead_code)]
+    parley_mask_atlas: super::parley_text::gpu_atlas::GpuAtlasShelf,
+    /// L3 GPU colour atlas (Rgba8Unorm). Used for emoji glyphs.
+    #[allow(dead_code)]
+    parley_color_atlas: super::parley_text::gpu_atlas::GpuAtlasShelf,
+    /// wgpu glue: vertex buffer + pipeline + bind groups.
+    #[allow(dead_code)]
+    parley_renderer: super::parley_text::parley_text_renderer::ParleyTextRenderer,
 }
 
 /// Returns true when the user opted into the Parley text backend through
@@ -227,6 +252,31 @@ impl SceneRenderer {
         let texture_cache = TextureCache::new(&gpu.device, 128 * 1024 * 1024); // 128 MB budget
         let image = ImagePipeline::new(gpu, surface_format, texture_cache.bind_group_layout());
 
+        // ADR-031 Phase 9b Step 4a — Parley render pipeline state.
+        // Wired through Cache (shared with TextRenderer) so the new
+        // pipeline reuses the existing shader / vertex layout / bind
+        // layouts, which lets Phase 11's removal of cosmic-text be a
+        // pure subtraction rather than a wgpu re-derivation.
+        let parley_layout_cache = super::parley_text::layout_cache::LayoutCache::new();
+        let parley_glyph_rasterizer = super::parley_text::glyph_rasterizer::GlyphRasterizer::new();
+        let parley_raster_cache =
+            super::parley_text::raster_cache::GlyphRasterCache::default_sized();
+        let parley_mask_atlas = super::parley_text::gpu_atlas::GpuAtlasShelf::default_for(
+            &gpu.device,
+            super::parley_text::gpu_atlas::Kind::Mask,
+        );
+        let parley_color_atlas = super::parley_text::gpu_atlas::GpuAtlasShelf::default_for(
+            &gpu.device,
+            super::parley_text::gpu_atlas::Kind::Color,
+        );
+        let parley_renderer = super::parley_text::parley_text_renderer::ParleyTextRenderer::new(
+            &gpu.device,
+            &cache,
+            surface_format,
+            MultisampleState::default(),
+            Some(super::depth_stencil::pipeline_depth_stencil()),
+        );
+
         SceneRenderer {
             font_system,
             swash_cache,
@@ -267,6 +317,12 @@ impl SceneRenderer {
             text_effects,
             parley_text,
             parley_metrics,
+            parley_layout_cache,
+            parley_glyph_rasterizer,
+            parley_raster_cache,
+            parley_mask_atlas,
+            parley_color_atlas,
+            parley_renderer,
         }
     }
 
