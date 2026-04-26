@@ -30,11 +30,13 @@ use kasane_core::config::FontConfig;
 use kasane_core::protocol::{Atom, Color, Face, NamedColor, Style};
 use parley::PositionedLayoutItem;
 
+use kasane_gui::gpu::parley_text::atlas::{AtlasShelf, AtlasSlot};
 use kasane_gui::gpu::parley_text::font_id::{font_id_from_data, var_hash_from_coords};
+use kasane_gui::gpu::parley_text::glyph_rasterizer::ContentKind;
 use kasane_gui::gpu::parley_text::glyph_rasterizer::{GlyphRasterizer, SubpixelX};
 use kasane_gui::gpu::parley_text::layout::ParleyLayout;
 use kasane_gui::gpu::parley_text::layout_cache::LayoutCache;
-use kasane_gui::gpu::parley_text::raster_cache::{GlyphRasterCache, GlyphRasterKey};
+use kasane_gui::gpu::parley_text::raster_cache::{AtlasOps, GlyphRasterCache, GlyphRasterKey};
 use kasane_gui::gpu::parley_text::shaper::shape_line_with_default_family;
 use kasane_gui::gpu::parley_text::styled_line::StyledLine;
 use kasane_gui::gpu::parley_text::{Brush, ParleyText};
@@ -107,11 +109,51 @@ fn make_lines(count: usize) -> Vec<StyledLine> {
         .collect()
 }
 
+/// CPU-only atlas pair that mirrors `GpuAtlasShelf` for the bench. The
+/// production cache calls `AtlasOps` for allocate / deallocate; here we
+/// just defer to a CPU `AtlasShelf` and drop the bitmap data.
+struct BenchAtlases {
+    mask: AtlasShelf,
+    color: AtlasShelf,
+}
+
+impl BenchAtlases {
+    fn new(side: u16) -> Self {
+        Self {
+            mask: AtlasShelf::new(side),
+            color: AtlasShelf::new(side),
+        }
+    }
+}
+
+impl AtlasOps for BenchAtlases {
+    fn allocate(
+        &mut self,
+        content: ContentKind,
+        w: u16,
+        h: u16,
+        _data: &[u8],
+    ) -> Option<AtlasSlot> {
+        match content {
+            ContentKind::Mask => self.mask.allocate(w, h),
+            ContentKind::Color => self.color.allocate(w, h),
+        }
+    }
+
+    fn deallocate(&mut self, content: ContentKind, slot: &AtlasSlot) {
+        match content {
+            ContentKind::Mask => self.mask.deallocate(slot),
+            ContentKind::Color => self.color.deallocate(slot),
+        }
+    }
+}
+
 struct Pipeline {
     text: ParleyText,
     layout_cache: LayoutCache,
     rasterizer: GlyphRasterizer,
     raster_cache: GlyphRasterCache,
+    atlases: BenchAtlases,
 }
 
 impl Pipeline {
@@ -120,7 +162,8 @@ impl Pipeline {
             text: ParleyText::new(&FontConfig::default()),
             layout_cache: LayoutCache::new(),
             rasterizer: GlyphRasterizer::new(),
-            raster_cache: GlyphRasterCache::new(NonZeroUsize::new(2048).unwrap(), 1024),
+            raster_cache: GlyphRasterCache::new(NonZeroUsize::new(2048).unwrap()),
+            atlases: BenchAtlases::new(1024),
         }
     }
 
@@ -163,9 +206,9 @@ impl Pipeline {
                             var_hash,
                             hint: true,
                         };
-                        let entry = self.raster_cache.get_or_insert(key, || {
-                            self.rasterizer
-                                .rasterize(font_ref, glyph_id, font_size, subpx, true)
+                        let rasterizer = &mut self.rasterizer;
+                        let entry = self.raster_cache.get_or_insert(key, &mut self.atlases, || {
+                            rasterizer.rasterize(font_ref, glyph_id, font_size, subpx, true)
                         });
                         if entry.is_some() {
                             glyph_count += 1;

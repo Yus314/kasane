@@ -424,13 +424,21 @@ The GPU text pipeline now caches at two levels:
   hint)`. Frame-epoch eviction guarantees same-frame entries stay live;
   cross-frame eviction handles long-running sessions.
 
-> **ADR-031 status (2026-04-26)**: cosmic-text and the glyphon-derived
-> `LineShapingCache` are gone (Phase 11). Numbers below were captured
-> with the cosmic stack pre-Phase-11 and are kept for historical
-> reference; a fresh Parley-only baseline is pending. The Parley
-> `parley/frame_warm_24_lines` bench reported ~62 µs steady-state and
-> ~81 µs on a typing pattern at the time of the swap. See
-> [ADR-031](./decisions.md#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign).
+> **Parley-only baseline (2026-04-26, post-Phase-11)** — captured via
+> `cargo bench -p kasane-gui --bench parley_pipeline`:
+>
+> | Bench | Time | Target |
+> |---|---|---|
+> | `parley/shape_warm` | 13.79 µs | n/a (component) |
+> | `parley/frame_cold_24_lines` | 7.95 ms | n/a (cold) |
+> | `parley/frame_warm_24_lines` | 63.78 µs | ≤ 70 µs ✓ |
+> | `parley/frame_one_line_changed_24_lines` | 83.27 µs | ≤ 70 µs (~+19% — perf-tune candidate) |
+>
+> Core rendering benches (`cargo bench --bench rendering_pipeline`) are
+> backend-agnostic and unchanged: `salsa_scaling/full_frame/80x24` ≈
+> 49 µs, `salsa_sync_inputs/all_flags/80x24` ≈ 3.5 µs.
+>
+> See [ADR-031](./decisions.md#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign).
 
 The historical hit-rate measurements below were collected on a
 2026-04-26 host run with the cosmic-era `kasane::line_cache=debug`

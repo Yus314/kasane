@@ -53,9 +53,10 @@ GPU swap.
 | 11 — perf tune | Pending | Re-baseline pending; target: ≤ 70 µs warm 80×24 frame |
 | 12 — Docs + golden image tests | In progress | ADR / CHANGELOG updated; goldens pending |
 
-Phase 9b benchmarks (Parley pipeline only, captured pre-Phase-11):
-- `frame_warm_24_lines`: 61.8 µs (within ≤ 70 µs target)
-- `frame_one_line_changed_24_lines`: 80.6 µs (typing pattern; +15% over target — perf-tune candidate)
+Parley pipeline benchmarks (post-Phase-11 baseline, 2026-04-26):
+- `frame_warm_24_lines`: 63.8 µs (within ≤ 70 µs target)
+- `frame_one_line_changed_24_lines`: 83.3 µs (typing pattern; +19% over target — perf-tune candidate)
+- Core `salsa_scaling/full_frame/80x24`: 49.2 µs (backend-agnostic; unchanged)
 
 ### 2.2 Backlog
 
