@@ -62,9 +62,11 @@ pub struct EmittedFrame {
 pub fn emit(layout: &Arc<ParleyLayout>, origin_x: f32, origin_y: f32, hint: bool) -> EmittedFrame {
     let mut frame = EmittedFrame::default();
     for line in layout.layout.lines() {
-        let metrics = line.metrics();
-        let line_baseline = origin_y + metrics.baseline;
-
+        // ADR-031 Phase 9b — Parley's `positioned_glyphs()` already
+        // includes `run.baseline()` in each glyph's `y` (parley v0.9
+        // `Run::positioned_glyphs` sets `y = run.baseline() + glyph.y`).
+        // So `origin_y + glyph.y` is the baseline y in absolute coords;
+        // adding `metrics.baseline` again would double-count it.
         for item in line.items() {
             let PositionedLayoutItem::GlyphRun(run) = item else {
                 continue;
@@ -82,7 +84,7 @@ pub fn emit(layout: &Arc<ParleyLayout>, origin_x: f32, origin_y: f32, hint: bool
 
             for glyph in run.positioned_glyphs() {
                 let abs_x = origin_x + glyph.x;
-                let abs_y = line_baseline + glyph.y;
+                let abs_y = origin_y + glyph.y;
                 let subpx = SubpixelX::from_fract(abs_x);
                 let glyph_id = glyph.id as u16;
                 frame.glyphs.push(GlyphPlacement {

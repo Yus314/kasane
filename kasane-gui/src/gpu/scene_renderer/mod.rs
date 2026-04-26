@@ -458,37 +458,25 @@ impl SceneRenderer {
             (visual_fg[3].clamp(0.0, 1.0) * 255.0).round() as u8,
         );
 
-        // ADR-031 Phase 9b — compute baseline so the glyph sits inside
-        // the cell-grid line that backgrounds + decorations target.
-        // Parley's `LineMetrics::baseline` defaults to the font-intrinsic
-        // value (= ascent) because we have not pushed
-        // `StyleProperty::LineHeight`; cosmic on the other hand uses
-        // `font_size × line_height_em` (1.2 by default), which leaves
-        // `(cell_h - intrinsic_line_height)` of "leading" room split
-        // above and below the glyph. To land glyphs in the same place
-        // cosmic does, pull the parley ascent and add half of the
-        // cell-grid leading.
+        // ADR-031 Phase 9b — Parley's `positioned_glyphs()` already
+        // returns each glyph's `y` in layout-relative coordinates that
+        // include the run's baseline (`y = run.baseline() + glyph.y` per
+        // parley v0.9). So `py + glyph.y` already places the glyph at the
+        // intended baseline — adding our own `line_baseline` on top would
+        // double-count the baseline and shift every glyph down by ~ascent
+        // (precisely the bug that put status bar text below its bg).
+        //
+        // We still need a per-line cell-grid leading offset because
+        // Parley's intrinsic `line_height` (no LineHeight pushed) is
+        // smaller than `cell_h = font_size × 1.2`. Without that shift
+        // glyphs sit `leading/2` too high in the cell. Apply the leading
+        // adjustment to the layout origin and let `glyph.y` carry the
+        // intra-line baseline offset.
         let cell_h = self.metrics.cell_height;
-        let cosmic_baseline = self.metrics.baseline;
         for layout_line in parley_layout.layout.lines() {
             let lm = layout_line.metrics();
             let leading = (cell_h - lm.line_height).max(0.0);
-            let line_baseline = py + lm.ascent + leading * 0.5;
-            // ADR-031 Phase 9b — one-shot trace so we can compare cosmic vs
-            // Parley's notion of baseline, ascent, descent, line_height.
-            tracing::info!(
-                target: "kasane::parley::baseline",
-                text = %text,
-                py,
-                cell_h,
-                cosmic_baseline,
-                parley_ascent = lm.ascent,
-                parley_descent = lm.descent,
-                parley_line_height = lm.line_height,
-                parley_baseline_attr = lm.baseline,
-                computed_line_baseline = line_baseline,
-                "parley baseline trace"
-            );
+            let layout_origin_y = py + leading * 0.5;
 
             for item in layout_line.items() {
                 let PositionedLayoutItem::GlyphRun(run) = item else {
@@ -505,7 +493,7 @@ impl SceneRenderer {
 
                 for glyph in run.positioned_glyphs() {
                     let abs_x = px + glyph.x;
-                    let abs_y = line_baseline + glyph.y;
+                    let abs_y = layout_origin_y + glyph.y;
                     let subpx = SubpixelX::from_fract(abs_x);
                     let glyph_id = glyph.id as u16;
 
