@@ -159,41 +159,18 @@ pub struct SceneRenderer {
     parley_drawables: Vec<super::parley_text::frame_builder::DrawableGlyph>,
 }
 
-/// Returns true when the user opted into the Parley text backend through
-/// `KASANE_TEXT_BACKEND=parley`. Any other value (including unset) returns
-/// false. Cached at process start through std::env, so dynamic toggling is
-/// not supported — restart the editor to switch backends.
+/// Phase 11 — Parley is now the only backend. The function is kept
+/// (returning `true`) so callers don't need restructuring this commit;
+/// the cosmic branches they guard become dead code that the next
+/// commit removes outright.
 pub(crate) fn parley_backend_requested() -> bool {
-    static REQUESTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *REQUESTED.get_or_init(|| {
-        std::env::var("KASANE_TEXT_BACKEND")
-            .map(|v| v.eq_ignore_ascii_case("parley"))
-            .unwrap_or(false)
-    })
-}
-
-/// Diagnostic kill-switch for the Phase 9b Step 4f RenderParagraph
-/// Parley path. Set `KASANE_PARLEY_NO_PARAGRAPH=1` to skip
-/// `process_render_paragraph_parley` and fall back to the cosmic-text
-/// implementation for buffer text only. DrawAtoms / DrawText /
-/// DrawPaddingRow continue to use Parley. Lets us isolate whether a
-/// rendering bug originates in the per-atom paragraph path versus the
-/// shared parley_emit_text routine.
-pub(crate) fn parley_paragraph_disabled() -> bool {
-    static DISABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *DISABLED.get_or_init(|| {
-        std::env::var("KASANE_PARLEY_NO_PARAGRAPH")
-            .map(|v| !v.is_empty() && v != "0")
-            .unwrap_or(false)
-    })
+    true
 }
 
 /// Diagnostic kill-switch for the Phase 9b Step 4c L2 raster cache.
 /// Set `KASANE_PARLEY_NO_CACHE=1` to invalidate the cache + clear both
-/// atlases at the start of every frame, reverting to the pre-Step-4c
-/// "rasterise everything every frame" behaviour. Used to triangulate
-/// whether a rendering bug originates in the cache layer or further
-/// upstream. Cached on first read like `parley_backend_requested`.
+/// atlases at the start of every frame. Useful for atlas / eviction
+/// debugging; harmless otherwise. Cached on first read.
 pub(crate) fn parley_cache_disabled() -> bool {
     static DISABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *DISABLED.get_or_init(|| {
