@@ -104,6 +104,33 @@ pub struct SceneRenderer {
 
     /// Text post-processing effects (shadow, glow).
     text_effects: TextEffects,
+
+    /// ADR-031 Parley text stack — Phase 9 scaffold integration.
+    ///
+    /// Currently parallel to the cosmic-text path: the field is initialised
+    /// in [`SceneRenderer::new`] and exercised by hit-test/metrics helpers,
+    /// but the production rendering path still runs through cosmic-text. The
+    /// `KASANE_TEXT_BACKEND=parley` environment variable opts into the
+    /// Parley path where it has been implemented (Phase 11 retires the
+    /// legacy renderer entirely).
+    parley_text: super::parley_text::ParleyText,
+    /// Cached Parley-side `CellMetrics`. Computed alongside the cosmic-text
+    /// version so Phase 11 can swap by deleting the legacy field. Currently
+    /// only consulted when `KASANE_TEXT_BACKEND=parley`.
+    parley_metrics: CellMetrics,
+}
+
+/// Returns true when the user opted into the Parley text backend through
+/// `KASANE_TEXT_BACKEND=parley`. Any other value (including unset) returns
+/// false. Cached at process start through std::env, so dynamic toggling is
+/// not supported — restart the editor to switch backends.
+pub(crate) fn parley_backend_requested() -> bool {
+    static REQUESTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *REQUESTED.get_or_init(|| {
+        std::env::var("KASANE_TEXT_BACKEND")
+            .map(|v| v.eq_ignore_ascii_case("parley"))
+            .unwrap_or(false)
+    })
 }
 
 impl SceneRenderer {
@@ -128,6 +155,28 @@ impl SceneRenderer {
 
         let metrics =
             CellMetrics::calculate(&mut font_system, font_config, scale_factor, window_size);
+
+        // ADR-031 Phase 9: instantiate the Parley text stack alongside the
+        // cosmic-text path. Computing parley_metrics here also serves as a
+        // smoke test of the Parley shaper at startup.
+        let mut parley_text = super::parley_text::ParleyText::new(font_config);
+        let parley_metrics = super::parley_text::metrics::calculate_with_parley(
+            &mut parley_text,
+            font_config,
+            scale_factor,
+            window_size,
+        );
+        if parley_backend_requested() {
+            tracing::info!(
+                target: "kasane::parley",
+                cell_width = parley_metrics.cell_width,
+                cell_height = parley_metrics.cell_height,
+                baseline = parley_metrics.baseline,
+                cols = parley_metrics.cols,
+                rows = parley_metrics.rows,
+                "KASANE_TEXT_BACKEND=parley detected; Parley metrics will be used"
+            );
+        }
 
         let surface_format = gpu.config.format;
 
@@ -216,11 +265,31 @@ impl SceneRenderer {
             timing,
             depth_stencil,
             text_effects,
+            parley_text,
+            parley_metrics,
         }
     }
 
     pub fn metrics(&self) -> &CellMetrics {
-        &self.metrics
+        if parley_backend_requested() {
+            &self.parley_metrics
+        } else {
+            &self.metrics
+        }
+    }
+
+    /// Read access to the Parley state — used by future phases that need
+    /// to invoke `parley_text::shaper::shape_line` directly.
+    #[allow(dead_code)]
+    pub(crate) fn parley_text(&self) -> &super::parley_text::ParleyText {
+        &self.parley_text
+    }
+
+    /// Mutable access to the Parley state — used by Phase 9b's draw-command
+    /// path migration.
+    #[allow(dead_code)]
+    pub(crate) fn parley_text_mut(&mut self) -> &mut super::parley_text::ParleyText {
+        &mut self.parley_text
     }
 
     /// Proportional-aware mouse hit test.
