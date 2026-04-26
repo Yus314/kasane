@@ -23,6 +23,7 @@ pub mod layout_cache;
 pub mod metrics;
 pub mod parley_text_renderer;
 pub mod raster_cache;
+pub mod raster_cache_glue;
 pub mod shaper;
 pub mod style_resolver;
 pub mod styled_line;

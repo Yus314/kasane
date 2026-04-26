@@ -438,7 +438,7 @@ impl SceneRenderer {
     ) {
         use super::parley_text::Brush as PBrush;
         use super::parley_text::frame_builder::DrawableGlyph;
-        use super::parley_text::glyph_rasterizer::{ContentKind, SubpixelX};
+        use super::parley_text::glyph_rasterizer::SubpixelX;
         use super::parley_text::shaper::shape_line_with_default_family;
         use super::parley_text::styled_line::StyledLine;
         use kasane_core::protocol::{Atom, Style};
@@ -484,6 +484,15 @@ impl SceneRenderer {
         // adjustment to the layout origin and let `glyph.y` carry the
         // intra-line baseline offset.
         let cell_h = self.metrics.cell_height;
+        // Split borrows so the L2 cache + rasterizer + atlases all
+        // mutate independently inside the per-glyph loop.
+        let rasterizer = &mut self.parley_glyph_rasterizer;
+        let cache = &mut self.parley_raster_cache;
+        let mut atlases = super::parley_text::raster_cache_glue::ParleyAtlasPair {
+            mask: &mut self.parley_mask_atlas,
+            color: &mut self.parley_color_atlas,
+        };
+        let drawables = &mut self.parley_drawables;
         for layout_line in parley_layout.layout.lines() {
             let lm = layout_line.metrics();
             let leading = (cell_h - lm.line_height).max(0.0);
@@ -495,7 +504,12 @@ impl SceneRenderer {
                 };
                 let parley_run = run.run();
                 let font = parley_run.font();
+                let font_id = super::parley_text::font_id::font_id_from_data(font);
+                let var_hash = super::parley_text::font_id::var_hash_from_coords(
+                    parley_run.normalized_coords(),
+                );
                 let font_size = parley_run.font_size();
+                let size_q = (font_size * 64.0).round().clamp(0.0, u16::MAX as f32) as u16;
                 let Some(font_ref) =
                     swash::FontRef::from_index(font.data.data(), font.index as usize)
                 else {
@@ -507,38 +521,31 @@ impl SceneRenderer {
                     let abs_y = layout_origin_y + glyph.y;
                     let subpx = SubpixelX::from_fract(abs_x);
                     let glyph_id = glyph.id as u16;
-
-                    let raster = match self
-                        .parley_glyph_rasterizer
-                        .rasterize(font_ref, glyph_id, font_size, subpx, true)
-                    {
-                        Some(r) => r,
-                        None => continue,
+                    let key = super::parley_text::raster_cache::GlyphRasterKey {
+                        font_id,
+                        glyph_id,
+                        size_q,
+                        subpx_x: subpx.0,
+                        var_hash,
+                        hint: true,
                     };
 
-                    let atlas = match raster.content {
-                        ContentKind::Mask => &mut self.parley_mask_atlas,
-                        ContentKind::Color => &mut self.parley_color_atlas,
-                    };
-                    let raster_w = raster.width;
-                    let raster_h = raster.height;
-                    let raster_left = raster.left;
-                    let raster_top = raster.top;
-                    let raster_content = raster.content;
-                    let Some(slot) = atlas.allocate_and_queue(raster_w, raster_h, raster.data)
-                    else {
+                    let entry = cache.get_or_insert(key, &mut atlases, || {
+                        rasterizer.rasterize(font_ref, glyph_id, font_size, subpx, true)
+                    });
+                    let Some(entry) = entry else {
                         continue;
                     };
 
-                    self.parley_drawables.push(DrawableGlyph {
+                    drawables.push(DrawableGlyph {
                         px: abs_x,
                         py: abs_y,
-                        width: raster_w,
-                        height: raster_h,
-                        left: raster_left,
-                        top: raster_top,
-                        content: raster_content,
-                        atlas_slot: slot,
+                        width: entry.width,
+                        height: entry.height,
+                        left: entry.left,
+                        top: entry.top,
+                        content: entry.content,
+                        atlas_slot: entry.atlas_slot,
                         brush,
                     });
                 }
@@ -548,10 +555,15 @@ impl SceneRenderer {
 
     /// Reset Parley per-frame state. Called once at the start of each
     /// frame.
+    ///
+    /// Phase 9b Step 4c: atlases are no longer cleared per frame. The
+    /// L2 [`GlyphRasterCache`](super::parley_text::raster_cache::GlyphRasterCache)
+    /// owns the atlas slots and only releases them on LRU / atlas-full
+    /// eviction. Per-frame clearing was a workaround for the previous
+    /// double-allocator architecture and meant we re-rasterised every
+    /// glyph every frame.
     fn parley_frame_start(&mut self) {
         self.parley_drawables.clear();
-        self.parley_mask_atlas.clear();
-        self.parley_color_atlas.clear();
     }
 
     /// Hand drawables accumulated since the last call to the Parley

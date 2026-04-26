@@ -30,7 +30,7 @@ use std::num::NonZeroUsize;
 use lru::LruCache;
 use rustc_hash::FxBuildHasher;
 
-use super::atlas::{AtlasShelf, AtlasSlot, DEFAULT_ATLAS_SIZE};
+use super::atlas::AtlasSlot;
 use super::glyph_rasterizer::{ContentKind, RasterizedGlyph};
 
 /// Key uniquely identifying a rasterised glyph in the cache.
@@ -97,29 +97,46 @@ pub struct CacheStats {
     pub lru_evictions: u32,
 }
 
-/// L2 cache plus the two L3 atlases (mask + color).
+/// Atlas operations the cache needs. Production wires this to a pair of
+/// `GpuAtlasShelf`s (see `scene_renderer`). The unit tests below
+/// implement it on a CPU-only `AtlasShelf` pair so they keep running
+/// without wgpu. The single-trait shape (rather than two closures) keeps
+/// borrow-checker bookkeeping simple inside `get_or_insert`.
+pub trait AtlasOps {
+    fn allocate(
+        &mut self,
+        content: ContentKind,
+        width: u16,
+        height: u16,
+        data: &[u8],
+    ) -> Option<AtlasSlot>;
+
+    fn deallocate(&mut self, content: ContentKind, slot: &AtlasSlot);
+}
+
+/// L2 cache. Atlases are owned externally (by SceneRenderer) since they
+/// must be `GpuAtlasShelf` instances backed by a wgpu texture. Phase 9b
+/// Step 4c moved the atlases out so the cache and the GPU atlas now share
+/// the same allocator state — a previous mismatch had cached slots
+/// pointing into garbage GPU regions.
 pub struct GlyphRasterCache {
     entries: LruCache<GlyphRasterKey, GlyphRasterEntry, FxBuildHasher>,
-    atlas_mask: AtlasShelf,
-    atlas_color: AtlasShelf,
     stats: CacheStats,
 }
 
 impl GlyphRasterCache {
-    /// Build a cache with the given LRU capacity and per-atlas dimensions.
-    pub fn new(capacity: NonZeroUsize, atlas_side: u16) -> Self {
+    /// Build a cache with the given LRU capacity.
+    pub fn new(capacity: NonZeroUsize) -> Self {
         Self {
             entries: LruCache::with_hasher(capacity, FxBuildHasher),
-            atlas_mask: AtlasShelf::new(atlas_side),
-            atlas_color: AtlasShelf::new(atlas_side),
             stats: CacheStats::default(),
         }
     }
 
-    /// Convenience constructor with `DEFAULT_ATLAS_SIZE` and a moderate
-    /// LRU cap suited to a typical 80×24 viewport (~2 000 unique glyphs).
+    /// Convenience constructor sized for a typical 80×24 viewport
+    /// (~2 000 unique glyphs leaves headroom for status bar + menus).
     pub fn default_sized() -> Self {
-        Self::new(NonZeroUsize::new(8192).unwrap(), DEFAULT_ATLAS_SIZE)
+        Self::new(NonZeroUsize::new(8192).unwrap())
     }
 
     /// Look up an existing entry without affecting LRU ordering. Used by
@@ -137,16 +154,31 @@ impl GlyphRasterCache {
         hit
     }
 
-    /// Insert a freshly-rasterised glyph and return a reference to the
-    /// stored entry. On L2 capacity overflow, the oldest entry is evicted
-    /// (its atlas slot is deallocated). On atlas exhaustion, older entries
-    /// are evicted from L2 until allocation succeeds — `None` is returned
-    /// only when the atlas remains too full even after the LRU is empty.
-    pub fn insert(
+    /// Hit-or-miss with on-demand rasterisation.
+    ///
+    /// On miss: `rasterize` produces the bitmap, then `allocate` is called
+    /// to obtain an atlas slot. If `allocate` returns `None` (atlas full),
+    /// the LRU's oldest entry is evicted via `deallocate` and `allocate`
+    /// is retried, repeating until the LRU is empty (returns `None`) or
+    /// the slot is acquired.
+    ///
+    /// `allocate` receives `(content, width, height, &data)` and is
+    /// expected to call `GpuAtlasShelf::allocate_and_queue` (or the
+    /// equivalent test stub). `deallocate` mirrors the reverse.
+    pub fn get_or_insert<R>(
         &mut self,
         key: GlyphRasterKey,
-        raster: RasterizedGlyph,
-    ) -> Option<&GlyphRasterEntry> {
+        atlases: &mut dyn AtlasOps,
+        rasterize: R,
+    ) -> Option<&GlyphRasterEntry>
+    where
+        R: FnOnce() -> Option<RasterizedGlyph>,
+    {
+        if self.entries.contains(&key) {
+            self.stats.hits += 1;
+            return self.entries.get(&key);
+        }
+        let raster = rasterize()?;
         debug_assert_eq!(raster.data.len(), raster.expected_data_len());
         self.stats.misses += 1;
 
@@ -159,8 +191,15 @@ impl GlyphRasterCache {
             data,
         } = raster;
 
-        // Allocate the atlas slot first (with retry on atlas-full).
-        let slot = self.allocate_with_eviction(content, width, height)?;
+        // Atlas allocation with retry-on-full eviction.
+        let slot = loop {
+            if let Some(slot) = atlases.allocate(content, width, height, &data) {
+                break slot;
+            }
+            let (_, evicted) = self.entries.pop_lru()?;
+            atlases.deallocate(evicted.content, &evicted.atlas_slot);
+            self.stats.atlas_evictions += 1;
+        };
 
         let entry = GlyphRasterEntry {
             width,
@@ -172,41 +211,18 @@ impl GlyphRasterCache {
             data,
         };
 
-        // Insert into L2; the LRU may evict an older entry to make room.
         if let Some((_evicted_key, evicted)) = self.entries.push(key, entry) {
-            self.deallocate(evicted.content, &evicted.atlas_slot);
+            atlases.deallocate(evicted.content, &evicted.atlas_slot);
             self.stats.lru_evictions += 1;
         }
 
-        // The just-inserted entry is now at MRU.
         self.entries.peek(&key)
     }
 
-    /// Hit-or-miss + populate. Calls `rasterize` only on miss. Convenient
-    /// when the caller has the [`GlyphRasterizer`] handy and does not want
-    /// to manage the get/insert split itself.
-    pub fn get_or_insert<F>(
-        &mut self,
-        key: GlyphRasterKey,
-        rasterize: F,
-    ) -> Option<&GlyphRasterEntry>
-    where
-        F: FnOnce() -> Option<RasterizedGlyph>,
-    {
-        if self.entries.contains(&key) {
-            self.stats.hits += 1;
-            return self.entries.get(&key);
-        }
-        let raster = rasterize()?;
-        self.insert(key, raster)
-    }
-
-    /// Drop every cached entry and clear both atlases. Used on font /
-    /// scale-factor changes that invalidate every bitmap.
+    /// Drop every cached entry. Caller is responsible for clearing the
+    /// atlases separately (matching the cache's slot ownership model).
     pub fn invalidate_all(&mut self) {
         self.entries.clear();
-        self.atlas_mask.clear();
-        self.atlas_color.clear();
     }
 
     pub fn len(&self) -> usize {
@@ -220,41 +236,6 @@ impl GlyphRasterCache {
     pub fn take_stats(&mut self) -> CacheStats {
         std::mem::take(&mut self.stats)
     }
-
-    /// Allocate an atlas slot, evicting older L2 entries until the
-    /// allocation succeeds or the LRU empties. Returns `None` only in the
-    /// latter case.
-    fn allocate_with_eviction(
-        &mut self,
-        content: ContentKind,
-        width: u16,
-        height: u16,
-    ) -> Option<AtlasSlot> {
-        loop {
-            let atlas = self.atlas_for_mut(content);
-            if let Some(slot) = atlas.allocate(width, height) {
-                return Some(slot);
-            }
-            // Atlas full — evict from L2 (oldest first) and retry.
-            let (_, evicted) = self.entries.pop_lru()?;
-            self.deallocate(evicted.content, &evicted.atlas_slot);
-            self.stats.atlas_evictions += 1;
-        }
-    }
-
-    fn atlas_for_mut(&mut self, content: ContentKind) -> &mut AtlasShelf {
-        match content {
-            ContentKind::Mask => &mut self.atlas_mask,
-            ContentKind::Color => &mut self.atlas_color,
-        }
-    }
-
-    fn deallocate(&mut self, content: ContentKind, slot: &AtlasSlot) {
-        match content {
-            ContentKind::Mask => self.atlas_mask.deallocate(slot),
-            ContentKind::Color => self.atlas_color.deallocate(slot),
-        }
-    }
 }
 
 impl Default for GlyphRasterCache {
@@ -265,6 +246,7 @@ impl Default for GlyphRasterCache {
 
 #[cfg(test)]
 mod tests {
+    use super::super::atlas::AtlasShelf;
     use super::super::glyph_rasterizer::SubpixelX;
     use super::*;
 
@@ -301,6 +283,56 @@ mod tests {
         }
     }
 
+    /// CPU-only atlas pair used by these tests in lieu of the wgpu-backed
+    /// `GpuAtlasShelf`. Mirrors the production allocate/deallocate
+    /// semantics that the cache cares about.
+    struct TestAtlases {
+        mask: AtlasShelf,
+        color: AtlasShelf,
+    }
+
+    impl TestAtlases {
+        fn new(side: u16) -> Self {
+            Self {
+                mask: AtlasShelf::new(side),
+                color: AtlasShelf::new(side),
+            }
+        }
+    }
+
+    impl AtlasOps for TestAtlases {
+        fn allocate(
+            &mut self,
+            content: ContentKind,
+            w: u16,
+            h: u16,
+            _data: &[u8],
+        ) -> Option<AtlasSlot> {
+            let atlas = match content {
+                ContentKind::Mask => &mut self.mask,
+                ContentKind::Color => &mut self.color,
+            };
+            atlas.allocate(w, h)
+        }
+
+        fn deallocate(&mut self, content: ContentKind, slot: &AtlasSlot) {
+            let atlas = match content {
+                ContentKind::Mask => &mut self.mask,
+                ContentKind::Color => &mut self.color,
+            };
+            atlas.deallocate(slot);
+        }
+    }
+
+    fn insert(
+        cache: &mut GlyphRasterCache,
+        atlases: &mut TestAtlases,
+        k: GlyphRasterKey,
+        raster: RasterizedGlyph,
+    ) -> bool {
+        cache.get_or_insert(k, atlases, || Some(raster)).is_some()
+    }
+
     #[test]
     fn key_quantises_size_to_64ths() {
         let k = GlyphRasterKey::from_size(7, 42, 14.0, SubpixelX(2), true);
@@ -315,15 +347,15 @@ mod tests {
 
     #[test]
     fn miss_then_hit() {
-        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap(), 256);
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap());
+        let mut at = TestAtlases::new(256);
         let k = key(1, 65);
         assert!(cache.get(&k).is_none());
-        let _entry = cache.insert(k, mask_raster(8, 16)).expect("insert");
+        assert!(insert(&mut cache, &mut at, k, mask_raster(8, 16)));
         let stats1 = cache.take_stats();
         assert_eq!(stats1.misses, 1);
         assert_eq!(stats1.hits, 0);
 
-        // Hit
         let entry = cache.get(&k).expect("hit");
         assert_eq!(entry.width, 8);
         assert_eq!(entry.height, 16);
@@ -333,20 +365,21 @@ mod tests {
 
     #[test]
     fn distinct_keys_share_cache() {
-        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap(), 256);
-        cache.insert(key(1, 65), mask_raster(8, 16));
-        cache.insert(key(1, 66), mask_raster(8, 16));
-        cache.insert(key(2, 65), mask_raster(8, 16));
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap());
+        let mut at = TestAtlases::new(256);
+        insert(&mut cache, &mut at, key(1, 65), mask_raster(8, 16));
+        insert(&mut cache, &mut at, key(1, 66), mask_raster(8, 16));
+        insert(&mut cache, &mut at, key(2, 65), mask_raster(8, 16));
         assert_eq!(cache.len(), 3);
     }
 
     #[test]
     fn lru_eviction_releases_atlas_slot() {
-        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(2).unwrap(), 256);
-        cache.insert(key(1, 1), mask_raster(8, 16));
-        cache.insert(key(1, 2), mask_raster(8, 16));
-        // Inserting a 3rd entry triggers LRU eviction of (1, 1).
-        cache.insert(key(1, 3), mask_raster(8, 16));
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(2).unwrap());
+        let mut at = TestAtlases::new(256);
+        insert(&mut cache, &mut at, key(1, 1), mask_raster(8, 16));
+        insert(&mut cache, &mut at, key(1, 2), mask_raster(8, 16));
+        insert(&mut cache, &mut at, key(1, 3), mask_raster(8, 16));
         let stats = cache.take_stats();
         assert_eq!(stats.lru_evictions, 1);
         assert!(
@@ -359,63 +392,49 @@ mod tests {
 
     #[test]
     fn atlas_full_triggers_eviction_then_succeeds() {
-        // Tiny atlas: 256 wide / 256 tall. Glyph dimensions chosen so that
-        // ~4 fit per shelf row; allocate enough to force atlas exhaustion
-        // before the LRU is naturally exhausted.
-        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(1024).unwrap(), 256);
-        // 64×64 glyphs: at most 16 fit in a 256² atlas.
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(1024).unwrap());
+        let mut at = TestAtlases::new(256);
         for i in 0..30u16 {
-            cache.insert(key(1, i), mask_raster(64, 64));
+            insert(&mut cache, &mut at, key(1, i), mask_raster(64, 64));
         }
         let stats = cache.take_stats();
-        // Some atlas evictions must have happened.
         assert!(
             stats.atlas_evictions > 0,
             "expected atlas evictions, got {stats:?}"
         );
-        // Cache has all 30 entries (LRU cap is high enough).
         assert!(cache.len() <= 30);
     }
 
     #[test]
     fn color_and_mask_use_separate_atlases() {
-        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap(), 256);
-        let mask_entry = cache
-            .insert(key(1, 1), mask_raster(16, 16))
-            .expect("insert mask");
-        let mask_slot = mask_entry.atlas_slot;
-        let color_entry = cache
-            .insert(key(1, 2), color_raster(16, 16))
-            .expect("insert color");
-        let color_slot = color_entry.atlas_slot;
-        // Slots may share x/y because they live in different atlases; the
-        // distinguishing fact is that both fit despite the atlas being
-        // small enough that placement collisions are likely if they shared.
-        assert_eq!(mask_slot.width, 16);
-        assert_eq!(color_slot.width, 16);
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap());
+        let mut at = TestAtlases::new(256);
+        assert!(insert(&mut cache, &mut at, key(1, 1), mask_raster(16, 16)));
+        assert!(insert(&mut cache, &mut at, key(1, 2), color_raster(16, 16)));
+        assert_eq!(cache.len(), 2);
     }
 
     #[test]
-    fn invalidate_all_clears_both_layers() {
-        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap(), 256);
-        cache.insert(key(1, 1), mask_raster(16, 16));
-        cache.insert(key(1, 2), color_raster(16, 16));
+    fn invalidate_all_clears_entries() {
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap());
+        let mut at = TestAtlases::new(256);
+        insert(&mut cache, &mut at, key(1, 1), mask_raster(16, 16));
+        insert(&mut cache, &mut at, key(1, 2), color_raster(16, 16));
         assert_eq!(cache.len(), 2);
         cache.invalidate_all();
         assert!(cache.is_empty());
-        assert!(cache.atlas_mask.is_empty());
-        assert!(cache.atlas_color.is_empty());
     }
 
     #[test]
     fn get_or_insert_short_circuits_on_hit() {
-        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap(), 256);
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap());
+        let mut at = TestAtlases::new(256);
         let k = key(1, 1);
-        cache.insert(k, mask_raster(8, 16));
+        insert(&mut cache, &mut at, k, mask_raster(8, 16));
         let _ = cache.take_stats();
 
         let mut compute_called = false;
-        let _ = cache.get_or_insert(k, || {
+        let _ = cache.get_or_insert(k, &mut at, || {
             compute_called = true;
             Some(mask_raster(8, 16))
         });
@@ -427,9 +446,10 @@ mod tests {
 
     #[test]
     fn get_or_insert_invokes_rasterize_on_miss() {
-        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap(), 256);
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap());
+        let mut at = TestAtlases::new(256);
         let mut count = 0;
-        let _ = cache.get_or_insert(key(1, 1), || {
+        let _ = cache.get_or_insert(key(1, 1), &mut at, || {
             count += 1;
             Some(mask_raster(8, 16))
         });
@@ -439,8 +459,9 @@ mod tests {
 
     #[test]
     fn get_or_insert_propagates_rasterize_failure() {
-        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap(), 256);
-        let result = cache.get_or_insert::<_>(key(1, 1), || None);
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap());
+        let mut at = TestAtlases::new(256);
+        let result = cache.get_or_insert(key(1, 1), &mut at, || None);
         assert!(result.is_none());
         assert!(cache.is_empty());
     }

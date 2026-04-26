@@ -38,7 +38,7 @@ use super::font_id::{font_id_from_data, var_hash_from_coords};
 use super::glyph_rasterizer::{ContentKind, GlyphRasterizer, SubpixelX};
 use super::layout::ParleyLayout;
 use super::layout_cache::LayoutCache;
-use super::raster_cache::{GlyphRasterCache, GlyphRasterKey};
+use super::raster_cache::{AtlasOps, GlyphRasterCache, GlyphRasterKey};
 use super::shaper::shape_line_with_default_family;
 use super::styled_line::StyledLine;
 
@@ -100,11 +100,13 @@ pub struct FrameBuildStats {
 ///    the line's screen origin.
 ///
 /// Returns the flat glyph list (renderer iterates it once) and build stats.
+#[allow(clippy::too_many_arguments)]
 pub fn build_frame(
     text: &mut ParleyText,
     layout_cache: &mut LayoutCache,
     rasterizer: &mut GlyphRasterizer,
     raster_cache: &mut GlyphRasterCache,
+    atlases: &mut dyn AtlasOps,
     lines: &[FrameLine<'_>],
     hint: bool,
 ) -> (Vec<DrawableGlyph>, FrameBuildStats) {
@@ -134,6 +136,7 @@ pub fn build_frame(
             hint,
             rasterizer,
             raster_cache,
+            atlases,
             &mut out,
             &mut stats,
         );
@@ -150,13 +153,14 @@ fn walk_one_layout(
     hint: bool,
     rasterizer: &mut GlyphRasterizer,
     raster_cache: &mut GlyphRasterCache,
+    atlases: &mut dyn AtlasOps,
     out: &mut Vec<DrawableGlyph>,
     stats: &mut FrameBuildStats,
 ) {
     for line in layout.layout.lines() {
-        let line_metrics = line.metrics();
-        let line_baseline = origin_y + line_metrics.baseline;
-
+        // ADR-031 Phase 9b: Parley's `positioned_glyphs()` already
+        // includes `run.baseline()` in each glyph.y; do not add it
+        // again. (Same fix landed in scene_renderer / glyph_emitter.)
         for item in line.items() {
             let PositionedLayoutItem::GlyphRun(run) = item else {
                 continue;
@@ -179,7 +183,7 @@ fn walk_one_layout(
                 stats.glyphs_emitted += 1;
 
                 let abs_x = origin_x + glyph.x;
-                let abs_y = line_baseline + glyph.y;
+                let abs_y = origin_y + glyph.y;
                 let subpx = SubpixelX::from_fract(abs_x);
                 let glyph_id = glyph.id as u16;
                 let key = GlyphRasterKey {
@@ -191,7 +195,7 @@ fn walk_one_layout(
                     hint,
                 };
 
-                let entry = raster_cache.get_or_insert(key, || {
+                let entry = raster_cache.get_or_insert(key, atlases, || {
                     rasterizer.rasterize(font_ref, glyph_id, font_size, subpx, hint)
                 });
 
@@ -248,18 +252,72 @@ mod tests {
         )
     }
 
-    fn make_state() -> (ParleyText, LayoutCache, GlyphRasterizer, GlyphRasterCache) {
+    /// CPU-only atlas pair used by the unit tests in lieu of a real
+    /// `GpuAtlasShelf`. Mirrors the test stub that lives in
+    /// `raster_cache::tests` so build_frame can drive the cache without
+    /// pulling in wgpu.
+    struct TestAtlases {
+        mask: super::super::atlas::AtlasShelf,
+        color: super::super::atlas::AtlasShelf,
+    }
+
+    impl TestAtlases {
+        fn new(side: u16) -> Self {
+            Self {
+                mask: super::super::atlas::AtlasShelf::new(side),
+                color: super::super::atlas::AtlasShelf::new(side),
+            }
+        }
+    }
+
+    impl AtlasOps for TestAtlases {
+        fn allocate(
+            &mut self,
+            content: super::super::glyph_rasterizer::ContentKind,
+            w: u16,
+            h: u16,
+            _data: &[u8],
+        ) -> Option<super::super::atlas::AtlasSlot> {
+            let atlas = match content {
+                super::super::glyph_rasterizer::ContentKind::Mask => &mut self.mask,
+                super::super::glyph_rasterizer::ContentKind::Color => &mut self.color,
+            };
+            atlas.allocate(w, h)
+        }
+
+        fn deallocate(
+            &mut self,
+            content: super::super::glyph_rasterizer::ContentKind,
+            slot: &super::super::atlas::AtlasSlot,
+        ) {
+            let atlas = match content {
+                super::super::glyph_rasterizer::ContentKind::Mask => &mut self.mask,
+                super::super::glyph_rasterizer::ContentKind::Color => &mut self.color,
+            };
+            atlas.deallocate(slot);
+        }
+    }
+
+    fn make_state() -> (
+        ParleyText,
+        LayoutCache,
+        GlyphRasterizer,
+        GlyphRasterCache,
+        TestAtlases,
+    ) {
         (
             ParleyText::new(&FontConfig::default()),
             LayoutCache::new(),
             GlyphRasterizer::new(),
-            GlyphRasterCache::new(NonZeroUsize::new(2048).unwrap(), 1024),
+            GlyphRasterCache::new(NonZeroUsize::new(2048).unwrap()),
+            TestAtlases::new(1024),
         )
     }
 
     #[test]
     fn build_frame_emits_glyphs_for_one_line() {
-        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache) = make_state();
+        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache, mut atlases) =
+            make_state();
         let l = line("hello");
         let lines = [FrameLine {
             line_idx: 0,
@@ -272,6 +330,7 @@ mod tests {
             &mut layout_cache,
             &mut rasterizer,
             &mut raster_cache,
+            &mut atlases,
             &lines,
             true,
         );
@@ -284,7 +343,8 @@ mod tests {
 
     #[test]
     fn build_frame_drawables_anchored_to_origin() {
-        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache) = make_state();
+        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache, mut atlases) =
+            make_state();
         let l = line("a");
         let make_lines = |x: f32, y: f32| {
             [FrameLine {
@@ -299,6 +359,7 @@ mod tests {
             &mut layout_cache,
             &mut rasterizer,
             &mut raster_cache,
+            &mut atlases,
             &make_lines(0.0, 0.0),
             true,
         );
@@ -310,6 +371,7 @@ mod tests {
             &mut layout_cache,
             &mut rasterizer,
             &mut raster_cache,
+            &mut atlases,
             &make_lines(50.0, 100.0),
             true,
         );
@@ -331,7 +393,8 @@ mod tests {
 
     #[test]
     fn build_frame_warm_l1_l2_path_drops_to_zero_misses() {
-        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache) = make_state();
+        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache, mut atlases) =
+            make_state();
         let l = line("hello world");
         let lines = [FrameLine {
             line_idx: 0,
@@ -345,6 +408,7 @@ mod tests {
             &mut layout_cache,
             &mut rasterizer,
             &mut raster_cache,
+            &mut atlases,
             &lines,
             true,
         );
@@ -356,6 +420,7 @@ mod tests {
             &mut layout_cache,
             &mut rasterizer,
             &mut raster_cache,
+            &mut atlases,
             &lines,
             true,
         );
@@ -369,7 +434,8 @@ mod tests {
 
     #[test]
     fn build_frame_multi_line_independent_caching() {
-        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache) = make_state();
+        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache, mut atlases) =
+            make_state();
         let l0 = line("first");
         let l1 = line("second");
         let lines = [
@@ -391,6 +457,7 @@ mod tests {
             &mut layout_cache,
             &mut rasterizer,
             &mut raster_cache,
+            &mut atlases,
             &lines,
             true,
         );
@@ -409,6 +476,7 @@ mod tests {
             &mut layout_cache,
             &mut rasterizer,
             &mut raster_cache,
+            &mut atlases,
             &lines,
             true,
         );
@@ -419,12 +487,14 @@ mod tests {
 
     #[test]
     fn empty_lines_yield_zero_drawables() {
-        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache) = make_state();
+        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache, mut atlases) =
+            make_state();
         let (drawables, stats) = build_frame(
             &mut text,
             &mut layout_cache,
             &mut rasterizer,
             &mut raster_cache,
+            &mut atlases,
             &[],
             true,
         );
@@ -435,7 +505,8 @@ mod tests {
 
     #[test]
     fn cjk_line_produces_drawables() {
-        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache) = make_state();
+        let (mut text, mut layout_cache, mut rasterizer, mut raster_cache, mut atlases) =
+            make_state();
         let l = line("こんにちは");
         let lines = [FrameLine {
             line_idx: 0,
@@ -448,6 +519,7 @@ mod tests {
             &mut layout_cache,
             &mut rasterizer,
             &mut raster_cache,
+            &mut atlases,
             &lines,
             true,
         );

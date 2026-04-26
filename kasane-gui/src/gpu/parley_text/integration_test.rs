@@ -18,11 +18,13 @@ use kasane_core::config::FontConfig;
 use kasane_core::protocol::{Atom, Face, Style};
 use parley::PositionedLayoutItem;
 
+use super::atlas::{AtlasShelf, AtlasSlot};
 use super::font_id::{font_id_from_data, var_hash_from_coords};
+use super::glyph_rasterizer::ContentKind;
 use super::glyph_rasterizer::{GlyphRasterizer, RasterizedGlyph, SubpixelX};
 use super::layout::ParleyLayout;
 use super::layout_cache::LayoutCache;
-use super::raster_cache::{GlyphRasterCache, GlyphRasterKey};
+use super::raster_cache::{AtlasOps, GlyphRasterCache, GlyphRasterKey};
 use super::shaper::shape_line_with_default_family;
 use super::styled_line::StyledLine;
 use super::{Brush, ParleyText};
@@ -32,6 +34,49 @@ struct Pipeline {
     layout_cache: LayoutCache,
     rasterizer: GlyphRasterizer,
     raster_cache: GlyphRasterCache,
+    atlases: TestAtlases,
+}
+
+/// CPU-only atlas pair the integration test uses in lieu of a real
+/// `GpuAtlasShelf`. The glyph data is dropped on the floor; the cache
+/// only needs the slot bookkeeping to be correct for the LRU + atlas
+/// eviction paths to work.
+struct TestAtlases {
+    mask: AtlasShelf,
+    color: AtlasShelf,
+}
+
+impl TestAtlases {
+    fn new(side: u16) -> Self {
+        Self {
+            mask: AtlasShelf::new(side),
+            color: AtlasShelf::new(side),
+        }
+    }
+}
+
+impl AtlasOps for TestAtlases {
+    fn allocate(
+        &mut self,
+        content: ContentKind,
+        w: u16,
+        h: u16,
+        _data: &[u8],
+    ) -> Option<AtlasSlot> {
+        let atlas = match content {
+            ContentKind::Mask => &mut self.mask,
+            ContentKind::Color => &mut self.color,
+        };
+        atlas.allocate(w, h)
+    }
+
+    fn deallocate(&mut self, content: ContentKind, slot: &AtlasSlot) {
+        let atlas = match content {
+            ContentKind::Mask => &mut self.mask,
+            ContentKind::Color => &mut self.color,
+        };
+        atlas.deallocate(slot);
+    }
 }
 
 impl Pipeline {
@@ -40,7 +85,8 @@ impl Pipeline {
             text: ParleyText::new(&FontConfig::default()),
             layout_cache: LayoutCache::new(),
             rasterizer: GlyphRasterizer::new(),
-            raster_cache: GlyphRasterCache::new(NonZeroUsize::new(2048).unwrap(), 1024),
+            raster_cache: GlyphRasterCache::new(NonZeroUsize::new(2048).unwrap()),
+            atlases: TestAtlases::new(1024),
         }
     }
 
@@ -86,10 +132,10 @@ impl Pipeline {
                             var_hash,
                             hint: true,
                         };
-                        let entry = self.raster_cache.get_or_insert(key, || {
-                            let raster: Option<RasterizedGlyph> = self
-                                .rasterizer
-                                .rasterize(font_ref, glyph_id, font_size, subpx, true);
+                        let rasterizer = &mut self.rasterizer;
+                        let entry = self.raster_cache.get_or_insert(key, &mut self.atlases, || {
+                            let raster: Option<RasterizedGlyph> =
+                                rasterizer.rasterize(font_ref, glyph_id, font_size, subpx, true);
                             raster
                         });
                         if entry.is_some() {
