@@ -68,11 +68,8 @@ pub struct SceneRenderer {
     /// Parley shaping + font context (FontContext + LayoutContext).
     parley_text: super::parley_text::ParleyText,
     /// L1: per-line shaped Parley layouts. Cache hits on cursor-only
-    /// frames skip the dominant CPU cost (whole-line shaping).
-    /// Currently allocated but not yet referenced — wiring it through
-    /// `process_render_paragraph_parley` is staged with the proper
-    /// glyph-accurate cursor work.
-    #[allow(dead_code)]
+    /// frames skip the dominant CPU cost (whole-line shaping). Wired
+    /// into `process_render_paragraph_parley`.
     parley_layout_cache: super::parley_text::layout_cache::LayoutCache,
     /// swash::ScaleContext owner — reused across frames.
     parley_glyph_rasterizer: super::parley_text::glyph_rasterizer::GlyphRasterizer,
