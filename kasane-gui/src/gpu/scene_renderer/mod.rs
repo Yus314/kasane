@@ -172,6 +172,21 @@ pub(crate) fn parley_backend_requested() -> bool {
     })
 }
 
+/// Diagnostic kill-switch for the Phase 9b Step 4c L2 raster cache.
+/// Set `KASANE_PARLEY_NO_CACHE=1` to invalidate the cache + clear both
+/// atlases at the start of every frame, reverting to the pre-Step-4c
+/// "rasterise everything every frame" behaviour. Used to triangulate
+/// whether a rendering bug originates in the cache layer or further
+/// upstream. Cached on first read like `parley_backend_requested`.
+pub(crate) fn parley_cache_disabled() -> bool {
+    static DISABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *DISABLED.get_or_init(|| {
+        std::env::var("KASANE_PARLEY_NO_CACHE")
+            .map(|v| !v.is_empty() && v != "0")
+            .unwrap_or(false)
+    })
+}
+
 impl SceneRenderer {
     pub(crate) fn new(
         gpu: &super::GpuState,
@@ -562,8 +577,17 @@ impl SceneRenderer {
     /// eviction. Per-frame clearing was a workaround for the previous
     /// double-allocator architecture and meant we re-rasterised every
     /// glyph every frame.
+    ///
+    /// Diagnostic: `KASANE_PARLEY_NO_CACHE=1` reverts to the pre-Step-4c
+    /// behaviour by invalidating the cache + clearing both atlases here.
+    /// Used to confirm whether a bug originates in the cache layer.
     fn parley_frame_start(&mut self) {
         self.parley_drawables.clear();
+        if parley_cache_disabled() {
+            self.parley_raster_cache.invalidate_all();
+            self.parley_mask_atlas.clear();
+            self.parley_color_atlas.clear();
+        }
     }
 
     /// Hand drawables accumulated since the last call to the Parley
