@@ -31,6 +31,22 @@ use kasane_core::session::{SessionManager, SessionSpec};
 use cli::UiMode;
 
 fn setup_logging(config: &Config) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    let env_filter = std::env::var("KASANE_LOG").unwrap_or_else(|_| config.log.level.clone());
+
+    // Opt-in stderr destination for one-off experiments. The TUI owns stdout
+    // for ANSI escapes, so callers should redirect stderr (e.g. `2> log.txt`)
+    // unless they are running a non-TUI subcommand. Setting this env var
+    // bypasses the persistent file appender entirely.
+    if std::env::var_os("KASANE_LOG_STDERR").is_some() {
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .with_env_filter(env_filter)
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber).ok();
+        return None;
+    }
+
     let log_dir = if let Some(ref file) = config.log.file {
         std::path::PathBuf::from(file)
     } else if let Ok(state_home) = std::env::var("XDG_STATE_HOME") {
@@ -48,8 +64,6 @@ fn setup_logging(config: &Config) -> Option<tracing_appender::non_blocking::Work
 
     let file_appender = tracing_appender::rolling::daily(&log_dir, "kasane.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-
-    let env_filter = std::env::var("KASANE_LOG").unwrap_or_else(|_| config.log.level.clone());
 
     let subscriber = tracing_subscriber::fmt()
         .with_writer(non_blocking)

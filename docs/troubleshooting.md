@@ -67,10 +67,20 @@ log {
 Log files are written to:
 
 ```
-~/.local/state/kasane/kasane.log
+~/.local/state/kasane/kasane.log.<UTC-date>
 ```
 
-Or `$XDG_STATE_HOME/kasane/kasane.log` if `$XDG_STATE_HOME` is set.
+Or `$XDG_STATE_HOME/kasane/kasane.log.<UTC-date>` if `$XDG_STATE_HOME` is set.
+
+For one-off debugging, set `KASANE_LOG_STDERR=1` to route tracing output to
+stderr instead of the persistent log file:
+
+```bash
+KASANE_LOG=debug KASANE_LOG_STDERR=1 kasane file.txt 2> trace.log
+```
+
+The TUI uses stdout for ANSI escapes, so always redirect stderr (`2> ...`) to
+avoid garbling the editor display.
 
 ## Plugin Issues
 

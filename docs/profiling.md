@@ -263,12 +263,15 @@ Hit/miss telemetry is emitted unconditionally (no feature flag) under the
 `kasane::line_cache` target.
 
 ```sh
-# Per-frame summary (one debug event per rendered frame):
-KASANE_LOG=kasane::line_cache=debug kasane file.txt
+# Per-frame summary (one debug event per rendered frame). Add
+# KASANE_LOG_STDERR=1 to redirect tracing to stderr (TUI owns stdout, so
+# redirect stderr to a file as shown). Without this env var, output is
+# appended to ~/.local/state/kasane/kasane.log.<UTC-date>.
+KASANE_LOG=kasane::line_cache=debug KASANE_LOG_STDERR=1 kasane file.txt 2> trace.log
 # → DEBUG kasane::line_cache: hits=78 misses=2 bypass=1 frame summary
 
 # Per-line outcomes (very noisy; useful for chasing single-line cache misses):
-KASANE_LOG=kasane::line_cache=trace kasane file.txt
+KASANE_LOG=kasane::line_cache=trace KASANE_LOG_STDERR=1 kasane file.txt 2> trace.log
 # → TRACE kasane::line_cache: line_idx=42 outcome="hit"
 # → TRACE kasane::line_cache: line_idx=43 outcome="miss_changed" hash_match=false ...
 ```

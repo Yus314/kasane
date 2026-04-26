@@ -91,6 +91,11 @@ Logging configuration. Log files are written as daily-rotating files named `kasa
 
 The `KASANE_LOG` environment variable overrides the configured `level`.
 
+Set `KASANE_LOG_STDERR=1` to redirect tracing output to stderr instead of
+the daily-rotating file. The TUI owns stdout for ANSI escapes, so callers
+should redirect stderr (e.g. `KASANE_LOG=debug KASANE_LOG_STDERR=1 kasane file 2> trace.log`)
+unless they are running a non-TUI subcommand.
+
 ```kdl
 log {
     level "info"
