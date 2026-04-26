@@ -25,6 +25,7 @@ pub mod raster_cache;
 pub mod shaper;
 pub mod style_resolver;
 pub mod styled_line;
+pub mod vertex_builder;
 
 #[cfg(test)]
 mod integration_test;
