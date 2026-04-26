@@ -428,6 +428,15 @@ Hit-rate measurements collected on a 2026-04-26 host run by emitting the
 | B. Single-line edit | Insert mode + content changes per line | 8913 | 271K | **86.96%** | 8.93% | 4.11% |
 | C. Heavy scroll | Page jumps, `:N<CR>` jumps, `gg`/`ge` on Cargo.lock | 7119 | 527K | **93.31%** | 5.27% | 1.42% |
 
+> **Note**: these numbers were captured *before* commit `c25a5788` fixed
+> a redraw tight loop that ran the event loop at ~360–680 fps instead of
+> the intended 30/60. Idle blink frames therefore contributed
+> disproportionately to the hit count. Post-fix the rendered frame
+> count drops ~36× (a follow-up smoke run produced 527 frames over 28
+> seconds, ≈18.6 fps average), so re-measured aggregate hit rates may
+> shift downward as the sample mix becomes input-frame heavy. The
+> per-event behaviour described below is unchanged.
+
 Most of the hit-rate budget is consumed by **idle frames between input
 events**. The renderer wakes at high frame rate during animation/blink
 ticks; on those frames every line stays cached (`hits=N misses=1`
