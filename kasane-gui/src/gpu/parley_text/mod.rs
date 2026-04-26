@@ -13,6 +13,7 @@
 pub mod atlas;
 pub mod font_id;
 pub mod font_stack;
+pub mod frame_builder;
 pub mod glyph_emitter;
 pub mod glyph_rasterizer;
 pub mod hit_test;
