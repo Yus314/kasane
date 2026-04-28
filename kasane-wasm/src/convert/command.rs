@@ -109,7 +109,7 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
         wit::Command::RegisterThemeTokens(tokens) => Command::RegisterThemeTokens(
             tokens
                 .iter()
-                .map(|t| (t.token.clone(), super::wit_face_to_face(&t.face)))
+                .map(|t| (t.token.clone(), super::wit_style_to_face(&t.style)))
                 .collect(),
         ),
         wit::Command::SpawnPaneClient(config) => Command::SpawnPaneClient {

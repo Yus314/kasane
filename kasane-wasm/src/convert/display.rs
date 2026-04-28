@@ -55,13 +55,13 @@ pub(crate) fn wit_display_directive_to_directive_with_resolver(
         wit::DisplayDirective::StyleInline(d) => DisplayDirective::StyleInline {
             line: d.line as usize,
             byte_range: d.byte_start as usize..d.byte_end as usize,
-            face: super::wit_face_to_face(&d.face),
+            face: super::wit_style_to_face(&d.style),
         },
 
         // === Decoration ===
         wit::DisplayDirective::StyleLine(d) => DisplayDirective::StyleLine {
             line: d.line as usize,
-            face: super::wit_face_to_face(&d.face),
+            face: super::wit_style_to_face(&d.style),
             z_order: d.z_order,
         },
         wit::DisplayDirective::Gutter(d) => DisplayDirective::Gutter {
@@ -81,6 +81,21 @@ pub(crate) fn wit_display_directive_to_directive_with_resolver(
             },
             content: super::wit_atoms_to_atoms(&d.content),
             priority: d.priority,
+        },
+
+        // === InlineBox (ADR-031 Phase 4 paper design — wire shape only) ===
+        //
+        // The directive declares a slot; actual content is queried via a
+        // separate `paint-inline-box(box-id)` extension point added in
+        // Phase 5. Until that landing the host has no native variant for
+        // an inline-box slot, so we project it onto a no-op
+        // `DisplayDirective::HideInline` of zero width — it does not
+        // affect rendering. Plugins exercising this directive against
+        // the current host will see the slot ignored, not crash; once
+        // Phase 5 lands the projection becomes an actual InlineBox slot.
+        wit::DisplayDirective::InlineBox(d) => DisplayDirective::HideInline {
+            line: d.line as usize,
+            byte_range: d.byte_offset as usize..d.byte_offset as usize,
         },
         // EditableVirtualText is not exposed via the WIT interface yet.
     }
@@ -195,7 +210,7 @@ pub(crate) fn display_directive_to_wit(directive: &DisplayDirective) -> wit::Dis
             line: *line as u32,
             byte_start: byte_range.start as u32,
             byte_end: byte_range.end as u32,
-            face: super::face_to_wit(face),
+            style: super::face_to_wit(face),
         }),
 
         // === Decoration ===
@@ -205,7 +220,7 @@ pub(crate) fn display_directive_to_wit(directive: &DisplayDirective) -> wit::Dis
             z_order,
         } => wit::DisplayDirective::StyleLine(wit::StyleLineDirective {
             line: *line as u32,
-            face: super::face_to_wit(face),
+            style: super::face_to_wit(face),
             z_order: *z_order,
         }),
         DisplayDirective::Gutter {

@@ -231,7 +231,7 @@ pub(crate) fn wit_inline_decoration_to_inline_decoration(
         .map(|op| match op {
             wit::InlineOp::StyleRange(s) => kasane_core::render::InlineOp::Style {
                 range: s.start as usize..s.end as usize,
-                face: super::wit_face_to_face(&s.face),
+                face: super::wit_style_to_face(&s.style),
             },
             wit::InlineOp::HideRange(h) => kasane_core::render::InlineOp::Hide {
                 range: h.start as usize..h.end as usize,

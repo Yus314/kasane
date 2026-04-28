@@ -1088,7 +1088,7 @@ impl PluginBackend for WasmPlugin {
                         .right_gutter
                         .map(|h| rt.store.data_mut().take_root_element(h));
                     let background = wit_ann.background.as_ref().map(|bg| BackgroundLayer {
-                        face: convert::wit_face_to_face(&bg.face),
+                        face: convert::wit_style_to_face(&bg.style),
                         z_order: bg.z_order,
                         blend: BlendMode::Opaque,
                     });

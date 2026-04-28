@@ -48,11 +48,20 @@ pub(crate) use workspace::*;
 
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::layout::Rect;
-use kasane_core::protocol::{Atom, Attributes, Color, Face, NamedColor};
+use kasane_core::protocol::{
+    Atom, Brush, Color, DecorationStyle, Face, FontFeatures, FontSlant, FontVariation, FontWeight,
+    NamedColor, Style, TextDecoration, UnresolvedStyle,
+};
 
 // ---------------------------------------------------------------------------
-// Face / Color conversions (WIT ↔ native)
+// Brush / Style conversions (WIT ↔ native)
 // ---------------------------------------------------------------------------
+//
+// ADR-031 Phase 4 (commit a56ddbb0): the wire format now uses `Style`
+// (post-resolve) and `Brush` (paint source) instead of the legacy
+// `Face` + `Color`. Host code that hasn't migrated still consumes
+// native `Face`; the bridge functions below route through `Style` on
+// the wire side and `Face` on the native side.
 
 bidirectional_enum! {
     wit_named_to_named: wit::NamedColor => NamedColor,
@@ -64,44 +73,36 @@ bidirectional_enum! {
     }
 }
 
-pub(crate) fn wit_face_to_face(wf: &wit::Face) -> Face {
-    Face {
-        fg: wit_color_to_color(&wf.fg),
-        bg: wit_color_to_color(&wf.bg),
-        underline: wit_color_to_color(&wf.underline),
-        attributes: Attributes::from_bits_truncate(wf.attributes),
+bidirectional_enum! {
+    wit_font_slant_to_font_slant: wit::FontSlant => FontSlant,
+    font_slant_to_wit: FontSlant => wit::FontSlant,
+    { Normal, Italic, Oblique }
+}
+
+bidirectional_enum! {
+    wit_decoration_style_to_decoration_style: wit::DecorationStyle => DecorationStyle,
+    decoration_style_to_wit: DecorationStyle => wit::DecorationStyle,
+    { Solid, Curly, Dotted, Dashed, Double }
+}
+
+// --- Brush (WIT → native) ---
+
+pub(crate) fn wit_brush_to_brush(wb: &wit::Brush) -> Brush {
+    match wb {
+        wit::Brush::DefaultColor => Brush::Default,
+        wit::Brush::Named(n) => Brush::Named(wit_named_to_named(*n)),
+        wit::Brush::Rgb(rgb) => Brush::Solid([rgb.r, rgb.g, rgb.b, 0xff]),
     }
 }
 
-fn wit_color_to_color(wc: &wit::Color) -> Color {
-    match wc {
-        wit::Color::DefaultColor => Color::Default,
-        wit::Color::Named(n) => Color::Named(wit_named_to_named(*n)),
-        wit::Color::Rgb(rgb) => Color::Rgb {
-            r: rgb.r,
-            g: rgb.g,
-            b: rgb.b,
-        },
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Atom conversion (WIT → native)
-// ---------------------------------------------------------------------------
-
-pub(crate) fn wit_atom_to_atom(wa: &wit::Atom) -> Atom {
-    Atom::from_face(wit_face_to_face(&wa.face), wa.contents.as_str())
-}
-
-// ---------------------------------------------------------------------------
-// Face / Color / Atom conversions (native → WIT)
-// ---------------------------------------------------------------------------
-
-pub(crate) fn color_to_wit(c: &Color) -> wit::Color {
+/// Project a native `Color` (the legacy paint source) onto a `wit::Brush`.
+/// Used by callers that still hold a `Color` from `Face`-typed APIs.
+#[allow(dead_code)] // bridge for sites that may migrate Face→Style independently
+pub(crate) fn color_to_wit(c: &Color) -> wit::Brush {
     match c {
-        Color::Default => wit::Color::DefaultColor,
-        Color::Named(n) => wit::Color::Named(named_to_wit(*n)),
-        Color::Rgb { r, g, b } => wit::Color::Rgb(wit::RgbColor {
+        Color::Default => wit::Brush::DefaultColor,
+        Color::Named(n) => wit::Brush::Named(named_to_wit(*n)),
+        Color::Rgb { r, g, b } => wit::Brush::Rgb(wit::RgbColor {
             r: *r,
             g: *g,
             b: *b,
@@ -109,18 +110,158 @@ pub(crate) fn color_to_wit(c: &Color) -> wit::Color {
     }
 }
 
-pub(crate) fn face_to_wit(f: &Face) -> wit::Face {
-    wit::Face {
-        fg: color_to_wit(&f.fg),
-        bg: color_to_wit(&f.bg),
-        underline: color_to_wit(&f.underline),
-        attributes: f.attributes.bits(),
+/// Project a `wit::Brush` to a native `Color`. The 24-bit RGB conversion
+/// drops alpha because the legacy `Color::Rgb` does not carry alpha.
+pub(crate) fn wit_brush_to_color(wb: &wit::Brush) -> Color {
+    match wb {
+        wit::Brush::DefaultColor => Color::Default,
+        wit::Brush::Named(n) => Color::Named(wit_named_to_named(*n)),
+        wit::Brush::Rgb(rgb) => Color::Rgb {
+            r: rgb.r,
+            g: rgb.g,
+            b: rgb.b,
+        },
     }
+}
+
+pub(crate) fn brush_to_wit(b: &Brush) -> wit::Brush {
+    match b {
+        Brush::Default => wit::Brush::DefaultColor,
+        Brush::Named(n) => wit::Brush::Named(named_to_wit(*n)),
+        // Linear RGBA → RGB (drop alpha) for the wire. Plugins do not see
+        // alpha; alpha is reserved for future host compositing work.
+        Brush::Solid([r, g, b, _alpha]) => wit::Brush::Rgb(wit::RgbColor {
+            r: *r,
+            g: *g,
+            b: *b,
+        }),
+    }
+}
+
+// --- FontVariation ---
+
+fn wit_font_variation_to_font_variation(wv: &wit::FontVariation) -> FontVariation {
+    FontVariation {
+        tag: wv.tag.to_be_bytes(),
+        value: wv.value,
+    }
+}
+
+fn font_variation_to_wit(v: &FontVariation) -> wit::FontVariation {
+    wit::FontVariation {
+        tag: u32::from_be_bytes(v.tag),
+        value: v.value,
+    }
+}
+
+// --- TextDecoration ---
+
+fn wit_text_decoration_to_text_decoration(wd: &wit::TextDecoration) -> TextDecoration {
+    TextDecoration {
+        style: wit_decoration_style_to_decoration_style(wd.style),
+        color: wit_brush_to_brush(&wd.color),
+        thickness: wd.thickness,
+    }
+}
+
+fn text_decoration_to_wit(d: &TextDecoration) -> wit::TextDecoration {
+    wit::TextDecoration {
+        style: decoration_style_to_wit(d.style),
+        color: brush_to_wit(&d.color),
+        thickness: d.thickness,
+    }
+}
+
+// --- Style (WIT ↔ native) ---
+
+pub(crate) fn wit_style_to_style(ws: &wit::Style) -> Style {
+    Style {
+        fg: wit_brush_to_brush(&ws.fg),
+        bg: wit_brush_to_brush(&ws.bg),
+        font_weight: FontWeight(ws.font_weight),
+        font_slant: wit_font_slant_to_font_slant(ws.font_slant),
+        font_features: FontFeatures(ws.font_features),
+        font_variations: ws
+            .font_variations
+            .iter()
+            .map(wit_font_variation_to_font_variation)
+            .collect(),
+        letter_spacing: ws.letter_spacing,
+        underline: ws
+            .underline
+            .as_ref()
+            .map(wit_text_decoration_to_text_decoration),
+        strikethrough: ws
+            .strikethrough
+            .as_ref()
+            .map(wit_text_decoration_to_text_decoration),
+        bidi_override: None,
+        blink: ws.blink,
+        reverse: ws.reverse,
+        dim: ws.dim,
+    }
+}
+
+pub(crate) fn style_to_wit(s: &Style) -> wit::Style {
+    wit::Style {
+        fg: brush_to_wit(&s.fg),
+        bg: brush_to_wit(&s.bg),
+        font_weight: s.font_weight.0,
+        font_slant: font_slant_to_wit(s.font_slant),
+        font_features: s.font_features.0,
+        font_variations: s
+            .font_variations
+            .iter()
+            .map(font_variation_to_wit)
+            .collect(),
+        letter_spacing: s.letter_spacing,
+        underline: s.underline.as_ref().map(text_decoration_to_wit),
+        strikethrough: s.strikethrough.as_ref().map(text_decoration_to_wit),
+        blink: s.blink,
+        reverse: s.reverse,
+        dim: s.dim,
+    }
+}
+
+// --- Face bridge (legacy) ---
+//
+// Many host call sites still hold native `Face`. These helpers route
+// through `Style` on the wire while preserving the `Face` API on the
+// native side. They will retire when host code migrates fully to
+// `Style` / `UnresolvedStyle` (a follow-up to ADR-031 Phase 4).
+
+pub(crate) fn wit_style_to_face(ws: &wit::Style) -> Face {
+    wit_style_to_style(ws).to_face()
+}
+
+pub(crate) fn face_to_wit(f: &Face) -> wit::Style {
+    style_to_wit(&Style::from_face(f))
+}
+
+pub(crate) fn wit_style_to_unresolved_style(ws: &wit::Style) -> UnresolvedStyle {
+    // The wire `Style` is post-resolve, so the unresolved `final_*` flags
+    // are all false. This matches the WIT contract: plugins do not see
+    // Kakoune resolution metadata.
+    UnresolvedStyle {
+        style: wit_style_to_style(ws),
+        final_fg: false,
+        final_bg: false,
+        final_style: false,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Atom conversion
+// ---------------------------------------------------------------------------
+
+pub(crate) fn wit_atom_to_atom(wa: &wit::Atom) -> Atom {
+    let unresolved = wit_style_to_unresolved_style(&wa.style);
+    Atom::from_style(wa.contents.as_str(), std::sync::Arc::new(unresolved))
 }
 
 pub(crate) fn atom_to_wit(a: &Atom) -> wit::Atom {
     wit::Atom {
-        face: face_to_wit(&a.face()),
+        style: style_to_wit(&Style::from_face(&a.face())),
         contents: a.contents.to_string(),
     }
 }
@@ -215,7 +356,7 @@ use kasane_core::render::{CursorStyle, CursorStyleHint};
 fn wit_cell_decoration_to_decoration(w: &wit::CellDecoration) -> CellDecoration {
     CellDecoration {
         target: wit_decoration_target_to_target(&w.target),
-        face: wit_face_to_face(&w.face),
+        face: wit_style_to_face(&w.style),
         merge: wit_face_merge_to_merge(w.merge),
         priority: w.priority,
     }
@@ -282,7 +423,7 @@ fn wit_cursor_style_orn(w: &wit::CursorStyleOrn) -> Option<CursorStyleOrn> {
 fn wit_cursor_effect_orn(w: &wit::CursorEffectOrn) -> CursorEffectOrn {
     CursorEffectOrn {
         kind: wit_cursor_effect_to_effect(w.kind),
-        face: wit_face_to_face(&w.face),
+        face: wit_style_to_face(&w.style),
         priority: w.priority,
         modality: wit_ornament_modality_to_modality(w.modality),
     }
@@ -311,7 +452,7 @@ fn wit_surface_orn_to_surface_orn(w: &wit::SurfaceOrn) -> SurfaceOrn {
     SurfaceOrn {
         anchor: wit_surface_orn_anchor_to_anchor(&w.anchor),
         kind: wit_surface_orn_kind_to_kind(w.kind),
-        face: wit_face_to_face(&w.face),
+        face: wit_style_to_face(&w.style),
         priority: w.priority,
         modality: wit_ornament_modality_to_modality(w.modality),
     }

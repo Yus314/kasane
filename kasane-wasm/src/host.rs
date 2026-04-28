@@ -266,7 +266,7 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     fn get_status_mode_line(&mut self) -> Vec<bindings::kasane::plugin::types::Atom> {
         convert::atoms_to_wit(&self.status_mode_line)
     }
-    fn get_status_default_face(&mut self) -> bindings::kasane::plugin::types::Face {
+    fn get_status_default_face(&mut self) -> bindings::kasane::plugin::types::Style {
         convert::face_to_wit(&self.status_default_face)
     }
     fn get_status_style(&mut self) -> String {
@@ -305,10 +305,10 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     fn get_widget_columns(&mut self) -> u16 {
         self.widget_columns
     }
-    fn get_default_face(&mut self) -> bindings::kasane::plugin::types::Face {
+    fn get_default_face(&mut self) -> bindings::kasane::plugin::types::Style {
         convert::face_to_wit(&self.default_face)
     }
-    fn get_padding_face(&mut self) -> bindings::kasane::plugin::types::Face {
+    fn get_padding_face(&mut self) -> bindings::kasane::plugin::types::Style {
         convert::face_to_wit(&self.padding_face)
     }
 
@@ -398,10 +398,10 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     fn get_menu_style(&mut self) -> Option<String> {
         self.menu_style.clone()
     }
-    fn get_menu_face(&mut self) -> Option<bindings::kasane::plugin::types::Face> {
+    fn get_menu_face(&mut self) -> Option<bindings::kasane::plugin::types::Style> {
         self.menu_face.map(|f| convert::face_to_wit(&f))
     }
-    fn get_menu_selected_face(&mut self) -> Option<bindings::kasane::plugin::types::Face> {
+    fn get_menu_selected_face(&mut self) -> Option<bindings::kasane::plugin::types::Style> {
         self.menu_selected_face.map(|f| convert::face_to_wit(&f))
     }
 
@@ -434,7 +434,7 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     }
 
     // --- v0.8.0 Tier 9: Theme / Color context ---
-    fn get_theme_face(&mut self, token: String) -> Option<bindings::kasane::plugin::types::Face> {
+    fn get_theme_face(&mut self, token: String) -> Option<bindings::kasane::plugin::types::Style> {
         let st = kasane_core::element::StyleToken::new(token);
         self.theme.get(&st).map(|f| convert::face_to_wit(&f))
     }
@@ -538,8 +538,12 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
 }
 
 impl bindings::kasane::plugin::element_builder::Host for HostState {
-    fn create_text(&mut self, content: String, face: bindings::kasane::plugin::types::Face) -> u32 {
-        let element = Element::text(content, convert::wit_face_to_face(&face));
+    fn create_text(
+        &mut self,
+        content: String,
+        style: bindings::kasane::plugin::types::Style,
+    ) -> u32 {
+        let element = Element::text(content, convert::wit_style_to_face(&style));
         self.store_element(element)
     }
 
@@ -699,7 +703,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
         border: Option<bindings::kasane::plugin::types::BorderLineStyle>,
         shadow: bool,
         padding: bindings::kasane::plugin::types::Edges,
-        style: bindings::kasane::plugin::types::Face,
+        style: bindings::kasane::plugin::types::Style,
         title: Option<Vec<bindings::kasane::plugin::types::Atom>>,
     ) -> u32 {
         let child_element = self.take_element(child);
@@ -710,7 +714,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             border: border.as_ref().map(convert::wit_border_to_border_config),
             shadow,
             padding: convert::wit_edges_to_edges(&padding),
-            style: Style::Direct(convert::wit_face_to_face(&style)),
+            style: Style::Direct(convert::wit_style_to_face(&style)),
             title: title_line,
         };
         self.store_element(element)
@@ -758,7 +762,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
         border_chars: Vec<String>,
         shadow: bool,
         padding: bindings::kasane::plugin::types::Edges,
-        style: bindings::kasane::plugin::types::Face,
+        style: bindings::kasane::plugin::types::Style,
         title: Option<Vec<bindings::kasane::plugin::types::Atom>>,
     ) -> u32 {
         let child_element = self.take_element(child);
@@ -781,7 +785,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             border: border_config,
             shadow,
             padding: convert::wit_edges_to_edges(&padding),
-            style: Style::Direct(convert::wit_face_to_face(&style)),
+            style: Style::Direct(convert::wit_style_to_face(&style)),
             title: title_line,
         };
         self.store_element(element)

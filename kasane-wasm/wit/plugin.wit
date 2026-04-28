@@ -1,8 +1,15 @@
-package kasane:plugin@0.25.0;
+package kasane:plugin@1.0.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
 //   - kasane-plugin-sdk/src/lib.rs   (guest-side bindings and helpers)
+//
+// ADR-031 Phase 4 (paper design at decisions.md §Phase 10 Wire Shape):
+// the legacy `face` record + attribute bitflags are replaced by `brush`,
+// `style`, `text-decoration`, and `font-variation`. Plugins now receive
+// the post-resolve `style` form — Kakoune's `final_*` resolution flags
+// are a host-internal concern. Major version bump (0.25.0 → 1.0.0)
+// signals the ABI break; old WASM binaries are rejected at load time.
 
 interface types {
     enum named-color {
@@ -30,25 +37,82 @@ interface types {
         b: u8,
     }
 
-    variant color {
+    /// A paint source — foreground, background, or decoration colour.
+    /// `default-color` is the "inherit from context" sentinel; the host
+    /// resolves it against the surrounding base style before rendering.
+    variant brush {
         default-color,
         named(named-color),
         rgb(rgb-color),
     }
 
-    /// Attribute bitflags as u16 (matches kasane-core Attributes layout).
-    type attribute-flags = u16;
+    /// CSS-style font weight on the [100, 900] axis. 400 = normal, 700 =
+    /// bold. Continuous so plugins can target intermediate weights when a
+    /// variable font is in use.
+    type font-weight = u16;
 
-    record face {
-        fg: color,
-        bg: color,
-        underline: color,
-        attributes: attribute-flags,
+    enum font-slant {
+        normal,
+        italic,
+        oblique,
     }
 
-    /// A styled text fragment (face + content).
+    /// OpenType feature toggle bitset. Bit positions match kasane-core
+    /// `FontFeatures`: bit 0 = `calt` + `clig` (standard ligatures), bit 1
+    /// = `dlig`, bit 2 = `hlig`, bit 3 = `liga`, bit 4 = `zero`. Reserved
+    /// bits ignored.
+    type font-feature-flags = u32;
+
+    /// Variable-font axis setting. `tag` is the 4-byte OpenType axis tag
+    /// encoded as a u32 with bytes in big-endian order (so `wght` is
+    /// `0x77676874`). Plugins typically use a tag-literal helper from
+    /// the SDK rather than the raw integer.
+    record font-variation {
+        tag: u32,
+        value: f32,
+    }
+
+    enum decoration-style {
+        solid,
+        curly,
+        dotted,
+        dashed,
+        double,
+    }
+
+    /// Underline or strikethrough decoration.
+    /// `thickness` of `none` means "use the font's recommended thickness
+    /// from its metrics" — this is the strongly-preferred default; an
+    /// explicit value is for special cases (LSP error pulse, draft
+    /// markers) where the visual loudness must be controlled
+    /// independently of font metrics.
+    record text-decoration {
+        style: decoration-style,
+        color: brush,
+        thickness: option<f32>,
+    }
+
+    /// Render-ready text style. Replaces the legacy `face` record.
+    /// Plugins receive this in post-resolve form (Kakoune `final_*`
+    /// resolution flags have already been consumed by the host).
+    record style {
+        fg: brush,
+        bg: brush,
+        font-weight: font-weight,
+        font-slant: font-slant,
+        font-features: font-feature-flags,
+        font-variations: list<font-variation>,
+        letter-spacing: f32,
+        underline: option<text-decoration>,
+        strikethrough: option<text-decoration>,
+        blink: bool,
+        reverse: bool,
+        dim: bool,
+    }
+
+    /// A styled text fragment (style + content).
     record atom {
-        face: face,
+        style: style,
         contents: string,
     }
 
@@ -56,7 +120,7 @@ interface types {
     record line-decoration {
         left-gutter: option<element-handle>,
         right-gutter: option<element-handle>,
-        background: option<face>,
+        background: option<style>,
     }
 
     /// Opaque handle to a host-side Element.
@@ -123,7 +187,7 @@ interface types {
 
     record theme-token-default {
         token: string,
-        face: face,
+        style: style,
     }
 
     record resize-pty-config {
@@ -284,6 +348,7 @@ interface types {
         insert-inline(insert-inline-directive),
         hide-inline(hide-inline-directive),
         style-inline(style-inline-directive),
+        inline-box(inline-box-directive),
         // Decoration
         style-line(style-line-directive),
         gutter(gutter-directive),
@@ -327,12 +392,12 @@ interface types {
         line: u32,
         byte-start: u32,
         byte-end: u32,
-        face: face,
+        style: style,
     }
 
     record style-line-directive {
         line: u32,
-        face: face,
+        style: style,
         z-order: s16,
     }
 
@@ -353,6 +418,28 @@ interface types {
         content: list<atom>,
         priority: s16,
     }
+
+    /// Inline-box slot — declares a non-text widget (color swatch, image,
+    /// custom element) that should occupy a portion of the rendered line
+    /// at the given byte offset. The actual paint content is queried via
+    /// a separate `paint-inline-box(box-id)` extension point (Phase 5);
+    /// this directive only reserves the slot.
+    record inline-box-directive {
+        line: u32,
+        byte-offset: u32,
+        /// Width in display columns (cell units). Host converts to
+        /// physical pixels using current cell metrics; plugins do not
+        /// see physical pixels.
+        width-cells: f32,
+        /// Height in fractional lines. 1.0 = single line; 2.0 = double-tall.
+        height-lines: f32,
+        /// Stable identifier — typically a hash of (plugin-id,
+        /// content-fingerprint). Used as part of the L2 paint cache key.
+        box-id: u64,
+        alignment: inline-box-alignment,
+    }
+
+    enum inline-box-alignment { center, top, bottom }
 
     // --- Projection Mode types ---
 
@@ -707,11 +794,11 @@ interface types {
     /// `modify-anchor` and `custom` are not representable in WIT (closures);
     /// plugins needing those fall back to imperative `transform`.
     variant element-patch-op {
-        wrap-container(face),
+        wrap-container(style),
         prepend(element-handle),
         append(element-handle),
         replace(element-handle),
-        modify-face(face),
+        modify-style(style),
         when(when-patch),
     }
 
@@ -754,7 +841,7 @@ interface types {
     }
 
     record background-layer {
-        face: face,
+        style: style,
         z-order: s16,
         blend-opaque: bool,
     }
@@ -764,7 +851,7 @@ interface types {
         hide-range(hide-range-op),
         insert(insert-op),
     }
-    record style-range-op { start: u32, end: u32, face: face }
+    record style-range-op { start: u32, end: u32, style: style }
     record hide-range-op { start: u32, end: u32 }
     record insert-op { at: u32, content: list<atom> }
     record inline-decoration { ops: list<inline-op> }
@@ -931,7 +1018,7 @@ interface types {
 
     /// How a decoration face merges with the existing cell face.
     /// 0=Replace, 1=Overlay, 2=Background.
-    type face-merge = u8;
+    type style-merge = u8;
 
     /// Spatial target for a cell decoration.
     variant decoration-target {
@@ -950,8 +1037,8 @@ interface types {
 
     record cell-decoration {
         target: decoration-target,
-        face: face,
-        merge: face-merge,
+        style: style,
+        merge: style-merge,
         priority: s16,
     }
 
@@ -986,7 +1073,7 @@ interface types {
     /// Reserved for future use. Currently collected but not rendered by the host.
     record cursor-effect-orn {
         kind: cursor-effect,
-        face: face,
+        style: style,
         priority: s16,
         modality: ornament-modality,
     }
@@ -1004,7 +1091,7 @@ interface types {
     record surface-orn {
         anchor: surface-orn-anchor,
         kind: surface-orn-kind,
-        face: face,
+        style: style,
         priority: s16,
         modality: ornament-modality,
     }
@@ -1071,7 +1158,7 @@ interface types {
         y: f32,
         w: f32,
         h: f32,
-        color: color,
+        color: brush,
     }
 
     record canvas-rounded-rect {
@@ -1081,8 +1168,8 @@ interface types {
         h: f32,
         corner-radius: f32,
         border-width: f32,
-        fill-color: color,
-        border-color: color,
+        fill-color: brush,
+        border-color: brush,
     }
 
     record canvas-line {
@@ -1090,7 +1177,7 @@ interface types {
         y1: f32,
         x2: f32,
         y2: f32,
-        color: color,
+        color: brush,
         width: f32,
     }
 
@@ -1098,15 +1185,15 @@ interface types {
         x: f32,
         y: f32,
         text: string,
-        color: color,
+        color: brush,
     }
 
     record canvas-circle {
         cx: f32,
         cy: f32,
         radius: f32,
-        fill-color: option<color>,
-        stroke-color: option<color>,
+        fill-color: option<brush>,
+        stroke-color: option<brush>,
         stroke-width: f32,
     }
 
@@ -1122,7 +1209,7 @@ interface types {
 }
 
 interface host-state {
-    use types.{face, atom, coord, session-descriptor, selection, display-unit-info};
+    use types.{style, atom, coord, session-descriptor, selection, display-unit-info};
 
     get-cursor-line: func() -> s32;
     get-cursor-col: func() -> s32;
@@ -1148,7 +1235,7 @@ interface host-state {
     get-status-content: func() -> list<atom>;
     get-status-line: func() -> list<atom>;
     get-status-mode-line: func() -> list<atom>;
-    get-status-default-face: func() -> face;
+    get-status-default-face: func() -> style;
     get-status-style: func() -> string;
 
     // --- v0.3.0 Tier 2: Menu / Info state ---
@@ -1163,8 +1250,8 @@ interface host-state {
     get-ui-option: func(key: string) -> option<string>;
     get-cursor-mode: func() -> u8;
     get-widget-columns: func() -> u16;
-    get-default-face: func() -> face;
-    get-padding-face: func() -> face;
+    get-default-face: func() -> style;
+    get-padding-face: func() -> style;
 
     // --- v0.4.0 Tier 4: Multi-cursor ---
     get-cursor-count: func() -> u32;
@@ -1192,8 +1279,8 @@ interface host-state {
     // --- v0.4.0 Tier 7: Menu details ---
     get-menu-anchor: func() -> option<coord>;
     get-menu-style: func() -> option<string>;
-    get-menu-face: func() -> option<face>;
-    get-menu-selected-face: func() -> option<face>;
+    get-menu-face: func() -> option<style>;
+    get-menu-selected-face: func() -> option<style>;
 
     // --- v0.7.0 Tier 8: Session metadata ---
     get-session-count: func() -> u32;
@@ -1203,7 +1290,7 @@ interface host-state {
 
     // --- v0.8.0 Tier 9: Theme / Color context ---
     /// Resolve a theme token to a face. Returns none if token is not in the theme.
-    get-theme-face: func(token: string) -> option<face>;
+    get-theme-face: func(token: string) -> option<style>;
 
     /// Whether the current background is dark (true) or light (false).
     /// Based on Kakoune's default_face. Defaults to true when unknown.
@@ -1270,10 +1357,10 @@ interface host-state {
 /// Host-provided functions for building Element trees.
 /// Handles are valid only within the current plugin call scope.
 interface element-builder {
-    use types.{face, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry, overlay, slot-id, layout-direction, image-source, image-fit, canvas-draw-op};
+    use types.{style, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry, overlay, slot-id, layout-direction, image-source, image-fit, canvas-draw-op};
 
-    /// Create a text element with a direct face.
-    create-text: func(content: string, face: face) -> element-handle;
+    /// Create a text element with a direct style.
+    create-text: func(content: string, style: style) -> element-handle;
 
     /// Create a styled line from a list of atoms.
     create-styled-line: func(atoms: list<atom>) -> element-handle;
@@ -1309,7 +1396,7 @@ interface element-builder {
 
     /// Create a container with full styling (border, shadow, padding, face, title).
     create-container-styled: func(child: element-handle, border: option<border-line-style>,
-        shadow: bool, padding: edges, style: face, title: option<list<atom>>) -> element-handle;
+        shadow: bool, padding: edges, style: style, title: option<list<atom>>) -> element-handle;
 
     /// Create a scrollable wrapper.
     create-scrollable: func(child: element-handle, offset: u16, vertical: bool) -> element-handle;
@@ -1323,7 +1410,7 @@ interface element-builder {
     /// `border-chars` must have exactly 11 single-character strings:
     /// [TL, T, TR, R, BR, B, BL, L, title-left, title-right, shadow].
     create-container-custom-border: func(child: element-handle, border-chars: list<string>,
-        shadow: bool, padding: edges, style: face, title: option<list<atom>>) -> element-handle;
+        shadow: bool, padding: edges, style: style, title: option<list<atom>>) -> element-handle;
 
     // --- v0.20.0: Image element ---
 

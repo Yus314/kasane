@@ -137,7 +137,7 @@ pub(crate) fn wit_canvas_op_to_canvas_op(
             y: r.y,
             w: r.w,
             h: r.h,
-            color: super::wit_color_to_color(&r.color),
+            color: super::wit_brush_to_color(&r.color),
         },
         wit::CanvasDrawOp::RoundedRect(r) => CoreOp::RoundedRect {
             x: r.x,
@@ -146,29 +146,29 @@ pub(crate) fn wit_canvas_op_to_canvas_op(
             h: r.h,
             corner_radius: r.corner_radius,
             border_width: r.border_width,
-            fill_color: super::wit_color_to_color(&r.fill_color),
-            border_color: super::wit_color_to_color(&r.border_color),
+            fill_color: super::wit_brush_to_color(&r.fill_color),
+            border_color: super::wit_brush_to_color(&r.border_color),
         },
         wit::CanvasDrawOp::Line(l) => CoreOp::Line {
             x1: l.x1,
             y1: l.y1,
             x2: l.x2,
             y2: l.y2,
-            color: super::wit_color_to_color(&l.color),
+            color: super::wit_brush_to_color(&l.color),
             width: l.width,
         },
         wit::CanvasDrawOp::Text(t) => CoreOp::Text {
             x: t.x,
             y: t.y,
             text: t.text.clone(),
-            color: super::wit_color_to_color(&t.color),
+            color: super::wit_brush_to_color(&t.color),
         },
         wit::CanvasDrawOp::Circle(c) => CoreOp::Circle {
             cx: c.cx,
             cy: c.cy,
             radius: c.radius,
-            fill_color: c.fill_color.as_ref().map(super::wit_color_to_color),
-            stroke_color: c.stroke_color.as_ref().map(super::wit_color_to_color),
+            fill_color: c.fill_color.as_ref().map(super::wit_brush_to_color),
+            stroke_color: c.stroke_color.as_ref().map(super::wit_brush_to_color),
             stroke_width: c.stroke_width,
         },
     }
@@ -202,8 +202,8 @@ pub(crate) fn wit_element_patch_ops_to_patch(
     let mut i = 0;
     while i < ops.len() {
         let patch = match &ops[i] {
-            wit::ElementPatchOp::WrapContainer(face) => ElementPatch::WrapContainer {
-                face: super::wit_face_to_face(face),
+            wit::ElementPatchOp::WrapContainer(style) => ElementPatch::WrapContainer {
+                face: super::wit_style_to_face(style),
             },
             wit::ElementPatchOp::Prepend(handle) => ElementPatch::Prepend {
                 element: take_element(*handle),
@@ -214,8 +214,8 @@ pub(crate) fn wit_element_patch_ops_to_patch(
             wit::ElementPatchOp::Replace(handle) => ElementPatch::Replace {
                 element: take_element(*handle),
             },
-            wit::ElementPatchOp::ModifyFace(face) => ElementPatch::ModifyFace {
-                overlay: super::wit_face_to_face(face),
+            wit::ElementPatchOp::ModifyStyle(style) => ElementPatch::ModifyFace {
+                overlay: super::wit_style_to_face(style),
             },
             wit::ElementPatchOp::When(when) => {
                 let predicate = wit_predicate_ops_to_predicate(&when.predicate);

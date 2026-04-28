@@ -7,6 +7,26 @@ use kasane_core::plugin::{
     StdinMode, SurfaceOrnAnchor, SurfaceOrnKind,
 };
 use kasane_core::protocol::{Atom, Face, KasaneRequest};
+
+/// Test helper: build a `wit::Style` from the legacy face-equivalent
+/// fields. The legacy `Face` had four fields (fg, bg, underline,
+/// attributes); the new `Style` has 12. This helper mirrors what
+/// `Style::from_face` does on the host side, letting test literals
+/// stay compact while exercising the WIT-level conversion path.
+fn wit_style_from_face_fields(
+    fg: wit::Brush,
+    bg: wit::Brush,
+    underline: wit::Brush,
+    attributes: u16,
+) -> wit::Style {
+    let face = Face {
+        fg: super::wit_brush_to_color(&fg),
+        bg: super::wit_brush_to_color(&bg),
+        underline: super::wit_brush_to_color(&underline),
+        attributes: kasane_core::protocol::Attributes::from_bits_truncate(attributes),
+    };
+    super::face_to_wit(&face)
+}
 use kasane_core::render::CursorStyle;
 use kasane_core::scroll::{
     DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,
@@ -19,19 +39,19 @@ use kasane_core::workspace::Workspace;
 
 #[test]
 fn convert_default_color() {
-    let wc = wit::Color::DefaultColor;
-    assert_eq!(wit_color_to_color(&wc), Color::Default);
+    let wc = wit::Brush::DefaultColor;
+    assert_eq!(wit_brush_to_color(&wc), Color::Default);
 }
 
 #[test]
 fn convert_rgb_color() {
-    let wc = wit::Color::Rgb(wit::RgbColor {
+    let wc = wit::Brush::Rgb(wit::RgbColor {
         r: 40,
         g: 40,
         b: 50,
     });
     assert_eq!(
-        wit_color_to_color(&wc),
+        wit_brush_to_color(&wc),
         Color::Rgb {
             r: 40,
             g: 40,
@@ -42,26 +62,26 @@ fn convert_rgb_color() {
 
 #[test]
 fn convert_named_color() {
-    let wc = wit::Color::Named(wit::NamedColor::BrightCyan);
+    let wc = wit::Brush::Named(wit::NamedColor::BrightCyan);
     assert_eq!(
-        wit_color_to_color(&wc),
+        wit_brush_to_color(&wc),
         Color::Named(NamedColor::BrightCyan)
     );
 }
 
 #[test]
 fn convert_face_with_attributes() {
-    let wf = wit::Face {
-        fg: wit::Color::Named(wit::NamedColor::Red),
-        bg: wit::Color::Rgb(wit::RgbColor {
+    let ws = wit_style_from_face_fields(
+        wit::Brush::Named(wit::NamedColor::Red),
+        wit::Brush::Rgb(wit::RgbColor {
             r: 10,
             g: 20,
             b: 30,
         }),
-        underline: wit::Color::DefaultColor,
-        attributes: 0x20, // BOLD
-    };
-    let f = wit_face_to_face(&wf);
+        wit::Brush::DefaultColor,
+        0x20, // BOLD
+    );
+    let f = wit_style_to_face(&ws);
     assert_eq!(f.fg, Color::Named(NamedColor::Red));
     assert_eq!(
         f.bg,
@@ -72,18 +92,21 @@ fn convert_face_with_attributes() {
         }
     );
     assert_eq!(f.underline, Color::Default);
-    assert!(f.attributes.contains(Attributes::BOLD));
+    assert!(
+        f.attributes
+            .contains(kasane_core::protocol::Attributes::BOLD)
+    );
 }
 
 #[test]
 fn convert_atom() {
     let wa = wit::Atom {
-        face: wit::Face {
-            fg: wit::Color::Named(wit::NamedColor::Red),
-            bg: wit::Color::DefaultColor,
-            underline: wit::Color::DefaultColor,
-            attributes: 0,
-        },
+        style: wit_style_from_face_fields(
+            wit::Brush::Named(wit::NamedColor::Red),
+            wit::Brush::DefaultColor,
+            wit::Brush::DefaultColor,
+            0,
+        ),
         contents: "hello".to_string(),
     };
     let a = wit_atom_to_atom(&wa);
@@ -372,12 +395,12 @@ fn convert_ornament_batch_from_wit() {
     let batch = wit::OrnamentBatch {
         emphasis: vec![wit::CellDecoration {
             target: wit::DecorationTarget::Column(3),
-            face: wit::Face {
-                fg: wit::Color::DefaultColor,
-                bg: wit::Color::Named(wit::NamedColor::Blue),
-                underline: wit::Color::DefaultColor,
-                attributes: 0,
-            },
+            style: wit_style_from_face_fields(
+                wit::Brush::DefaultColor,
+                wit::Brush::Named(wit::NamedColor::Blue),
+                wit::Brush::DefaultColor,
+                0,
+            ),
             merge: 2,
             priority: 5,
         }],
@@ -388,24 +411,24 @@ fn convert_ornament_batch_from_wit() {
         }),
         cursor_effects: vec![wit::CursorEffectOrn {
             kind: wit::CursorEffect::Halo,
-            face: wit::Face {
-                fg: wit::Color::Named(wit::NamedColor::Yellow),
-                bg: wit::Color::DefaultColor,
-                underline: wit::Color::DefaultColor,
-                attributes: 0,
-            },
+            style: wit_style_from_face_fields(
+                wit::Brush::Named(wit::NamedColor::Yellow),
+                wit::Brush::DefaultColor,
+                wit::Brush::DefaultColor,
+                0,
+            ),
             priority: 3,
             modality: wit::OrnamentModality::Must,
         }],
         surfaces: vec![wit::SurfaceOrn {
             anchor: wit::SurfaceOrnAnchor::SurfaceKey("sidebar".into()),
             kind: wit::SurfaceOrnKind::InactiveTint,
-            face: wit::Face {
-                fg: wit::Color::DefaultColor,
-                bg: wit::Color::Named(wit::NamedColor::BrightBlack),
-                underline: wit::Color::DefaultColor,
-                attributes: 0,
-            },
+            style: wit_style_from_face_fields(
+                wit::Brush::DefaultColor,
+                wit::Brush::Named(wit::NamedColor::BrightBlack),
+                wit::Brush::DefaultColor,
+                0,
+            ),
             priority: 9,
             modality: wit::OrnamentModality::May,
         }],
@@ -724,7 +747,7 @@ fn convert_mouse_event_kinds() {
 fn convert_color_to_wit_default() {
     assert!(matches!(
         color_to_wit(&Color::Default),
-        wit::Color::DefaultColor
+        wit::Brush::DefaultColor
     ));
 }
 
@@ -735,7 +758,7 @@ fn convert_color_to_wit_rgb() {
         g: 20,
         b: 30,
     }) {
-        wit::Color::Rgb(rgb) => {
+        wit::Brush::Rgb(rgb) => {
             assert_eq!((rgb.r, rgb.g, rgb.b), (10, 20, 30));
         }
         other => panic!("expected Rgb, got {other:?}"),
@@ -745,13 +768,14 @@ fn convert_color_to_wit_rgb() {
 #[test]
 fn convert_color_to_wit_named() {
     match color_to_wit(&Color::Named(NamedColor::BrightCyan)) {
-        wit::Color::Named(n) => assert!(matches!(n, wit::NamedColor::BrightCyan)),
+        wit::Brush::Named(n) => assert!(matches!(n, wit::NamedColor::BrightCyan)),
         other => panic!("expected Named, got {other:?}"),
     }
 }
 
 #[test]
 fn convert_face_roundtrip() {
+    use kasane_core::protocol::Attributes;
     let native = Face {
         fg: Color::Named(NamedColor::Red),
         bg: Color::Rgb { r: 1, g: 2, b: 3 },
@@ -759,7 +783,7 @@ fn convert_face_roundtrip() {
         attributes: Attributes::BOLD | Attributes::ITALIC,
     };
     let wit_f = face_to_wit(&native);
-    let back = wit_face_to_face(&wit_f);
+    let back = wit_style_to_face(&wit_f);
     assert_eq!(native.fg, back.fg);
     assert_eq!(native.bg, back.bg);
     assert_eq!(native.underline, back.underline);
