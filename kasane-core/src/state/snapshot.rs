@@ -4,7 +4,7 @@
 //! (`MenuState`, `InfoState`) as `PartialEq`-implementing owned data,
 //! enabling Salsa's Early Cutoff optimization.
 
-use crate::protocol::{Coord, Face, InfoStyle, Line, MenuStyle};
+use crate::protocol::{Coord, InfoStyle, Line, MenuStyle};
 
 use super::info::{InfoIdentity, InfoState};
 use super::menu::{ItemSplit, MenuColumns, MenuState};

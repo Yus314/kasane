@@ -1,5 +1,5 @@
 use crate::layout::line_display_width;
-use crate::protocol::{Atom, Color, Coord, Face, Line, MenuStyle};
+use crate::protocol::{Atom, Color, Coord, Line, MenuStyle};
 
 // ---------------------------------------------------------------------------
 // Two-column split for inline completion menus

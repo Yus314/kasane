@@ -208,7 +208,7 @@ impl PaintVisitor for GridPaintVisitor<'_> {
                     let cursor_face = self
                         .theme
                         .get(&StyleToken::TEXT_PANEL_CURSOR)
-                        .unwrap_or(Face::default());
+                        .unwrap_or_default();
                     self.grid.fill_region(y, content_x, content_w, &cursor_face);
                 }
             }

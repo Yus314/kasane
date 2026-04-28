@@ -1,4 +1,4 @@
-use crate::protocol::{Coord, Face, InfoStyle, Line};
+use crate::protocol::{Coord, InfoStyle, Line};
 
 /// Heuristic identity key for deduplicating simultaneous info popups.
 ///

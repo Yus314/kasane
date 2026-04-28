@@ -70,7 +70,7 @@ pub(crate) fn resolve_surface_ornaments(
                     surface_id: focused_surface_id,
                     rect,
                     kind: orn.kind,
-                    face: orn.face.into(),
+                    face: orn.face,
                 }
             }
             SurfaceOrnAnchor::SurfaceKey(surface_key) => {
@@ -96,7 +96,7 @@ pub(crate) fn resolve_surface_ornaments(
                     surface_id: Some(surface_id),
                     rect,
                     kind: orn.kind,
-                    face: orn.face.into(),
+                    face: orn.face,
                 }
             }
         };
