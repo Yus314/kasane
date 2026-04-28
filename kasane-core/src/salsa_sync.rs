@@ -41,8 +41,8 @@ impl SalsaInputHandles {
             buffer: BufferInput::new(
                 db,
                 vec![],
-                crate::protocol::Face::default(),
-                crate::protocol::Face::default(),
+                crate::protocol::Style::default(),
+                crate::protocol::Style::default(),
                 crate::protocol::Coord::default(),
                 0,
             ),
@@ -54,7 +54,7 @@ impl SalsaInputHandles {
                 -1,
                 vec![],
                 vec![],
-                crate::protocol::Face::default(),
+                crate::protocol::Style::default(),
                 crate::protocol::StatusStyle::default(),
             ),
             menu: MenuInput::new(db, None),
@@ -124,11 +124,11 @@ pub fn sync_inputs_from_state(
     inputs
         .buffer
         .set_default_face(db)
-        .to(state.observed.default_style.to_face());
+        .to(state.observed.default_style.clone());
     inputs
         .buffer
         .set_padding_face(db)
-        .to(state.observed.padding_style.to_face());
+        .to(state.observed.padding_style.clone());
     inputs
         .buffer
         .set_widget_columns(db)
@@ -176,7 +176,7 @@ pub fn sync_inputs_from_state(
     inputs
         .status
         .set_status_default_face(db)
-        .to(state.observed.status_default_style.to_face());
+        .to(state.observed.status_default_style.clone());
     inputs
         .status
         .set_status_style(db)
