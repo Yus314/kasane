@@ -2190,6 +2190,141 @@ The +23 % CPU budget reflects the deliberate trade: Parley's richer feature set 
 - **Five new features ship together.** RTL/Bidi hit-testing, inline boxes, variable font axes, subpixel positioning, and rich underline (curly/dotted/dashed/double with font-metric-driven amplitude) become available to plugins via the redesigned WIT and Style API.
 - **Vello adoption is unblocked, not committed.** Migrating text to Parley reduces the integration cost of a future Vello evaluation, but Vello adoption itself is out of scope for this ADR.
 
+### Phase 10 Wire Shape (paper design, 2026-04-28)
+
+This sub-section freezes the wire-shape decisions for the five Phase 10 features so Phase 4 (WIT redesign) can be implemented in one pass. Phase 4 may not introduce features beyond what is listed here without a follow-up ADR; doing so would re-create the "two ABI breaks" trap that ADR-031 §動機-5 was written to prevent.
+
+#### Decision summary
+
+| Feature | Plugin visibility | WIT additions | Host plumbing |
+|---|---|---|---|
+| 1. RTL/Bidi hit_test | host-internal | none | Already done (Phase 7 / `parley_text/hit_test.rs`) |
+| 2. InlineBox | plugin-visible | new `inline-box-directive` variant | Type exists (`StyledLine::inline_boxes`); plumbing TBD |
+| 3. Variable font axes | plugin-visible | `font-variations: list<font-variation>` field on `style` | Already in `Style::font_variations`; plumbing TBD |
+| 4. Subpixel positioning | host-internal | none | Already in pipeline (4-step quantisation in `glyph_rasterizer.rs`) |
+| 5. Rich underline (font-metric thickness) | plugin-visible | `text-decoration` record (replaces `attribute-flags`-based underline encoding) | Already in `TextDecoration::thickness`; plumbing done |
+
+#### 1. RTL/Bidi hit_test (host-internal — no WIT change)
+
+Glyph-accurate paragraph hit testing was completed in Phase 7 (`fd8995c7 feat(gui): glyph-accurate paragraph hit_test + L1 layout cache wiring`). Plugins do not need to express bidi semantics — Parley + ICU4X handles run direction inference from strong characters in the atom text. The `bidi_override` field on `Style` (already present, host-internal) covers the rare case where a plugin wants to force a direction; it is **not** exposed through WIT in Phase 4 because no current plugin needs it. A future ADR may surface it if a use case appears.
+
+#### 2. InlineBox (`inline-box-directive`)
+
+WIT addition:
+
+```wit
+record inline-box-directive {
+    line: u32,
+    byte-offset: u32,
+    /// Width in display columns (cell units). The host converts to pixels
+    /// using the current cell metrics. Plugins do not see physical pixels.
+    width-cells: f32,
+    /// Height in fractional lines. 1.0 = single line; 2.0 = double-tall.
+    height-lines: f32,
+    /// Stable identifier — typically a hash of `(plugin-id, content-id)` —
+    /// the host uses this to look up the actual paint content via a
+    /// separate plugin extension point. Phase 5 wires the lookup; for now
+    /// the directive only declares the slot.
+    box-id: u64,
+    /// Baseline alignment within the inline box. `Center` matches what
+    /// Parley's `push_inline_box` produces by default; `Top` and `Bottom`
+    /// are exposed for plugins that paint glyphs (e.g. tall icons) that
+    /// have explicit baseline expectations.
+    alignment: inline-box-alignment,
+}
+
+enum inline-box-alignment { center, top, bottom }
+```
+
+Decisions:
+
+- **Width is in cell units, not pixels.** Plugins reason in display columns (the same unit Kakoune uses for column positions). The host applies cell-size multiplication so that font-size changes do not break plugin code. This matches the rest of the WIT API (e.g. `cursor-pos` uses display columns).
+- **Height is in lines (f32).** Allows fractional values for sub-line decorations while keeping `1.0` as the obvious default. Most plugins (color preview, image preview) will use `1.0`.
+- **No `content` field on the directive.** The directive only *declares the slot*. Painting the inside of the box happens through a separate `paint-inline-box(box-id) -> element-handle` extension point added in Phase 5. This keeps the directive small (no nested element trees in the protocol) and lets the renderer query content lazily on first paint.
+- **`box-id` is plugin-supplied.** Plugins are responsible for choosing identifiers that are stable across re-runs (`(plugin-id, content-fingerprint)` is the canonical recipe). The host uses `box-id` as part of the L2 cache key for inline-box paint output so re-renders with identical boxes are zero-cost.
+- **Rejected: nested `Vec<atom>` content.** The current `DisplayDirective::InsertInline { content: Vec<Atom>, .. }` host-internal shape is *kept* for non-WIT plugins (native plugins) but **not** mirrored to WIT. WASM plugins that want to render text inline use the regular atom system (`StyleInline` for span colouring); the `inline-box-directive` is reserved for content that does not fit the atom model (color swatches, images, custom widgets).
+
+#### 3. Variable font axes
+
+WIT addition (extension to existing `style` record):
+
+```wit
+record font-variation {
+    /// 4-byte OpenType axis tag (e.g. `wght`, `wdth`, `slnt`).
+    /// Encoded as a u32 with bytes in big-endian order so `wght` is
+    /// `0x77676874`. Plugins typically use a helper constant.
+    tag: u32,
+    value: f32,
+}
+
+record style {
+    fg: brush,
+    bg: brush,
+    font-weight: u16,
+    font-slant: font-slant,
+    font-features: u32,            // bitset (existing)
+    font-variations: list<font-variation>,
+    underline: option<text-decoration>,
+    strikethrough: option<text-decoration>,
+    letter-spacing: f32,
+    blink: bool,
+    reverse: bool,
+}
+```
+
+Decisions:
+
+- **`tag` is `u32`, not `string` or `tuple<u8,u8,u8,u8>`.** A `u32` is canonical OpenType encoding, fits in a single WIT primitive, and is what `parley::FontVariation` already accepts. Plugins that prefer tag literals can wrap with an SDK helper (`tag!("wght") = 0x77676874`).
+- **`list<font-variation>` is allowed to be empty.** Empty list is the "no variations" default; common case stays free. The list is bounded by the OpenType spec at 64K entries, but Kasane's host enforces a practical cap of 16 (asserted at deserialisation time).
+- **No `min`/`max`/`default` axis metadata on the WIT side.** Plugins are expected to know valid axis ranges for the fonts they target; the host does not validate. Out-of-range values produce visually-clamped output (font-engine behaviour). Documented in `docs/plugin-development.md`.
+- **`font-weight: u16` stays continuous (100..=900).** Replaces the legacy boolean BOLD bit. Plugins that only want bold/normal use the existing constants (`WEIGHT_BOLD = 700`, `WEIGHT_NORMAL = 400`) exposed in the SDK.
+
+#### 4. Subpixel positioning (host-internal — no WIT change)
+
+Subpixel positioning is a property of the *renderer*, not of the *style*. Plugins specify glyphs and positions in display-column space; the host renders them with whatever subpixel quantisation the GPU pipeline supports (currently 4 steps, set in `glyph_rasterizer.rs`). No WIT exposure.
+
+#### 5. Rich underline (font-metric thickness)
+
+WIT addition:
+
+```wit
+record text-decoration {
+    style: decoration-style,
+    color: brush,
+    /// Stroke thickness in physical pixels. `None` means "use the font's
+    /// recommended thickness from its metrics" — this is the behaviour
+    /// that replaces the legacy hard-coded `cell_h * 0.2` in
+    /// `quad_pipeline.rs`. Phase 10 step 1 already wires
+    /// `RunMetrics::underline_offset/size`; this WIT field exposes the
+    /// same control to plugins.
+    thickness: option<f32>,
+}
+
+enum decoration-style { solid, curly, dotted, dashed, double }
+```
+
+Decisions:
+
+- **`thickness: option<f32>`.** `None` is the strongly-preferred default — plugins should let the font engine pick. Explicit thickness is for special cases (LSP error pulse, draft markers) where the visual loudness must be controlled independently of font metrics.
+- **`color: brush` not `option<brush>`.** A `Brush::Default` already encodes "inherit from text foreground", so wrapping in `option` would be redundant. Plugins that want the underline colour to follow `fg` set `color: brush::default-color`.
+- **Decoration colour vs. underline colour at the directive level.** The legacy `face` record has a single `underline: color` field; the new `text-decoration` separates `style`, `color`, `thickness`. The legacy field is dropped from WIT in Phase 4 with no compatibility shim — bundled plugins are rewritten in Phase 5.
+
+#### Out of scope for Phase 4
+
+- **`bidi_override`** (forced direction) — host-internal field on `Style` only. Surfaced if a plugin requests it.
+- **`letter_spacing`** — already in WIT (`f32`), but not exercised by any bundled plugin; documented as low-priority.
+- **`final_*` resolution flags** — never exposed to plugins. Plugins receive the post-resolve `Style` (per ADR-031 Phase A.4 split, `7fca4784`); resolution semantics are a host concern.
+
+#### Phase 4 implementation gates
+
+A Phase 4 PR is acceptable when:
+
+1. The WIT file at `kasane-wasm/wit/plugin.wit` declares all five additions above with the exact field names and types specified.
+2. WIT version bumps from `0.25.0` to `1.0.0` (major bump signalling ABI break).
+3. The host implementations in `kasane-wasm/src/host/*` deserialise the new shapes without a Face-bridge fallback path (compile-time-only support; old WASM binaries must reject at load time).
+4. The generated bindings in `kasane-plugin-sdk/src/*` expose the new types as Rust idioms (e.g. `font_variation!("wght", 350.0)` macro).
+5. Phase 5 (bundled WASM rewrite) starts immediately after — Phase 4 PR landing with old plugins still in `bundled/` is a known broken state and must not last across a calendar day.
+
 ## ADR-032: GPU Rendering Strategy — Vello Evaluation Framework
 
 **Status:** Proposed (2026-04-28). This ADR establishes a re-evaluation framework for Vello adoption; it does **not** commit to migration. The decision artefact (§Spike Findings) is filled in by a 5-day timeboxed spike. The current GUI stack (winit + wgpu + Parley + swash; ADR-031) remains the production renderer until and unless this ADR is updated to "Accepted with adoption plan".
