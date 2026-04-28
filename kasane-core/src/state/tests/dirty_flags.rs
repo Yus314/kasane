@@ -464,6 +464,7 @@ fn test_free_read_fields_match() {
         "fold_toggle_state",
         "projection_policy",
         "available_projections",
+        "style_store",
     ]
     .iter()
     .copied()
