@@ -41,16 +41,23 @@ pub struct CellSize {
 
 /// An Atom with faces resolved against a base face.
 ///
-/// ADR-031 Phase 2 prep: `style` carries the Parley-native projection
-/// of `face` (computed via `Style::from_face` at construction). Both
-/// fields are populated; consumers can read either while the
-/// migration cascades through the renderer. `face` will retire once
-/// every reader has moved over.
+/// ADR-031 Phase A.3.6: only `style` is stored (the Parley-native
+/// representation). The `face()` accessor projects to the legacy
+/// `Face` for consumers that still expect it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedAtom {
     pub contents: String,
-    pub face: Face,
     pub style: Style,
+}
+
+impl ResolvedAtom {
+    /// Project this atom's style to the legacy [`Face`] representation.
+    /// Bridge for consumers that still consume `Face`; pure projection
+    /// (cheap, no allocation).
+    #[inline]
+    pub fn face(&self) -> Face {
+        self.style.to_face()
+    }
 }
 
 /// Semantic annotation on a buffer paragraph (positions are byte offsets in
@@ -244,11 +251,9 @@ pub(crate) fn resolve_atoms(atoms: &[Atom], base_face: Option<&Face>) -> Vec<Res
                 Some(base) => resolve_face(&atom.face(), base),
                 None => atom.face(),
             };
-            let style = Style::from_face(&face);
             ResolvedAtom {
                 contents: atom.contents.to_string(),
-                face,
-                style,
+                style: Style::from_face(&face),
             }
         })
         .collect()
@@ -555,7 +560,7 @@ mod tests {
         let resolved = resolve_atoms(&atoms, None);
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].contents, "hello");
-        assert_eq!(resolved[0].face, Face::default());
+        assert_eq!(resolved[0].face(), Face::default());
     }
 
     #[test]

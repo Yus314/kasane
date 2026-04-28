@@ -652,7 +652,7 @@ impl SceneRenderer {
             }
             let actual_w = atom_display_w.min(remaining);
             let (visual_fg, visual_bg, needs_bg) =
-                color_resolver.resolve_face_colors_linear(&atom.face);
+                color_resolver.resolve_face_colors_linear(&atom.face());
 
             if actual_w > 0.0
                 && needs_bg
@@ -661,7 +661,7 @@ impl SceneRenderer {
                 self.quad.push_solid(x, py, actual_w, cell_h, visual_bg);
             }
             if actual_w > 0.0 {
-                self.emit_decorations(x, py, actual_w, &atom.face, visual_fg, color_resolver);
+                self.emit_decorations(x, py, actual_w, &atom.face(), visual_fg, color_resolver);
             }
             x += actual_w;
         }
@@ -744,7 +744,7 @@ impl SceneRenderer {
                 let face = if clear_cursor_atom_idx == Some(i) {
                     para.base_face
                 } else {
-                    atom.face
+                    atom.face()
                 };
                 Atom::from_face(face, atom.contents.clone())
             })
@@ -821,7 +821,7 @@ impl SceneRenderer {
             let face = if clear_cursor_atom_idx == Some(i) {
                 para.base_face
             } else {
-                para.atoms[i].face
+                para.atoms[i].face()
             };
             let atom_display_w = line_display_width_str(&para.atoms[i].contents) as f32 * cell_w;
             let (x, w) = if atom_x_min[i] <= atom_x_max[i] {

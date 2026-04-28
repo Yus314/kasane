@@ -177,7 +177,7 @@ impl SceneBuilder {
                 let spans: Vec<TextSpan> = atoms
                     .iter()
                     .map(|atom| {
-                        let (fg, _, _) = resolve_face(&atom.face);
+                        let (fg, _, _) = resolve_face(&atom.face());
                         TextSpan {
                             text: atom.contents.clone(),
                             color: fg,
@@ -355,7 +355,6 @@ mod tests {
             pos: PixelPos { x: 0.0, y: 0.0 },
             atoms: vec![ResolvedAtom {
                 contents: "hello".into(),
-                face: Face::default(),
                 style: kasane_core::protocol::Style::default(),
             }],
             max_width: 100.0,

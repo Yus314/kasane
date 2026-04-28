@@ -284,7 +284,7 @@ impl SceneRenderer {
         for atom in atoms {
             let atom_w = line_display_width_str(&atom.contents) as f32 * cell_w;
             if !atom.contents.is_empty() {
-                self.parley_emit_text(&atom.contents, &atom.face, x, py, color_resolver);
+                self.parley_emit_text(&atom.contents, &atom.face(), x, py, color_resolver);
             }
             x += atom_w;
         }
