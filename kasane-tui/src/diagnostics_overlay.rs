@@ -74,16 +74,7 @@ mod tests {
 
     fn draw_text(grid: &mut CellGrid, x: u16, y: u16, text: &str, face: &Face, max_width: u16) {
         use kasane_core::protocol::Atom;
-        grid.put_line_with_base(
-            y,
-            x,
-            &[Atom {
-                face: *face,
-                contents: text.into(),
-            }],
-            max_width,
-            None,
-        );
+        grid.put_line_with_base(y, x, &[Atom::from_face(*face, text)], max_width, None);
     }
 
     #[test]

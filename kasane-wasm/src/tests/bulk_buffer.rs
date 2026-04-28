@@ -8,12 +8,7 @@ fn make_host_with_lines(lines: &[&str]) -> HostState {
     let mut host = HostState::default();
     host.lines = lines
         .iter()
-        .map(|s| {
-            vec![Atom {
-                face: Face::default(),
-                contents: (*s).into(),
-            }]
-        })
+        .map(|s| vec![Atom::from_face(Face::default(), *s)])
         .collect();
     host.line_count = lines.len() as u32;
     host
@@ -80,14 +75,8 @@ fn get_lines_text_empty_buffer() {
 #[test]
 fn get_lines_text_multi_atom_concatenation() {
     let lines = vec![vec![
-        Atom {
-            face: Face::default(),
-            contents: "hel".into(),
-        },
-        Atom {
-            face: Face::default(),
-            contents: "lo".into(),
-        },
+        Atom::from_face(Face::default(), "hel"),
+        Atom::from_face(Face::default(), "lo"),
     ]];
     let mut host = make_host_with_raw_lines(lines);
     let result = host.get_lines_text(0, 1);
@@ -138,10 +127,7 @@ fn get_lines_atoms_preserves_face() {
         bg: Color::Named(NamedColor::Blue),
         ..Face::default()
     };
-    let lines = vec![vec![Atom {
-        face,
-        contents: "styled".into(),
-    }]];
+    let lines = vec![vec![Atom::from_face(face, "styled")]];
     let mut host = make_host_with_raw_lines(lines);
     let result = host.get_lines_atoms(0, 1);
     assert_eq!(result.len(), 1);

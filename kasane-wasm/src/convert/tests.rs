@@ -88,7 +88,7 @@ fn convert_atom() {
     };
     let a = wit_atom_to_atom(&wa);
     assert_eq!(a.contents.as_str(), "hello");
-    assert_eq!(a.face.fg, Color::Named(NamedColor::Red));
+    assert_eq!(a.face().fg, Color::Named(NamedColor::Red));
 }
 
 #[test]
@@ -236,10 +236,7 @@ fn convert_runtime_effects_from_wit() {
 fn convert_display_directive_fold_roundtrip() {
     let directive = kasane_core::display::DisplayDirective::Fold {
         range: 2..5,
-        summary: vec![Atom {
-            face: Face::default(),
-            contents: "folded".into(),
-        }],
+        summary: vec![Atom::from_face(Face::default(), "folded")],
     };
 
     let wit = display_directive_to_wit(&directive);
@@ -771,10 +768,7 @@ fn convert_face_roundtrip() {
 
 #[test]
 fn convert_atom_roundtrip() {
-    let native = Atom {
-        face: Face::default(),
-        contents: "hello".into(),
-    };
+    let native = Atom::from_face(Face::default(), "hello");
     let wit_a = atom_to_wit(&native);
     let back = wit_atom_to_atom(&wit_a);
     assert_eq!(native.contents.as_str(), back.contents.as_str());

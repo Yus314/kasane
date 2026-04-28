@@ -172,10 +172,7 @@ mod tests {
     use kasane_core::protocol::{Brush as KBrush, Face, FontWeight as KFontWeight, NamedColor};
 
     fn atom(text: &str, face: Face) -> Atom {
-        Atom {
-            face,
-            contents: text.into(),
-        }
+        Atom::from_face(face, text)
     }
 
     fn red_face() -> Face {

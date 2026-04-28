@@ -184,10 +184,7 @@ mod tests {
     use super::super::{Brush, ParleyText};
 
     fn ascii_atoms(s: &str) -> Vec<Atom> {
-        vec![Atom {
-            face: Face::default(),
-            contents: s.into(),
-        }]
+        vec![Atom::from_face(Face::default(), s)]
     }
 
     fn default_line(s: &str) -> StyledLine {
@@ -251,10 +248,7 @@ mod tests {
             fg: Color::Named(NamedColor::Red),
             ..Face::default()
         };
-        let red_atoms = vec![Atom {
-            face: red_face,
-            contents: "hello".into(),
-        }];
+        let red_atoms = vec![Atom::from_face(red_face, "hello")];
         let red_line = StyledLine::from_atoms(
             &red_atoms,
             &Style::default(),

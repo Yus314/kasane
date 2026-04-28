@@ -102,10 +102,7 @@ mod tests {
     use super::super::{Brush, ParleyText};
 
     fn line(text: &str) -> StyledLine {
-        let atoms = vec![Atom {
-            face: Face::default(),
-            contents: text.into(),
-        }];
+        let atoms = vec![Atom::from_face(Face::default(), text)];
         StyledLine::from_atoms(
             &atoms,
             &Style::default(),
