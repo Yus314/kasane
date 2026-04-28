@@ -26,10 +26,11 @@ pub enum ProtocolError {
 // Wire types
 // ---------------------------------------------------------------------------
 //
-// `Atom` no longer derives `Deserialize` because its `style_id` is opaque to
-// the wire format — Kakoune only knows about `Face`. Parsing lands in
-// `WireAtom` (the legacy shape) and the parser converts it to `Atom` by
-// interning the corresponding `Style` in the process-global table.
+// `Atom` no longer derives `Deserialize` because its `style: Arc<UnresolvedStyle>`
+// is opaque to the wire format — Kakoune only knows about `Face`. Parsing
+// lands in `WireAtom` (the legacy shape) and the parser converts it to
+// `Atom` by allocating an `Arc<UnresolvedStyle>` per distinct style in the
+// current request, so identical styles within a frame share an allocation.
 
 #[derive(Debug, Clone, Deserialize)]
 struct WireAtom {
@@ -39,14 +40,38 @@ struct WireAtom {
 
 type WireLine = Vec<WireAtom>;
 
-fn intern_line(wire: WireLine) -> Line {
+/// Per-request interner: maps each distinct [`UnresolvedStyle`] in a
+/// request to a single `Arc<UnresolvedStyle>` that all matching atoms in
+/// that request share. Discarded when the request finishes parsing, so it
+/// adds no permanent state. Call-site convention: build one at the start
+/// of `parse_method`, pass `&mut intern` into every `intern_line` /
+/// `intern_lines` invocation for that request.
+type Interner = std::collections::HashMap<
+    super::style::UnresolvedStyle,
+    std::sync::Arc<super::style::UnresolvedStyle>,
+>;
+
+fn intern_face(
+    intern: &mut Interner,
+    face: &Face,
+) -> std::sync::Arc<super::style::UnresolvedStyle> {
+    let unresolved = super::style::UnresolvedStyle::from_face(face);
+    if let Some(arc) = intern.get(&unresolved) {
+        return arc.clone();
+    }
+    let arc = std::sync::Arc::new(unresolved.clone());
+    intern.insert(unresolved, arc.clone());
+    arc
+}
+
+fn intern_line(intern: &mut Interner, wire: WireLine) -> Line {
     wire.into_iter()
-        .map(|w| Atom::from_face(w.face, w.contents))
+        .map(|w| Atom::from_style(w.contents, intern_face(intern, &w.face)))
         .collect()
 }
 
-fn intern_lines(wire: Vec<WireLine>) -> Vec<Line> {
-    wire.into_iter().map(intern_line).collect()
+fn intern_lines(intern: &mut Interner, wire: Vec<WireLine>) -> Vec<Line> {
+    wire.into_iter().map(|l| intern_line(intern, l)).collect()
 }
 
 pub fn parse_request(input: &mut [u8]) -> Result<KakouneRequest, ProtocolError> {
@@ -77,6 +102,8 @@ fn parse_method(
         });
     }
 
+    let mut intern: Interner = Interner::new();
+
     match method {
         "draw" => {
             // widget_columns was added in PR #5455 (merged 2026-03-11) and is
@@ -92,7 +119,7 @@ fn parse_method(
                     _,
                 ) = de_params(method, params)?;
                 Ok(KakouneRequest::Draw {
-                    lines: intern_lines(wire_lines),
+                    lines: intern_lines(&mut intern, wire_lines),
                     cursor_pos,
                     default_face,
                     padding_face,
@@ -102,7 +129,7 @@ fn parse_method(
                 let (wire_lines, cursor_pos, default_face, padding_face): (Vec<WireLine>, _, _, _) =
                     de_params(method, params)?;
                 Ok(KakouneRequest::Draw {
-                    lines: intern_lines(wire_lines),
+                    lines: intern_lines(&mut intern, wire_lines),
                     cursor_pos,
                     default_face,
                     padding_face,
@@ -125,10 +152,10 @@ fn parse_method(
                     style,
                 ): (WireLine, WireLine, _, WireLine, _, _) = de_params(method, params)?;
                 Ok(KakouneRequest::DrawStatus {
-                    prompt: intern_line(wire_prompt),
-                    content: intern_line(wire_content),
+                    prompt: intern_line(&mut intern, wire_prompt),
+                    content: intern_line(&mut intern, wire_content),
                     content_cursor_pos,
-                    mode_line: intern_line(wire_mode_line),
+                    mode_line: intern_line(&mut intern, wire_mode_line),
                     default_face,
                     style,
                 })
@@ -141,10 +168,10 @@ fn parse_method(
                     _,
                 ) = de_params(method, params)?;
                 Ok(KakouneRequest::DrawStatus {
-                    prompt: intern_line(wire_prompt),
-                    content: intern_line(wire_content),
+                    prompt: intern_line(&mut intern, wire_prompt),
+                    content: intern_line(&mut intern, wire_content),
                     content_cursor_pos,
-                    mode_line: intern_line(wire_mode_line),
+                    mode_line: intern_line(&mut intern, wire_mode_line),
                     default_face,
                     style: StatusStyle::default(),
                 })
@@ -159,7 +186,7 @@ fn parse_method(
                 _,
             ) = de_params(method, params)?;
             Ok(KakouneRequest::MenuShow {
-                items: intern_lines(wire_items),
+                items: intern_lines(&mut intern, wire_items),
                 anchor,
                 selected_item_face,
                 menu_face,
@@ -180,8 +207,8 @@ fn parse_method(
                 _,
             ) = de_params(method, params)?;
             Ok(KakouneRequest::InfoShow {
-                title: intern_line(wire_title),
-                content: intern_lines(wire_content),
+                title: intern_line(&mut intern, wire_title),
+                content: intern_lines(&mut intern, wire_content),
                 anchor,
                 face,
                 style,

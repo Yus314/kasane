@@ -8,7 +8,6 @@ use super::theme::Theme;
 use crate::element::{BorderLineStyle, Element, ImageFit, ImageSource};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
-use crate::protocol::resolve_face;
 use crate::protocol::{Atom, Face, Style};
 use crate::state::AppState;
 
@@ -248,19 +247,21 @@ pub(crate) fn to_pixel_rect(rect: &Rect, cs: CellSize) -> PixelRect {
     }
 }
 
-/// Resolve atom faces against an optional base face.
-pub(crate) fn resolve_atoms(atoms: &[Atom], base_face: Option<&Face>) -> Vec<ResolvedAtom> {
+/// Resolve atom styles against an optional base style.
+///
+/// Operates entirely in `UnresolvedStyle` / `Style` space — no `Face`
+/// round-trip, no per-atom bitflag conversion. Callers that hold a
+/// `Face` should convert it once at the call boundary
+/// (`Style::from_face(face)`) rather than passing the `Face` and
+/// forcing per-atom conversions inside the loop.
+pub(crate) fn resolve_atoms(atoms: &[Atom], base_style: Option<&Style>) -> Vec<ResolvedAtom> {
+    let default_base = Style::default();
+    let base = base_style.unwrap_or(&default_base);
     atoms
         .iter()
-        .map(|atom| {
-            let face = match base_face {
-                Some(base) => resolve_face(&atom.face(), base),
-                None => atom.face(),
-            };
-            ResolvedAtom {
-                contents: atom.contents.to_string(),
-                style: Style::from_face(&face),
-            }
+        .map(|atom| ResolvedAtom {
+            contents: atom.contents.to_string(),
+            style: super::super::protocol::resolve_style(&atom.style, base),
         })
         .collect()
 }

@@ -1,13 +1,11 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
 use super::color::Face;
-use super::style::{
-    DEFAULT_STYLE_ID, Style, StyleId, UnresolvedStyle, intern_style_global, style_clone_global,
-    with_global_style,
-};
+use super::style::{Style, UnresolvedStyle, default_unresolved_style};
 
 // ---------------------------------------------------------------------------
 // Atom / Line / Coord
@@ -15,80 +13,74 @@ use super::style::{
 
 /// A styled text fragment.
 ///
-/// `style_id` references a [`Style`] in the process-global style table
-/// (see [`crate::protocol::style`]). The id is 4 bytes, `Copy`, and
-/// `Eq` is identity, which keeps `Atom` cheap to clone, compare, and hash.
+/// `style` is an `Arc<UnresolvedStyle>` so identical styles in the same
+/// frame can share the allocation. Parse-time interning lives in
+/// [`crate::protocol::parse`]; once an `Atom` exists, reading its style
+/// is a pointer dereference (no locks, no per-cell hashing).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Atom {
     pub contents: CompactString,
-    pub style_id: StyleId,
+    pub style: Arc<UnresolvedStyle>,
 }
 
 impl Atom {
-    /// Construct an atom from a legacy [`Face`], interning the parse-side
-    /// style (with its Kakoune `final_*` flags). Bridge constructor for the
-    /// ADR-031 migration.
+    /// Construct an atom from a legacy [`Face`], allocating a fresh `Arc`
+    /// for its style. Bridge constructor for the ADR-031 migration; sites
+    /// that build many atoms from the same `Face` should use
+    /// [`crate::protocol::parse`]'s frame-local intern path instead so
+    /// allocations are shared.
     pub fn from_face(face: Face, contents: impl Into<CompactString>) -> Self {
         Self {
             contents: contents.into(),
-            style_id: intern_style_global(UnresolvedStyle::from_face(&face)),
+            style: Arc::new(UnresolvedStyle::from_face(&face)),
         }
     }
 
-    /// Construct an atom directly from a known `StyleId`.
+    /// Construct an atom from an already-interned style `Arc`.
     #[inline]
-    pub fn from_style_id(contents: impl Into<CompactString>, style_id: StyleId) -> Self {
+    pub fn from_style(contents: impl Into<CompactString>, style: Arc<UnresolvedStyle>) -> Self {
         Self {
             contents: contents.into(),
-            style_id,
+            style,
         }
     }
 
     /// Project this atom's style back to a [`Face`]. Bridge for sites
-    /// that still consume the legacy representation. Includes the Kakoune
-    /// `final_*` flags carried by the parse-side [`UnresolvedStyle`].
+    /// that still consume the legacy representation. Lock-free direct
+    /// read; preserves the Kakoune `final_*` flags. Hot paths that read
+    /// multiple fields should bind `let s = &*atom.style;` once instead
+    /// of calling `face()` repeatedly.
     #[inline]
     pub fn face(&self) -> Face {
-        with_global_style(self.style_id, |s| s.to_face())
+        self.style.to_face()
     }
 
-    /// Return a copy of this atom's parse-side, unresolved style.
+    /// Borrow this atom's parse-side, unresolved style directly.
     ///
-    /// Renamed from `style()` in the ADR-031 split: the type held in the
-    /// store is [`UnresolvedStyle`], so callers wanting the post-resolve
-    /// [`Style`] need to invoke [`super::style::resolve_style`] against an
-    /// appropriate base.
+    /// Renamed from `style()` in the ADR-031 split (post-Step-1) and now
+    /// returns a borrow rather than an owned clone — there is no longer
+    /// a global table, so the borrow is simply `&*self.style`.
     #[inline]
-    pub fn unresolved_style(&self) -> UnresolvedStyle {
-        style_clone_global(self.style_id)
-    }
-
-    /// Run `f` with a borrow of this atom's unresolved style. Avoids the
-    /// clone when the caller only needs to read a few fields.
-    #[inline]
-    pub fn with_unresolved_style<R>(&self, f: impl FnOnce(&UnresolvedStyle) -> R) -> R {
-        with_global_style(self.style_id, f)
+    pub fn unresolved_style(&self) -> &UnresolvedStyle {
+        &self.style
     }
 
     /// Project this atom's style to the post-resolve [`Style`] form,
     /// resolved against [`Style::default`]. Equivalent to
-    /// `resolve_style(&atom.unresolved_style(), &Style::default())` but
-    /// avoids the intermediate clone when the caller doesn't need the
-    /// `final_*` flags.
+    /// `resolve_style(&atom.style, &Style::default())`.
     #[inline]
     pub fn style_resolved_default(&self) -> Style {
-        with_global_style(self.style_id, |s| {
-            super::style::resolve_style(s, &Style::default())
-        })
+        super::style::resolve_style(&self.style, &Style::default())
     }
 
-    /// Construct an atom with [`UnresolvedStyle::default`] (no allocation —
-    /// the default is pre-interned at [`DEFAULT_STYLE_ID`]).
+    /// Construct an atom with [`UnresolvedStyle::default`]. Cheap: the
+    /// default style is allocated once per process (see
+    /// [`default_unresolved_style`]) and shared.
     #[inline]
     pub fn plain(contents: impl Into<CompactString>) -> Self {
         Self {
             contents: contents.into(),
-            style_id: DEFAULT_STYLE_ID,
+            style: default_unresolved_style(),
         }
     }
 }

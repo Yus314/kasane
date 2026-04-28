@@ -651,165 +651,32 @@ fn color_from_brush(b: Brush) -> super::color::Color {
 }
 
 // ---------------------------------------------------------------------------
-// StyleId / StyleStore — content-addressed style interning (ADR-031 Phase A)
-// ---------------------------------------------------------------------------
-
-/// Stable identifier for an [`UnresolvedStyle`] interned in a [`StyleStore`].
-///
-/// `StyleId(0)` is reserved for the default style ([`DEFAULT_STYLE_ID`]); a
-/// freshly-constructed `StyleStore` already contains it and `StyleId::default`
-/// returns it. IDs are assigned sequentially as new styles are interned;
-/// store lifetime is tied to whatever owns it (typically `AppState`), and
-/// IDs are not portable across stores.
-///
-/// Why an interner: `UnresolvedStyle` is ~100 bytes; an `Atom` carrying a
-/// full body inflates the per-atom payload ~10× over the legacy `Face`
-/// representation. An interned id is 4 bytes, equality is identity (no
-/// field walk), and hash keys become trivial. Editors use small style
-/// vocabularies (5–20 distinct styles in steady state), so the table stays
-/// compact.
-///
-/// The store holds [`UnresolvedStyle`] (the parse-side form) rather than
-/// [`Style`], since `Atom`s come straight from the protocol parser before
-/// any inheritance has been resolved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, Serialize)]
-#[serde(transparent)]
-pub struct StyleId(pub u32);
-
-impl StyleId {
-    /// Look the style body up in a [`StyleStore`]. Panics if the id was
-    /// produced by a different store; for a non-panicking variant use
-    /// [`StyleStore::try_get`].
-    #[inline]
-    pub fn get(self, store: &StyleStore) -> &UnresolvedStyle {
-        store.get(self)
-    }
-}
-
-/// The pre-interned id for [`UnresolvedStyle::default`]. Always present in
-/// any freshly-constructed [`StyleStore`].
-pub const DEFAULT_STYLE_ID: StyleId = StyleId(0);
-
-// ---------------------------------------------------------------------------
-// Process-global style table
+// Default-style sharing helper (ADR-031 Phase A — B-wide)
 // ---------------------------------------------------------------------------
 //
-// ADR-031 Phase A.2: a single process-global [`StyleStore`] backs every
-// `Atom`'s `style_id`. The alternative (per-`AppState` stores) requires
-// threading a store handle through every Atom-construction site and reader
-// thread; a global behind a `Mutex` removes the plumbing entirely with
-// negligible cost (interns are rare; per-frame intern count is bounded by
-// the viewport's distinct styles, typically 5–20).
+// The previous Phase A.2 design routed every `Atom`'s style through a
+// process-global `Mutex<StyleStore>`. Profiling for the B-wide PR showed
+// that lock acquisition on the hot path (per-atom `Atom::face()` calls
+// from `pipeline.rs`, `walk_scene.rs`, `paint.rs`, …) was the dominant
+// share of the 1-line-frame perf gap. Atoms now hold an
+// `Arc<UnresolvedStyle>` directly, with parse-time interning handled in
+// `protocol::parse` (`HashMap<UnresolvedStyle, Arc<UnresolvedStyle>>`).
 //
-// Phase B (post-split): the global store is scheduled to be replaced by
-// `Arc<UnresolvedStyle>` carried directly inside `Atom`. Hot-path callers
-// of `with_global_style` / `Atom::face` / `Atom::unresolved_style` will
-// then read the body without locking. The current global is preserved
-// here so the type-split PR stays surgically focused on the
-// `UnresolvedStyle` / `Style` separation.
+// The default style is special: it is the most common style in any
+// frame and is constructed millions of times (`Atom::plain`, padding
+// rows, etc.). Pre-allocating one shared `Arc` removes the repeated
+// allocation entirely and keeps the default code path cheaper than the
+// pre-A.2 inline-`Face` form.
 
-static GLOBAL_STORE: std::sync::OnceLock<std::sync::Mutex<StyleStore>> = std::sync::OnceLock::new();
-
-fn global_store() -> &'static std::sync::Mutex<StyleStore> {
-    GLOBAL_STORE.get_or_init(|| std::sync::Mutex::new(StyleStore::new()))
-}
-
-/// Intern an `UnresolvedStyle` in the process-global table and return its id.
-pub fn intern_style_global(style: UnresolvedStyle) -> StyleId {
-    global_store()
-        .lock()
-        .expect("global style store poisoned")
-        .intern(style)
-}
-
-/// Run `f` with a borrow of the [`UnresolvedStyle`] at `id` from the
-/// process-global table. Holds the global lock for the duration of `f`.
-pub fn with_global_style<R>(id: StyleId, f: impl FnOnce(&UnresolvedStyle) -> R) -> R {
-    let store = global_store().lock().expect("global style store poisoned");
-    f(store.get(id))
-}
-
-/// Return a copy of the [`UnresolvedStyle`] at `id` from the process-global
-/// table.
-pub fn style_clone_global(id: StyleId) -> UnresolvedStyle {
-    global_store()
-        .lock()
-        .expect("global style store poisoned")
-        .get(id)
+/// Return the shared `Arc` for [`UnresolvedStyle::default`]. Cheap to
+/// clone — the underlying allocation is performed at most once per
+/// process and reused for every `Atom::plain` and bench fixture.
+pub fn default_unresolved_style() -> std::sync::Arc<UnresolvedStyle> {
+    static DEFAULT: std::sync::OnceLock<std::sync::Arc<UnresolvedStyle>> =
+        std::sync::OnceLock::new();
+    DEFAULT
+        .get_or_init(|| std::sync::Arc::new(UnresolvedStyle::default()))
         .clone()
-}
-
-/// Content-addressed style table.
-///
-/// Hand-rolled (not `salsa::interned`) because Salsa's interned types carry
-/// a `'db` lifetime parameter that does not fit `Atom`'s position inside
-/// Salsa-owned `Vec<Line>` inputs. See ADR-031 plan §A.1 for the rationale.
-///
-/// Internal layout: `Vec<UnresolvedStyle>` (id → style) +
-/// `HashMap<UnresolvedStyle, StyleId>` (style → id). The map is the slow
-/// path (one lookup per intern); the vec is the hot path (one indexed read
-/// per `get`). Memory cost is roughly
-/// `2 × |unique styles| × sizeof(UnresolvedStyle)`, which for a typical
-/// session (≈20 styles) is ≈4 KB.
-#[derive(Debug, Clone)]
-pub struct StyleStore {
-    by_id: Vec<UnresolvedStyle>,
-    by_style: std::collections::HashMap<UnresolvedStyle, StyleId>,
-}
-
-impl Default for StyleStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl StyleStore {
-    /// Create a new store, pre-populated with [`UnresolvedStyle::default`] at
-    /// [`DEFAULT_STYLE_ID`].
-    pub fn new() -> Self {
-        let default_style = UnresolvedStyle::default();
-        let mut by_style = std::collections::HashMap::new();
-        by_style.insert(default_style.clone(), DEFAULT_STYLE_ID);
-        Self {
-            by_id: vec![default_style],
-            by_style,
-        }
-    }
-
-    /// Return the id for `style`, interning it if not already present.
-    pub fn intern(&mut self, style: UnresolvedStyle) -> StyleId {
-        if let Some(&id) = self.by_style.get(&style) {
-            return id;
-        }
-        let id = StyleId(self.by_id.len() as u32);
-        self.by_id.push(style.clone());
-        self.by_style.insert(style, id);
-        id
-    }
-
-    /// Look up the style body by id. Panics if the id is not present in this
-    /// store; use [`Self::try_get`] when validating cross-store ids.
-    #[inline]
-    pub fn get(&self, id: StyleId) -> &UnresolvedStyle {
-        &self.by_id[id.0 as usize]
-    }
-
-    /// Non-panicking lookup. Returns `None` for ids out of range for this
-    /// store.
-    #[inline]
-    pub fn try_get(&self, id: StyleId) -> Option<&UnresolvedStyle> {
-        self.by_id.get(id.0 as usize)
-    }
-
-    /// Number of distinct interned styles, including the pre-interned
-    /// default.
-    pub fn len(&self) -> usize {
-        self.by_id.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.by_id.is_empty()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1190,132 +1057,16 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // StyleStore / StyleId tests (ADR-031 Phase A.1)
+    // default_unresolved_style sharing (ADR-031 Phase A — B-wide)
     // ---------------------------------------------------------------------
 
-    fn red_unresolved() -> UnresolvedStyle {
-        UnresolvedStyle {
-            style: Style {
-                fg: Brush::Named(NamedColor::Red),
-                ..Style::default()
-            },
-            ..UnresolvedStyle::default()
-        }
-    }
-
-    fn bold_red_unresolved() -> UnresolvedStyle {
-        UnresolvedStyle {
-            style: Style {
-                fg: Brush::Named(NamedColor::Red),
-                font_weight: FontWeight::BOLD,
-                ..Style::default()
-            },
-            ..UnresolvedStyle::default()
-        }
-    }
-
     #[test]
-    fn store_starts_with_default_at_id_zero() {
-        let store = StyleStore::new();
-        assert_eq!(store.len(), 1);
-        assert_eq!(store.get(DEFAULT_STYLE_ID), &UnresolvedStyle::default());
-        assert_eq!(StyleId::default(), DEFAULT_STYLE_ID);
-    }
-
-    #[test]
-    fn intern_default_returns_zero() {
-        let mut store = StyleStore::new();
-        assert_eq!(store.intern(UnresolvedStyle::default()), DEFAULT_STYLE_ID);
-        assert_eq!(store.len(), 1, "default must not duplicate");
-    }
-
-    #[test]
-    fn intern_is_idempotent() {
-        let mut store = StyleStore::new();
-        let id1 = store.intern(red_unresolved());
-        let id2 = store.intern(red_unresolved());
-        assert_eq!(id1, id2);
-        assert_eq!(store.len(), 2); // default + red
-    }
-
-    #[test]
-    fn distinct_styles_get_distinct_ids() {
-        let mut store = StyleStore::new();
-        let red = store.intern(red_unresolved());
-        let bold_red = store.intern(bold_red_unresolved());
-        assert_ne!(red, bold_red);
-        assert_eq!(store.len(), 3); // default + red + bold_red
-    }
-
-    #[test]
-    fn get_round_trip() {
-        let mut store = StyleStore::new();
-        let id = store.intern(red_unresolved());
-        assert_eq!(store.get(id), &red_unresolved());
-        assert_eq!(id.get(&store), &red_unresolved());
-    }
-
-    #[test]
-    fn try_get_out_of_range_returns_none() {
-        let store = StyleStore::new();
-        assert!(store.try_get(StyleId(999)).is_none());
-    }
-
-    #[test]
-    fn ids_assigned_sequentially() {
-        let mut store = StyleStore::new();
-        let id1 = store.intern(red_unresolved());
-        let id2 = store.intern(bold_red_unresolved());
-        assert_eq!(id1, StyleId(1));
-        assert_eq!(id2, StyleId(2));
-    }
-
-    #[test]
-    fn style_with_f32_fields_interns_correctly() {
-        // letter_spacing and font_variations both contain f32; verify the
-        // bit-pattern Hash + Eq impls let them intern as expected.
-        let mut store = StyleStore::new();
-        let s = UnresolvedStyle {
-            style: Style {
-                letter_spacing: 1.5,
-                font_variations: vec![FontVariation::new(*b"wght", 350.0)],
-                ..Style::default()
-            },
-            ..UnresolvedStyle::default()
-        };
-        let id_a = store.intern(s.clone());
-        let id_b = store.intern(s);
-        assert_eq!(id_a, id_b);
-    }
-
-    #[test]
-    fn styles_differing_only_in_letter_spacing_distinct() {
-        let mut store = StyleStore::new();
-        let a = UnresolvedStyle {
-            style: Style {
-                letter_spacing: 1.0,
-                ..Style::default()
-            },
-            ..UnresolvedStyle::default()
-        };
-        let b = UnresolvedStyle {
-            style: Style {
-                letter_spacing: 2.0,
-                ..Style::default()
-            },
-            ..UnresolvedStyle::default()
-        };
-        assert_ne!(store.intern(a), store.intern(b));
-    }
-
-    #[test]
-    fn unresolved_styles_differing_only_in_final_flag_distinct() {
-        let mut store = StyleStore::new();
-        let a = UnresolvedStyle::default();
-        let b = UnresolvedStyle {
-            final_fg: true,
-            ..UnresolvedStyle::default()
-        };
-        assert_ne!(store.intern(a), store.intern(b));
+    fn default_unresolved_style_shares_arc() {
+        let a = default_unresolved_style();
+        let b = default_unresolved_style();
+        // Same content.
+        assert_eq!(*a, UnresolvedStyle::default());
+        // Same allocation: clone of a OnceLock-backed Arc.
+        assert!(std::sync::Arc::ptr_eq(&a, &b));
     }
 }

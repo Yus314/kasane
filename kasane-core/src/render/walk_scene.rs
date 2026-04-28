@@ -149,11 +149,14 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     virtual_text: vt,
                 } => {
                     let atoms = decorated.as_deref().unwrap_or(line);
-                    let mut resolved = resolve_atoms(atoms, Some(&base_face));
+                    // Convert the base face to a Style once per buffer line;
+                    // resolve_atoms then operates Face-free for every atom.
+                    let base_style = crate::protocol::Style::from_face(&base_face);
+                    let mut resolved = resolve_atoms(atoms, Some(&base_style));
 
                     // EOL virtual text: append after buffer content
                     if let Some(vt_atoms) = vt {
-                        let vt_resolved = resolve_atoms(vt_atoms, Some(&base_face));
+                        let vt_resolved = resolve_atoms(vt_atoms, Some(&base_style));
                         resolved.extend(vt_resolved);
                     }
 
@@ -331,7 +334,8 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
 
             // Title
             if let Some(title_atoms) = info.title {
-                let resolved_title = resolve_atoms(title_atoms, Some(&border_face));
+                let border_style = crate::protocol::Style::from_face(&border_face);
+                let resolved_title = resolve_atoms(title_atoms, Some(&border_style));
                 self.out.push(DrawCommand::DrawBorderTitle {
                     rect: border_rect,
                     title: resolved_title,
