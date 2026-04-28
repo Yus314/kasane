@@ -18,79 +18,60 @@ fn setup_grid() -> (CellGrid, ColorResolver) {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = Face {
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    }
+    .into();
+    let kw_face = Face {
+        fg: Color::Rgb {
+            r: 255,
+            g: 100,
+            b: 0,
+        },
+        bg: Color::Default,
+        ..Face::default()
+    };
+    let var_face = Face {
+        fg: Color::Rgb {
+            r: 0,
+            g: 200,
+            b: 100,
+        },
+        bg: Color::Default,
+        ..Face::default()
+    };
+    let str_face = Face {
+        fg: Color::Rgb {
+            r: 100,
+            g: 100,
+            b: 255,
+        },
+        bg: Color::Default,
         ..Face::default()
     };
     state.observed.lines = (0..23)
         .map(|i| {
             vec![
-                Atom {
-                    face: Face {
-                        fg: Color::Rgb {
-                            r: 255,
-                            g: 100,
-                            b: 0,
-                        },
-                        bg: Color::Default,
-                        ..Face::default()
-                    },
-                    contents: "let".into(),
-                },
-                Atom {
-                    face: Face::default(),
-                    contents: " ".into(),
-                },
-                Atom {
-                    face: Face {
-                        fg: Color::Rgb {
-                            r: 0,
-                            g: 200,
-                            b: 100,
-                        },
-                        bg: Color::Default,
-                        ..Face::default()
-                    },
-                    contents: format!("var_{i}").into(),
-                },
-                Atom {
-                    face: Face::default(),
-                    contents: " = ".into(),
-                },
-                Atom {
-                    face: Face {
-                        fg: Color::Rgb {
-                            r: 100,
-                            g: 100,
-                            b: 255,
-                        },
-                        bg: Color::Default,
-                        ..Face::default()
-                    },
-                    contents: format!("\"{i}_value\"").into(),
-                },
-                Atom {
-                    face: Face::default(),
-                    contents: ";".into(),
-                },
+                Atom::from_face(kw_face, "let"),
+                Atom::from_face(Face::default(), " "),
+                Atom::from_face(var_face, format!("var_{i}")),
+                Atom::from_face(Face::default(), " = "),
+                Atom::from_face(str_face, format!("\"{i}_value\"")),
+                Atom::from_face(Face::default(), ";"),
             ]
         })
         .collect();
-    state.inference.status_line = vec![Atom {
-        face: Face::default(),
-        contents: " NORMAL ".into(),
-    }];
-    state.observed.status_mode_line = vec![Atom {
-        face: Face::default(),
-        contents: "normal".into(),
-    }];
+    state.inference.status_line = vec![Atom::from_face(Face::default(), " NORMAL ")];
+    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "normal")];
 
     let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
