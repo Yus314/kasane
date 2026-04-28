@@ -404,9 +404,10 @@ fn overlay_face_on_element(el: Element, face: &Face) -> Element {
         Element::StyledLine(atoms) => Element::StyledLine(
             atoms
                 .into_iter()
-                .map(|mut atom| {
-                    FaceMerge::Overlay.apply(&mut atom.face, face);
-                    atom
+                .map(|atom| {
+                    let mut merged = atom.face();
+                    FaceMerge::Overlay.apply(&mut merged, face);
+                    crate::protocol::Atom::from_face(merged, atom.contents)
                 })
                 .collect(),
         ),
@@ -690,10 +691,7 @@ mod tests {
     #[test]
     fn apply_modify_face_on_styled_line() {
         use crate::protocol::Atom;
-        let atoms = vec![Atom {
-            face: Face::default(),
-            contents: "test".into(),
-        }];
+        let atoms = vec![Atom::from_face(Face::default(), "test")];
         let subject = TransformSubject::Element(Element::StyledLine(atoms));
         let overlay = Face {
             fg: Color::Named(NamedColor::Red),
@@ -702,7 +700,7 @@ mod tests {
         let result = ElementPatch::ModifyFace { overlay }.apply(subject);
         match result.into_element() {
             Element::StyledLine(atoms) => {
-                assert_eq!(atoms[0].face.fg, Color::Named(NamedColor::Red));
+                assert_eq!(atoms[0].face().fg, Color::Named(NamedColor::Red));
             }
             other => panic!("expected StyledLine, got {other:?}"),
         }

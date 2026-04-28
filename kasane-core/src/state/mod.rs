@@ -102,13 +102,11 @@ pub enum DragState {
 /// `cursor_cache` is kept as an independent field to avoid split-borrow
 /// conflicts in `detect_cursors_incremental()`.
 ///
-/// `style_store` is the content-addressed style table for the new
-/// `Atom { contents, style_id }` representation introduced in ADR-031
-/// Phase A. It lives outside the world model (T, I, Π, S) because it is a
-/// pure interning index — its content is fully determined by the styles
-/// referenced from `observed.lines` etc., and adding to it has no
-/// observable effect beyond stable identity. Like `cursor_cache`, it is
-/// epistemically a free read.
+/// The interning table for [`Atom`](crate::protocol::Atom)'s
+/// `style_id` is a process-global behind a `Mutex` — see
+/// [`crate::protocol::style`] for the rationale. AppState is therefore
+/// unchanged at this level; atoms can be constructed and looked up
+/// without threading a store handle through every API.
 #[derive(Debug, Clone, Default)]
 pub struct AppState {
     pub observed: ObservedState,
@@ -117,7 +115,6 @@ pub struct AppState {
     pub session: SessionState,
     pub runtime: RuntimeState,
     pub(crate) cursor_cache: derived::CursorCache,
-    pub style_store: crate::protocol::StyleStore,
 }
 
 // ---------------------------------------------------------------------------
@@ -186,7 +183,6 @@ impl AppState {
         "shadow_cursor",
         "fold_toggle_state",
         "projection_policy",
-        "style_store",
     ];
 
     /// Field → epistemological category.

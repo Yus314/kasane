@@ -35,20 +35,11 @@ fn make_cursor_line(pre: &str, cursor_char: &str, post: &str) -> Vec<Atom> {
     let normal = Face::default();
     let mut atoms = Vec::new();
     if !pre.is_empty() {
-        atoms.push(Atom {
-            face: normal,
-            contents: pre.into(),
-        });
+        atoms.push(Atom::from_face(normal, pre));
     }
-    atoms.push(Atom {
-        face: cursor_face(),
-        contents: cursor_char.into(),
-    });
+    atoms.push(Atom::from_face(cursor_face(), cursor_char));
     if !post.is_empty() {
-        atoms.push(Atom {
-            face: normal,
-            contents: post.into(),
-        });
+        atoms.push(Atom::from_face(normal, post));
     }
     atoms
 }
@@ -193,22 +184,10 @@ fn buffer_cursor_with_widget_columns() {
     };
     let normal = Face::default();
     state.observed.lines = vec![vec![
-        Atom {
-            face: gutter_face,
-            contents: " 1│".into(),
-        },
-        Atom {
-            face: normal,
-            contents: "hello ".into(),
-        },
-        Atom {
-            face: cursor_face(),
-            contents: "w".into(),
-        },
-        Atom {
-            face: normal,
-            contents: "orld\n".into(),
-        },
+        Atom::from_face(gutter_face, " 1│"),
+        Atom::from_face(normal, "hello "),
+        Atom::from_face(cursor_face(), "w"),
+        Atom::from_face(normal, "orld\n"),
     ]];
 
     let (grid, result, _) = render_full(&state);
@@ -230,16 +209,10 @@ fn buffer_cursor_with_widget_columns() {
 fn prompt_cursor_basic() {
     let mut state = buffer_state(40, 5);
     state.inference.cursor_mode = CursorMode::Prompt;
-    state.observed.status_prompt = vec![Atom {
-        face: Face::default(),
-        contents: ":".into(),
-    }];
+    state.observed.status_prompt = vec![Atom::from_face(Face::default(), ":")];
     state.observed.status_content_cursor_pos = 3;
     // Need a status line for rendering
-    state.inference.status_line = vec![Atom {
-        face: Face::default(),
-        contents: ":cmd".into(),
-    }];
+    state.inference.status_line = vec![Atom::from_face(Face::default(), ":cmd")];
 
     let (_grid, result, _) = render_full(&state);
 
@@ -256,15 +229,9 @@ fn prompt_cursor_basic() {
 fn prompt_cursor_cjk_prefix() {
     let mut state = buffer_state(40, 5);
     state.inference.cursor_mode = CursorMode::Prompt;
-    state.observed.status_prompt = vec![Atom {
-        face: Face::default(),
-        contents: "検索:".into(),
-    }];
+    state.observed.status_prompt = vec![Atom::from_face(Face::default(), "検索:")];
     state.observed.status_content_cursor_pos = 0;
-    state.inference.status_line = vec![Atom {
-        face: Face::default(),
-        contents: "検索:".into(),
-    }];
+    state.inference.status_line = vec![Atom::from_face(Face::default(), "検索:")];
 
     let (_, result, _) = render_full(&state);
 
@@ -282,10 +249,7 @@ fn prompt_cursor_cjk_prefix() {
 fn prompt_cursor_with_status_left_offset() {
     let mut state = buffer_state(40, 5);
     state.inference.cursor_mode = CursorMode::Prompt;
-    state.observed.status_prompt = vec![Atom {
-        face: Face::default(),
-        contents: ":".into(),
-    }];
+    state.observed.status_prompt = vec![Atom::from_face(Face::default(), ":")];
     state.observed.status_content_cursor_pos = 3;
 
     let grid = CellGrid::new(40, 5);
@@ -316,18 +280,9 @@ fn extract_cursor_color_ascii() {
         attributes: Attributes::REVERSE | Attributes::FINAL_FG | Attributes::FINAL_BG,
     };
     state.observed.lines = vec![vec![
-        Atom {
-            face: Face::default(),
-            contents: "hello".into(),
-        },
-        Atom {
-            face: cf,
-            contents: "w".into(),
-        },
-        Atom {
-            face: Face::default(),
-            contents: "orld\n".into(),
-        },
+        Atom::from_face(Face::default(), "hello"),
+        Atom::from_face(cf, "w"),
+        Atom::from_face(Face::default(), "orld\n"),
     ]];
 
     let (_, result, _) = render_full(&state);
@@ -357,18 +312,9 @@ fn extract_cursor_color_after_cjk() {
         attributes: Attributes::REVERSE | Attributes::FINAL_FG | Attributes::FINAL_BG,
     };
     state.observed.lines = vec![vec![
-        Atom {
-            face: Face::default(),
-            contents: "hi世".into(),
-        },
-        Atom {
-            face: cf,
-            contents: "w".into(),
-        },
-        Atom {
-            face: Face::default(),
-            contents: "orld\n".into(),
-        },
+        Atom::from_face(Face::default(), "hi世"),
+        Atom::from_face(cf, "w"),
+        Atom::from_face(Face::default(), "orld\n"),
     ]];
 
     let (_, result, _) = render_full(&state);

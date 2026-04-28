@@ -4,28 +4,73 @@ use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
 use super::color::Face;
-use super::style::Style;
+use super::style::{
+    DEFAULT_STYLE_ID, Style, StyleId, intern_style_global, style_clone_global, with_global_style,
+};
 
 // ---------------------------------------------------------------------------
 // Atom / Line / Coord
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+/// A styled text fragment.
+///
+/// `style_id` references a [`Style`] in the process-global style table
+/// (see [`crate::protocol::style`]). The id is 4 bytes, `Copy`, and
+/// `Eq` is identity, which keeps `Atom` cheap to clone, compare, and hash.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Atom {
-    pub face: Face,
     pub contents: CompactString,
+    pub style_id: StyleId,
 }
 
 impl Atom {
-    /// Compute this atom's Parley-native [`Style`] view on demand.
-    ///
-    /// Allocation-free for atoms without variable-font axes (the common case);
-    /// the conversion is cheap (a few field copies + bitflag mapping). Used
-    /// during the ADR-031 migration at sites that have been ported to the
-    /// Parley API while [`Atom::face`] is still the wire-format storage.
+    /// Construct an atom from a legacy [`Face`], interning its style.
+    /// Bridge constructor for the ADR-031 migration; will be retired
+    /// alongside [`Face`] in Phase A.3.
+    pub fn from_face(face: Face, contents: impl Into<CompactString>) -> Self {
+        Self {
+            contents: contents.into(),
+            style_id: intern_style_global(Style::from_face(&face)),
+        }
+    }
+
+    /// Construct an atom directly from a known `StyleId`.
+    #[inline]
+    pub fn from_style_id(contents: impl Into<CompactString>, style_id: StyleId) -> Self {
+        Self {
+            contents: contents.into(),
+            style_id,
+        }
+    }
+
+    /// Project this atom's style back to a [`Face`]. Bridge for sites
+    /// that still consume the legacy representation.
+    #[inline]
+    pub fn face(&self) -> Face {
+        with_global_style(self.style_id, |s| s.to_face())
+    }
+
+    /// Return a copy of this atom's style.
     #[inline]
     pub fn style(&self) -> Style {
-        Style::from_face(&self.face)
+        style_clone_global(self.style_id)
+    }
+
+    /// Run `f` with a borrow of this atom's style. Avoids the `Style` clone
+    /// when the caller only needs to read a few fields.
+    #[inline]
+    pub fn with_style<R>(&self, f: impl FnOnce(&Style) -> R) -> R {
+        with_global_style(self.style_id, f)
+    }
+
+    /// Construct an atom with [`Style::default`] (no allocation —
+    /// the default is pre-interned at [`DEFAULT_STYLE_ID`]).
+    #[inline]
+    pub fn plain(contents: impl Into<CompactString>) -> Self {
+        Self {
+            contents: contents.into(),
+            style_id: DEFAULT_STYLE_ID,
+        }
     }
 }
 

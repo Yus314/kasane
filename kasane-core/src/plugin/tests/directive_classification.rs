@@ -16,18 +16,12 @@ fn make_all_directive_instances() -> Vec<DisplayDirective> {
     vec![
         DisplayDirective::EditableVirtualText {
             after: 0,
-            content: vec![Atom {
-                face: Face::default(),
-                contents: "edit".into(),
-            }],
+            content: vec![Atom::from_face(Face::default(), "edit")],
             editable_spans: vec![],
         },
         DisplayDirective::Fold {
             range: 0..1,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "…".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "…")],
         },
         DisplayDirective::Gutter {
             line: 0,
@@ -166,10 +160,7 @@ fn preserving_has_framework_recovery() {
     // Fold(10..20) → toggle → all lines recover to Some in buffer_to_display
     let directives = vec![DisplayDirective::Fold {
         range: 10..20,
-        summary: vec![Atom {
-            face: Face::default(),
-            contents: "…".into(),
-        }],
+        summary: vec![Atom::from_face(Face::default(), "…")],
     }];
 
     let line_count = 30;

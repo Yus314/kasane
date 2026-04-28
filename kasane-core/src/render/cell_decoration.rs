@@ -140,10 +140,10 @@ mod tests {
         );
         apply_cell_decorations(&[dec], &mut grid, 0, None, 0, 0);
         let cell = grid.get(3, 1).unwrap();
-        assert_eq!(cell.face.bg, Color::Rgb { r: 255, g: 0, b: 0 });
+        assert_eq!(cell.face().bg, Color::Rgb { r: 255, g: 0, b: 0 });
         // Other cells unchanged
         let other = grid.get(0, 0).unwrap();
-        assert_eq!(other.face.bg, Color::Default);
+        assert_eq!(other.face().bg, Color::Default);
     }
 
     #[test]
@@ -156,11 +156,11 @@ mod tests {
         apply_cell_decorations(&[dec], &mut grid, 0, None, 0, 0);
         for y in 0..5 {
             let cell = grid.get(2, y).unwrap();
-            assert_eq!(cell.face.bg, Color::Rgb { r: 255, g: 0, b: 0 });
+            assert_eq!(cell.face().bg, Color::Rgb { r: 255, g: 0, b: 0 });
         }
         // Adjacent column unchanged
         let cell = grid.get(3, 0).unwrap();
-        assert_eq!(cell.face.bg, Color::Default);
+        assert_eq!(cell.face().bg, Color::Default);
     }
 
     #[test]
@@ -176,11 +176,11 @@ mod tests {
         apply_cell_decorations(&[dec], &mut grid, 0, None, 0, 0);
         for col in 1..=4 {
             let cell = grid.get(col, 2).unwrap();
-            assert_eq!(cell.face.bg, Color::Rgb { r: 255, g: 0, b: 0 });
+            assert_eq!(cell.face().bg, Color::Rgb { r: 255, g: 0, b: 0 });
         }
         // Outside range unchanged
         let cell = grid.get(0, 2).unwrap();
-        assert_eq!(cell.face.bg, Color::Default);
+        assert_eq!(cell.face().bg, Color::Default);
     }
 
     #[test]
@@ -193,7 +193,7 @@ mod tests {
         // buffer_x_offset=3, buffer_y_offset=1
         apply_cell_decorations(&[dec], &mut grid, 3, None, 1, 0);
         let cell = grid.get(3, 1).unwrap();
-        assert_eq!(cell.face.bg, Color::Rgb { r: 255, g: 0, b: 0 });
+        assert_eq!(cell.face().bg, Color::Rgb { r: 255, g: 0, b: 0 });
     }
 
     #[test]
@@ -201,7 +201,7 @@ mod tests {
         let mut grid = CellGrid::new(10, 5);
         // Set initial face
         if let Some(cell) = grid.get_mut(0, 0) {
-            cell.face.fg = Color::Rgb { r: 0, g: 255, b: 0 };
+            cell.face().fg = Color::Rgb { r: 0, g: 255, b: 0 };
         }
         let dec = make_decoration(
             DecorationTarget::Cell(Coord { line: 0, column: 0 }),
@@ -210,7 +210,7 @@ mod tests {
         apply_cell_decorations(&[dec], &mut grid, 0, None, 0, 0);
         let cell = grid.get(0, 0).unwrap();
         // Replace should have overwritten fg to Default
-        assert_eq!(cell.face.fg, Color::Default);
-        assert_eq!(cell.face.bg, Color::Rgb { r: 255, g: 0, b: 0 });
+        assert_eq!(cell.face().fg, Color::Default);
+        assert_eq!(cell.face().bg, Color::Rgb { r: 255, g: 0, b: 0 });
     }
 }

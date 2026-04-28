@@ -747,13 +747,13 @@ impl<'a> PluginView<'a> {
             if !vt_parts.is_empty() {
                 has_virtual_text = true;
                 vt_parts.sort_by_key(|(prio, id, _)| (*prio, id.clone()));
-                let separator = crate::protocol::Atom {
-                    face: crate::protocol::Face {
+                let separator = crate::protocol::Atom::from_face(
+                    crate::protocol::Face {
                         attributes: crate::protocol::Attributes::DIM,
                         ..crate::protocol::Face::default()
                     },
-                    contents: "  ".into(),
-                };
+                    "  ",
+                );
                 let mut merged = Vec::new();
                 for (i, (_, _, atoms)) in vt_parts.into_iter().enumerate() {
                     if i > 0 {

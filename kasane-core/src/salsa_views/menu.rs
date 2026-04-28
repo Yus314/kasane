@@ -115,25 +115,19 @@ fn build_split_item_element_pure(
         .sum();
     if (cand_w as u16) < candidate_col_w {
         let pad = candidate_col_w as usize - cand_w;
-        cand_resolved.push(Atom {
-            face,
-            contents: " ".repeat(pad).into(),
-        });
+        cand_resolved.push(Atom::from_face(face, " ".repeat(pad)));
     }
     atoms.extend(cand_resolved);
 
     // 2. Gap
-    atoms.push(Atom {
-        face,
-        contents: " ".into(),
-    });
+    atoms.push(Atom::from_face(face, " "));
 
     // 3. Docstring portion
     for atom in &item[split.docstring_start..] {
-        atoms.push(Atom {
-            face: crate::protocol::resolve_face(&atom.face, &face),
-            contents: atom.contents.clone(),
-        });
+        atoms.push(Atom::from_face(
+            crate::protocol::resolve_face(&atom.face(), &face),
+            atom.contents.clone(),
+        ));
     }
 
     Element::container(Element::StyledLine(atoms), Style::from(face))
@@ -265,10 +259,7 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
     let mut atoms: Vec<Atom> = Vec::new();
 
     if has_prefix {
-        atoms.push(Atom {
-            face: menu.menu_face,
-            contents: "< ".into(),
-        });
+        atoms.push(Atom::from_face(menu.menu_face, "< "));
     }
 
     let mut x = if has_prefix { PREFIX_WIDTH } else { 0 };
@@ -281,15 +272,9 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
             if has_more {
                 let pad_len = screen_w.saturating_sub(x + 1);
                 if pad_len > 0 {
-                    atoms.push(Atom {
-                        face: menu.menu_face,
-                        contents: " ".repeat(pad_len).into(),
-                    });
+                    atoms.push(Atom::from_face(menu.menu_face, " ".repeat(pad_len)));
                 }
-                atoms.push(Atom {
-                    face: menu.menu_face,
-                    contents: ">".into(),
-                });
+                atoms.push(Atom::from_face(menu.menu_face, ">"));
             }
             break;
         }
@@ -301,18 +286,12 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
         };
 
         for atom in &menu.items[idx] {
-            atoms.push(Atom {
-                face,
-                contents: atom.contents.clone(),
-            });
+            atoms.push(Atom::from_face(face, atom.contents.clone()));
         }
         x += item_w;
 
         if x < screen_w {
-            atoms.push(Atom {
-                face: menu.menu_face,
-                contents: " ".into(),
-            });
+            atoms.push(Atom::from_face(menu.menu_face, " "));
             x += 1;
         }
     }

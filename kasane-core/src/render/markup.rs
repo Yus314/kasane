@@ -31,10 +31,10 @@ pub fn parse_markup(input: &str, base: &Face) -> Line {
         } else if ch == '{' {
             // Start of face spec — flush current text
             if !current_text.is_empty() {
-                atoms.push(Atom {
-                    face: current_face,
-                    contents: std::mem::take(&mut current_text),
-                });
+                atoms.push(Atom::from_face(
+                    current_face,
+                    std::mem::take(&mut current_text),
+                ));
             }
 
             // Read until '}'
@@ -59,10 +59,7 @@ pub fn parse_markup(input: &str, base: &Face) -> Line {
 
     // Flush remaining text
     if !current_text.is_empty() {
-        atoms.push(Atom {
-            face: current_face,
-            contents: current_text,
-        });
+        atoms.push(Atom::from_face(current_face, current_text));
     }
 
     atoms
@@ -79,7 +76,7 @@ mod tests {
         let atoms = parse_markup("hello world", &base);
         assert_eq!(atoms.len(), 1);
         assert_eq!(atoms[0].contents, "hello world");
-        assert_eq!(atoms[0].face, base);
+        assert_eq!(atoms[0].face(), base);
     }
 
     #[test]
@@ -88,8 +85,8 @@ mod tests {
         let atoms = parse_markup("{red,blue}colored", &base);
         assert_eq!(atoms.len(), 1);
         assert_eq!(atoms[0].contents, "colored");
-        assert_eq!(atoms[0].face.fg, Color::Named(NamedColor::Red));
-        assert_eq!(atoms[0].face.bg, Color::Named(NamedColor::Blue));
+        assert_eq!(atoms[0].face().fg, Color::Named(NamedColor::Red));
+        assert_eq!(atoms[0].face().bg, Color::Named(NamedColor::Blue));
     }
 
     #[test]
@@ -98,9 +95,9 @@ mod tests {
         let atoms = parse_markup("{green,default}ok{default} done", &base);
         assert_eq!(atoms.len(), 2);
         assert_eq!(atoms[0].contents, "ok");
-        assert_eq!(atoms[0].face.fg, Color::Named(NamedColor::Green));
+        assert_eq!(atoms[0].face().fg, Color::Named(NamedColor::Green));
         assert_eq!(atoms[1].contents, " done");
-        assert_eq!(atoms[1].face, base);
+        assert_eq!(atoms[1].face(), base);
     }
 
     #[test]
@@ -108,7 +105,7 @@ mod tests {
         let base = Face::default();
         let atoms = parse_markup("{default,default+b}bold", &base);
         assert_eq!(atoms.len(), 1);
-        assert!(atoms[0].face.attributes.contains(Attributes::BOLD));
+        assert!(atoms[0].face().attributes.contains(Attributes::BOLD));
     }
 
     #[test]
@@ -124,9 +121,9 @@ mod tests {
         let base = Face::default();
         let atoms = parse_markup("{red,default}err{yellow,default}warn{default}ok", &base);
         assert_eq!(atoms.len(), 3);
-        assert_eq!(atoms[0].face.fg, Color::Named(NamedColor::Red));
-        assert_eq!(atoms[1].face.fg, Color::Named(NamedColor::Yellow));
-        assert_eq!(atoms[2].face, base);
+        assert_eq!(atoms[0].face().fg, Color::Named(NamedColor::Red));
+        assert_eq!(atoms[1].face().fg, Color::Named(NamedColor::Yellow));
+        assert_eq!(atoms[2].face(), base);
     }
 
     #[test]
@@ -141,6 +138,6 @@ mod tests {
         let base = Face::default();
         let atoms = parse_markup("{red,default}colored{}reset", &base);
         assert_eq!(atoms.len(), 2);
-        assert_eq!(atoms[1].face, base);
+        assert_eq!(atoms[1].face(), base);
     }
 }

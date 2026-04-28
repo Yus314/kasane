@@ -937,10 +937,10 @@ mod tests {
         let state = default_state();
         let lines: Vec<Vec<crate::protocol::Atom>> = (0..10)
             .map(|i| {
-                vec![crate::protocol::Atom {
-                    face: Face::default(),
-                    contents: format!("line {i}").into(),
-                }]
+                vec![crate::protocol::Atom::from_face(
+                    Face::default(),
+                    format!("line {i}"),
+                )]
             })
             .collect();
         let el = Element::text_panel(lines);
@@ -954,10 +954,10 @@ mod tests {
         let state = default_state();
         let lines: Vec<Vec<crate::protocol::Atom>> = (0..50)
             .map(|i| {
-                vec![crate::protocol::Atom {
-                    face: Face::default(),
-                    contents: format!("line {i}").into(),
-                }]
+                vec![crate::protocol::Atom::from_face(
+                    Face::default(),
+                    format!("line {i}"),
+                )]
             })
             .collect();
         let el = Element::text_panel(lines);
@@ -970,10 +970,10 @@ mod tests {
         let state = default_state();
         let lines: Vec<Vec<crate::protocol::Atom>> = (0..100)
             .map(|i| {
-                vec![crate::protocol::Atom {
-                    face: Face::default(),
-                    contents: format!("line {i}").into(),
-                }]
+                vec![crate::protocol::Atom::from_face(
+                    Face::default(),
+                    format!("line {i}"),
+                )]
             })
             .collect();
         let el = Element::TextPanel {

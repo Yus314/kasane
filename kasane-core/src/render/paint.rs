@@ -297,7 +297,10 @@ pub(crate) fn paint_buffer_ref(
                 atoms,
                 shadow_override: _,
             } => {
-                let fill_face = atoms.first().map(|a| a.face).unwrap_or(params.default_face);
+                let fill_face = atoms
+                    .first()
+                    .map(|a| a.face())
+                    .unwrap_or(params.default_face);
                 grid.fill_region(y, area.x, area.w, &fill_face);
                 grid.put_line_with_base(y, area.x, atoms, area.w, None);
             }
@@ -756,10 +759,7 @@ mod tests {
             3,
             &[DisplayDirective::Fold {
                 range: 0..2,
-                summary: vec![Atom {
-                    face: syn_face,
-                    contents: "folded".into(),
-                }],
+                summary: vec![Atom::from_face(syn_face, "folded")],
             }],
         );
         // Display line 0 should be the fold summary (synthetic)
@@ -767,7 +767,7 @@ mod tests {
             BufferLineAction::Synthetic { atoms } => {
                 let text: String = atoms.iter().map(|a| a.contents.as_str()).collect();
                 assert_eq!(text, "folded");
-                assert_eq!(atoms[0].face, syn_face);
+                assert_eq!(atoms[0].face(), syn_face);
             }
             other => panic!("expected Synthetic, got {other:?}"),
         }
@@ -875,16 +875,13 @@ mod tests {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
             ..Face::default()
         };
-        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom {
-            face: vt_face,
-            contents: "  err".into(),
-        }])];
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::from_face(vt_face, "  err")])];
         match analyze_buffer_line(&params, 0, None, None, None, Some(&vt), false) {
             BufferLineAction::BufferLine { virtual_text, .. } => {
                 let vt_atoms = virtual_text.expect("expected virtual text");
                 assert_eq!(vt_atoms.len(), 1);
                 assert_eq!(vt_atoms[0].contents.as_str(), "  err");
-                assert_eq!(vt_atoms[0].face, vt_face);
+                assert_eq!(vt_atoms[0].face(), vt_face);
             }
             other => panic!("expected BufferLine with virtual text, got {other:?}"),
         }
@@ -908,13 +905,8 @@ mod tests {
         let lines = vec![make_line("hello"), make_line("world")];
         let params = make_params(&lines, &[]);
         // Only line 0 has VT, line 1 has None
-        let vt: Vec<Option<Vec<Atom>>> = vec![
-            Some(vec![Atom {
-                face: Face::default(),
-                contents: " hint".into(),
-            }]),
-            None,
-        ];
+        let vt: Vec<Option<Vec<Atom>>> =
+            vec![Some(vec![Atom::from_face(Face::default(), " hint")]), None];
         match analyze_buffer_line(&params, 1, None, None, None, Some(&vt), false) {
             BufferLineAction::BufferLine { virtual_text, .. } => {
                 assert!(virtual_text.is_none(), "line 1 should have no virtual text");
@@ -932,22 +924,13 @@ mod tests {
             3,
             &[DisplayDirective::Fold {
                 range: 0..2,
-                summary: vec![Atom {
-                    face: Face::default(),
-                    contents: "folded".into(),
-                }],
+                summary: vec![Atom::from_face(Face::default(), "folded")],
             }],
         );
         // VT for buffer lines
         let vt: Vec<Option<Vec<Atom>>> = vec![
-            Some(vec![Atom {
-                face: Face::default(),
-                contents: " vt0".into(),
-            }]),
-            Some(vec![Atom {
-                face: Face::default(),
-                contents: " vt1".into(),
-            }]),
+            Some(vec![Atom::from_face(Face::default(), " vt0")]),
+            Some(vec![Atom::from_face(Face::default(), " vt1")]),
             None,
         ];
         // Display line 0 = fold summary → Synthetic, no virtual text
@@ -968,10 +951,7 @@ mod tests {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
             ..Face::default()
         };
-        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom {
-            face: vt_face,
-            contents: "  err".into(),
-        }])];
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::from_face(vt_face, "  err")])];
 
         let mut grid = CellGrid::new(20, 3);
         let area = Rect {
@@ -1010,10 +990,8 @@ mod tests {
         state.runtime.cols = 5;
         state.runtime.rows = 1;
 
-        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom {
-            face: Face::default(),
-            contents: "  err".into(),
-        }])];
+        let vt: Vec<Option<Vec<Atom>>> =
+            vec![Some(vec![Atom::from_face(Face::default(), "  err")])];
 
         let mut grid = CellGrid::new(5, 1);
         let area = Rect {
@@ -1063,10 +1041,7 @@ mod tests {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
             ..Face::default()
         };
-        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom {
-            face: vt_face,
-            contents: " vt".into(),
-        }])];
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::from_face(vt_face, " vt")])];
 
         let mut grid = CellGrid::new(20, 1);
         let area = Rect {
@@ -1089,7 +1064,7 @@ mod tests {
 
         // Decorated content present
         assert_eq!(grid.get(0, 0).unwrap().grapheme, "h");
-        assert_eq!(grid.get(0, 0).unwrap().face.fg, deco_face.fg);
+        assert_eq!(grid.get(0, 0).unwrap().face().fg, deco_face.fg);
         // Virtual text after content
         assert_eq!(grid.get(5, 0).unwrap().grapheme, " ");
         assert_eq!(grid.get(6, 0).unwrap().grapheme, "v");

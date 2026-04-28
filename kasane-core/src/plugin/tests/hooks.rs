@@ -62,10 +62,7 @@ impl PluginBackend for IconPlugin {
         _selected: bool,
         _state: &AppView<'_>,
     ) -> Option<Vec<crate::protocol::Atom>> {
-        let mut result = vec![crate::protocol::Atom {
-            face: Face::default(),
-            contents: "★ ".into(),
-        }];
+        let mut result = vec![crate::protocol::Atom::from_face(Face::default(), "★ ")];
         result.extend(item.iter().cloned());
         Some(result)
     }
@@ -76,10 +73,7 @@ fn test_transform_menu_item() {
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(IconPlugin));
     let state = AppState::default();
-    let item = vec![crate::protocol::Atom {
-        face: Face::default(),
-        contents: "foo".into(),
-    }];
+    let item = vec![crate::protocol::Atom::from_face(Face::default(), "foo")];
     let result = registry
         .view()
         .transform_menu_item(&item, 0, false, &AppView::new(&state));
@@ -93,10 +87,7 @@ fn test_transform_menu_item() {
 fn test_transform_menu_item_no_plugin() {
     let registry = PluginRuntime::new();
     let state = AppState::default();
-    let item = vec![crate::protocol::Atom {
-        face: Face::default(),
-        contents: "foo".into(),
-    }];
+    let item = vec![crate::protocol::Atom::from_face(Face::default(), "foo")];
     assert!(
         registry
             .view()

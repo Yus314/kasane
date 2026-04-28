@@ -55,10 +55,7 @@ fn resolve_folds_disjoint_both_kept() {
     set.push(
         DisplayDirective::Fold {
             range: 1..3,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "fold-a".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "fold-a")],
         },
         0,
         pid("a"),
@@ -66,10 +63,7 @@ fn resolve_folds_disjoint_both_kept() {
     set.push(
         DisplayDirective::Fold {
             range: 5..7,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "fold-b".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "fold-b")],
         },
         0,
         pid("b"),
@@ -88,10 +82,7 @@ fn resolve_folds_overlap_higher_priority_wins() {
     set.push(
         DisplayDirective::Fold {
             range: 2..6,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "low".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "low")],
         },
         0,
         pid("low"),
@@ -99,10 +90,7 @@ fn resolve_folds_overlap_higher_priority_wins() {
     set.push(
         DisplayDirective::Fold {
             range: 3..8,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "high".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "high")],
         },
         10,
         pid("high"),
@@ -125,10 +113,7 @@ fn resolve_folds_overlap_same_priority_plugin_id_tiebreak() {
     set.push(
         DisplayDirective::Fold {
             range: 1..5,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "alpha".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "alpha")],
         },
         0,
         pid("alpha"),
@@ -136,10 +121,7 @@ fn resolve_folds_overlap_same_priority_plugin_id_tiebreak() {
     set.push(
         DisplayDirective::Fold {
             range: 3..7,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "beta".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "beta")],
         },
         0,
         pid("beta"),
@@ -162,10 +144,7 @@ fn resolve_fold_hide_partial_overlap_fold_removed() {
     set.push(
         DisplayDirective::Fold {
             range: 2..6,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "fold".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "fold")],
         },
         0,
         pid("a"),
@@ -193,10 +172,7 @@ fn resolve_fold_hide_full_cover_fold_removed() {
     set.push(
         DisplayDirective::Fold {
             range: 2..5,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "fold".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "fold")],
         },
         0,
         pid("a"),
@@ -217,10 +193,7 @@ fn resolve_fold_hide_disjoint_both_kept() {
     set.push(
         DisplayDirective::Fold {
             range: 1..3,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "fold".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "fold")],
         },
         0,
         pid("a"),
@@ -384,10 +357,7 @@ fn resolve_inline_insert_ordering() {
             directive: DisplayDirective::InsertInline {
                 line: 0,
                 byte_offset: 5,
-                content: vec![Atom {
-                    face: red_face,
-                    contents: "X".into(),
-                }],
+                content: vec![Atom::from_face(red_face, "X")],
                 interaction: crate::display::InlineInteraction::None,
             },
             priority: 0,
@@ -397,10 +367,7 @@ fn resolve_inline_insert_ordering() {
             directive: DisplayDirective::InsertInline {
                 line: 0,
                 byte_offset: 5,
-                content: vec![Atom {
-                    face: Face::default(),
-                    contents: "Y".into(),
-                }],
+                content: vec![Atom::from_face(Face::default(), "Y")],
                 interaction: crate::display::InlineInteraction::None,
             },
             priority: 10,
@@ -457,10 +424,7 @@ fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirect
         (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
             DisplayDirective::Fold {
                 range: s..(s + len).min(m),
-                summary: vec![Atom {
-                    face: Face::default(),
-                    contents: "...".into(),
-                }],
+                summary: vec![Atom::from_face(Face::default(), "...")],
             }
         }),
         (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {

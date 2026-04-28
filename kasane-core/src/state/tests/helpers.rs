@@ -27,10 +27,7 @@ fn test_has_menu() {
     let mut state = AppState::default();
     assert!(!state.has_menu());
     state.observed.menu = Some(MenuState::new(
-        vec![vec![Atom {
-            face: Face::default(),
-            contents: "a".into(),
-        }]],
+        vec![vec![Atom::from_face(Face::default(), "a")]],
         MenuParams {
             anchor: Coord::default(),
             selected_item_face: Face::default(),

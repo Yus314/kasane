@@ -92,10 +92,7 @@ fn main() {
                     },
                     contents: "let".into(),
                 },
-                Atom {
-                    face: Face::default(),
-                    contents: " ".into(),
-                },
+                Atom::from_face(Face::default(), " "),
                 Atom {
                     face: Face {
                         fg: Color::Rgb {
@@ -108,10 +105,7 @@ fn main() {
                     },
                     contents: format!("var_{i}").into(),
                 },
-                Atom {
-                    face: Face::default(),
-                    contents: " = ".into(),
-                },
+                Atom::from_face(Face::default(), " = "),
                 Atom {
                     face: Face {
                         fg: Color::Rgb {
@@ -124,21 +118,12 @@ fn main() {
                     },
                     contents: format!("\"{i}_value\"").into(),
                 },
-                Atom {
-                    face: Face::default(),
-                    contents: ";".into(),
-                },
+                Atom::from_face(Face::default(), ";"),
             ]
         })
         .collect();
-    state.status_line = vec![Atom {
-        face: Face::default(),
-        contents: " NORMAL ".into(),
-    }];
-    state.status_mode_line = vec![Atom {
-        face: Face::default(),
-        contents: "normal".into(),
-    }];
+    state.status_line = vec![Atom::from_face(Face::default(), " NORMAL ")];
+    state.status_mode_line = vec![Atom::from_face(Face::default(), "normal")];
 
     let registry = PluginRuntime::new();
     let area = Rect {
@@ -179,12 +164,7 @@ fn main() {
 
     // parse_request (100-line draw)
     let draw_lines: Vec<kasane_core::protocol::Line> = (0..100)
-        .map(|i| {
-            vec![Atom {
-                face: Face::default(),
-                contents: format!("line {i}").into(),
-            }]
-        })
+        .map(|i| vec![Atom::from_face(Face::default(), format!("line {i}"))])
         .collect();
     let default_face = Face {
         fg: Color::Named(NamedColor::White),

@@ -75,10 +75,7 @@ pub(super) fn build_contribution_element(
 
         let text = part.template.expand(resolver);
         let face = resolve_face_rules(&part.face_rules, resolver, state);
-        atoms.push(Atom {
-            face,
-            contents: text,
-        });
+        atoms.push(Atom::from_face(face, text));
     }
 
     if atoms.is_empty() {
@@ -525,10 +522,9 @@ mod legacy {
 
                         let text = branch.template.expand(&line_resolver);
                         let face = resolve_face_rules(&branch.face_rules, &line_resolver, state);
-                        let element = Element::styled_line(vec![crate::protocol::Atom {
-                            face,
-                            contents: text,
-                        }]);
+                        let element = Element::styled_line(vec![crate::protocol::Atom::from_face(
+                            face, text,
+                        )]);
                         return Some((widget.priority(), element));
                     }
                 }

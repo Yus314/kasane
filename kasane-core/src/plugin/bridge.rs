@@ -1721,10 +1721,7 @@ mod tests {
         bridge.contribute_overlay_with_ctx(&app, &overlay_ctx);
         bridge.display_directives(&app);
         bridge.transform_menu_item(
-            &[crate::protocol::Atom {
-                face: Face::default(),
-                contents: "item".into(),
-            }],
+            &[crate::protocol::Atom::from_face(Face::default(), "item")],
             0,
             false,
             &app,

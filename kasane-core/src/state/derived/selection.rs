@@ -71,7 +71,7 @@ fn detect_single_selection(
     for atom in line.iter() {
         let width = atom_display_width(atom);
         if width > 0 {
-            segments.push((col, col + width, atom.face));
+            segments.push((col, col + width, atom.face()));
         }
         col += width;
     }

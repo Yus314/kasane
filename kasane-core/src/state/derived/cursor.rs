@@ -68,8 +68,8 @@ fn detect_cursors_by_attributes(lines: &[Line]) -> Vec<Coord> {
 fn scan_line_cursor_columns(line: &[Atom], out: &mut Vec<u32>) {
     let mut col: u32 = 0;
     for atom in line.iter() {
-        let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
-            && atom.face.attributes.contains(Attributes::REVERSE);
+        let is_cursor = atom.face().attributes.contains(Attributes::FINAL_FG)
+            && atom.face().attributes.contains(Attributes::REVERSE);
         if is_cursor {
             out.push(col);
         }
@@ -113,7 +113,7 @@ fn detect_cursors_by_face(lines: &[Line], primary_pos: Coord) -> Vec<Coord> {
     for (line_idx, line) in lines.iter().enumerate() {
         let mut col: u32 = 0;
         for atom in line.iter() {
-            if atom.face.fg == primary_face.fg && atom.face.bg != Color::Default {
+            if atom.face().fg == primary_face.fg && atom.face().bg != Color::Default {
                 cursors.push(Coord {
                     line: line_idx as i32,
                     column: col as i32,

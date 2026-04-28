@@ -10,6 +10,7 @@ use crate::layout::Rect;
 use crate::layout::flex::place;
 use crate::plugin::{Command, PluginRuntime};
 use crate::protocol::{Atom, Color, Face, Line, NamedColor};
+// Phase A.2: tests construct atoms with default style via Atom::plain.
 use crate::render::pipeline::render_pipeline;
 use crate::render::view;
 use crate::render::{CellGrid, paint};
@@ -17,10 +18,7 @@ use crate::state::{AppState, DirtyFlags};
 use crate::surface::*;
 
 pub fn make_line(s: &str) -> Line {
-    vec![Atom {
-        face: Face::default(),
-        contents: s.into(),
-    }]
+    vec![Atom::plain(s)]
 }
 
 pub fn default_state() -> AppState {

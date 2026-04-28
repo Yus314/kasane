@@ -26,6 +26,16 @@ impl Default for Cell {
     }
 }
 
+impl Cell {
+    /// Method-style accessor for the `face` field. Symmetry with
+    /// [`Atom::face`](crate::protocol::Atom::face) lets call sites use the
+    /// same syntax across both types.
+    #[inline]
+    pub fn face(&self) -> Face {
+        self.face
+    }
+}
+
 pub struct CellGrid {
     width: u16,
     height: u16,
@@ -159,9 +169,10 @@ impl CellGrid {
         let limit = x_start.saturating_add(max_width).min(self.width);
 
         for atom in line {
+            let atom_face = atom.face();
             let face = match base_face {
-                Some(base) => resolve_face(&atom.face, base),
-                None => atom.face,
+                Some(base) => resolve_face(&atom_face, base),
+                None => atom_face,
             };
             for grapheme in atom.contents.graphemes(true) {
                 if grapheme.is_empty() {
@@ -666,10 +677,7 @@ mod tests {
         let mut grid = CellGrid::new(20, 1);
         // Line with embedded newline and carriage return
         // \n renders as a space (1 cell), \r is skipped
-        let line = vec![Atom {
-            face: default_face(),
-            contents: "ab\ncd\ref".into(),
-        }];
+        let line = vec![Atom::from_face(default_face(), "ab\ncd\ref")];
         let cols = grid.put_line(0, 0, &line, 20);
         assert_eq!(cols, 7); // "ab" + space(\n) + "cd" + "ef"
         assert_eq!(grid.get(0, 0).unwrap().grapheme, "a");
@@ -711,10 +719,7 @@ mod tests {
             attributes: Attributes::STRIKETHROUGH,
             ..Face::default()
         };
-        let line = vec![Atom {
-            face,
-            contents: "};\n".into(),
-        }];
+        let line = vec![Atom::from_face(face, "};\n")];
         let cols = grid.put_line(0, 0, &line, 20);
         assert_eq!(cols, 3); // "}" + ";" + space(\n)
         assert_eq!(grid.get(0, 0).unwrap().grapheme, "}");

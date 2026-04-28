@@ -119,7 +119,10 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
             ) {
                 BufferLineAction::Skip => continue,
                 BufferLineAction::Synthetic { atoms } => {
-                    let fill_face = atoms.first().map(|a| a.face).unwrap_or(params.default_face);
+                    let fill_face = atoms
+                        .first()
+                        .map(|a| a.face())
+                        .unwrap_or(params.default_face);
                     self.out.push(DrawCommand::FillRect {
                         rect: PixelRect {
                             x: px,
@@ -214,7 +217,10 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                 }
                 BufferLineAction::EditableSynthetic { atoms, .. } => {
                     // Render identically to Synthetic in GPU path
-                    let fill_face = atoms.first().map(|a| a.face).unwrap_or(params.default_face);
+                    let fill_face = atoms
+                        .first()
+                        .map(|a| a.face())
+                        .unwrap_or(params.default_face);
                     self.out.push(DrawCommand::FillRect {
                         rect: PixelRect {
                             x: px,
@@ -374,13 +380,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     h: 1,
                 };
                 let pr = to_pixel_rect(&gutter_area, cs);
-                let gutter_atoms = resolve_atoms(
-                    &[Atom {
-                        face: gutter_face,
-                        contents: num_str.into(),
-                    }],
-                    None,
-                );
+                let gutter_atoms = resolve_atoms(&[Atom::from_face(gutter_face, num_str)], None);
                 let gutter_line_idx = self.next_non_buffer_line_idx();
                 self.out.push(DrawCommand::DrawAtoms {
                     pos: PixelPos { x: pr.x, y: pr.y },

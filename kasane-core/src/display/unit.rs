@@ -499,10 +499,7 @@ mod tests {
     fn fold_produces_fold_summary_unit() {
         let directives = vec![DisplayDirective::Fold {
             range: 2..5,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "folded".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "folded")],
         }];
         let dm = DisplayMap::build(8, &directives);
         let dum = DisplayUnitMap::build(&dm);
@@ -545,10 +542,7 @@ mod tests {
     fn content_addressed_id_stability() {
         let directives = vec![DisplayDirective::Fold {
             range: 2..5,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "folded".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "folded")],
         }];
 
         let dm1 = DisplayMap::build(8, &directives);
@@ -577,10 +571,7 @@ mod tests {
         let directives = vec![
             DisplayDirective::Fold {
                 range: 1..3,
-                summary: vec![Atom {
-                    face: Face::default(),
-                    contents: "fold".into(),
-                }],
+                summary: vec![Atom::from_face(Face::default(), "fold")],
             },
             DisplayDirective::Hide { range: 5..7 },
         ];
@@ -616,10 +607,7 @@ mod tests {
     fn build_fold_dum() -> (DisplayMap, DisplayUnitMap) {
         let directives = vec![DisplayDirective::Fold {
             range: 2..5,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "folded".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "folded")],
         }];
         let dm = DisplayMap::build(8, &directives);
         let dum = DisplayUnitMap::build(&dm);
@@ -772,10 +760,7 @@ mod tests {
             (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
                 DisplayDirective::Fold {
                     range: s..(s + len).min(m),
-                    summary: vec![Atom {
-                        face: Face::default(),
-                        contents: "...".into(),
-                    }],
+                    summary: vec![Atom::from_face(Face::default(), "...")],
                 }
             }),
             (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {

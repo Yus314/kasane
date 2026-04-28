@@ -9,7 +9,7 @@ use crate::element::{BorderLineStyle, Element, ImageFit, ImageSource};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
 use crate::protocol::resolve_face;
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, Face, Style};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -40,10 +40,17 @@ pub struct CellSize {
 }
 
 /// An Atom with faces resolved against a base face.
+///
+/// ADR-031 Phase 2 prep: `style` carries the Parley-native projection
+/// of `face` (computed via `Style::from_face` at construction). Both
+/// fields are populated; consumers can read either while the
+/// migration cascades through the renderer. `face` will retire once
+/// every reader has moved over.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedAtom {
     pub contents: String,
     pub face: Face,
+    pub style: Style,
 }
 
 /// Semantic annotation on a buffer paragraph (positions are byte offsets in
@@ -234,12 +241,14 @@ pub(crate) fn resolve_atoms(atoms: &[Atom], base_face: Option<&Face>) -> Vec<Res
         .iter()
         .map(|atom| {
             let face = match base_face {
-                Some(base) => resolve_face(&atom.face, base),
-                None => atom.face,
+                Some(base) => resolve_face(&atom.face(), base),
+                None => atom.face(),
             };
+            let style = Style::from_face(&face);
             ResolvedAtom {
                 contents: atom.contents.to_string(),
                 face,
+                style,
             }
         })
         .collect()
@@ -542,10 +551,7 @@ mod tests {
 
     #[test]
     fn test_resolve_atoms_no_base() {
-        let atoms = vec![Atom {
-            face: Face::default(),
-            contents: "hello".into(),
-        }];
+        let atoms = vec![Atom::from_face(Face::default(), "hello")];
         let resolved = resolve_atoms(&atoms, None);
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].contents, "hello");

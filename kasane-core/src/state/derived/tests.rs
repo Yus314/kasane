@@ -3,20 +3,17 @@ use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedCol
 use crate::render::CursorStyle;
 
 fn make_atom(text: &str) -> Atom {
-    Atom {
-        face: Face::default(),
-        contents: text.into(),
-    }
+    Atom::from_face(Face::default(), text)
 }
 
 fn make_cursor_atom(text: &str) -> Atom {
-    Atom {
-        face: Face {
+    Atom::from_face(
+        Face {
             attributes: Attributes::FINAL_FG | Attributes::REVERSE,
             ..Face::default()
         },
-        contents: text.into(),
-    }
+        text,
+    )
 }
 
 // --- detect_cursors tests ---
@@ -69,14 +66,14 @@ fn detect_cursors_cjk_width() {
 /// Helper: create an atom with an explicit fg+bg face (no REVERSE/FINAL_FG),
 /// mimicking third-party themes like anhsirk0/kakoune-themes.
 fn make_themed_cursor_atom(text: &str, fg: Color, bg: Color) -> Atom {
-    Atom {
-        face: Face {
+    Atom::from_face(
+        Face {
             fg,
             bg,
             ..Face::default()
         },
-        contents: text.into(),
-    }
+        text,
+    )
 }
 
 #[test]
@@ -534,13 +531,13 @@ fn scan_line_cursors_by_attributes_per_line() {
 // --- detect_selections tests ---
 
 fn make_selection_atom(text: &str) -> Atom {
-    Atom {
-        face: Face {
+    Atom::from_face(
+        Face {
             bg: Color::Named(NamedColor::Blue),
             ..Face::default()
         },
-        contents: text.into(),
-    }
+        text,
+    )
 }
 
 #[test]

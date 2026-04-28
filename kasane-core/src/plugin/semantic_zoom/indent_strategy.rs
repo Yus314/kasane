@@ -13,10 +13,7 @@ use super::ZoomLevel;
 
 /// Create a plain-text atom with default face.
 fn plain_atom(text: &str) -> Atom {
-    Atom {
-        face: Face::default(),
-        contents: CompactString::from(text),
-    }
+    Atom::plain(text)
 }
 
 /// Compute display directives for the given zoom level using indent heuristics.
@@ -209,10 +206,7 @@ mod tests {
     use crate::protocol::{Atom, Face};
 
     fn make_line(text: &str) -> Line {
-        vec![Atom {
-            contents: CompactString::from(text),
-            face: Face::default(),
-        }]
+        vec![Atom::from_face(Face::default(), CompactString::from(text))]
     }
 
     fn make_lines(texts: &[&str]) -> Vec<Line> {

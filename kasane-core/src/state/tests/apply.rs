@@ -385,23 +385,20 @@ fn test_select_out_of_range_resets() {
 
 /// Helper: create a cursor atom (FINAL_FG + REVERSE).
 fn cursor_atom(s: &str) -> Atom {
-    Atom {
-        face: Face {
+    Atom::from_face(
+        Face {
             fg: Color::Named(NamedColor::White),
             bg: Color::Default,
             underline: Color::Default,
             attributes: Attributes::FINAL_FG | Attributes::REVERSE,
         },
-        contents: s.into(),
-    }
+        s,
+    )
 }
 
 /// Helper: create a normal (non-cursor) atom.
 fn normal_atom(s: &str) -> Atom {
-    Atom {
-        face: Face::default(),
-        contents: s.into(),
-    }
+    Atom::from_face(Face::default(), s)
 }
 
 #[test]

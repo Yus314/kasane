@@ -598,14 +598,14 @@ mod tests {
 
         let c0 = grid.get(1, 1).unwrap();
         assert_eq!(c0.grapheme.as_str(), "\u{2580}");
-        assert_eq!(c0.face.fg, Color::Rgb { r: 255, g: 0, b: 0 });
-        assert_eq!(c0.face.bg, Color::Rgb { r: 0, g: 255, b: 0 });
+        assert_eq!(c0.face().fg, Color::Rgb { r: 255, g: 0, b: 0 });
+        assert_eq!(c0.face().bg, Color::Rgb { r: 0, g: 255, b: 0 });
 
         let c1 = grid.get(2, 1).unwrap();
         assert_eq!(c1.grapheme.as_str(), "\u{2580}");
-        assert_eq!(c1.face.fg, Color::Rgb { r: 0, g: 0, b: 255 });
+        assert_eq!(c1.face().fg, Color::Rgb { r: 0, g: 0, b: 255 });
         assert_eq!(
-            c1.face.bg,
+            c1.face().bg,
             Color::Rgb {
                 r: 128,
                 g: 128,
@@ -642,7 +642,7 @@ mod tests {
         // Should be at grid position (3, 4)
         let c = grid.get(3, 4).unwrap();
         assert_eq!(c.grapheme.as_str(), "\u{2580}");
-        assert_eq!(c.face.fg, Color::Rgb { r: 1, g: 2, b: 3 });
+        assert_eq!(c.face().fg, Color::Rgb { r: 1, g: 2, b: 3 });
     }
 
     // -- Feature-gated decode tests --
@@ -783,8 +783,8 @@ mod tests {
             for x in 0..2u16 {
                 let c = grid.get(x, 0).unwrap();
                 assert_eq!(c.grapheme.as_str(), "\u{2580}", "cell ({x},0)");
-                assert_eq!(c.face.fg, Color::Rgb { r: 255, g: 0, b: 0 }, "fg ({x},0)");
-                assert_eq!(c.face.bg, Color::Rgb { r: 255, g: 0, b: 0 }, "bg ({x},0)");
+                assert_eq!(c.face().fg, Color::Rgb { r: 255, g: 0, b: 0 }, "fg ({x},0)");
+                assert_eq!(c.face().bg, Color::Rgb { r: 255, g: 0, b: 0 }, "bg ({x},0)");
             }
         }
 
@@ -827,14 +827,14 @@ mod tests {
                 let c = grid.get(x, 0).unwrap();
                 assert_eq!(c.grapheme.as_str(), "\u{2580}");
                 assert!(
-                    c.face.fg.is_red_ish(),
+                    c.face().fg.is_red_ish(),
                     "row0 fg should be red: {:?}",
-                    c.face.fg
+                    c.face().fg
                 );
                 assert!(
-                    c.face.fg.is_red_ish(),
+                    c.face().fg.is_red_ish(),
                     "row0 bg should be red: {:?}",
-                    c.face.bg
+                    c.face().bg
                 );
             }
             // Row 1: halfblock top=row2 (blue), bot=row3 (blue)
@@ -842,14 +842,14 @@ mod tests {
                 let c = grid.get(x, 1).unwrap();
                 assert_eq!(c.grapheme.as_str(), "\u{2580}");
                 assert!(
-                    c.face.fg.is_blue_ish(),
+                    c.face().fg.is_blue_ish(),
                     "row1 fg should be blue: {:?}",
-                    c.face.fg
+                    c.face().fg
                 );
                 assert!(
-                    c.face.bg.is_blue_ish(),
+                    c.face().bg.is_blue_ish(),
                     "row1 bg should be blue: {:?}",
-                    c.face.bg
+                    c.face().bg
                 );
             }
         }
@@ -896,7 +896,7 @@ mod tests {
                 "rendered row should have halfblock"
             );
             assert_eq!(
-                rendered.face.fg,
+                rendered.face().fg,
                 Color::Rgb { r: 0, g: 255, b: 0 },
                 "rendered pixel should be green"
             );
@@ -945,9 +945,9 @@ mod tests {
                 assert_eq!(c.grapheme.as_str(), "\u{2580}", "cover cell ({x},0)");
                 // The center crop should be green-ish (the middle of the image)
                 assert!(
-                    c.face.fg.green_channel() > 100,
+                    c.face().fg.green_channel() > 100,
                     "cover center should have green: {:?}",
-                    c.face.fg
+                    c.face().fg
                 );
             }
         }
@@ -1066,7 +1066,11 @@ mod tests {
                 // Verify halfblock chars written
                 let c = grid.get(0, 0).unwrap();
                 assert_eq!(c.grapheme.as_str(), "\u{2580}");
-                assert!(c.face.fg.is_red_ish(), "fg should be red: {:?}", c.face.fg);
+                assert!(
+                    c.face().fg.is_red_ish(),
+                    "fg should be red: {:?}",
+                    c.face().fg
+                );
             }
 
             /// Two-color SVG: top red, bottom blue → row 0 red, row 1 blue.

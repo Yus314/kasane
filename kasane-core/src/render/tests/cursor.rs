@@ -11,10 +11,7 @@ fn test_render_buffer_resolves_default_face() {
         ..Face::default()
     };
     // Atom has Color::Default fg/bg — should inherit from default_face
-    let line = vec![Atom {
-        face: Face::default(),
-        contents: "x".into(),
-    }];
+    let line = vec![Atom::from_face(Face::default(), "x")];
 
     let mut state = AppState::default();
     state.observed.lines = vec![line];
@@ -25,8 +22,8 @@ fn test_render_buffer_resolves_default_face() {
 
     let cell = grid.get(0, 0).unwrap();
     assert_eq!(cell.grapheme, "x");
-    assert_eq!(cell.face.fg, Color::Named(NamedColor::Yellow));
-    assert_eq!(cell.face.bg, Color::Named(NamedColor::Blue));
+    assert_eq!(cell.face().fg, Color::Named(NamedColor::Yellow));
+    assert_eq!(cell.face().bg, Color::Named(NamedColor::Blue));
 }
 
 #[test]
@@ -36,14 +33,8 @@ fn test_render_status_resolves_default_face() {
         bg: Color::Named(NamedColor::Magenta),
         ..Face::default()
     };
-    let status_line = vec![Atom {
-        face: Face::default(),
-        contents: "s".into(),
-    }];
-    let mode_line = vec![Atom {
-        face: Face::default(),
-        contents: "m".into(),
-    }];
+    let status_line = vec![Atom::from_face(Face::default(), "s")];
+    let mode_line = vec![Atom::from_face(Face::default(), "m")];
 
     let mut state = AppState::default();
     state.inference.status_line = status_line;
@@ -56,14 +47,14 @@ fn test_render_status_resolves_default_face() {
     // Status line at row 1 (last row of 2-row grid)
     let cell = grid.get(0, 1).unwrap();
     assert_eq!(cell.grapheme, "s");
-    assert_eq!(cell.face.fg, Color::Named(NamedColor::Cyan));
-    assert_eq!(cell.face.bg, Color::Named(NamedColor::Magenta));
+    assert_eq!(cell.face().fg, Color::Named(NamedColor::Cyan));
+    assert_eq!(cell.face().bg, Color::Named(NamedColor::Magenta));
 
     // Mode line at rightmost position
     let cell_mode = grid.get(9, 1).unwrap();
     assert_eq!(cell_mode.grapheme, "m");
-    assert_eq!(cell_mode.face.fg, Color::Named(NamedColor::Cyan));
-    assert_eq!(cell_mode.face.bg, Color::Named(NamedColor::Magenta));
+    assert_eq!(cell_mode.face().fg, Color::Named(NamedColor::Cyan));
+    assert_eq!(cell_mode.face().bg, Color::Named(NamedColor::Magenta));
 }
 
 #[test]
@@ -96,20 +87,14 @@ fn test_cursor_style_prompt_mode() {
 #[test]
 fn test_cursor_style_insert_mode_line() {
     let mut state = AppState::default();
-    state.observed.status_mode_line = vec![Atom {
-        face: Face::default(),
-        contents: "insert".into(),
-    }];
+    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "insert")];
     assert_eq!(cursor_style_default(&state), CursorStyle::Bar);
 }
 
 #[test]
 fn test_cursor_style_replace_mode_line() {
     let mut state = AppState::default();
-    state.observed.status_mode_line = vec![Atom {
-        face: Face::default(),
-        contents: "replace".into(),
-    }];
+    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "replace")];
     assert_eq!(cursor_style_default(&state), CursorStyle::Underline);
 }
 
@@ -144,10 +129,7 @@ fn test_cursor_style_ui_option_overrides_mode_line() {
         .observed
         .ui_options
         .insert("kasane_cursor_style".into(), "block".into());
-    state.observed.status_mode_line = vec![Atom {
-        face: Face::default(),
-        contents: "insert".into(),
-    }];
+    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "insert")];
     assert_eq!(cursor_style_default(&state), CursorStyle::Block);
 }
 
@@ -367,9 +349,9 @@ fn test_apply_secondary_cursor_faces_on_grid() {
 
     let cell = grid.get(3, 0).unwrap();
     // REVERSE should be gone
-    assert!(!cell.face.attributes.contains(Attributes::REVERSE));
+    assert!(!cell.face().attributes.contains(Attributes::REVERSE));
     // bg should be a blended RGB
-    assert!(matches!(cell.face.bg, Color::Rgb { .. }));
+    assert!(matches!(cell.face().bg, Color::Rgb { .. }));
 }
 
 #[test]
@@ -397,5 +379,5 @@ fn test_apply_secondary_cursor_faces_with_offset() {
     apply_secondary_cursor_faces(&state, &mut grid, 3, None, 0, 0, None);
 
     let cell = grid.get(5, 1).unwrap();
-    assert!(!cell.face.attributes.contains(Attributes::REVERSE));
+    assert!(!cell.face().attributes.contains(Attributes::REVERSE));
 }

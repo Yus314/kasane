@@ -27,10 +27,7 @@ pub fn syntax_directives(state: &SemanticZoomState, app: &AppView<'_>) -> Vec<Di
 }
 
 fn plain_atom(text: &str) -> Atom {
-    Atom {
-        face: Face::default(),
-        contents: CompactString::from(text),
-    }
+    Atom::plain(text)
 }
 
 // =============================================================================
@@ -48,13 +45,13 @@ fn annotated(sp: &dyn SyntaxProvider, app: &AppView<'_>) -> Vec<DisplayDirective
             directives.push(DisplayDirective::VirtualText {
                 line: decl.name_line,
                 position: crate::display::VirtualTextPosition::EndOfLine,
-                content: vec![Atom {
-                    face: Face {
+                content: vec![Atom::from_face(
+                    Face {
                         fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Cyan),
                         ..Face::default()
                     },
-                    contents: CompactString::from(hint_text),
-                }],
+                    hint_text,
+                )],
                 priority: -50,
             });
         }

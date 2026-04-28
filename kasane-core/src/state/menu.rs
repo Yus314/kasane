@@ -56,7 +56,7 @@ fn atoms_display_width(atoms: &[Atom]) -> usize {
 /// preceded by a whitespace-only atom (the alignment padding Kakoune inserts).
 pub fn split_single_item(item: &Line) -> ItemSplit {
     for i in 1..item.len() {
-        if item[i].face.fg != Color::Default && item[i - 1].contents.chars().all(|c| c == ' ') {
+        if item[i].face().fg != Color::Default && item[i - 1].contents.chars().all(|c| c == ' ') {
             // Strip trailing whitespace-only atoms from candidate
             let mut cand_end = i - 1;
             while cand_end > 0 && item[cand_end - 1].contents.chars().all(|c| c == ' ') {
@@ -283,21 +283,15 @@ mod tests {
     /// Helper: build a 3-atom completion item: candidate + padding + colored docstring.
     fn make_completion_item(candidate: &str, padding: &str, docstring: &str) -> Line {
         vec![
-            Atom {
-                face: Face::default(),
-                contents: candidate.into(),
-            },
-            Atom {
-                face: Face::default(),
-                contents: padding.into(),
-            },
-            Atom {
-                face: Face {
+            Atom::from_face(Face::default(), candidate),
+            Atom::from_face(Face::default(), padding),
+            Atom::from_face(
+                Face {
                     fg: Color::Named(crate::protocol::NamedColor::Cyan),
                     ..Face::default()
                 },
-                contents: docstring.into(),
-            },
+                docstring,
+            ),
         ]
     }
 
@@ -313,10 +307,7 @@ mod tests {
 
     #[test]
     fn test_split_no_docstring() {
-        let item = vec![Atom {
-            face: Face::default(),
-            contents: "hello_world".into(),
-        }];
+        let item = vec![Atom::from_face(Face::default(), "hello_world")];
         let split = split_single_item(&item);
         assert_eq!(split.candidate_end, 1);
         assert_eq!(split.docstring_start, 1);
@@ -328,17 +319,14 @@ mod tests {
     fn test_split_no_padding() {
         // Two atoms but no whitespace-only padding between them → no split.
         let item = vec![
-            Atom {
-                face: Face::default(),
-                contents: "foo".into(),
-            },
-            Atom {
-                face: Face {
+            Atom::from_face(Face::default(), "foo"),
+            Atom::from_face(
+                Face {
                     fg: Color::Named(crate::protocol::NamedColor::Cyan),
                     ..Face::default()
                 },
-                contents: "bar".into(),
-            },
+                "bar",
+            ),
         ];
         let split = split_single_item(&item);
         // No split: "foo" is not all-spaces, so heuristic doesn't fire.
@@ -350,14 +338,8 @@ mod tests {
     #[test]
     fn test_split_columns_none_when_no_docstrings() {
         let items = vec![
-            vec![Atom {
-                face: Face::default(),
-                contents: "abc".into(),
-            }],
-            vec![Atom {
-                face: Face::default(),
-                contents: "defgh".into(),
-            }],
+            vec![Atom::from_face(Face::default(), "abc")],
+            vec![Atom::from_face(Face::default(), "defgh")],
         ];
         assert!(split_item_columns(&items).is_none());
     }
@@ -377,10 +359,7 @@ mod tests {
     #[test]
     fn test_effective_content_width_single_column() {
         let menu = MenuState::new(
-            vec![vec![Atom {
-                face: Face::default(),
-                contents: "hello".into(),
-            }]],
+            vec![vec![Atom::from_face(Face::default(), "hello")]],
             MenuParams {
                 anchor: Coord { line: 5, column: 0 },
                 selected_item_face: Face::default(),

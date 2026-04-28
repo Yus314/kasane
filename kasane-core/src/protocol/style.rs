@@ -579,6 +579,52 @@ impl StyleId {
 /// freshly-constructed [`StyleStore`].
 pub const DEFAULT_STYLE_ID: StyleId = StyleId(0);
 
+// ---------------------------------------------------------------------------
+// Process-global style table
+// ---------------------------------------------------------------------------
+//
+// ADR-031 Phase A.2: a single process-global [`StyleStore`] backs every
+// `Atom`'s `style_id`. The alternative (per-`AppState` stores) requires
+// threading a store handle through every Atom-construction site and reader
+// thread; a global behind a `Mutex` removes the plumbing entirely with
+// negligible cost (interns are rare; per-frame intern count is bounded by
+// the viewport's distinct styles, typically 5–20).
+//
+// A future refactor (Phase E candidate) may move the store into AppState
+// once the surrounding APIs are settled. The public interface
+// (`Atom::face`, `Atom::style`, `intern_style_global`) is designed to
+// survive that move with minimal call-site churn.
+
+static GLOBAL_STORE: std::sync::OnceLock<std::sync::Mutex<StyleStore>> = std::sync::OnceLock::new();
+
+fn global_store() -> &'static std::sync::Mutex<StyleStore> {
+    GLOBAL_STORE.get_or_init(|| std::sync::Mutex::new(StyleStore::new()))
+}
+
+/// Intern a `Style` in the process-global table and return its id.
+pub fn intern_style_global(style: Style) -> StyleId {
+    global_store()
+        .lock()
+        .expect("global style store poisoned")
+        .intern(style)
+}
+
+/// Run `f` with a borrow of the [`Style`] at `id` from the process-global
+/// table. Holds the global lock for the duration of `f`.
+pub fn with_global_style<R>(id: StyleId, f: impl FnOnce(&Style) -> R) -> R {
+    let store = global_store().lock().expect("global style store poisoned");
+    f(store.get(id))
+}
+
+/// Return a copy of the [`Style`] at `id` from the process-global table.
+pub fn style_clone_global(id: StyleId) -> Style {
+    global_store()
+        .lock()
+        .expect("global style store poisoned")
+        .get(id)
+        .clone()
+}
+
 /// Content-addressed style table.
 ///
 /// Hand-rolled (not `salsa::interned`) because Salsa's interned types carry

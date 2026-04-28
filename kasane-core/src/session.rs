@@ -620,14 +620,8 @@ mod tests {
 
         let store = SessionStateStore::new();
         let mut active_state = AppState::default();
-        active_state.observed.status_content = vec![Atom {
-            face: Face::default(),
-            contents: "main.rs".into(),
-        }];
-        active_state.observed.status_mode_line = vec![Atom {
-            face: Face::default(),
-            contents: "normal".into(),
-        }];
+        active_state.observed.status_content = vec![Atom::from_face(Face::default(), "main.rs")];
+        active_state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "normal")];
 
         let descriptors = sessions.enriched_session_descriptors(&store, &active_state);
         assert_eq!(descriptors.len(), 1);
@@ -652,14 +646,8 @@ mod tests {
 
         let mut store = SessionStateStore::new();
         let mut snapshot = AppState::default();
-        snapshot.observed.status_content = vec![Atom {
-            face: Face::default(),
-            contents: "lib.rs".into(),
-        }];
-        snapshot.observed.status_mode_line = vec![Atom {
-            face: Face::default(),
-            contents: "insert".into(),
-        }];
+        snapshot.observed.status_content = vec![Atom::from_face(Face::default(), "lib.rs")];
+        snapshot.observed.status_mode_line = vec![Atom::from_face(Face::default(), "insert")];
         store.sync_from_active(id_a, &snapshot);
 
         // Active is "second", "first" is inactive with snapshot
@@ -687,14 +675,8 @@ mod tests {
         let mut active_state = AppState::default();
         // status_content contains full status bar text (e.g. "main.rs 42:10")
         active_state.observed.status_content = vec![
-            Atom {
-                face: Face::default(),
-                contents: "main.rs".into(),
-            },
-            Atom {
-                face: Face::default(),
-                contents: " 42:10".into(),
-            },
+            Atom::from_face(Face::default(), "main.rs"),
+            Atom::from_face(Face::default(), " 42:10"),
         ];
         // ui_options has the accurate bufname from the hook
         active_state
@@ -718,10 +700,7 @@ mod tests {
         let store = SessionStateStore::new();
         let mut active_state = AppState::default();
         // No ui_options set (hook hasn't fired yet) — falls back to status_content
-        active_state.observed.status_content = vec![Atom {
-            face: Face::default(),
-            contents: "main.rs".into(),
-        }];
+        active_state.observed.status_content = vec![Atom::from_face(Face::default(), "main.rs")];
 
         let descriptors = sessions.enriched_session_descriptors(&store, &active_state);
         assert_eq!(descriptors[0].buffer_name.as_deref(), Some("main.rs"));
@@ -738,10 +717,7 @@ mod tests {
 
         let store = SessionStateStore::new();
         let mut active_state = AppState::default();
-        active_state.observed.status_content = vec![Atom {
-            face: Face::default(),
-            contents: "*scratch*".into(),
-        }];
+        active_state.observed.status_content = vec![Atom::from_face(Face::default(), "*scratch*")];
         // Empty bufname from ui_options (special buffer) → falls back to status_content
         active_state
             .observed
@@ -757,20 +733,14 @@ mod tests {
         assert_eq!(extract_atom_text(&[]), None);
 
         use crate::protocol::{Atom, Face};
-        let atoms = vec![Atom {
-            face: Face::default(),
-            contents: "   ".into(),
-        }];
+        let atoms = vec![Atom::from_face(Face::default(), "   ")];
         assert_eq!(extract_atom_text(&atoms), None);
     }
 
     #[test]
     fn test_extract_atom_text_trims() {
         use crate::protocol::{Atom, Face};
-        let atoms = vec![Atom {
-            face: Face::default(),
-            contents: " main.rs ".into(),
-        }];
+        let atoms = vec![Atom::from_face(Face::default(), " main.rs ")];
         assert_eq!(extract_atom_text(&atoms).as_deref(), Some("main.rs"));
     }
 

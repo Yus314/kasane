@@ -375,19 +375,19 @@ mod tests {
         apply_surface_ornaments_tui(&mut grid, &ornaments);
 
         assert_eq!(
-            grid.get(2, 2).unwrap().face.bg,
+            grid.get(2, 2).unwrap().face().bg,
             Color::Named(NamedColor::Blue)
         );
         assert_eq!(
-            grid.get(0, 0).unwrap().face.bg,
+            grid.get(0, 0).unwrap().face().bg,
             Color::Named(NamedColor::Red)
         );
         assert_eq!(
-            grid.get(4, 3).unwrap().face.bg,
+            grid.get(4, 3).unwrap().face().bg,
             Color::Named(NamedColor::Red)
         );
         assert_eq!(
-            grid.get(5, 3).unwrap().face.bg,
+            grid.get(5, 3).unwrap().face().bg,
             Color::Named(NamedColor::Black)
         );
     }

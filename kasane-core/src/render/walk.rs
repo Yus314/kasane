@@ -954,12 +954,12 @@ mod tests {
                     c.grapheme
                 );
                 assert_eq!(
-                    c.face.fg,
+                    c.face().fg,
                     crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
                     "fg green at ({x},{y})"
                 );
                 assert_eq!(
-                    c.face.bg,
+                    c.face().bg,
                     crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
                     "bg green at ({x},{y})"
                 );
@@ -1148,7 +1148,7 @@ mod tests {
             Default::default(),
             None,
         );
-        let normal_fg = grid.get(0, 0).expect("cell").face.fg;
+        let normal_fg = grid.get(0, 0).expect("cell").face().fg;
         assert_eq!(
             normal_fg,
             Color::Named(NamedColor::BrightBlack),
@@ -1172,7 +1172,7 @@ mod tests {
             Default::default(),
             None,
         );
-        let focused_fg = grid.get(0, 0).expect("cell").face.fg;
+        let focused_fg = grid.get(0, 0).expect("cell").face().fg;
         assert_eq!(
             focused_fg,
             Color::Default,
@@ -1216,18 +1216,9 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let lines: Vec<Vec<Atom>> = vec![
-            vec![Atom {
-                face: Face::default(),
-                contents: "hello".into(),
-            }],
-            vec![Atom {
-                face: Face::default(),
-                contents: "world".into(),
-            }],
-            vec![Atom {
-                face: Face::default(),
-                contents: "third".into(),
-            }],
+            vec![Atom::from_face(Face::default(), "hello")],
+            vec![Atom::from_face(Face::default(), "world")],
+            vec![Atom::from_face(Face::default(), "third")],
         ];
         let el = Element::text_panel(lines);
         let area = root_area(20, 3);
@@ -1259,22 +1250,10 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let lines: Vec<Vec<Atom>> = vec![
-            vec![Atom {
-                face: Face::default(),
-                contents: "line0".into(),
-            }],
-            vec![Atom {
-                face: Face::default(),
-                contents: "line1".into(),
-            }],
-            vec![Atom {
-                face: Face::default(),
-                contents: "line2".into(),
-            }],
-            vec![Atom {
-                face: Face::default(),
-                contents: "line3".into(),
-            }],
+            vec![Atom::from_face(Face::default(), "line0")],
+            vec![Atom::from_face(Face::default(), "line1")],
+            vec![Atom::from_face(Face::default(), "line2")],
+            vec![Atom::from_face(Face::default(), "line3")],
         ];
         let el = Element::TextPanel {
             lines,
@@ -1310,14 +1289,8 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let lines: Vec<Vec<Atom>> = vec![
-            vec![Atom {
-                face: Face::default(),
-                contents: "abc".into(),
-            }],
-            vec![Atom {
-                face: Face::default(),
-                contents: "def".into(),
-            }],
+            vec![Atom::from_face(Face::default(), "abc")],
+            vec![Atom::from_face(Face::default(), "def")],
         ];
         let el = Element::TextPanel {
             lines,
@@ -1357,14 +1330,8 @@ mod tests {
         let theme = Theme::default_theme();
         let cs = default_cell_size();
         let lines: Vec<Vec<Atom>> = vec![
-            vec![Atom {
-                face: Face::default(),
-                contents: "hello".into(),
-            }],
-            vec![Atom {
-                face: Face::default(),
-                contents: "world".into(),
-            }],
+            vec![Atom::from_face(Face::default(), "hello")],
+            vec![Atom::from_face(Face::default(), "world")],
         ];
         let el = Element::text_panel(lines);
         let area = root_area(20, 2);

@@ -163,10 +163,7 @@ fn build_debug_lines(app: &AppView<'_>, ctx: &OverlayContext) -> Vec<Vec<Atom>> 
 }
 
 fn atom(text: &str, face: Face) -> Atom {
-    Atom {
-        contents: CompactString::from(text),
-        face,
-    }
+    Atom::from_face(face, text)
 }
 
 fn kv_line(key: &str, value: &str, label_face: Face, value_face: Face) -> Vec<Atom> {

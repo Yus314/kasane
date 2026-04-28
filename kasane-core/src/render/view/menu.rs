@@ -132,25 +132,19 @@ fn build_split_item_element(
         .sum();
     if (cand_w as u16) < candidate_col_w {
         let pad = candidate_col_w as usize - cand_w;
-        cand_resolved.push(Atom {
-            face,
-            contents: " ".repeat(pad).into(),
-        });
+        cand_resolved.push(Atom::from_face(face, " ".repeat(pad)));
     }
     atoms.extend(cand_resolved);
 
     // 2. Gap: 1-space separator
-    atoms.push(Atom {
-        face,
-        contents: " ".into(),
-    });
+    atoms.push(Atom::from_face(face, " "));
 
     // 3. Docstring portion: resolve faces (paint-level truncation handles overflow)
     for atom in &effective_item[split.docstring_start..] {
-        atoms.push(Atom {
-            face: resolve_face(&atom.face, &face),
-            contents: atom.contents.clone(),
-        });
+        atoms.push(Atom::from_face(
+            resolve_face(&atom.face(), &face),
+            atom.contents.clone(),
+        ));
     }
 
     Element::container(Element::StyledLine(atoms), Style::from(face))
@@ -294,10 +288,7 @@ fn build_menu_search(
 
     // "< " prefix
     if has_prefix {
-        atoms.push(Atom {
-            face: normal_face,
-            contents: "< ".into(),
-        });
+        atoms.push(Atom::from_face(normal_face, "< "));
     }
 
     // Items with gaps
@@ -312,15 +303,9 @@ fn build_menu_search(
                 // Pad and add ">"
                 let pad_len = screen_w.saturating_sub(x + 1);
                 if pad_len > 0 {
-                    atoms.push(Atom {
-                        face: normal_face,
-                        contents: " ".repeat(pad_len).into(),
-                    });
+                    atoms.push(Atom::from_face(normal_face, " ".repeat(pad_len)));
                 }
-                atoms.push(Atom {
-                    face: normal_face,
-                    contents: ">".into(),
-                });
+                atoms.push(Atom::from_face(normal_face, ">"));
             }
             break;
         }
@@ -329,19 +314,13 @@ fn build_menu_search(
 
         // Add item atoms with resolved face
         for atom in &menu.items[idx] {
-            atoms.push(Atom {
-                face,
-                contents: atom.contents.clone(),
-            });
+            atoms.push(Atom::from_face(face, atom.contents.clone()));
         }
         x += item_w;
 
         // Gap
         if x < screen_w {
-            atoms.push(Atom {
-                face: normal_face,
-                contents: " ".into(),
-            });
+            atoms.push(Atom::from_face(normal_face, " "));
             x += 1;
         }
     }
@@ -468,30 +447,21 @@ mod tests {
 
     fn make_completion_item(candidate: &str, padding: &str, docstring: &str) -> Vec<Atom> {
         vec![
-            Atom {
-                face: Face::default(),
-                contents: candidate.into(),
-            },
-            Atom {
-                face: Face::default(),
-                contents: padding.into(),
-            },
-            Atom {
-                face: Face {
+            Atom::from_face(Face::default(), candidate),
+            Atom::from_face(Face::default(), padding),
+            Atom::from_face(
+                Face {
                     fg: Color::Named(NamedColor::Cyan),
                     ..Face::default()
                 },
-                contents: docstring.into(),
-            },
+                docstring,
+            ),
         ]
     }
 
     #[test]
     fn test_truncate_atoms_no_op() {
-        let atoms = vec![Atom {
-            face: Face::default(),
-            contents: "hello".into(),
-        }];
+        let atoms = vec![Atom::from_face(Face::default(), "hello")];
         let result = truncate_atoms(&atoms, 10, &Face::default(), "\u{2026}");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].contents.as_str(), "hello");
@@ -499,10 +469,7 @@ mod tests {
 
     #[test]
     fn test_truncate_atoms_with_ellipsis() {
-        let atoms = vec![Atom {
-            face: Face::default(),
-            contents: "hello_world_long".into(),
-        }];
+        let atoms = vec![Atom::from_face(Face::default(), "hello_world_long")];
         let result = truncate_atoms(&atoms, 8, &Face::default(), "\u{2026}");
         // Should be truncated to 7 chars + "…"
         let last = result.last().unwrap();
@@ -517,10 +484,7 @@ mod tests {
     #[test]
     fn test_truncate_atoms_cjk() {
         // "あいう" = 3 CJK chars, each width 2 → total 6
-        let atoms = vec![Atom {
-            face: Face::default(),
-            contents: "あいう".into(),
-        }];
+        let atoms = vec![Atom::from_face(Face::default(), "あいう")];
         let result = truncate_atoms(&atoms, 5, &Face::default(), "\u{2026}");
         // Can fit "あい" (4) + "…" (1) = 5
         let total_w: usize = result

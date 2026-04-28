@@ -136,10 +136,7 @@ mod tests {
     use crate::state::menu::MenuParams;
 
     fn make_atom(text: &str) -> Atom {
-        Atom {
-            face: Face::default(),
-            contents: text.into(),
-        }
+        Atom::from_face(Face::default(), text)
     }
 
     #[test]

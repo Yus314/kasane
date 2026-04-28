@@ -47,10 +47,7 @@ pub(crate) fn truncate_atoms(
     if total <= max_w {
         return atoms
             .iter()
-            .map(|a| Atom {
-                face: resolve_face(&a.face, base_face),
-                contents: a.contents.clone(),
-            })
+            .map(|a| Atom::from_face(resolve_face(&a.face(), base_face), a.contents.clone()))
             .collect();
     }
 
@@ -59,7 +56,7 @@ pub(crate) fn truncate_atoms(
     let mut result = Vec::new();
     let mut used = 0usize;
     for atom in atoms {
-        let face = resolve_face(&atom.face, base_face);
+        let face = resolve_face(&atom.face(), base_face);
         let mut buf = String::new();
         for grapheme in atom.contents.graphemes(true) {
             let cw = if grapheme.starts_with(|c: char| c.is_control()) {
@@ -74,20 +71,14 @@ pub(crate) fn truncate_atoms(
             used += cw;
         }
         if !buf.is_empty() {
-            result.push(Atom {
-                face,
-                contents: buf.into(),
-            });
+            result.push(Atom::from_face(face, buf));
         }
         if used >= limit {
             break;
         }
     }
     // Append truncation indicator with the base face
-    result.push(Atom {
-        face: *base_face,
-        contents: truncation_char.into(),
-    });
+    result.push(Atom::from_face(*base_face, truncation_char));
     result
 }
 
@@ -149,7 +140,7 @@ pub(crate) fn wrap_content_lines(
         // Collect graphemes with resolved faces
         let mut graphemes: Vec<(&str, Face, u16)> = Vec::new();
         for atom in line {
-            let face = resolve_face(&atom.face, base_face);
+            let face = resolve_face(&atom.face(), base_face);
             for grapheme in atom.contents.graphemes(true) {
                 if grapheme.is_empty() || grapheme.starts_with(|c: char| c.is_control()) {
                     continue;
@@ -163,10 +154,7 @@ pub(crate) fn wrap_content_lines(
         }
 
         if graphemes.is_empty() {
-            result.push(vec![Atom {
-                face: *base_face,
-                contents: CompactString::default(),
-            }]);
+            result.push(vec![Atom::from_face(*base_face, CompactString::default())]);
             continue;
         }
 
@@ -189,20 +177,14 @@ pub(crate) fn wrap_content_lines(
                     current_text.push_str(grapheme);
                 } else {
                     if let Some(cf) = current_face {
-                        row_atoms.push(Atom {
-                            face: cf,
-                            contents: std::mem::take(&mut current_text),
-                        });
+                        row_atoms.push(Atom::from_face(cf, std::mem::take(&mut current_text)));
                     }
                     current_face = Some(face);
                     current_text = CompactString::from(grapheme);
                 }
             }
             if let Some(cf) = current_face {
-                row_atoms.push(Atom {
-                    face: cf,
-                    contents: current_text,
-                });
+                row_atoms.push(Atom::from_face(cf, current_text));
             }
 
             result.push(row_atoms);
@@ -244,10 +226,7 @@ mod tests {
 
     #[test]
     fn test_truncate_atoms_combining_character() {
-        let atoms = vec![Atom {
-            face: Face::default(),
-            contents: "e\u{0301}xyz".into(),
-        }];
+        let atoms = vec![Atom::from_face(Face::default(), "e\u{0301}xyz")];
         let base_face = Face::default();
         // width 3 limit → "éx" (2 cols) + "…" (1 col) = 3
         let result = truncate_atoms(&atoms, 3, &base_face, "\u{2026}");

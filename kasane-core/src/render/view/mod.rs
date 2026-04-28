@@ -633,9 +633,11 @@ pub(crate) fn build_styled_line_with_base(
 ) -> Element {
     let resolved: Vec<Atom> = line
         .iter()
-        .map(|atom| Atom {
-            face: crate::protocol::resolve_face(&atom.face, base_face),
-            contents: atom.contents.clone(),
+        .map(|atom| {
+            Atom::from_face(
+                crate::protocol::resolve_face(&atom.face(), base_face),
+                atom.contents.clone(),
+            )
         })
         .collect();
     Element::StyledLine(resolved)

@@ -208,11 +208,9 @@ impl Plugin for WidgetPlugin {
                         }
                         let text = branch.template.expand(&line_resolver);
                         let face = resolve_face_rules(&branch.face_rules, &line_resolver, app);
-                        let element =
-                            crate::element::Element::styled_line(vec![crate::protocol::Atom {
-                                face,
-                                contents: text,
-                            }]);
+                        let element = crate::element::Element::styled_line(vec![
+                            crate::protocol::Atom::from_face(face, text),
+                        ]);
                         return Some(element);
                     }
                     None
@@ -257,10 +255,7 @@ impl Plugin for WidgetPlugin {
                     }
                     let face = resolve_face_rules(&vt.face_rules, &resolver, app);
                     vec![VirtualTextItem {
-                        atoms: vec![crate::protocol::Atom {
-                            face,
-                            contents: text,
-                        }],
+                        atoms: vec![crate::protocol::Atom::from_face(face, text)],
                         priority,
                     }]
                 });

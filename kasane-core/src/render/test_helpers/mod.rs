@@ -83,8 +83,8 @@ pub(super) fn render_wrapped_line(
     let mut graphemes: Vec<(&str, crate::protocol::Face, u16)> = Vec::new();
     for atom in line {
         let face = match base_face {
-            Some(base) => crate::protocol::resolve_face(&atom.face, base),
-            None => atom.face,
+            Some(base) => crate::protocol::resolve_face(&atom.face(), base),
+            None => atom.face(),
         };
         for grapheme in atom.contents.graphemes(true) {
             if grapheme.is_empty() {

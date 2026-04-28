@@ -13,7 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 /// outer [`Color`] type has a manual serialiser that emits `"red"`,
 /// `"bright-blue"`, etc. The derives here support the new internal
 /// [`Brush`](super::style::Brush) representation introduced in ADR-031.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum NamedColor {
     Black,
     Red,

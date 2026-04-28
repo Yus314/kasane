@@ -107,14 +107,8 @@ fn test_status_bar_resolves_default_face() {
         ..Face::default()
     };
     // Atoms with Color::Default — should be resolved to status_default_face colors
-    state.inference.status_line = vec![Atom {
-        face: Face::default(),
-        contents: "file.rs".into(),
-    }];
-    state.observed.status_mode_line = vec![Atom {
-        face: Face::default(),
-        contents: "normal".into(),
-    }];
+    state.inference.status_line = vec![Atom::from_face(Face::default(), "file.rs")];
+    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "normal")];
 
     let status_bar = build_status_core(&state);
 
@@ -129,12 +123,12 @@ fn test_status_bar_resolves_default_face() {
         Element::StyledLine(atoms) => {
             for atom in atoms {
                 assert_eq!(
-                    atom.face.fg,
+                    atom.face().fg,
                     Color::Named(NamedColor::Cyan),
                     "status_line fg should be resolved from status_default_face"
                 );
                 assert_eq!(
-                    atom.face.bg,
+                    atom.face().bg,
                     Color::Named(NamedColor::Magenta),
                     "status_line bg should be resolved from status_default_face"
                 );
@@ -151,12 +145,12 @@ fn test_status_bar_resolves_default_face() {
         Element::StyledLine(atoms) => {
             for atom in atoms {
                 assert_eq!(
-                    atom.face.fg,
+                    atom.face().fg,
                     Color::Named(NamedColor::Cyan),
                     "mode_line fg should be resolved from status_default_face"
                 );
                 assert_eq!(
-                    atom.face.bg,
+                    atom.face().bg,
                     Color::Named(NamedColor::Magenta),
                     "mode_line bg should be resolved from status_default_face"
                 );

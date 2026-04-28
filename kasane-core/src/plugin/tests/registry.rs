@@ -372,10 +372,7 @@ fn test_collect_display_directives_composes_multi_plugin() {
         id: "second",
         directives: vec![DisplayDirective::Fold {
             range: 3..5,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "folded".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "folded")],
         }],
         priority: 0,
     }));
@@ -439,10 +436,7 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
         id: "low",
         directives: vec![DisplayDirective::Fold {
             range: 1..4,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "low-fold".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "low-fold")],
         }],
         priority: 0,
     }));
@@ -450,10 +444,7 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
         id: "high",
         directives: vec![DisplayDirective::Fold {
             range: 2..5,
-            summary: vec![Atom {
-                face: Face::default(),
-                contents: "high-fold".into(),
-            }],
+            summary: vec![Atom::from_face(Face::default(), "high-fold")],
         }],
         priority: 10,
     }));
@@ -1519,10 +1510,7 @@ impl Plugin for UnifiedDisplayPlugin {
                 DisplayDirective::VirtualText {
                     line: 0,
                     position: crate::display::VirtualTextPosition::EndOfLine,
-                    content: vec![Atom {
-                        face: Face::default(),
-                        contents: "hint".into(),
-                    }],
+                    content: vec![Atom::from_face(Face::default(), "hint")],
                     priority: 0,
                 },
                 // InterLine: insert after

@@ -1,7 +1,10 @@
+use compact_str::CompactString;
+use serde::Deserialize;
 use simd_json::prelude::*;
 use thiserror::Error;
 
-use super::message::{KakouneRequest, StatusStyle};
+use super::color::Face;
+use super::message::{Atom, KakouneRequest, Line, StatusStyle};
 
 // ---------------------------------------------------------------------------
 // JSON-RPC parsing
@@ -17,6 +20,33 @@ pub enum ProtocolError {
     InvalidParams { method: String, reason: String },
     #[error("{0}")]
     OldProtocol(String),
+}
+
+// ---------------------------------------------------------------------------
+// Wire types
+// ---------------------------------------------------------------------------
+//
+// `Atom` no longer derives `Deserialize` because its `style_id` is opaque to
+// the wire format — Kakoune only knows about `Face`. Parsing lands in
+// `WireAtom` (the legacy shape) and the parser converts it to `Atom` by
+// interning the corresponding `Style` in the process-global table.
+
+#[derive(Debug, Clone, Deserialize)]
+struct WireAtom {
+    face: Face,
+    contents: CompactString,
+}
+
+type WireLine = Vec<WireAtom>;
+
+fn intern_line(wire: WireLine) -> Line {
+    wire.into_iter()
+        .map(|w| Atom::from_face(w.face, w.contents))
+        .collect()
+}
+
+fn intern_lines(wire: Vec<WireLine>) -> Vec<Line> {
+    wire.into_iter().map(intern_line).collect()
 }
 
 pub fn parse_request(input: &mut [u8]) -> Result<KakouneRequest, ProtocolError> {
@@ -54,19 +84,25 @@ fn parse_method(
             // #5455) by defaulting widget_columns to 0.
             let arr = params.as_array().expect("params validated as array");
             if arr.len() >= 5 {
-                let (lines, cursor_pos, default_face, padding_face, widget_columns) =
-                    de_params(method, params)?;
+                let (wire_lines, cursor_pos, default_face, padding_face, widget_columns): (
+                    Vec<WireLine>,
+                    _,
+                    _,
+                    _,
+                    _,
+                ) = de_params(method, params)?;
                 Ok(KakouneRequest::Draw {
-                    lines,
+                    lines: intern_lines(wire_lines),
                     cursor_pos,
                     default_face,
                     padding_face,
                     widget_columns,
                 })
             } else {
-                let (lines, cursor_pos, default_face, padding_face) = de_params(method, params)?;
+                let (wire_lines, cursor_pos, default_face, padding_face): (Vec<WireLine>, _, _, _) =
+                    de_params(method, params)?;
                 Ok(KakouneRequest::Draw {
-                    lines,
+                    lines: intern_lines(wire_lines),
                     cursor_pos,
                     default_face,
                     padding_face,
@@ -80,33 +116,50 @@ fn parse_method(
             // to StatusStyle::Status.
             let arr = params.as_array().expect("params validated as array");
             if arr.len() >= 6 {
-                let (prompt, content, content_cursor_pos, mode_line, default_face, style) =
-                    de_params(method, params)?;
-                Ok(KakouneRequest::DrawStatus {
-                    prompt,
-                    content,
+                let (
+                    wire_prompt,
+                    wire_content,
                     content_cursor_pos,
-                    mode_line,
+                    wire_mode_line,
+                    default_face,
+                    style,
+                ): (WireLine, WireLine, _, WireLine, _, _) = de_params(method, params)?;
+                Ok(KakouneRequest::DrawStatus {
+                    prompt: intern_line(wire_prompt),
+                    content: intern_line(wire_content),
+                    content_cursor_pos,
+                    mode_line: intern_line(wire_mode_line),
                     default_face,
                     style,
                 })
             } else {
-                let (prompt, content, content_cursor_pos, mode_line, default_face) =
-                    de_params(method, params)?;
+                let (wire_prompt, wire_content, content_cursor_pos, wire_mode_line, default_face): (
+                    WireLine,
+                    WireLine,
+                    _,
+                    WireLine,
+                    _,
+                ) = de_params(method, params)?;
                 Ok(KakouneRequest::DrawStatus {
-                    prompt,
-                    content,
+                    prompt: intern_line(wire_prompt),
+                    content: intern_line(wire_content),
                     content_cursor_pos,
-                    mode_line,
+                    mode_line: intern_line(wire_mode_line),
                     default_face,
                     style: StatusStyle::default(),
                 })
             }
         }
         "menu_show" => {
-            let (items, anchor, selected_item_face, menu_face, style) = de_params(method, params)?;
+            let (wire_items, anchor, selected_item_face, menu_face, style): (
+                Vec<WireLine>,
+                _,
+                _,
+                _,
+                _,
+            ) = de_params(method, params)?;
             Ok(KakouneRequest::MenuShow {
-                items,
+                items: intern_lines(wire_items),
                 anchor,
                 selected_item_face,
                 menu_face,
@@ -119,10 +172,16 @@ fn parse_method(
         }
         "menu_hide" => Ok(KakouneRequest::MenuHide),
         "info_show" => {
-            let (title, content, anchor, face, style) = de_params(method, params)?;
+            let (wire_title, wire_content, anchor, face, style): (
+                WireLine,
+                Vec<WireLine>,
+                _,
+                _,
+                _,
+            ) = de_params(method, params)?;
             Ok(KakouneRequest::InfoShow {
-                title,
-                content,
+                title: intern_line(wire_title),
+                content: intern_lines(wire_content),
                 anchor,
                 face,
                 style,
