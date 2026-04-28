@@ -42,55 +42,41 @@ use kasane_gui::gpu::parley_text::styled_line::StyledLine;
 use kasane_gui::gpu::parley_text::{Brush, ParleyText};
 
 fn realistic_atoms(line_no: usize) -> Vec<Atom> {
+    let kw_face = Face {
+        fg: Color::Rgb {
+            r: 255,
+            g: 100,
+            b: 0,
+        },
+        ..Face::default()
+    };
+    let var_face = Face {
+        fg: Color::Rgb {
+            r: 0,
+            g: 200,
+            b: 100,
+        },
+        ..Face::default()
+    };
+    let str_face = Face {
+        fg: Color::Rgb {
+            r: 100,
+            g: 100,
+            b: 255,
+        },
+        ..Face::default()
+    };
+    let semi_face = Face {
+        fg: Color::Named(NamedColor::White),
+        ..Face::default()
+    };
     vec![
-        Atom {
-            face: Face {
-                fg: Color::Rgb {
-                    r: 255,
-                    g: 100,
-                    b: 0,
-                },
-                ..Face::default()
-            },
-            contents: "let".into(),
-        },
-        Atom {
-            face: Face::default(),
-            contents: " ".into(),
-        },
-        Atom {
-            face: Face {
-                fg: Color::Rgb {
-                    r: 0,
-                    g: 200,
-                    b: 100,
-                },
-                ..Face::default()
-            },
-            contents: format!("var_{line_no}").into(),
-        },
-        Atom {
-            face: Face::default(),
-            contents: " = ".into(),
-        },
-        Atom {
-            face: Face {
-                fg: Color::Rgb {
-                    r: 100,
-                    g: 100,
-                    b: 255,
-                },
-                ..Face::default()
-            },
-            contents: format!("\"{line_no}_value\"").into(),
-        },
-        Atom {
-            face: Face {
-                fg: Color::Named(NamedColor::White),
-                ..Face::default()
-            },
-            contents: ";".into(),
-        },
+        Atom::from_face(kw_face, "let"),
+        Atom::from_face(Face::default(), " "),
+        Atom::from_face(var_face, format!("var_{line_no}")),
+        Atom::from_face(Face::default(), " = "),
+        Atom::from_face(str_face, format!("\"{line_no}_value\"")),
+        Atom::from_face(semi_face, ";"),
     ]
 }
 
@@ -291,10 +277,7 @@ fn bench_frame_one_line_changed_24(c: &mut Criterion) {
             let mut atoms = realistic_atoms(i);
             // Mutate line 12 only.
             if i == 12 {
-                atoms.push(Atom {
-                    face: Face::default(),
-                    contents: " // edited".into(),
-                });
+                atoms.push(Atom::from_face(Face::default(), " // edited"));
             }
             StyledLine::from_atoms(
                 &atoms,
