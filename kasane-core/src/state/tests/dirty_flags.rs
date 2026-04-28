@@ -353,7 +353,7 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     assert!(state.observed.lines.is_empty());
     assert_eq!(state.inference.cursor_count, 0);
     assert_eq!(state.observed.cursor_pos, Coord::default());
-    assert_eq!(state.observed.default_face, Face::default());
+    assert_eq!(state.observed.default_style, Face::default().into());
     assert!(state.observed.menu.is_none());
     assert!(state.observed.infos.is_empty());
     assert!(state.observed.ui_options.is_empty());

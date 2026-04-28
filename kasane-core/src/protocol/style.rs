@@ -399,6 +399,7 @@ impl Style {
     /// /reverse/dim/strike/underline-style. `font_weight` outside the discrete
     /// `{NORMAL, BOLD}` set rounds to bold when ≥ 600. `font_variations`,
     /// `letter_spacing`, and `bidi_override` are dropped.
+    #[allow(dead_code)] // Used pre-A.3; kept for the bridge period.
     pub fn to_face(&self) -> super::color::Face {
         use super::color::{Attributes, Color, Face};
         let mut attrs = Attributes::empty();
@@ -456,6 +457,23 @@ impl Style {
 // ---------------------------------------------------------------------------
 // Style resolution
 // ---------------------------------------------------------------------------
+
+// Bridge during ADR-031 Phase A.3: Face → Style conversion via `From`.
+// Lets call sites with a `Face` (typically from KakouneRequest or theme
+// tokens) flow naturally into Style-typed APIs.
+impl From<super::color::Face> for Style {
+    #[inline]
+    fn from(face: super::color::Face) -> Self {
+        Self::from_face(&face)
+    }
+}
+
+impl From<&super::color::Face> for Style {
+    #[inline]
+    fn from(face: &super::color::Face) -> Self {
+        Self::from_face(face)
+    }
+}
 
 /// Resolve a style against a base context, mirroring the legacy
 /// [`resolve_face`](super::color::resolve_face) semantics.

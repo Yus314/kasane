@@ -1005,7 +1005,7 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
         host.status_content = state.observed.status_content.clone();
         host.status_line = state.inference.status_line.clone();
         host.status_mode_line = state.observed.status_mode_line.clone();
-        host.status_default_face = state.observed.status_default_face;
+        host.status_default_face = state.observed.status_default_style.to_face();
         host.status_style = convert::status_style_to_string(&state.observed.status_style);
     }
 
@@ -1040,8 +1040,8 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
     if view_deps.intersects(DirtyFlags::OPTIONS) {
         host.ui_options.clone_from(&state.observed.ui_options);
         host.widget_columns = state.observed.widget_columns;
-        host.default_face = state.observed.default_face;
-        host.padding_face = state.observed.padding_face;
+        host.default_face = state.observed.default_style.to_face();
+        host.padding_face = state.observed.padding_style.to_face();
         host.theme = state.config.theme.clone();
         host.is_dark = state.inference.color_context.is_dark;
 

@@ -204,7 +204,7 @@ mod tests {
     use crate::protocol::{Atom, Face};
 
     fn make_line(text: &str) -> Line {
-        vec![Atom::from_face(Face::default(), CompactString::from(text))]
+        vec![Atom::from_face(Face::default(), text)]
     }
 
     fn make_lines(texts: &[&str]) -> Vec<Line> {

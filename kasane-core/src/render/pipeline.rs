@@ -84,11 +84,11 @@ fn selective_clear(grid: &mut CellGrid, state: &AppState, dirty: DirtyFlags) {
                 w: state.runtime.cols,
                 h: 1,
             };
-            grid.clear_region(&status_rect, &state.observed.status_default_face);
+            grid.clear_region(&status_rect, &state.observed.status_default_style.to_face());
         }
         // Menu/info overlays paint over buffer anyway — no separate clear needed
     } else {
-        grid.clear(&state.observed.default_face);
+        grid.clear(&state.observed.default_style.to_face());
     }
 }
 

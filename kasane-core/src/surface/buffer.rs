@@ -132,8 +132,8 @@ fn embed_buffer_state(element: Element, state: &AppState) -> Element {
             state: Some(Box::new(BufferRefState {
                 lines: state.observed.lines.clone(),
                 lines_dirty: state.inference.lines_dirty.clone(),
-                default_face: state.observed.default_face,
-                padding_face: state.observed.padding_face,
+                default_face: state.observed.default_style.to_face(),
+                padding_face: state.observed.padding_style.to_face(),
                 padding_char: state.policy().padding_char().to_string(),
             })),
             inline_decorations,

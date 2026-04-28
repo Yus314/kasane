@@ -23,7 +23,7 @@ use kasane_core::test_support::{make_line, render_with_registry, row_text};
 fn setup_state(lines: Vec<Line>) -> AppState {
     let mut state = kasane_core::test_support::test_state_80x24();
     state.observed.lines = lines;
-    state.observed.status_default_face = state.observed.default_face;
+    state.observed.status_default_style = state.observed.default_style.clone();
     state.inference.status_line = make_line(" main.rs ");
     state.observed.status_mode_line = make_line("normal");
     state

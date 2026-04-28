@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::protocol::{Coord, Face, Line, StatusStyle};
+use crate::protocol::{Coord, Line, StatusStyle, Style};
 
 use super::{InfoState, MenuState};
 
@@ -17,10 +17,10 @@ use super::{InfoState, MenuState};
 pub struct ObservedState {
     /// Buffer lines from `draw`.
     pub lines: Vec<Line>,
-    /// Default face from `draw`.
-    pub default_face: Face,
-    /// Padding face from `draw`.
-    pub padding_face: Face,
+    /// Default style from `draw` (formerly `default_face`).
+    pub default_style: Style,
+    /// Padding style from `draw` (formerly `padding_face`).
+    pub padding_style: Style,
     /// Cursor position from `draw` (`cursor_pos` field).
     pub cursor_pos: Coord,
     /// Status prompt atoms from `draw_status`.
@@ -31,8 +31,9 @@ pub struct ObservedState {
     pub status_content_cursor_pos: i32,
     /// Mode line atoms from `draw_status`.
     pub status_mode_line: Line,
-    /// Default face for the status bar from `draw_status`.
-    pub status_default_face: Face,
+    /// Default style for the status bar from `draw_status` (formerly
+    /// `status_default_face`).
+    pub status_default_style: Style,
     /// Status bar context from `draw_status` (PR #5458).
     pub status_style: StatusStyle,
     /// Number of widget columns from `draw`.
@@ -49,14 +50,14 @@ impl Default for ObservedState {
     fn default() -> Self {
         Self {
             lines: Vec::new(),
-            default_face: Face::default(),
-            padding_face: Face::default(),
+            default_style: Style::default(),
+            padding_style: Style::default(),
             cursor_pos: Coord::default(),
             status_prompt: Vec::new(),
             status_content: Vec::new(),
             status_content_cursor_pos: -1,
             status_mode_line: Vec::new(),
-            status_default_face: Face::default(),
+            status_default_style: Style::default(),
             status_style: StatusStyle::default(),
             widget_columns: 0,
             menu: None,

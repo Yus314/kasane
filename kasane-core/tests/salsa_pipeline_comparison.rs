@@ -34,7 +34,7 @@ fn make_atom(text: &str) -> Atom {
 /// Render with legacy pipeline and return the grid.
 fn render_legacy(state: &AppState, registry: &PluginRuntime) -> CellGrid {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&state.observed.default_style.to_face());
     render_pipeline(state, &registry.view(), &mut grid);
     grid
 }
@@ -47,7 +47,7 @@ fn render_salsa(
     handles: &SalsaInputHandles,
 ) -> CellGrid {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&state.observed.default_style.to_face());
     render_pipeline_cached(
         db,
         handles,

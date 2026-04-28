@@ -157,7 +157,7 @@ fn test_scene_render_pipeline_deterministic() {
     use super::super::scene_render_pipeline;
 
     let mut state = test_state_80x24();
-    state.observed.status_default_face = state.observed.default_face;
+    state.observed.status_default_style = state.observed.default_style.clone();
     state.observed.lines = vec![make_line("hello"), make_line("world")];
     state.inference.status_line = make_line("status");
 
@@ -181,7 +181,7 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
     use super::super::scene_render_pipeline;
 
     let mut state = test_state_80x24();
-    state.observed.status_default_face = state.observed.default_face;
+    state.observed.status_default_style = state.observed.default_style.clone();
     state.observed.lines = vec![make_line("hello"), make_line("world")];
     state.inference.status_line = make_line("status");
 

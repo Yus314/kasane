@@ -124,11 +124,11 @@ pub fn sync_inputs_from_state(
     inputs
         .buffer
         .set_default_face(db)
-        .to(state.observed.default_face);
+        .to(state.observed.default_style.to_face());
     inputs
         .buffer
         .set_padding_face(db)
-        .to(state.observed.padding_face);
+        .to(state.observed.padding_style.to_face());
     inputs
         .buffer
         .set_widget_columns(db)
@@ -176,7 +176,7 @@ pub fn sync_inputs_from_state(
     inputs
         .status
         .set_status_default_face(db)
-        .to(state.observed.status_default_face);
+        .to(state.observed.status_default_style.to_face());
     inputs
         .status
         .set_status_style(db)

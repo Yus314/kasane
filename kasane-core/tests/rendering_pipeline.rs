@@ -24,7 +24,7 @@ use kasane_core::test_support::{make_line, render_with_registry, row_text};
 fn setup_state(lines: Vec<Line>) -> AppState {
     let mut state = kasane_core::test_support::test_state_80x24();
     state.observed.lines = lines;
-    state.observed.status_default_face = state.observed.default_face;
+    state.observed.status_default_style = state.observed.default_style.clone();
     state.inference.status_line = make_line(" main.rs ");
     state.observed.status_mode_line = make_line("normal");
     state
@@ -369,7 +369,7 @@ fn parse_draw_status_and_render() {
 fn diff_detects_changes() {
     let state = setup_state(vec![make_line("hello")]);
     let mut grid = CellGrid::new(80, 24);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&state.observed.default_style.to_face());
 
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
@@ -388,7 +388,7 @@ fn diff_detects_changes() {
     grid.swap();
 
     // Second identical render: no changes
-    grid.clear(&state.observed.default_face);
+    grid.clear(&state.observed.default_style.to_face());
     paint::paint(&element, &layout, &mut grid, &state);
     let diffs = grid.diff();
     assert!(
@@ -478,9 +478,9 @@ fn small_terminal_1x1() {
     state.runtime.cols = 1;
     state.runtime.rows = 1;
     state.observed.lines = vec![make_line("x")];
-    state.observed.default_face = Face::default();
-    state.observed.padding_face = Face::default();
-    state.observed.status_default_face = Face::default();
+    state.observed.default_style = Face::default().into();
+    state.observed.padding_style = Face::default().into();
+    state.observed.status_default_style = Face::default().into();
     state.inference.status_line = make_line("");
     state.observed.status_mode_line = make_line("");
 
@@ -546,8 +546,8 @@ fn test_line_dirty_single_edit_diff() {
             make_line("line 2"),
         ],
         cursor_pos: Coord::default(),
-        default_face: state.observed.default_face,
-        padding_face: state.observed.padding_face,
+        default_face: state.observed.default_style.to_face(),
+        padding_face: state.observed.padding_style.to_face(),
         widget_columns: 0,
     });
     assert_eq!(state.inference.lines_dirty, vec![false, true, false]);
@@ -581,8 +581,8 @@ fn test_line_dirty_consecutive_edits() {
     state.apply(KakouneRequest::Draw {
         lines,
         cursor_pos: Coord::default(),
-        default_face: state.observed.default_face,
-        padding_face: state.observed.padding_face,
+        default_face: state.observed.default_style.to_face(),
+        padding_face: state.observed.padding_style.to_face(),
         widget_columns: 0,
     });
     render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);
@@ -599,8 +599,8 @@ fn test_line_dirty_consecutive_edits() {
     state.apply(KakouneRequest::Draw {
         lines,
         cursor_pos: Coord::default(),
-        default_face: state.observed.default_face,
-        padding_face: state.observed.padding_face,
+        default_face: state.observed.default_style.to_face(),
+        padding_face: state.observed.padding_style.to_face(),
         widget_columns: 0,
     });
     render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);

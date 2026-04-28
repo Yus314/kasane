@@ -101,11 +101,12 @@ fn test_view_with_info() {
 #[test]
 fn test_status_bar_resolves_default_face() {
     let mut state = AppState::default();
-    state.observed.status_default_face = Face {
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Magenta),
         ..Face::default()
-    };
+    }
+    .into();
     // Atoms with Color::Default — should be resolved to status_default_face colors
     state.inference.status_line = vec![Atom::from_face(Face::default(), "file.rs")];
     state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "normal")];

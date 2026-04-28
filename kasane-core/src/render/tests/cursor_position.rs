@@ -58,7 +58,7 @@ fn buffer_state(cols: u16, rows: u16) -> AppState {
 fn render_full(state: &AppState) -> (CellGrid, RenderResult, DisplayMapRef) {
     let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&state.observed.default_style.to_face());
     let (result, dm) = pipeline::render_pipeline(state, &registry.view(), &mut grid);
     (grid, result, dm)
 }

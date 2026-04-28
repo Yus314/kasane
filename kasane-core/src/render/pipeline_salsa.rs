@@ -387,7 +387,7 @@ fn compose_base_from_salsa(
 
     let status_styled = Element::container(
         status_inner,
-        Style::from(state.observed.status_default_face),
+        Style::from(state.observed.status_default_style.to_face()),
     );
 
     // Wrap with above_status if present

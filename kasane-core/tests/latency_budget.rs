@@ -20,17 +20,19 @@ fn typical_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = Face {
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
     let keyword_face = Face {
         fg: Color::Rgb {
             r: 255,
@@ -98,7 +100,7 @@ fn full_frame_under_2ms() {
     for _ in 0..20 {
         let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
-        grid.clear(&state.observed.default_face);
+        grid.clear(&state.observed.default_style.to_face());
         paint::paint(&element, &layout, &mut grid, &state);
         let _ = grid.diff();
         grid.swap();
@@ -109,7 +111,7 @@ fn full_frame_under_2ms() {
             let start = Instant::now();
             let element = view::view(&state, &registry.view());
             let layout = flex::place(&element, area, &state);
-            grid.clear(&state.observed.default_face);
+            grid.clear(&state.observed.default_style.to_face());
             paint::paint(&element, &layout, &mut grid, &state);
             let _ = grid.diff();
             grid.swap();

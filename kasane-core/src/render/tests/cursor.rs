@@ -15,7 +15,7 @@ fn test_render_buffer_resolves_default_face() {
 
     let mut state = AppState::default();
     state.observed.lines = vec![line];
-    state.observed.default_face = default_face;
+    state.observed.default_style = default_face.into();
 
     let mut grid = CellGrid::new(10, 2);
     render_buffer(&state, &mut grid);
@@ -39,7 +39,7 @@ fn test_render_status_resolves_default_face() {
     let mut state = AppState::default();
     state.inference.status_line = status_line;
     state.observed.status_mode_line = mode_line;
-    state.observed.status_default_face = status_face;
+    state.observed.status_default_style = status_face.into();
 
     let mut grid = CellGrid::new(10, 2);
     render_status(&state, &mut grid);
@@ -138,11 +138,12 @@ fn test_cursor_style_ui_option_overrides_mode_line() {
 #[test]
 fn test_clear_cursor_face_at_bar() {
     let mut state = AppState::default();
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
 
     let mut grid = CellGrid::new(10, 5);
     let cursor_face = Face {
@@ -155,17 +156,18 @@ fn test_clear_cursor_face_at_bar() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 2, 0);
 
     let cell = grid.get(2, 0).unwrap();
-    assert_eq!(cell.face, state.observed.default_face);
+    assert_eq!(cell.face, state.observed.default_style.to_face());
 }
 
 #[test]
 fn test_clear_cursor_face_at_underline() {
     let mut state = AppState::default();
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::Yellow),
         bg: Color::Named(NamedColor::Blue),
         ..Face::default()
-    };
+    }
+    .into();
 
     let mut grid = CellGrid::new(10, 5);
     let cursor_face = Face {
@@ -178,7 +180,7 @@ fn test_clear_cursor_face_at_underline() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Underline, 3, 1);
 
     let cell = grid.get(3, 1).unwrap();
-    assert_eq!(cell.face, state.observed.default_face);
+    assert_eq!(cell.face, state.observed.default_style.to_face());
 }
 
 #[test]
@@ -202,11 +204,12 @@ fn test_clear_cursor_face_at_block_noop() {
 fn test_clear_cursor_face_at_prompt() {
     let mut state = AppState::default();
     state.inference.cursor_mode = crate::protocol::CursorMode::Prompt;
-    state.observed.status_default_face = Face {
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Magenta),
         ..Face::default()
-    };
+    }
+    .into();
 
     let mut grid = CellGrid::new(10, 5);
     let cursor_face = Face {
@@ -219,7 +222,7 @@ fn test_clear_cursor_face_at_prompt() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 4, 4);
 
     let cell = grid.get(4, 4).unwrap();
-    assert_eq!(cell.face, state.observed.status_default_face);
+    assert_eq!(cell.face, state.observed.status_default_style.to_face());
 }
 
 #[test]
@@ -328,11 +331,12 @@ fn test_secondary_face_preserves_text_color() {
 #[test]
 fn test_apply_secondary_cursor_faces_on_grid() {
     let mut state = AppState::default();
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
     state.inference.secondary_cursors = vec![Coord { line: 0, column: 3 }];
 
     let cursor_face = Face {
@@ -357,11 +361,12 @@ fn test_apply_secondary_cursor_faces_on_grid() {
 #[test]
 fn test_apply_secondary_cursor_faces_with_offset() {
     let mut state = AppState::default();
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
     // column=2 in Kakoune coordinates, buffer starts at grid x=3
     state.inference.secondary_cursors = vec![Coord { line: 1, column: 2 }];
 

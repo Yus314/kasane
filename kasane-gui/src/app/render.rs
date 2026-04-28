@@ -43,16 +43,16 @@ where
         self.color_resolver
             .as_mut()
             .expect("resolver checked above")
-            .sync_defaults(&self.state.observed.default_face);
+            .sync_defaults(&self.state.observed.default_style.to_face());
         tracing::debug!(
             "[app] render_frame start ({}x{})",
             self.state.runtime.cols,
             self.state.runtime.rows
         );
         let ime_overlay_face = if self.state.is_prompt_mode() {
-            self.state.observed.status_default_face
+            self.state.observed.status_default_style.to_face()
         } else {
-            self.state.observed.default_face
+            self.state.observed.default_style.to_face()
         };
 
         let Some(ref mut sr) = self.scene_renderer else {

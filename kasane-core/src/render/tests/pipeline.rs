@@ -14,13 +14,14 @@ fn test_treesitter_rgb_colors_preserved() {
     let mut state = AppState::default();
     state.runtime.cols = 40;
     state.runtime.rows = 5;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = state.observed.default_face;
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = state.observed.default_style.clone();
 
     // Simulate tree-sitter: atoms with explicit RGB fg, Default bg
     let keyword_face = Face {
@@ -55,7 +56,7 @@ fn test_treesitter_rgb_colors_preserved() {
 
     // New pipeline
     let mut grid_new = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid_new.clear(&state.observed.default_face);
+    grid_new.clear(&state.observed.default_style.to_face());
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
     let root_area = Rect {
@@ -151,13 +152,14 @@ fn test_treesitter_colors_persist_across_frames() {
     let mut state = AppState::default();
     state.runtime.cols = 20;
     state.runtime.rows = 3;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = state.observed.default_face;
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = state.observed.default_style.clone();
 
     let keyword_face = Face {
         fg: Color::Rgb { r: 255, g: 0, b: 0 },
@@ -171,7 +173,7 @@ fn test_treesitter_colors_persist_across_frames() {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Frame 1
-    grid.clear(&state.observed.default_face);
+    grid.clear(&state.observed.default_style.to_face());
     let el = view::view(&state, &registry.view());
     let area = Rect {
         x: 0,
@@ -197,7 +199,7 @@ fn test_treesitter_colors_persist_across_frames() {
     grid.swap();
 
     // Frame 2: same content → diff should be empty (colors retained)
-    grid.clear(&state.observed.default_face);
+    grid.clear(&state.observed.default_style.to_face());
     let el = view::view(&state, &registry.view());
     let layout = flex::place(&el, area, &state);
     paint::paint(&el, &layout, &mut grid, &state);
@@ -219,7 +221,7 @@ fn test_treesitter_colors_persist_across_frames() {
     };
     state.observed.lines = vec![vec![Atom::from_face(new_face, "let")]];
 
-    grid.clear(&state.observed.default_face);
+    grid.clear(&state.observed.default_style.to_face());
     let el = view::view(&state, &registry.view());
     let layout = flex::place(&el, area, &state);
     paint::paint(&el, &layout, &mut grid, &state);
@@ -246,13 +248,14 @@ fn test_line_dirty_buffer_and_status() {
     let mut state = AppState::default();
     state.runtime.cols = 20;
     state.runtime.rows = 5;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = state.observed.default_face;
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = state.observed.default_style.clone();
     state.observed.lines = vec![
         make_line("line0"),
         make_line("line1"),
@@ -305,13 +308,14 @@ fn test_line_dirty_buffer_only_regression() {
     let mut state = AppState::default();
     state.runtime.cols = 20;
     state.runtime.rows = 5;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = state.observed.default_face;
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = state.observed.default_style.clone();
     state.observed.lines = vec![
         make_line("line0"),
         make_line("line1"),
@@ -353,16 +357,18 @@ fn test_declarative_matches_imperative_buffer_status() {
     let mut state = AppState::default();
     state.runtime.cols = 40;
     state.runtime.rows = 10;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = Face {
+    }
+    .into();
+    state.observed.padding_style = Face {
         fg: Color::Named(NamedColor::Blue),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
     state.observed.lines = vec![
         make_line("first line"),
         make_line("second line"),
@@ -370,11 +376,12 @@ fn test_declarative_matches_imperative_buffer_status() {
     ];
     state.inference.status_line = make_line("status text");
     state.observed.status_mode_line = make_line("normal");
-    state.observed.status_default_face = Face {
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Default,
         ..Face::default()
-    };
+    }
+    .into();
 
     // Old pipeline
     let mut grid_old = CellGrid::new(state.runtime.cols, state.runtime.rows);
@@ -382,7 +389,7 @@ fn test_declarative_matches_imperative_buffer_status() {
 
     // New pipeline
     let mut grid_new = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid_new.clear(&state.observed.default_face);
+    grid_new.clear(&state.observed.default_style.to_face());
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
     let root_area = Rect {

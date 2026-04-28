@@ -35,17 +35,19 @@ pub fn test_state_80x24() -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = Face {
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
     state
 }
 
@@ -73,7 +75,7 @@ pub fn render_with_registry(state: &AppState, registry: &PluginRuntime) -> CellG
     };
     let layout = place(&element, root, state);
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&state.observed.default_style.to_face());
     paint::paint(&element, &layout, &mut grid, state);
     grid
 }
@@ -81,7 +83,7 @@ pub fn render_with_registry(state: &AppState, registry: &PluginRuntime) -> CellG
 /// Render to a fresh CellGrid using the non-cached pipeline.
 pub fn render_to_grid(state: &AppState, registry: &PluginRuntime) -> CellGrid {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&state.observed.default_style.to_face());
     render_pipeline(state, &registry.view(), &mut grid);
     grid
 }
@@ -92,7 +94,7 @@ pub fn render_to_grid_with_result(
     registry: &PluginRuntime,
 ) -> (CellGrid, crate::render::RenderResult) {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&state.observed.default_style.to_face());
     let (result, _) = render_pipeline(state, &registry.view(), &mut grid);
     (grid, result)
 }

@@ -151,11 +151,12 @@ fn rich_state() -> AppState {
     ];
     state.inference.status_line = make_line(" main.rs ");
     state.observed.status_mode_line = make_line("normal");
-    state.observed.status_default_face = Face {
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
     state.observed.cursor_pos = Coord { line: 1, column: 4 };
     state.config.shadow_enabled = true;
 

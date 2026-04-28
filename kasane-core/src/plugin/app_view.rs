@@ -142,16 +142,30 @@ impl<'a> AppView<'a> {
         self.state.inference.cursor_mode
     }
 
-    /// Default face from `draw`.
+    /// Default style from `draw` (formerly `default_face`).
     #[inline]
-    pub fn default_face(&self) -> Face {
-        self.state.observed.default_face
+    pub fn default_style(&self) -> &crate::protocol::Style {
+        &self.state.observed.default_style
     }
 
-    /// Padding face from `draw`.
+    /// Padding style from `draw` (formerly `padding_face`).
+    #[inline]
+    pub fn padding_style(&self) -> &crate::protocol::Style {
+        &self.state.observed.padding_style
+    }
+
+    /// Bridge during ADR-031 Phase A.3: returns the legacy `Face` projection
+    /// of `default_style`. To be removed once consumers migrate to Style.
+    #[inline]
+    pub fn default_face(&self) -> Face {
+        self.state.observed.default_style.to_face()
+    }
+
+    /// Bridge during ADR-031 Phase A.3: returns the legacy `Face` projection
+    /// of `padding_style`. To be removed once consumers migrate to Style.
     #[inline]
     pub fn padding_face(&self) -> Face {
-        self.state.observed.padding_face
+        self.state.observed.padding_style.to_face()
     }
 
     /// Number of widget columns from `draw`.
@@ -210,10 +224,17 @@ impl<'a> AppView<'a> {
         &self.state.observed.status_mode_line
     }
 
-    /// Default face for the status bar.
+    /// Default style for the status bar (formerly `status_default_face`).
+    #[inline]
+    pub fn status_default_style(&self) -> &crate::protocol::Style {
+        &self.state.observed.status_default_style
+    }
+
+    /// Bridge during ADR-031 Phase A.3: legacy `Face` projection of
+    /// `status_default_style`.
     #[inline]
     pub fn status_default_face(&self) -> Face {
-        self.state.observed.status_default_face
+        self.state.observed.status_default_style.to_face()
     }
 
     /// Status prompt atoms.

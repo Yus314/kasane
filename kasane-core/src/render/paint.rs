@@ -96,10 +96,10 @@ impl<'a> BufferRefParams<'a> {
                 .unwrap_or(&state.inference.lines_dirty),
             default_face: buffer_state
                 .map(|s| s.default_face)
-                .unwrap_or(state.observed.default_face),
+                .unwrap_or_else(|| state.observed.default_style.to_face()),
             padding_face: buffer_state
                 .map(|s| s.padding_face)
-                .unwrap_or(state.observed.padding_face),
+                .unwrap_or_else(|| state.observed.padding_style.to_face()),
             padding_char: buffer_state
                 .map(|s| s.padding_char.as_str())
                 .unwrap_or(&state.config.padding_char),

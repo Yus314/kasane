@@ -48,12 +48,14 @@ pub(crate) fn apply_protocol(
 
             // Line-level dirty tracking via pure function (computed FIRST
             // so incremental cursor detection can use dirty flags)
+            let observed_default_face = observed.default_style.to_face();
+            let observed_padding_face = observed.padding_style.to_face();
             inference.lines_dirty = derived::compute_lines_dirty(
                 &observed.lines,
                 &lines,
-                &observed.default_face,
+                &observed_default_face,
                 &default_face,
-                &observed.padding_face,
+                &observed_padding_face,
                 &padding_face,
             );
 
@@ -125,13 +127,13 @@ pub(crate) fn apply_protocol(
             observed.widget_columns = widget_columns;
 
             observed.lines = lines;
-            observed.default_face = default_face;
-            observed.padding_face = padding_face;
+            observed.default_style = default_face.into();
+            observed.padding_style = padding_face.into();
 
             // Signal config reactions (applied by caller)
             reactions.clear_fold_toggle = true;
 
-            let new_ctx = ColorContext::derive(&observed.default_face);
+            let new_ctx = ColorContext::derive(&observed.default_style.to_face());
             if new_ctx != inference.color_context {
                 reactions.new_color_context = Some(new_ctx.clone());
                 inference.color_context = new_ctx;
@@ -160,7 +162,7 @@ pub(crate) fn apply_protocol(
             inference.status_line = derived::build_status_line(&prompt, &content);
 
             observed.status_mode_line = mode_line;
-            observed.status_default_face = default_face;
+            observed.status_default_style = default_face.into();
             observed.status_style = style;
 
             // Derive editor mode from cursor_mode + mode_line

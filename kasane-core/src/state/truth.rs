@@ -57,16 +57,18 @@ impl<'a> Truth<'a> {
         &self.inner.lines
     }
 
-    /// Observed: default face from `draw`.
+    /// Observed: default face from `draw` (legacy projection of
+    /// `default_style`).
     #[inline]
     pub fn default_face(&self) -> Face {
-        self.inner.default_face
+        self.inner.default_style.to_face()
     }
 
-    /// Observed: padding face from `draw`.
+    /// Observed: padding face from `draw` (legacy projection of
+    /// `padding_style`).
     #[inline]
     pub fn padding_face(&self) -> Face {
-        self.inner.padding_face
+        self.inner.padding_style.to_face()
     }
 
     /// Observed: number of widget columns from `draw`.
@@ -109,10 +111,11 @@ impl<'a> Truth<'a> {
         &self.inner.status_mode_line
     }
 
-    /// Observed: default face for the status bar from `draw_status`.
+    /// Observed: default face for the status bar from `draw_status`
+    /// (legacy projection of `status_default_style`).
     #[inline]
     pub fn status_default_face(&self) -> Face {
-        self.inner.status_default_face
+        self.inner.status_default_style.to_face()
     }
 
     /// Observed: status bar context style from `draw_status`.
