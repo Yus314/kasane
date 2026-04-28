@@ -95,7 +95,7 @@ fn push_preedit_text(
     commands.push(DrawCommand::DrawText {
         pos: PixelPos { x, y },
         text: text.to_string(),
-        face,
+        face: face.into(),
         max_width: line_display_width_str(text).max(1) as f32 * cell_size.width,
     });
 }
@@ -170,7 +170,7 @@ pub(crate) fn build_ime_overlay_commands(
                     w: caret_width,
                     h: cell_size.height,
                 },
-                face: caret_face,
+                face: caret_face.into(),
                 elevated: false,
             });
             push_preedit_text(&mut commands, caret_x, base_y, suffix, base_face, cell_size);
@@ -292,7 +292,7 @@ mod tests {
         let text_segments: Vec<_> = commands
             .iter()
             .filter_map(|command| match command {
-                DrawCommand::DrawText { text, face, .. } => Some((text.as_str(), *face)),
+                DrawCommand::DrawText { text, face, .. } => Some((text.as_str(), face.to_face())),
                 _ => None,
             })
             .collect();
@@ -379,11 +379,12 @@ mod tests {
         );
 
         assert!(commands.iter().any(|command| {
-            matches!(
-                command,
-                DrawCommand::DrawText { text, face, .. }
-                    if text == "あ" && face.attributes.contains(Attributes::REVERSE)
-            )
+            match command {
+                DrawCommand::DrawText { text, face, .. } => {
+                    text == "あ" && face.to_face().attributes.contains(Attributes::REVERSE)
+                }
+                _ => false,
+            }
         }));
     }
 

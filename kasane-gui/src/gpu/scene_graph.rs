@@ -153,7 +153,7 @@ impl SceneBuilder {
                 face,
                 elevated,
             } => {
-                let (_, mut bg, _) = resolve_face(face);
+                let (_, mut bg, _) = resolve_face(&face.to_face());
                 if *elevated {
                     bg[0] = (bg[0] + 0.003).min(1.0);
                     bg[1] = (bg[1] + 0.003).min(1.0);
@@ -198,7 +198,7 @@ impl SceneBuilder {
                 face,
                 max_width,
             } => {
-                let (fg, _, _) = resolve_face(face);
+                let (fg, _, _) = resolve_face(&face.to_face());
                 self.primitives.push(GpuPrimitive::TextRun {
                     x: pos.x,
                     y: pos.y,
@@ -211,7 +211,7 @@ impl SceneBuilder {
                 });
             }
             DrawCommand::DrawPaddingRow { pos, ch, face, .. } => {
-                let (fg, _, _) = resolve_face(face);
+                let (fg, _, _) = resolve_face(&face.to_face());
                 self.primitives.push(GpuPrimitive::TextRun {
                     x: pos.x,
                     y: pos.y,
@@ -229,10 +229,10 @@ impl SceneBuilder {
                 face,
                 fill_face,
             } => {
-                let (border_fg, _, _) = resolve_face(face);
+                let (border_fg, _, _) = resolve_face(&face.to_face());
                 let fill = match fill_face {
                     Some(ff) => {
-                        let (_, bg, _) = resolve_face(ff);
+                        let (_, bg, _) = resolve_face(&ff.to_face());
                         bg
                     }
                     None => [0.0, 0.0, 0.0, 0.0],
@@ -341,7 +341,7 @@ mod tests {
                 w: 100.0,
                 h: 20.0,
             },
-            face: Face::default(),
+            face: Face::default().into(),
             elevated: false,
         }];
         let prims = SceneBuilder::from_draw_commands(&commands, &dummy_resolve);
@@ -381,7 +381,7 @@ mod tests {
                     w: 10.0,
                     h: 10.0,
                 },
-                face: Face::default(),
+                face: Face::default().into(),
                 elevated: false,
             },
             DrawCommand::BeginOverlay,
@@ -392,7 +392,7 @@ mod tests {
                     w: 10.0,
                     h: 10.0,
                 },
-                face: Face::default(),
+                face: Face::default().into(),
                 elevated: false,
             },
         ];

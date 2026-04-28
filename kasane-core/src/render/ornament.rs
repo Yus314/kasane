@@ -70,7 +70,7 @@ pub(crate) fn resolve_surface_ornaments(
                     surface_id: focused_surface_id,
                     rect,
                     kind: orn.kind,
-                    face: orn.face,
+                    face: orn.face.into(),
                 }
             }
             SurfaceOrnAnchor::SurfaceKey(surface_key) => {
@@ -96,7 +96,7 @@ pub(crate) fn resolve_surface_ornaments(
                     surface_id: Some(surface_id),
                     rect,
                     kind: orn.kind,
-                    face: orn.face,
+                    face: orn.face.into(),
                 }
             }
         };
@@ -135,13 +135,13 @@ pub(crate) fn lower_surface_ornaments_gui(
         match orn.kind {
             SurfaceOrnKind::InactiveTint => commands.push(DrawCommand::FillRect {
                 rect: to_pixel_rect(&orn.rect, cell_size),
-                face: orn.face,
+                face: orn.face.into(),
                 elevated: false,
             }),
             SurfaceOrnKind::FocusFrame => commands.push(DrawCommand::DrawBorder {
                 rect: to_pixel_rect(&orn.rect, cell_size),
                 line_style: BorderLineStyle::Single,
-                face: orn.face,
+                face: orn.face.into(),
                 fill_face: None,
             }),
         }

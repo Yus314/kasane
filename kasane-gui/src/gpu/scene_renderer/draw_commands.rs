@@ -37,7 +37,7 @@ impl SceneRenderer {
                 let Some((cx, cy, cw, ch)) = self.clip_rect(rect.x, rect.y, rect.w, rect.h) else {
                     return;
                 };
-                let (_, mut bg, _) = color_resolver.resolve_face_colors_linear(face);
+                let (_, mut bg, _) = color_resolver.resolve_face_colors_linear(&face.to_face());
 
                 // When gradient is active, skip fills matching default bg
                 // so the gradient shows through.
@@ -76,7 +76,14 @@ impl SceneRenderer {
                 face,
                 max_width,
             } => {
-                self.process_draw_text(pos.x, pos.y, text, face, *max_width, color_resolver);
+                self.process_draw_text(
+                    pos.x,
+                    pos.y,
+                    text,
+                    &face.to_face(),
+                    *max_width,
+                    color_resolver,
+                );
             }
             DrawCommand::DrawPaddingRow {
                 pos,
@@ -84,7 +91,7 @@ impl SceneRenderer {
                 ch,
                 face,
             } => {
-                self.parley_emit_text(ch, face, pos.x, pos.y, color_resolver);
+                self.parley_emit_text(ch, &face.to_face(), pos.x, pos.y, color_resolver);
             }
             DrawCommand::DrawBorder {
                 rect,
@@ -92,12 +99,13 @@ impl SceneRenderer {
                 face,
                 fill_face,
             } => {
-                let (visual_fg, _, _) = color_resolver.resolve_face_colors_linear(face);
+                let (visual_fg, _, _) = color_resolver.resolve_face_colors_linear(&face.to_face());
                 let border_color = visual_fg;
                 let (corner_radius, border_width) = border_style_params(line_style.clone(), cell_h);
                 let fill = match fill_face {
                     Some(ff) => {
-                        let (_, ff_bg, _) = color_resolver.resolve_face_colors_linear(ff);
+                        let (_, ff_bg, _) =
+                            color_resolver.resolve_face_colors_linear(&ff.to_face());
                         ff_bg
                     }
                     None => [0.0, 0.0, 0.0, 0.0],
@@ -153,7 +161,8 @@ impl SceneRenderer {
                 let title_x = rect.x + (rect.w - title_w) / 2.0;
                 let title_y = rect.y - cell_h * 0.35;
 
-                let (_, mut title_bg, _) = color_resolver.resolve_face_colors_linear(border_face);
+                let (_, mut title_bg, _) =
+                    color_resolver.resolve_face_colors_linear(&border_face.to_face());
                 if *elevated {
                     // Subtle elevation: ~10/255 in sRGB ≈ VS Code's floating window offset
                     title_bg[0] = (title_bg[0] + 0.003).min(1.0);

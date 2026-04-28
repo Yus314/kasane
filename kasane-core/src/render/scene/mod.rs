@@ -100,7 +100,8 @@ pub enum DrawCommand {
     /// background (similar to VS Code's Command Palette).
     FillRect {
         rect: PixelRect,
-        face: Face,
+        /// ADR-031 Phase A.3: Style.
+        face: Style,
         elevated: bool,
     },
 
@@ -122,7 +123,8 @@ pub enum DrawCommand {
     DrawText {
         pos: PixelPos,
         text: String,
-        face: Face,
+        /// ADR-031 Phase A.3: Style.
+        face: Style,
         max_width: f32,
     },
 
@@ -130,16 +132,18 @@ pub enum DrawCommand {
     DrawBorder {
         rect: PixelRect,
         line_style: BorderLineStyle,
-        face: Face,
+        /// ADR-031 Phase A.3: Style.
+        face: Style,
         /// Optional interior fill (background inside the border).
-        fill_face: Option<Face>,
+        fill_face: Option<Style>,
     },
 
     /// Draw a border title.
     DrawBorderTitle {
         rect: PixelRect,
         title: Vec<ResolvedAtom>,
-        border_face: Face,
+        /// ADR-031 Phase A.3: Style.
+        border_face: Style,
         /// Whether the parent container is elevated (shadow=true).
         elevated: bool,
     },
@@ -157,7 +161,8 @@ pub enum DrawCommand {
         pos: PixelPos,
         width: f32,
         ch: String,
-        face: Face,
+        /// ADR-031 Phase A.3: Style.
+        face: Style,
     },
 
     /// Push a clipping rectangle.

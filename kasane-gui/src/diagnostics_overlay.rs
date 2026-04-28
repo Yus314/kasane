@@ -49,7 +49,7 @@ impl PluginDiagnosticOverlayPainter for SceneOverlayPainter<'_> {
     fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, face: Face) {
         self.commands.push(DrawCommand::FillRect {
             rect: pixel_rect(x, y, width, height, self.cell_size),
-            face,
+            face: face.into(),
             elevated: true,
         });
     }
@@ -58,7 +58,7 @@ impl PluginDiagnosticOverlayPainter for SceneOverlayPainter<'_> {
         self.commands.push(DrawCommand::DrawBorder {
             rect: pixel_rect(x, y, width, height, self.cell_size),
             line_style: BorderLineStyle::Single,
-            face,
+            face: face.into(),
             fill_face: None,
         });
     }
@@ -67,7 +67,7 @@ impl PluginDiagnosticOverlayPainter for SceneOverlayPainter<'_> {
         self.commands.push(DrawCommand::DrawText {
             pos: pixel_pos(run.x, run.y, self.cell_size),
             text: run.text.clone(),
-            face: run.face,
+            face: run.face.into(),
             max_width: run.max_width as f32 * self.cell_size.width,
         });
     }

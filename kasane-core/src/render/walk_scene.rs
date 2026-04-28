@@ -71,7 +71,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         self.out.push(DrawCommand::DrawText {
             pos: PixelPos { x: pr.x, y: pr.y },
             text: text.to_string(),
-            face: *face,
+            face: (*face).into(),
             max_width: pr.w,
         });
     }
@@ -130,7 +130,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             w: row_w,
                             h: cs.height,
                         },
-                        face: fill_face,
+                        face: fill_face.into(),
                         elevated: false,
                     });
                     let resolved = resolve_atoms(atoms, None);
@@ -205,14 +205,14 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             w: row_w,
                             h: cs.height,
                         },
-                        face,
+                        face: face.into(),
                         elevated: false,
                     });
                     self.out.push(DrawCommand::DrawPaddingRow {
                         pos: PixelPos { x: px, y: py },
                         width: row_w,
                         ch: params.padding_char.to_string(),
-                        face: char_face,
+                        face: char_face.into(),
                     });
                 }
                 BufferLineAction::EditableSynthetic { atoms, .. } => {
@@ -228,7 +228,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             w: row_w,
                             h: cs.height,
                         },
-                        face: fill_face,
+                        face: fill_face.into(),
                         elevated: false,
                     });
                     let resolved = resolve_atoms(atoms, None);
@@ -286,7 +286,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         // Background fill — floating containers (shadow=true) use elevated
         self.out.push(DrawCommand::FillRect {
             rect: pr,
-            face: info.face,
+            face: info.face.into(),
             elevated: info.shadow,
         });
 
@@ -301,7 +301,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             y: (info.area.y + row) as f32 * cs.height,
                         },
                         text: info.divider_vertical.to_string(),
-                        face: info.face,
+                        face: info.face.into(),
                         max_width: cs.width,
                     });
                 }
@@ -312,7 +312,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         y: info.area.y as f32 * cs.height,
                     },
                     text: info.divider_horizontal.repeat(info.area.w as usize),
-                    face: info.face,
+                    face: info.face.into(),
                     max_width: info.area.w as f32 * cs.width,
                 });
             }
@@ -325,7 +325,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
             self.out.push(DrawCommand::DrawBorder {
                 rect: border_rect.clone(),
                 line_style: border_config.line_style.clone(),
-                face: border_face,
+                face: border_face.into(),
                 fill_face: None,
             });
 
@@ -335,7 +335,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                 self.out.push(DrawCommand::DrawBorderTitle {
                     rect: border_rect,
                     title: resolved_title,
-                    border_face,
+                    border_face: border_face.into(),
                     elevated: info.shadow,
                 });
             }
@@ -416,7 +416,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         .unwrap_or_default();
                     self.out.push(DrawCommand::FillRect {
                         rect: cursor_pr,
-                        face: cursor_face,
+                        face: cursor_face.into(),
                         elevated: false,
                     });
                 }
