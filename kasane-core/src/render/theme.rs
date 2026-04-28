@@ -2,12 +2,20 @@ use std::collections::HashMap;
 
 use crate::config::{ThemeConfig, ThemeValue};
 use crate::element::{Style, StyleToken};
+use crate::protocol::Style as PStyle;
 use crate::protocol::{Attributes, Color, Face, NamedColor};
 
-/// Theme maps StyleTokens to Faces for consistent visual styling.
+/// Theme maps StyleTokens to styles for consistent visual styling.
+///
+/// ADR-031 Phase A.3.2: storage migrated from `Face` to `Style`. The
+/// public API still exposes `Face`-shaped methods (`set`, `get`,
+/// `resolve`, `resolve_with_protocol_fallback`) for callers that have
+/// not yet migrated; new methods (`set_style`, `get_style`,
+/// `resolve_style`) return the underlying `Style` directly so the
+/// projection cost can be paid lazily where needed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
-    map: HashMap<StyleToken, Face>,
+    map: HashMap<StyleToken, PStyle>,
 }
 
 impl Theme {
@@ -24,63 +32,69 @@ impl Theme {
 
         // Menu: Default means "use protocol face from Kakoune".
         // User can override via config.toml [theme] section.
-        map.insert(StyleToken::MENU_ITEM_NORMAL, Face::default());
-        map.insert(StyleToken::MENU_ITEM_SELECTED, Face::default());
-        map.insert(StyleToken::MENU_SCROLLBAR, Face::default());
-        map.insert(StyleToken::MENU_SCROLLBAR_THUMB, Face::default());
+        map.insert(StyleToken::MENU_ITEM_NORMAL, (Face::default()).into());
+        map.insert(StyleToken::MENU_ITEM_SELECTED, (Face::default()).into());
+        map.insert(StyleToken::MENU_SCROLLBAR, (Face::default()).into());
+        map.insert(StyleToken::MENU_SCROLLBAR_THUMB, (Face::default()).into());
 
         // Info
         map.insert(
             StyleToken::INFO_TEXT,
-            Face {
+            (Face {
                 fg: Color::Default,
                 bg: Color::Default,
                 ..Face::default()
-            },
+            })
+            .into(),
         );
         map.insert(
             StyleToken::INFO_BORDER,
-            Face {
+            (Face {
                 fg: Color::Default,
                 bg: Color::Default,
                 ..Face::default()
-            },
+            })
+            .into(),
         );
 
         // Status
         map.insert(
             StyleToken::STATUS_LINE,
-            Face {
+            (Face {
                 fg: Color::Default,
                 bg: Color::Default,
                 ..Face::default()
-            },
+            })
+            .into(),
         );
         map.insert(
             StyleToken::STATUS_MODE,
-            Face {
+            (Face {
                 fg: Color::Default,
                 bg: Color::Default,
                 ..Face::default()
-            },
+            })
+            .into(),
         );
 
         // Workspace split divider
         map.insert(
             StyleToken::SPLIT_DIVIDER,
-            Face {
+            (Face {
                 fg: Color::Named(NamedColor::BrightBlack),
                 bg: Color::Named(NamedColor::BrightBlack),
                 ..Face::default()
-            },
+            })
+            .into(),
         );
         map.insert(
             StyleToken::SPLIT_DIVIDER_FOCUSED,
-            Face {
+            (Face {
                 fg: Color::Default,
                 bg: Color::Named(NamedColor::BrightBlack),
                 ..Face::default()
-            },
+            })
+            .into(),
         );
 
         // Gutter line numbers (TextPanel)
@@ -93,7 +107,8 @@ impl Theme {
                     b: 120,
                 },
                 ..Face::default()
-            },
+            }
+            .into(),
         );
 
         // TextPanel cursor highlight
@@ -106,26 +121,33 @@ impl Theme {
                     b: 60,
                 },
                 ..Face::default()
-            },
+            }
+            .into(),
         );
 
         // Shadow
         map.insert(
             StyleToken::SHADOW,
-            Face {
+            (Face {
                 fg: Color::Default,
                 bg: Color::Default,
                 underline: Color::Default,
                 attributes: Attributes::DIM,
-            },
+            })
+            .into(),
         );
 
         Theme { map }
     }
 
-    /// Set a token's face.
+    /// Set a token's face. Internally stores as Style (Face → Style via `From`).
     pub fn set(&mut self, token: StyleToken, face: Face) {
-        self.map.insert(token, face);
+        self.map.insert(token, face.into());
+    }
+
+    /// Set a token's style directly.
+    pub fn set_style(&mut self, token: StyleToken, style: PStyle) {
+        self.map.insert(token, style);
     }
 
     /// Resolve a Style to a Face.
@@ -134,19 +156,29 @@ impl Theme {
     pub fn resolve(&self, style: &Style, fallback: &Face) -> Face {
         match style {
             Style::Direct(face) => *face,
-            Style::Token(token) => self.map.get(token).copied().unwrap_or(*fallback),
+            Style::Token(token) => self
+                .map
+                .get(token)
+                .map(|s| s.to_face())
+                .unwrap_or(*fallback),
         }
     }
 
-    /// Look up a token directly (without fallback).
-    pub fn get(&self, token: &StyleToken) -> Option<&Face> {
+    /// Look up a token's style directly (without fallback). Phase A.3 API.
+    pub fn get_style(&self, token: &StyleToken) -> Option<&PStyle> {
         self.map.get(token)
+    }
+
+    /// Look up a token directly (without fallback). Returns Face for
+    /// back-compat; consumers should migrate to [`Self::get_style`].
+    pub fn get(&self, token: &StyleToken) -> Option<Face> {
+        self.map.get(token).map(|s| s.to_face())
     }
 
     /// Merge another theme's entries into this one (overlay wins on conflict).
     pub fn merge(&mut self, overlay: &Theme) {
-        for (token, face) in &overlay.map {
-            self.map.insert(token.clone(), *face);
+        for (token, style) in &overlay.map {
+            self.map.insert(token.clone(), style.clone());
         }
     }
 
@@ -253,30 +285,35 @@ impl Theme {
     /// Check if a token has been configured by the user (non-default colors).
     ///
     /// Returns `true` when the token exists in the theme map AND has at least
-    /// one non-Default color, indicating the user explicitly set it via config.
+    /// one non-Default brush, indicating the user explicitly set it via config.
     pub fn is_user_configured(&self, token: &StyleToken) -> bool {
-        self.map
-            .get(token)
-            .is_some_and(|f| f.fg != Color::Default || f.bg != Color::Default)
+        self.map.get(token).is_some_and(|s| {
+            !matches!(s.fg, crate::protocol::Brush::Default)
+                || !matches!(s.bg, crate::protocol::Brush::Default)
+        })
     }
 
     /// Resolve a face with protocol fallback: if the user configured the token
     /// in the theme, use that; otherwise use the protocol-provided face.
     pub fn resolve_with_protocol_fallback(&self, token: &StyleToken, protocol_face: Face) -> Face {
         if self.is_user_configured(token) {
-            *self.map.get(token).unwrap()
+            self.map.get(token).unwrap().to_face()
         } else {
             protocol_face
         }
     }
 
     fn set_if_still_default(&mut self, token: StyleToken, derived: Face) {
+        let derived_style: PStyle = derived.into();
         match self.map.get(&token) {
-            Some(existing) if existing.fg != Color::Default || existing.bg != Color::Default => {
+            Some(existing)
+                if !matches!(existing.fg, crate::protocol::Brush::Default)
+                    || !matches!(existing.bg, crate::protocol::Brush::Default) =>
+            {
                 // User explicitly configured -- don't override
             }
             _ => {
-                self.map.insert(token, derived);
+                self.map.insert(token, derived_style);
             }
         }
     }
@@ -341,7 +378,7 @@ fn resolve_token_refs(
                 None => {
                     // Not in config; check if it's already in theme map
                     let ref_token = normalize_config_key(&current_ref);
-                    if let Some(&face) = theme.get(&ref_token) {
+                    if let Some(face) = theme.get(&ref_token) {
                         theme.set(token.clone(), face);
                         resolved = true;
                     }
@@ -629,14 +666,14 @@ mod tests {
     fn test_apply_color_context_k1_noop() {
         use crate::render::color_context::{ColorContext, ColorKnowledge};
         let mut theme = Theme::default_theme();
-        let original_shadow = *theme.get(&StyleToken::SHADOW).unwrap();
+        let original_shadow = theme.get(&StyleToken::SHADOW).unwrap();
         let ctx = ColorContext {
             is_dark: true,
             knowledge: ColorKnowledge::K1,
             chrome: None,
         };
         theme.apply_color_context(&ctx);
-        assert_eq!(*theme.get(&StyleToken::SHADOW).unwrap(), original_shadow);
+        assert_eq!(theme.get(&StyleToken::SHADOW).unwrap(), original_shadow);
     }
 
     // ── Token reference tests ────────────────────────────────────────────

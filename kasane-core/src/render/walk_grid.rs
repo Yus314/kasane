@@ -177,7 +177,6 @@ impl PaintVisitor for GridPaintVisitor<'_> {
         let gutter_face = self
             .theme
             .get(&StyleToken::GUTTER_LINE_NUMBER)
-            .copied()
             .unwrap_or_default();
 
         for row in 0..area.h {
@@ -209,7 +208,6 @@ impl PaintVisitor for GridPaintVisitor<'_> {
                     let cursor_face = self
                         .theme
                         .get(&StyleToken::TEXT_PANEL_CURSOR)
-                        .copied()
                         .unwrap_or(Face::default());
                     self.grid.fill_region(y, content_x, content_w, &cursor_face);
                 }

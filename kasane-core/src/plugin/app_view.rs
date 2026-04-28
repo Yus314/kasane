@@ -366,7 +366,7 @@ impl<'a> AppView<'a> {
     /// Look up a theme token face.
     #[inline]
     pub fn theme_face(&self, token: &crate::element::StyleToken) -> Option<crate::protocol::Face> {
-        self.state.config.theme.get(token).copied()
+        self.state.config.theme.get(token)
     }
 
     /// Whether the background is dark.

@@ -364,7 +364,6 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         let gutter_face = self
             .theme
             .get(&StyleToken::GUTTER_LINE_NUMBER)
-            .copied()
             .unwrap_or_default();
 
         for row in 0..area.h {
@@ -414,7 +413,6 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     let cursor_face = self
                         .theme
                         .get(&StyleToken::TEXT_PANEL_CURSOR)
-                        .copied()
                         .unwrap_or_default();
                     self.out.push(DrawCommand::FillRect {
                         rect: cursor_pr,

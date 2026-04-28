@@ -436,7 +436,7 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     // --- v0.8.0 Tier 9: Theme / Color context ---
     fn get_theme_face(&mut self, token: String) -> Option<bindings::kasane::plugin::types::Face> {
         let st = kasane_core::element::StyleToken::new(token);
-        self.theme.get(&st).map(convert::face_to_wit)
+        self.theme.get(&st).map(|f| convert::face_to_wit(&f))
     }
 
     fn is_dark_background(&mut self) -> bool {
