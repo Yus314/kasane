@@ -13,8 +13,8 @@ fn test_menu_show_returns_menu_structure() {
     let flags = state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("a")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Inline,
     });
     assert!(flags.contains(DirtyFlags::MENU_STRUCTURE));
@@ -27,8 +27,8 @@ fn test_menu_select_returns_menu_selection() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("a"), make_line("b")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Inline,
     });
     let flags = state.apply(KakouneRequest::MenuSelect { selected: 0 });
@@ -42,8 +42,8 @@ fn test_menu_hide_returns_both_menu_flags() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("a")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Inline,
     });
     let flags = state.apply(KakouneRequest::MenuHide);
@@ -215,8 +215,8 @@ fn test_menu_select_no_scroll_returns_selection_only() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("a"), make_line("b"), make_line("c")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Inline,
     });
     state.apply(KakouneRequest::MenuSelect { selected: 0 });
@@ -237,8 +237,8 @@ fn test_menu_select_with_scroll_returns_structure() {
     state.apply(KakouneRequest::MenuShow {
         items,
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Inline,
     });
     state.apply(KakouneRequest::MenuSelect { selected: 0 });

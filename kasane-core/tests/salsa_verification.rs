@@ -143,8 +143,8 @@ fn sync_menu_snapshot() {
         vec![vec![make_atom("item1")], vec![make_atom("item2")]],
         MenuParams {
             anchor: Coord { line: 5, column: 0 },
-            selected_item_face: Face::default(),
-            menu_face: Face::default(),
+            selected_item_face: Face::default().into(),
+            menu_face: Face::default().into(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 23,
@@ -174,7 +174,7 @@ fn sync_info_snapshots() {
             line: 3,
             column: 10,
         },
-        face: Face::default(),
+        face: Face::default().into(),
         style: InfoStyle::Prompt,
         identity: InfoIdentity {
             style: InfoStyle::Prompt,

@@ -49,8 +49,8 @@ fn make_test_menu() -> MenuState {
     MenuState {
         items: vec![make_line("item1"), make_line("item2")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Inline,
         selected: None,
         first_item: 0,
@@ -68,7 +68,7 @@ fn make_test_info() -> InfoState {
         title: vec![],
         content: vec![make_line("info content")],
         anchor: Coord { line: 0, column: 0 },
-        face: Face::default(),
+        face: Face::default().into(),
         style: InfoStyle::Prompt,
         identity: InfoIdentity {
             style: InfoStyle::Prompt,

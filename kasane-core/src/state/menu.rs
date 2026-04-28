@@ -103,8 +103,10 @@ pub fn split_item_columns(items: &[Line]) -> Option<MenuColumns> {
 #[derive(Debug, Clone)]
 pub struct MenuParams {
     pub anchor: Coord,
-    pub selected_item_face: Face,
-    pub menu_face: Face,
+    /// ADR-031 Phase A.3: Style.
+    pub selected_item_face: crate::protocol::Style,
+    /// ADR-031 Phase A.3: Style.
+    pub menu_face: crate::protocol::Style,
     pub style: MenuStyle,
     pub screen_w: u16,
     pub screen_h: u16,
@@ -115,8 +117,10 @@ pub struct MenuParams {
 pub struct MenuState {
     pub items: Vec<Line>,
     pub anchor: Coord,
-    pub selected_item_face: Face,
-    pub menu_face: Face,
+    /// ADR-031 Phase A.3: Style.
+    pub selected_item_face: crate::protocol::Style,
+    /// ADR-031 Phase A.3: Style.
+    pub menu_face: crate::protocol::Style,
     pub style: MenuStyle,
     pub selected: Option<usize>,
     /// Scroll offset: index of the first visible item.
@@ -362,8 +366,8 @@ mod tests {
             vec![vec![Atom::from_face(Face::default(), "hello")]],
             MenuParams {
                 anchor: Coord { line: 5, column: 0 },
-                selected_item_face: Face::default(),
-                menu_face: Face::default(),
+                selected_item_face: Face::default().into(),
+                menu_face: Face::default().into(),
                 style: MenuStyle::Inline,
                 screen_w: 80,
                 screen_h: 24,
@@ -384,8 +388,8 @@ mod tests {
             items,
             MenuParams {
                 anchor: Coord { line: 5, column: 0 },
-                selected_item_face: Face::default(),
-                menu_face: Face::default(),
+                selected_item_face: Face::default().into(),
+                menu_face: Face::default().into(),
                 style: MenuStyle::Inline,
                 screen_w: 80,
                 screen_h: 24,
@@ -406,8 +410,8 @@ mod tests {
             items,
             MenuParams {
                 anchor: Coord { line: 5, column: 0 },
-                selected_item_face: Face::default(),
-                menu_face: Face::default(),
+                selected_item_face: Face::default().into(),
+                menu_face: Face::default().into(),
                 style: MenuStyle::Inline,
                 screen_w: 80,
                 screen_h: 24,

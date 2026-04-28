@@ -356,6 +356,7 @@ mod tests {
             atoms: vec![ResolvedAtom {
                 contents: "hello".into(),
                 face: Face::default(),
+                style: kasane_core::protocol::Style::default(),
             }],
             max_width: 100.0,
             line_idx: 0,

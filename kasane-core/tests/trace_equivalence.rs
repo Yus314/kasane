@@ -120,7 +120,7 @@ fn apply_mutation(state: &mut AppState, mutation: &Mutation) -> DirtyFlags {
             title: make_line("Test"),
             content: vec![make_line("test info content")],
             anchor: Coord { line: 0, column: 0 },
-            face: Face::default(),
+            face: Face::default().into(),
             style: InfoStyle::Modal,
         }),
         Mutation::HideInfo => {
@@ -184,7 +184,7 @@ fn rich_state() -> AppState {
             line: 0,
             column: 20,
         },
-        face: Face::default(),
+        face: Face::default().into(),
         style: InfoStyle::Inline,
     });
 
@@ -208,7 +208,7 @@ fn prompt_state() -> AppState {
         content: make_line("write"),
         content_cursor_pos: 5,
         mode_line: make_line("prompt"),
-        default_face: Face::default(),
+        default_face: Face::default().into(),
         style: StatusStyle::Command,
     });
     state
@@ -232,7 +232,7 @@ fn multi_info_state() -> AppState {
         title: make_line("Doc"),
         content: vec![make_line("documentation"), make_line("second line")],
         anchor: Coord { line: 2, column: 0 },
-        face: Face::default(),
+        face: Face::default().into(),
         style: InfoStyle::Modal,
     });
     state

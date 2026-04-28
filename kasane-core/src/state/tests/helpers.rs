@@ -30,8 +30,8 @@ fn test_has_menu() {
         vec![vec![Atom::from_face(Face::default(), "a")]],
         MenuParams {
             anchor: Coord::default(),
-            selected_item_face: Face::default(),
-            menu_face: Face::default(),
+            selected_item_face: Face::default().into(),
+            menu_face: Face::default().into(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 24,
@@ -50,7 +50,7 @@ fn test_has_info() {
         content: vec![],
         anchor: Coord::default(),
         style: InfoStyle::Prompt,
-        face: Face::default(),
+        face: Face::default().into(),
         identity: InfoIdentity {
             style: InfoStyle::Prompt,
             anchor_line: 0,

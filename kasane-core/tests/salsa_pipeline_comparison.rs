@@ -140,8 +140,8 @@ fn compare_with_inline_menu() {
         ],
         MenuParams {
             anchor: Coord { line: 1, column: 5 },
-            selected_item_face: Face::default(),
-            menu_face: Face::default(),
+            selected_item_face: Face::default().into(),
+            menu_face: Face::default().into(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 23,
@@ -164,8 +164,8 @@ fn compare_with_search_menu() {
         vec![vec![make_atom("match1")], vec![make_atom("match2")]],
         MenuParams {
             anchor: Coord { line: 0, column: 0 },
-            selected_item_face: Face::default(),
-            menu_face: Face::default(),
+            selected_item_face: Face::default().into(),
+            menu_face: Face::default().into(),
             style: MenuStyle::Search,
             screen_w: 80,
             screen_h: 23,
@@ -194,7 +194,7 @@ fn compare_with_info_modal() {
             line: 5,
             column: 10,
         },
-        face: Face::default(),
+        face: Face::default().into(),
         style: InfoStyle::Modal,
         identity: InfoIdentity {
             style: InfoStyle::Modal,
@@ -218,7 +218,7 @@ fn compare_with_multiple_infos() {
         title: vec![make_atom("Info A")],
         content: vec![vec![make_atom("Content A")]],
         anchor: Coord { line: 3, column: 0 },
-        face: Face::default(),
+        face: Face::default().into(),
         style: InfoStyle::Inline,
         identity: InfoIdentity {
             style: InfoStyle::Inline,
@@ -233,7 +233,7 @@ fn compare_with_multiple_infos() {
             line: 8,
             column: 20,
         },
-        face: Face::default(),
+        face: Face::default().into(),
         style: InfoStyle::Inline,
         identity: InfoIdentity {
             style: InfoStyle::Inline,
@@ -575,8 +575,8 @@ fn compare_with_plugins_and_menu() {
         vec![vec![make_atom("item_one")], vec![make_atom("item_two")]],
         MenuParams {
             anchor: Coord { line: 1, column: 5 },
-            selected_item_face: Face::default(),
-            menu_face: Face::default(),
+            selected_item_face: Face::default().into(),
+            menu_face: Face::default().into(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 23,
@@ -611,7 +611,7 @@ fn make_info_state(anchor_line: i32, anchor_col: i32, style: InfoStyle) -> InfoS
             line: anchor_line,
             column: anchor_col,
         },
-        face: Face::default(),
+        face: Face::default().into(),
         style,
         identity: InfoIdentity {
             style,
@@ -630,8 +630,8 @@ fn make_menu_state() -> MenuState {
         ],
         MenuParams {
             anchor: Coord { line: 1, column: 5 },
-            selected_item_face: Face::default(),
-            menu_face: Face::default(),
+            selected_item_face: Face::default().into(),
+            menu_face: Face::default().into(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 23,

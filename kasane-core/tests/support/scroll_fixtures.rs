@@ -28,7 +28,7 @@ pub fn make_info_state(anchor_line: u32, anchor_column: u32, lines: &[&str]) -> 
             line: anchor_line as i32,
             column: anchor_column as i32,
         },
-        face: Face::default(),
+        face: Face::default().into(),
         style: InfoStyle::Prompt,
         identity: InfoIdentity {
             style: InfoStyle::Prompt,

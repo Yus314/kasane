@@ -17,13 +17,13 @@ fn resolve_menu_face(menu: &MenuState, selected: bool, state: &AppState) -> Face
     if selected {
         state.config.theme.resolve_with_protocol_fallback(
             &StyleToken::MENU_ITEM_SELECTED,
-            menu.selected_item_face,
+            menu.selected_item_face.to_face(),
         )
     } else {
         state
             .config
             .theme
-            .resolve_with_protocol_fallback(&StyleToken::MENU_ITEM_NORMAL, menu.menu_face)
+            .resolve_with_protocol_fallback(&StyleToken::MENU_ITEM_NORMAL, menu.menu_face.to_face())
     }
 }
 
@@ -390,16 +390,17 @@ fn build_menu_search_dropdown(
 fn build_scrollbar(
     win_height: u16,
     menu: &MenuState,
-    face: &Face,
+    face: &crate::protocol::Style,
     thumb: &str,
     track: &str,
 ) -> Element {
+    let face = face.to_face();
     builders::build_scrollbar(
         win_height,
         menu.items.len(),
         menu.columns,
         menu.first_item,
-        face,
+        &face,
         thumb,
         track,
     )
@@ -505,8 +506,8 @@ mod tests {
             items,
             MenuParams {
                 anchor: Coord { line: 5, column: 0 },
-                selected_item_face: Face::default(),
-                menu_face: Face::default(),
+                selected_item_face: Face::default().into(),
+                menu_face: Face::default().into(),
                 style: MenuStyle::Inline,
                 screen_w: 80,
                 screen_h: 24,
@@ -554,8 +555,8 @@ mod tests {
         state.apply(crate::protocol::KakouneRequest::MenuShow {
             items,
             anchor: Coord { line: 5, column: 0 },
-            selected_item_face: Face::default(),
-            menu_face: Face::default(),
+            selected_item_face: Face::default().into(),
+            menu_face: Face::default().into(),
             style: MenuStyle::Inline,
         });
 

@@ -18,7 +18,10 @@ pub struct InfoState {
     pub title: Line,
     pub content: Vec<Line>,
     pub anchor: Coord,
-    pub face: Face,
+    /// Info popup face. ADR-031 Phase A.3 migrated this from `Face` to
+    /// `Style`; the field name is preserved while consumers migrate
+    /// (most still call `.to_face()` at the rendering boundary).
+    pub face: crate::protocol::Style,
     pub style: InfoStyle,
     pub identity: InfoIdentity,
     pub scroll_offset: u16,

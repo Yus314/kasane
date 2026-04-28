@@ -115,8 +115,8 @@ fn test_apply_menu_show_select_hide() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("a"), make_line("b")],
         anchor: Coord { line: 1, column: 0 },
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Inline,
     });
     assert!(state.observed.menu.is_some());
@@ -223,8 +223,8 @@ fn make_inline_menu(items: Vec<Line>, win_height: u16) -> MenuState {
     MenuState {
         items,
         anchor: Coord::default(),
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Inline,
         selected: None,
         first_item: 0,
@@ -242,8 +242,8 @@ fn make_prompt_menu(items: Vec<Line>, win_height: u16, columns: u16) -> MenuStat
     MenuState {
         items,
         anchor: Coord::default(),
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Prompt,
         selected: None,
         first_item: 0,
@@ -261,8 +261,8 @@ fn make_search_menu(items: Vec<Line>, screen_w: u16) -> MenuState {
     MenuState {
         items,
         anchor: Coord::default(),
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Search,
         selected: None,
         first_item: 0,

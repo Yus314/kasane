@@ -14,8 +14,10 @@ use super::menu::{ItemSplit, MenuColumns, MenuState};
 pub struct MenuSnapshot {
     pub items: Vec<Line>,
     pub anchor: Coord,
-    pub selected_item_face: Face,
-    pub menu_face: Face,
+    /// ADR-031 Phase A.3: Style.
+    pub selected_item_face: crate::protocol::Style,
+    /// ADR-031 Phase A.3: Style.
+    pub menu_face: crate::protocol::Style,
     pub style: MenuStyle,
     pub selected: Option<usize>,
     pub first_item: usize,
@@ -49,8 +51,8 @@ impl MenuSnapshot {
         Self {
             items: menu.items.clone(),
             anchor: menu.anchor,
-            selected_item_face: menu.selected_item_face,
-            menu_face: menu.menu_face,
+            selected_item_face: menu.selected_item_face.clone(),
+            menu_face: menu.menu_face.clone(),
             style: menu.style,
             selected: menu.selected,
             first_item: menu.first_item,
@@ -109,7 +111,8 @@ pub struct InfoSnapshot {
     pub title: Line,
     pub content: Vec<Line>,
     pub anchor: Coord,
-    pub face: Face,
+    /// ADR-031 Phase A.3: Style.
+    pub face: crate::protocol::Style,
     pub style: InfoStyle,
     pub identity: InfoIdentity,
     pub scroll_offset: u16,
@@ -121,7 +124,7 @@ impl InfoSnapshot {
             title: info.title.clone(),
             content: info.content.clone(),
             anchor: info.anchor,
-            face: info.face,
+            face: info.face.clone(),
             style: info.style,
             identity: info.identity.clone(),
             scroll_offset: info.scroll_offset,
@@ -145,8 +148,8 @@ mod tests {
             vec![vec![make_atom("item1")], vec![make_atom("item2")]],
             MenuParams {
                 anchor: Coord { line: 5, column: 0 },
-                selected_item_face: Face::default(),
-                menu_face: Face::default(),
+                selected_item_face: Face::default().into(),
+                menu_face: Face::default().into(),
                 style: MenuStyle::Inline,
                 screen_w: 80,
                 screen_h: 23,
@@ -164,8 +167,8 @@ mod tests {
     fn menu_snapshot_equality() {
         let params = MenuParams {
             anchor: Coord { line: 5, column: 0 },
-            selected_item_face: Face::default(),
-            menu_face: Face::default(),
+            selected_item_face: Face::default().into(),
+            menu_face: Face::default().into(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 23,
@@ -191,7 +194,8 @@ mod tests {
             face: Face {
                 fg: Color::Named(NamedColor::Yellow),
                 ..Face::default()
-            },
+            }
+            .into(),
             style: InfoStyle::Prompt,
             identity: InfoIdentity {
                 style: InfoStyle::Prompt,

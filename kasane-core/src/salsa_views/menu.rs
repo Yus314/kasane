@@ -65,9 +65,9 @@ pub fn pure_menu_overlay(
 fn build_menu_item_element_pure(menu: &MenuSnapshot, item_idx: usize, width: u16) -> Element {
     let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
     let face = if selected {
-        menu.selected_item_face
+        menu.selected_item_face.to_face()
     } else {
-        menu.menu_face
+        menu.menu_face.to_face()
     };
     let item = if item_idx < menu.items.len() {
         build_styled_line_with_base(&menu.items[item_idx], &face, width)
@@ -87,9 +87,9 @@ fn build_split_item_element_pure(
 ) -> Element {
     let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
     let face = if selected {
-        menu.selected_item_face
+        menu.selected_item_face.to_face()
     } else {
-        menu.menu_face
+        menu.menu_face.to_face()
     };
 
     if item_idx >= menu.items.len() {
@@ -175,12 +175,13 @@ fn build_menu_inline_pure(
         })
         .collect();
 
+    let menu_face = menu.menu_face.to_face();
     let scrollbar = build_scrollbar(
         win.height,
         menu.items.len(),
         menu.columns,
         menu.first_item,
-        &menu.menu_face,
+        &menu_face,
         scrollbar_thumb,
         scrollbar_track,
     );
@@ -224,12 +225,13 @@ fn build_menu_prompt_pure(
     }
 
     let grid_columns = vec![crate::element::GridColumn::flex(1.0); columns];
+    let menu_face = menu.menu_face.to_face();
     let scrollbar = build_scrollbar(
         wh,
         menu.items.len(),
         menu.columns,
         menu.first_item,
-        &menu.menu_face,
+        &menu_face,
         scrollbar_thumb,
         scrollbar_track,
     );
@@ -240,7 +242,7 @@ fn build_menu_prompt_pure(
     ]);
 
     Some(Overlay {
-        element: Element::container(row, Style::from(menu.menu_face)),
+        element: Element::container(row, Style::from(menu.menu_face.to_face())),
         anchor: OverlayAnchor::Absolute {
             x: 0,
             y: start_y,
@@ -255,11 +257,13 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
     let screen_w = cols as usize;
     let first = menu.first_item;
     let has_prefix = first > 0;
+    let menu_face = menu.menu_face.to_face();
+    let selected_face = menu.selected_item_face.to_face();
 
     let mut atoms: Vec<Atom> = Vec::new();
 
     if has_prefix {
-        atoms.push(Atom::from_face(menu.menu_face, "< "));
+        atoms.push(Atom::from_face(menu_face, "< "));
     }
 
     let mut x = if has_prefix { PREFIX_WIDTH } else { 0 };
@@ -272,17 +276,17 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
             if has_more {
                 let pad_len = screen_w.saturating_sub(x + 1);
                 if pad_len > 0 {
-                    atoms.push(Atom::from_face(menu.menu_face, " ".repeat(pad_len)));
+                    atoms.push(Atom::from_face(menu_face, " ".repeat(pad_len)));
                 }
-                atoms.push(Atom::from_face(menu.menu_face, ">"));
+                atoms.push(Atom::from_face(menu_face, ">"));
             }
             break;
         }
 
         let face = if Some(idx) == menu.selected {
-            menu.selected_item_face
+            selected_face
         } else {
-            menu.menu_face
+            menu_face
         };
 
         for atom in &menu.items[idx] {
@@ -291,12 +295,12 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
         x += item_w;
 
         if x < screen_w {
-            atoms.push(Atom::from_face(menu.menu_face, " "));
+            atoms.push(Atom::from_face(menu_face, " "));
             x += 1;
         }
     }
 
-    let element = Element::container(Element::StyledLine(atoms), Style::from(menu.menu_face));
+    let element = Element::container(Element::StyledLine(atoms), Style::from(menu_face));
 
     Some(Overlay {
         element,
@@ -329,12 +333,13 @@ fn build_menu_search_dropdown_pure(
         })
         .collect();
 
+    let menu_face = menu.menu_face.to_face();
     let scrollbar = build_scrollbar(
         win_h,
         menu.items.len(),
         menu.columns,
         menu.first_item,
-        &menu.menu_face,
+        &menu_face,
         scrollbar_thumb,
         scrollbar_track,
     );

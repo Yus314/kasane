@@ -76,7 +76,7 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
     for row in 0..total_h as u16 {
         let y = y_start + row;
         for x in win.x..win.x + win.width {
-            grid.put_char(x, y, " ", &info.face);
+            grid.put_char(x, y, " ", &info.face.to_face());
         }
     }
 
@@ -93,7 +93,7 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
             let x = win.x + i;
             if x < grid.width() {
                 let s: String = ch.into();
-                grid.put_char(x, y, &s, &info.face);
+                grid.put_char(x, y, &s, &info.face.to_face());
             }
         }
     }
@@ -103,14 +103,14 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
         let title_w = crate::layout::line_display_width(&info.title);
         let y = y_start;
         let mut x = frame_x;
-        grid.put_char(x, y, "╭", &info.face);
+        grid.put_char(x, y, "╭", &info.face.to_face());
         x += 1;
-        grid.put_char(x, y, "─", &info.face);
+        grid.put_char(x, y, "─", &info.face.to_face());
         x += 1;
 
         if info.title.is_empty() || cw < 4 {
             for _ in 0..cw {
-                grid.put_char(x, y, "─", &info.face);
+                grid.put_char(x, y, "─", &info.face.to_face());
                 x += 1;
             }
         } else {
@@ -121,25 +121,31 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
             let right_dashes = dash_count - left_dashes;
 
             for _ in 0..left_dashes {
-                grid.put_char(x, y, "─", &info.face);
+                grid.put_char(x, y, "─", &info.face.to_face());
                 x += 1;
             }
-            grid.put_char(x, y, "┤", &info.face);
+            grid.put_char(x, y, "┤", &info.face.to_face());
             x += 1;
-            grid.put_line_with_base(y, x, &info.title, title_display_w as u16, Some(&info.face));
+            grid.put_line_with_base(
+                y,
+                x,
+                &info.title,
+                title_display_w as u16,
+                Some(&info.face.to_face()),
+            );
             x += title_display_w as u16;
-            grid.put_char(x, y, "├", &info.face);
+            grid.put_char(x, y, "├", &info.face.to_face());
             x += 1;
             for _ in 0..right_dashes {
-                grid.put_char(x, y, "─", &info.face);
+                grid.put_char(x, y, "─", &info.face.to_face());
                 x += 1;
             }
         }
 
-        grid.put_char(x, y, "─", &info.face);
+        grid.put_char(x, y, "─", &info.face.to_face());
         x += 1;
         if x < grid.width() {
-            grid.put_char(x, y, "╮", &info.face);
+            grid.put_char(x, y, "╮", &info.face.to_face());
         }
     }
 
@@ -154,15 +160,15 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
     // Draw left/right borders for all content rows
     for row in 0..content_rows {
         let y = content_y + row;
-        grid.put_char(frame_x, y, "│", &info.face);
-        grid.put_char(frame_x + 1, y, " ", &info.face);
+        grid.put_char(frame_x, y, "│", &info.face.to_face());
+        grid.put_char(frame_x + 1, y, " ", &info.face.to_face());
         let right_space = frame_x + 2 + cw;
         let right_border = frame_x + 3 + cw;
         if right_space < grid.width() {
-            grid.put_char(right_space, y, " ", &info.face);
+            grid.put_char(right_space, y, " ", &info.face.to_face());
         }
         if right_border < grid.width() {
-            grid.put_char(right_border, y, "│", &info.face);
+            grid.put_char(right_border, y, "│", &info.face.to_face());
         }
     }
 
@@ -178,7 +184,7 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
             content_x,
             line,
             cw,
-            Some(&info.face),
+            Some(&info.face.to_face()),
             content_end_y,
         );
         y += rows;
@@ -189,18 +195,18 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
     let dash = if truncated { "┄" } else { "─" };
     {
         let mut x = frame_x;
-        grid.put_char(x, bottom_y, "╰", &info.face);
+        grid.put_char(x, bottom_y, "╰", &info.face.to_face());
         x += 1;
-        grid.put_char(x, bottom_y, dash, &info.face);
+        grid.put_char(x, bottom_y, dash, &info.face.to_face());
         x += 1;
         for _ in 0..cw {
-            grid.put_char(x, bottom_y, dash, &info.face);
+            grid.put_char(x, bottom_y, dash, &info.face.to_face());
             x += 1;
         }
-        grid.put_char(x, bottom_y, dash, &info.face);
+        grid.put_char(x, bottom_y, dash, &info.face.to_face());
         x += 1;
         if x < grid.width() {
-            grid.put_char(x, bottom_y, "╯", &info.face);
+            grid.put_char(x, bottom_y, "╯", &info.face.to_face());
         }
     }
 
@@ -212,8 +218,8 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
         if let Some(cell) = grid.get(padding_x, y)
             && cell.grapheme != " "
         {
-            grid.put_char(padding_x, y, "…", &info.face);
-            grid.put_char(border_x, y, "│", &info.face);
+            grid.put_char(padding_x, y, "…", &info.face.to_face());
+            grid.put_char(border_x, y, "│", &info.face.to_face());
         }
     }
 }
@@ -234,7 +240,7 @@ fn render_info_framed(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
     for row in 0..inner_h {
         let y = inner_y + row;
         for x in (win.x + 1)..(win.x + win.width).saturating_sub(1) {
-            grid.put_char(x, y, " ", &info.face);
+            grid.put_char(x, y, " ", &info.face.to_face());
         }
     }
 
@@ -248,25 +254,44 @@ fn render_info_framed(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
             }
             break;
         }
-        let rows =
-            super::render_wrapped_line(grid, y, inner_x, line, inner_w, Some(&info.face), y_limit);
+        let rows = super::render_wrapped_line(
+            grid,
+            y,
+            inner_x,
+            line,
+            inner_w,
+            Some(&info.face.to_face()),
+            y_limit,
+        );
         y += rows;
     }
     let truncated = !all_rendered;
 
-    super::draw_border(grid, win, &info.face, truncated, ("╭", "╮", "╰", "╯"));
+    super::draw_border(
+        grid,
+        win,
+        &info.face.to_face(),
+        truncated,
+        ("╭", "╮", "╰", "╯"),
+    );
 
     // Draw title on top border: ╭─┤title├─╮
     if !info.title.is_empty() {
         let title_width = crate::layout::line_display_width(&info.title);
         if title_width > 0 && win.width > 6 {
             let tx = win.x + 2; // after ╭─
-            grid.put_char(tx, win.y, "┤", &info.face);
+            grid.put_char(tx, win.y, "┤", &info.face.to_face());
             let max_title = (win.width as usize - 6).min(title_width) as u16;
-            grid.put_line_with_base(win.y, tx + 1, &info.title, max_title, Some(&info.face));
+            grid.put_line_with_base(
+                win.y,
+                tx + 1,
+                &info.title,
+                max_title,
+                Some(&info.face.to_face()),
+            );
             let after = tx + 1 + max_title;
             if after < win.x + win.width - 2 {
-                grid.put_char(after, win.y, "├", &info.face);
+                grid.put_char(after, win.y, "├", &info.face.to_face());
             }
         }
     }
@@ -279,8 +304,8 @@ fn render_info_framed(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
         if let Some(cell) = grid.get(padding_x, y)
             && cell.grapheme != " "
         {
-            grid.put_char(padding_x, y, "…", &info.face);
-            grid.put_char(border_x, y, "│", &info.face);
+            grid.put_char(padding_x, y, "…", &info.face.to_face());
+            grid.put_char(border_x, y, "│", &info.face.to_face());
         }
     }
 }
@@ -298,7 +323,7 @@ fn render_info_nonframed(
     for row in 0..win.height {
         let y = win.y + row;
         for x in win.x..(win.x + win.width) {
-            grid.put_char(x, y, " ", &info.face);
+            grid.put_char(x, y, " ", &info.face.to_face());
         }
     }
 
@@ -308,8 +333,15 @@ fn render_info_nonframed(
         if y >= y_limit {
             break;
         }
-        let rows =
-            super::render_wrapped_line(grid, y, win.x, line, win.width, Some(&info.face), y_limit);
+        let rows = super::render_wrapped_line(
+            grid,
+            y,
+            win.x,
+            line,
+            win.width,
+            Some(&info.face.to_face()),
+            y_limit,
+        );
         y += rows;
     }
 }

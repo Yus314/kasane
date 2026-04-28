@@ -209,12 +209,15 @@ fn build_info_prompt_pure(
             Some(custom) => &custom[idx],
             None => ASSISTANT_CLIPPY[idx],
         };
-        asst_rows.push(FlexChild::fixed(Element::text(line_str, info.face)));
+        asst_rows.push(FlexChild::fixed(Element::text(
+            line_str,
+            info.face.to_face(),
+        )));
     }
     let assistant_col = Element::column(asst_rows);
 
     let frame_content_h = total_h.saturating_sub(2) as u16;
-    let wrapped_lines = wrap_content_lines(trimmed, cw, frame_content_h, &info.face);
+    let wrapped_lines = wrap_content_lines(trimmed, cw, frame_content_h, &info.face.to_face());
     let frame_h = (wrapped_lines.len() as u16 + 2).min(total_h as u16);
 
     let content_rows: Vec<FlexChild> = wrapped_lines
@@ -233,7 +236,7 @@ fn build_info_prompt_pure(
             bottom: 0,
             left: 1,
         },
-        style: Style::from(info.face),
+        style: Style::from(info.face.to_face()),
         title: if info.title.is_empty() {
             None
         } else {
@@ -244,10 +247,10 @@ fn build_info_prompt_pure(
     let frame_w = win.width.saturating_sub(ASSISTANT_WIDTH);
     let base = Element::row(vec![
         FlexChild::fixed(assistant_col),
-        FlexChild::flexible(Element::text("", info.face), 1.0),
+        FlexChild::flexible(Element::text("", info.face.to_face()), 1.0),
     ]);
     let container = Element::stack(
-        Element::container(base, Style::from(info.face)),
+        Element::container(base, Style::from(info.face.to_face())),
         vec![Overlay {
             element: framed_content,
             anchor: OverlayAnchor::Absolute {
@@ -270,7 +273,7 @@ fn build_info_framed_pure(
     let inner_w = win.width.saturating_sub(4).max(1);
     let inner_h = win.height.saturating_sub(2);
 
-    let content_col = build_content_column(&info.content, inner_w, inner_h, &info.face);
+    let content_col = build_content_column(&info.content, inner_w, inner_h, &info.face.to_face());
 
     let framed = Element::Container {
         child: Box::new(content_col),
@@ -282,7 +285,7 @@ fn build_info_framed_pure(
             bottom: 0,
             left: 1,
         },
-        style: Style::from(info.face),
+        style: Style::from(info.face.to_face()),
         title: if info.title.is_empty() {
             None
         } else {
@@ -294,6 +297,10 @@ fn build_info_framed_pure(
 }
 
 fn build_info_nonframed_pure(info: &InfoSnapshot, win: &layout::FloatingWindow) -> Option<Element> {
-    let content_col = build_content_column(&info.content, win.width, win.height, &info.face);
-    Some(Element::container(content_col, Style::from(info.face)))
+    let content_col =
+        build_content_column(&info.content, win.width, win.height, &info.face.to_face());
+    Some(Element::container(
+        content_col,
+        Style::from(info.face.to_face()),
+    ))
 }

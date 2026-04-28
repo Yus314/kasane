@@ -91,9 +91,9 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
         let y = win.y + line;
 
         let face = if item_idx < menu.items.len() && Some(item_idx) == menu.selected {
-            &menu.selected_item_face
+            &menu.selected_item_face.to_face()
         } else {
-            &menu.menu_face
+            &menu.menu_face.to_face()
         };
 
         // Fill row with face
@@ -114,7 +114,7 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
         win.y,
         win.height,
         menu,
-        &menu.menu_face,
+        &menu.menu_face.to_face(),
     );
 }
 
@@ -143,7 +143,7 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
 
     // Fill menu area with menu_face
     for y in start_y..status_row {
-        grid.fill_row(y, &menu.menu_face);
+        grid.fill_row(y, &menu.menu_face.to_face());
     }
 
     // Draw items in column-major order
@@ -163,9 +163,9 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
 
             let is_selected = Some(item_idx) == menu.selected;
             let face = if is_selected {
-                &menu.selected_item_face
+                &menu.selected_item_face.to_face()
             } else {
-                &menu.menu_face
+                &menu.menu_face.to_face()
             };
 
             // Fill column width with face
@@ -182,7 +182,14 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
 
     // Scrollbar on rightmost column
     let scrollbar_x = grid.width().saturating_sub(1);
-    draw_scrollbar(grid, scrollbar_x, start_y, wh, menu, &menu.menu_face);
+    draw_scrollbar(
+        grid,
+        scrollbar_x,
+        start_y,
+        wh,
+        menu,
+        &menu.menu_face.to_face(),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +208,7 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
     let screen_w = grid.width() as usize;
 
     // Fill the row with menu_face
-    grid.fill_row(y, &menu.menu_face);
+    grid.fill_row(y, &menu.menu_face.to_face());
 
     let first = menu.first_item;
     let has_prefix = first > 0;
@@ -209,9 +216,9 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
 
     // Draw "< " prefix if scrolled
     if has_prefix {
-        grid.put_char(x as u16, y, "<", &menu.menu_face);
+        grid.put_char(x as u16, y, "<", &menu.menu_face.to_face());
         x += 1;
-        grid.put_char(x as u16, y, " ", &menu.menu_face);
+        grid.put_char(x as u16, y, " ", &menu.menu_face.to_face());
         x += 1;
     }
 
@@ -228,19 +235,19 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
             if has_more && x < screen_w {
                 // Pad remaining space, then draw ">"
                 while x + 1 < screen_w {
-                    grid.put_char(x as u16, y, " ", &menu.menu_face);
+                    grid.put_char(x as u16, y, " ", &menu.menu_face.to_face());
                     x += 1;
                 }
-                grid.put_char(x as u16, y, ">", &menu.menu_face);
+                grid.put_char(x as u16, y, ">", &menu.menu_face.to_face());
             }
             break;
         }
 
         let is_selected = Some(idx) == menu.selected;
         let face = if is_selected {
-            &menu.selected_item_face
+            &menu.selected_item_face.to_face()
         } else {
-            &menu.menu_face
+            &menu.menu_face.to_face()
         };
 
         // Draw item
@@ -250,7 +257,7 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
 
         // Gap between items
         if x < screen_w {
-            grid.put_char(x as u16, y, " ", &menu.menu_face);
+            grid.put_char(x as u16, y, " ", &menu.menu_face.to_face());
             x += 1;
         }
     }
@@ -297,8 +304,8 @@ mod tests {
             items,
             MenuParams {
                 anchor,
-                selected_item_face: Face::default(),
-                menu_face: Face::default(),
+                selected_item_face: Face::default().into(),
+                menu_face: Face::default().into(),
                 style,
                 screen_w,
                 screen_h,
@@ -327,8 +334,8 @@ mod tests {
         // screen_h = 10 - 1 = 9 (excl status), longest = 5, col_w = (40-1)/(6) = 6
         // columns = (40-1)/6 = 6, win_height = min(ceil(3/6), 10) = 1
         let mut ms = make_menu_state(items, MenuStyle::Prompt, Some(1), 40, 9);
-        ms.menu_face = menu_face;
-        ms.selected_item_face = selected_face;
+        ms.menu_face = menu_face.into();
+        ms.selected_item_face = selected_face.into();
         let mut state = AppState::default();
         state.observed.menu = Some(ms);
         state.runtime.cols = 40;

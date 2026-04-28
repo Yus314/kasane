@@ -1017,8 +1017,8 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
             host.menu_selected = menu.selected.map(|s| s as i32).unwrap_or(-1);
             host.menu_anchor = Some(menu.anchor);
             host.menu_style = Some(convert::menu_style_to_string(&menu.style));
-            host.menu_face = Some(menu.menu_face);
-            host.menu_selected_face = Some(menu.selected_item_face);
+            host.menu_face = Some(menu.menu_face.to_face());
+            host.menu_selected_face = Some(menu.selected_item_face.to_face());
         } else {
             host.menu_items.clear();
             host.menu_selected = -1;

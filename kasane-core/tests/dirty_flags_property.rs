@@ -173,8 +173,8 @@ proptest! {
         state.apply(KakouneRequest::MenuShow {
             items,
             anchor: Coord::default(),
-            selected_item_face: Face::default(),
-            menu_face: Face::default(),
+            selected_item_face: Face::default().into(),
+            menu_face: Face::default().into(),
             style: MenuStyle::Inline,
         });
         let flags = state.apply(KakouneRequest::MenuSelect { selected });
@@ -214,8 +214,8 @@ fn menu_hide_returns_menu_and_buffer() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![vec![make_atom("x")]],
         anchor: Coord::default(),
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Inline,
     });
     let flags = state.apply(KakouneRequest::MenuHide);
@@ -231,7 +231,7 @@ fn info_hide_returns_info_and_buffer() {
         title: vec![make_atom("t")],
         content: vec![vec![make_atom("c")]],
         anchor: Coord::default(),
-        face: Face::default(),
+        face: Face::default().into(),
         style: kasane_core::protocol::InfoStyle::Prompt,
     });
     let flags = state.apply(KakouneRequest::InfoHide);

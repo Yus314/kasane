@@ -982,8 +982,8 @@ fn make_test_menu() -> kasane_core::state::MenuState {
     kasane_core::state::MenuState {
         items: vec![],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_face: Face::default().into(),
+        menu_face: Face::default().into(),
         style: MenuStyle::Inline,
         selected: None,
         first_item: 0,
@@ -1002,7 +1002,7 @@ fn make_test_info() -> kasane_core::state::InfoState {
         title: vec![],
         content: vec![],
         anchor: Coord { line: 0, column: 0 },
-        face: Face::default(),
+        face: Face::default().into(),
         style: InfoStyle::Prompt,
         identity: kasane_core::state::InfoIdentity {
             style: InfoStyle::Prompt,
