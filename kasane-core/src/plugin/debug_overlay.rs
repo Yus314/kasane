@@ -13,8 +13,6 @@
 //! This plugin is opt-in — it is registered by default but the overlay is
 //! hidden until toggled.
 
-use compact_str::CompactString;
-
 use crate::element::{Element, OverlayAnchor};
 use crate::input::KeyEvent;
 use crate::plugin::context::{OverlayContext, OverlayContribution};

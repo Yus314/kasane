@@ -4,10 +4,8 @@
 //! from leading whitespace characters. This is the fallback when no
 //! `SyntaxProvider` with parsed data is available.
 
-use compact_str::CompactString;
-
 use crate::display::DisplayDirective;
-use crate::protocol::{Atom, Face, Line};
+use crate::protocol::{Atom, Line};
 
 use super::ZoomLevel;
 

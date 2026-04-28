@@ -3,8 +3,6 @@
 //! Uses `SyntaxProvider` methods (declarations, fold_ranges, scopes_at,
 //! signature_summary) to generate display directives with AST awareness.
 
-use compact_str::CompactString;
-
 use crate::display::DisplayDirective;
 use crate::plugin::app_view::AppView;
 use crate::protocol::{Atom, Face};
