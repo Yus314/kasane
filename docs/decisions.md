@@ -55,6 +55,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Annotation decomposition | Current | **4 annotation extension points + render_ornaments** | Gutter, background, inline, virtual text (annotation), plus render_ornaments (physical decoration). Details in [ADR-027](#adr-027-lineannotation-decomposition) |
 | WASM capability inference | Current | **`register-capabilities` WIT export** | WASM plugins declare capabilities as a bitmask; host skips non-participating dispatch. Details in [ADR-028](#adr-028-wasm-capability-inference) |
 | Inter-plugin communication | Current | **Topic-based pub/sub + plugin-defined extension points** | Two-phase evaluation with cycle prevention; typed extension points with composition rules. Details in [ADR-029](#adr-029-topic-based-pubsub-and-plugin-defined-extension-points) |
+| GPU rendering strategy | Proposed | **Vello evaluation framework (spike + trait abstraction)** | Re-evaluation of [ADR-014](#adr-014-gui-technology-stack--winit--wgpu--glyphon) §14-1 in light of 2026 Q1 changes (Glifo, Vello Hybrid). Details in [ADR-032](#adr-032-gpu-rendering-strategy--vello-evaluation-framework). |
 
 ## ADR-001: Rendering Approach — TUI + GUI Hybrid
 
@@ -2188,6 +2189,104 @@ The +23 % CPU budget reflects the deliberate trade: Parley's richer feature set 
 - **TUI behaviour preserved within representable limits.** The Style → TerminalStyle projection is lossy (continuous weight → bold bool, variations dropped, brushes quantised to terminal palette). Where the current TUI displays a face, the new TUI displays the same approximation.
 - **Five new features ship together.** RTL/Bidi hit-testing, inline boxes, variable font axes, subpixel positioning, and rich underline (curly/dotted/dashed/double with font-metric-driven amplitude) become available to plugins via the redesigned WIT and Style API.
 - **Vello adoption is unblocked, not committed.** Migrating text to Parley reduces the integration cost of a future Vello evaluation, but Vello adoption itself is out of scope for this ADR.
+
+## ADR-032: GPU Rendering Strategy — Vello Evaluation Framework
+
+**Status:** Proposed (2026-04-28). This ADR establishes a re-evaluation framework for Vello adoption; it does **not** commit to migration. The decision artefact (§Spike Findings) is filled in by a 5-day timeboxed spike. The current GUI stack (winit + wgpu + Parley + swash; ADR-031) remains the production renderer until and unless this ADR is updated to "Accepted with adoption plan".
+
+**Re-evaluates (does not supersede):** [ADR-014](#adr-014-gui-technology-stack--winit--wgpu--glyphon) §14-1's rejection of Vello. ADR-031's closing note "Vello adoption is unblocked, not committed" is the proximate hand-off into this ADR.
+
+### Context
+
+ADR-014 (2024) rejected Vello with three blockers: (i) no glyph cache (vector path rendering every frame), (ii) requires compute shaders, (iii) unstable API (3-5 month break cycles). ADR-031 (2026-04-26) migrated text from cosmic-text to Parley + swash and explicitly left the door open: *"Vello adoption is unblocked, not committed."*
+
+Two of the three ADR-014 blockers have started to soften during 2025-2026 Q1:
+
+1. **Glyph cache.** The `parley_draw` crate has been renamed **Glifo** and moved into the Vello repository, providing atlas-based glyph caching with `render_to_atlas` / `write_to_atlas` APIs. The "vector-path-per-frame" assumption in ADR-014 no longer holds for the canonical Linebender path.
+2. **Compute shader requirement.** **Vello Hybrid** (beta as of 2026 Q1) provides a GPU/CPU mixed path that does not require pure compute shaders, expanding hardware support to GPUs that lack robust compute pipelines.
+3. **API stability.** Still unresolved. Vello is at 0.8.0 (pre-1.0); Linebender has not announced a 1.0 timeline. This is the remaining ADR-014 blocker as of this writing.
+
+Independently, the cost of *staying* with the hand-rolled wgpu stack is non-trivial: ~11.5 K LOC (Rust + WGSL), 5 RenderPipeline objects, 8 WGSL shaders, a 3-tier glyph cache (~1.5 K LOC), and **zero golden-image regression tests**. Recent activity shows 16 of 25 GPU-layer commits were bug fixes, indicating ongoing maintenance load.
+
+The strategic question is not *"adopt or not"* in isolation but *"when, at what granularity, behind what abstraction"*. This ADR formalises that framing.
+
+### Decision
+
+Run a four-workstream evaluation framework that produces decision-grade information without committing to adoption:
+
+| Workstream | Output | Adoption-conditional? |
+|---|---|---|
+| **W1** ADR-032 (this document) | Decision framework + §Spike Findings | No (artifact independent of outcome) |
+| **W2** Golden image test infrastructure | Visual regression harness for `kasane-gui` | **No** — pays off regardless of Vello outcome |
+| **W3** `GpuBackend` trait | Backend-agnostic boundary, with `BackendCapabilities` for negotiation | **No** — pure additive refactor; current `WgpuBackend` is the only impl |
+| **W4** Roadmap entry | Decision triggers visible in `roadmap.md` §2.2 | No |
+| **W5** `kasane-vello-spike` (5-day timebox) | Performance, parity, memory data for ADR-032 §Spike Findings | Spike crate stays out of `members` if findings are negative |
+
+W1, W2, W4 run from day 1. W3 must precede W5. W5 has hard halt gates (see §Decision Gates).
+
+**Vector path API surface.** During W3 implementation we discovered that `GpuPrimitive` (`kasane-gui/src/gpu/scene_graph.rs`) is *not* wired into the production rendering path — `SceneRenderer` consumes `&[DrawCommand]` (kasane-core) directly, and `GpuPrimitive` is exercised only by unit tests and the dormant `SceneBuilder::from_draw_commands` helper. Adding a `Path` variant to a non-load-bearing enum would not pin any production-relevant API. The decision is therefore to:
+
+1. Land [`BackendCapabilities::supports_paths`](#) (boolean, currently `false` for `WgpuBackend`) as the negotiation surface for callers that may one day emit vector contributions.
+2. Defer the actual `DrawCommand::DrawPath` (or equivalent) variant addition to **the adoption work** that follows a positive W5 spike. This avoids introducing dead code in `kasane-core` and avoids colliding with ADR-031 Phases 2–5, which still churn `DrawCommand`-adjacent types.
+
+### Spike Measurement Matrix
+
+The spike (W5) produces the following data points. Each row has a target and a halt trigger; a halt trigger fires at the day-2 checkpoint (early termination preserves remaining timebox).
+
+| Metric | Target | Halt trigger |
+|---|---|---|
+| 80×24 warm frame | ≤ 70 µs | > 100 µs at Day 2 |
+| Cursor-only frame | ≤ 20 µs | > 60 µs |
+| Color emoji DSSIM vs swash | ≤ 0.01 | > 0.05 |
+| Variable font axis change cost | ≤ 2× swash | > 5× → flag, continue |
+| Resident GPU memory | ≤ 1.5× current atlas | > 3× → flag |
+| Vello + Glifo clean build time | ≤ +60 s | > +180 s → flag |
+
+The 80×24 warm-frame target intentionally matches ADR-031's Phase 11 target (≤ 70 µs) — Vello must clear the same bar Parley + swash already cleared.
+
+### Decision Gates
+
+| When | Gate | Action if failed |
+|---|---|---|
+| W2 Day 3 | Headless wgpu reads back deterministic pixels on CI | Fall back to local-only goldens (`KASANE_GOLDEN=local`); W2 continues |
+| W3 Day 2 | `Path` variant doesn't force >50 changed match sites | Move `Path` to a `BackendCapabilities`-gated extension struct |
+| W5 Day 2 | Frame ≤ 100 µs **and** Glifo accepts Kasane `font_id` keys | **Halt spike.** Write findings; re-evaluate in 6 months |
+| W5 Day 4 | ≤ 2 matrix rows in red | Write `§Spike Findings — Stop`; exit timebox |
+| W5 Day 5 | (regardless) | Finalise `§Spike Findings` — Accepted with adoption plan / Accepted as deferred / Rejected. **No production code change.** |
+
+### Spike Findings
+
+*To be filled in by W5. Do not commit downstream code changes (image-pipeline partial adoption, full migration) until this section is complete and ADR-032 is updated to "Accepted with adoption plan".*
+
+### Rejected Alternatives
+
+| Alternative | Reason for rejection |
+|---|---|
+| Adopt Vello now (full replacement) | API still pre-1.0 (0.8.0); Glifo not yet on crates.io; no measured frame-time data on Kasane's workload. |
+| Do nothing until Vello 1.0 | Passive monitoring loses the option value of the trait abstraction and golden tests, both of which pay off independently. Also delays the spike data needed for an informed 1.0-time decision. |
+| Add Lyon for vector paths, keep current text stack | Solves only the path-rendering subset; does not address the broader Linebender ecosystem alignment. Adds a third dependency without converging the long-term stack. |
+| Fork Glifo into kasane | Premature. Linebender is actively iterating; a fork commits us to maintenance of an upstream-divergent atlas implementation. |
+| Partial adoption (images/blur only) without trait or spike | Bypasses the W5 measurement matrix; lacks data to justify the dual-pipeline integration cost. Reconsidered post-spike if W5 findings are positive on a subset. |
+
+### Risks and Mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Vello 0.8 → 0.9 breaks mid-spike | `Cargo.lock` pinned for the spike branch; version bump deferred to a follow-up issue |
+| Glifo not yet on crates.io | Git rev-pin in spike `Cargo.toml`; spike branch isolated from main `Cargo.lock` if path resolution fails |
+| W3 collides with ADR-031 Phases 2-5 (`scene_graph.rs` churn) | `Path` variant is purely additive; W3 sequenced after the next ADR-031 phase tag |
+| Driver-dependent rasterization breaks W2 on CI | Disable MSAA in test target; DSSIM-based comparison absorbs sub-pixel noise; per-(OS, driver) snapshot tuples permitted |
+| Spike timebox exceeded | Hard halt at Day 5 regardless of completion; partial findings still feed §Spike Findings |
+| User-visible regression (color emoji, BiDi, complex scripts) discovered post-adoption | Spike matrix gates emoji/variable-font parity; complex scripts (Arabic, Devanagari, CJK ligatures) are tested via golden fixtures in W2 before any adoption decision |
+| Strategic divergence from Linebender (Parley adopted, Glifo skipped) | This ADR explicitly weighs convergence vs. divergence; a "Rejected" outcome on W5 is recorded as informed divergence, not avoidance |
+
+### Implications
+
+- **No production code changes** flow from this ADR alone. The current `WgpuBackend` (wrapping `SceneRenderer`) remains the sole production renderer.
+- **Two artefacts ship regardless of outcome:** golden image regression tests (W2) and the `GpuBackend` trait abstraction (W3). Both close existing gaps in the kasane-gui codebase independent of any future Vello decision.
+- **Plugin contribution surface gains a `BackendCapabilities::supports_paths` negotiation field.** No new enum variant ships in this ADR; the actual `DrawPath` primitive is deferred to adoption work, when it can be added to the live boundary (`DrawCommand` in `kasane-core`) rather than to the dormant `GpuPrimitive`. This keeps the door open without introducing dead code.
+- **ADR-014 §14-1 is *not* superseded by this ADR.** Supersession occurs only if ADR-032 is updated to "Accepted with adoption plan" after a positive spike. Until then, ADR-014's GUI-stack decision (winit + wgpu, with the text portion already updated by ADR-031) remains authoritative.
+- **`docs/roadmap.md` §2.2 Backlog gains a tracked item** for Vello 1.0 / Glifo crates.io publication / spike result. These are the externalised triggers for re-opening this ADR.
 
 ## Related Documents
 

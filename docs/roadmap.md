@@ -69,6 +69,7 @@ Parley pipeline benchmarks (post-Phase-11 baseline, 2026-04-26):
 | Semantic Zoom Phase 4 | WIT extension (WASM plugins define custom zoom strategies) |
 | Semantic Zoom Phase 5 | Level 5 MAP (module dependency graph display) |
 | GPU hardware stencil clipping | Activate the existing `depth_stencil.rs` infrastructure (stencil_write_increment / stencil_write_decrement). Defer until a UI feature requires non-rectangular clipping (e.g. rounded `Container` border radius) |
+| Vello GPU rendering re-evaluation (ADR-032) | Spike + trait abstraction + golden image tests. External triggers for re-opening: (a) Vello ≥ 1.0 stable release, (b) Glifo published to crates.io ≥ 0.2, (c) spike `frame_warm_24_lines` ≤ 70 µs at 80×24. ADR-032 in [decisions.md](./decisions.md). The `GpuBackend` trait and `GpuPrimitive::Path` variant are landed *independently* of any adoption decision (decision-grade artefacts) |
 
 ## 3. Completed Workstreams
 
