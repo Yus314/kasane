@@ -1,0 +1,58 @@
+# golden snapshot v1
+# dim 80 24
+
+# faces
+f0 Face { fg: Named(Red), bg: Named(Black), underline: Default, attributes: Attributes(BOLD) }
+f1 Face { fg: Named(White), bg: Named(Black), underline: Default, attributes: Attributes(0x0) }
+f2 Face { fg: Named(Cyan), bg: Named(Black), underline: Named(Cyan), attributes: Attributes(UNDERLINE) }
+f3 Face { fg: Default, bg: Default, underline: Default, attributes: Attributes(0x0) }
+
+# rows
+row 00: |fn main() {                                                                     |
+        faces: 0..2=f0 2..80=f1
+row 01: |    let x = 42;                                                                 |
+        faces: 0..80=f1
+row 02: |                                                                                |
+        faces: 0..80=f1
+row 03: |    println!("hello");                                                          |
+        faces: 0..4=f1 4..12=f2 12..80=f1
+row 04: |}                                                                               |
+        faces: 0..80=f1
+row 05: |~                                                                               |
+        faces: 0..80=f1
+row 06: |~                                                                               |
+        faces: 0..80=f1
+row 07: |~                                                                               |
+        faces: 0..80=f1
+row 08: |~                                                                               |
+        faces: 0..80=f1
+row 09: |~                                                                               |
+        faces: 0..80=f1
+row 10: |~                                                                               |
+        faces: 0..80=f1
+row 11: |~                                                                               |
+        faces: 0..80=f1
+row 12: |~                                                                               |
+        faces: 0..80=f1
+row 13: |~                                                                               |
+        faces: 0..80=f1
+row 14: |~                                                                               |
+        faces: 0..80=f1
+row 15: |~                                                                               |
+        faces: 0..80=f1
+row 16: |~                                                                               |
+        faces: 0..80=f1
+row 17: |~                                                                               |
+        faces: 0..80=f1
+row 18: |~                                                                               |
+        faces: 0..80=f1
+row 19: |~                                                                               |
+        faces: 0..80=f1
+row 20: |~                                                                               |
+        faces: 0..80=f1
+row 21: |~                                                                               |
+        faces: 0..80=f1
+row 22: |~                                                                               |
+        faces: 0..80=f1
+row 23: | main.rs                                                                  normal|
+        faces: 0..80=f3
