@@ -63,10 +63,9 @@ fn build_diagnostic_element(
 
     // Header line (first text run)
     if let Some(header_run) = spec.text_runs.first() {
-        body_children.push(FlexChild::fixed(Element::StyledLine(vec![Atom {
-            face: spec.header_face,
-            contents: header_run.text.clone().into(),
-        }])));
+        body_children.push(FlexChild::fixed(Element::StyledLine(vec![
+            Atom::from_face(spec.header_face, header_run.text.clone()),
+        ])));
     }
 
     // Body lines: tag + text pairs
@@ -74,16 +73,10 @@ fn build_diagnostic_element(
     for chunk in body_runs.chunks(2) {
         let mut atoms = Vec::new();
         for run in chunk {
-            atoms.push(Atom {
-                face: run.face,
-                contents: run.text.clone().into(),
-            });
+            atoms.push(Atom::from_face(run.face, run.text.clone()));
             // Space between tag and text
             if atoms.len() == 1 {
-                atoms.push(Atom {
-                    face: spec.body_face,
-                    contents: " ".into(),
-                });
+                atoms.push(Atom::from_face(spec.body_face, " "));
             }
         }
         body_children.push(FlexChild::fixed(Element::StyledLine(atoms)));

@@ -28,10 +28,7 @@ fn registry_with_builtins() -> PluginRuntime {
 }
 
 fn make_atom(text: &str) -> Atom {
-    Atom {
-        face: Face::default(),
-        contents: text.into(),
-    }
+    Atom::from_face(Face::default(), text)
 }
 
 /// Render with legacy pipeline and return the grid.

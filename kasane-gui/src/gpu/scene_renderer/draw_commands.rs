@@ -746,10 +746,7 @@ impl SceneRenderer {
                 } else {
                     atom.face
                 };
-                Atom {
-                    face,
-                    contents: atom.contents.clone().into(),
-                }
+                Atom::from_face(face, atom.contents.clone())
             })
             .collect();
         let fallback_brush = PBrush::rgba(

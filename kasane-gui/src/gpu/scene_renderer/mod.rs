@@ -310,10 +310,7 @@ impl SceneRenderer {
             return;
         }
 
-        let atoms = vec![Atom {
-            face: *face,
-            contents: text.into(),
-        }];
+        let atoms = vec![Atom::from_face(*face, text)];
         let line = StyledLine::from_atoms(
             &atoms,
             &Style::default(),
@@ -1086,6 +1083,55 @@ impl SceneRenderer {
             None
         } else {
             Some((x1, y1, x2 - x1, y2 - y1))
+        }
+    }
+}
+
+// ADR-032: GpuBackend implementation. Pure pass-through to the inherent
+// `pub fn` surface. The call site in `crate::app::render::submit_render`
+// continues to use the inherent methods; this impl exists so the
+// `kasane-vello-spike` crate can target the same trait surface.
+impl super::backend::GpuBackend for SceneRenderer {
+    fn render_with_cursor(
+        &mut self,
+        gpu: &super::GpuState,
+        commands: &[DrawCommand],
+        color_resolver: &ColorResolver,
+        cursor_style: CursorStyle,
+        cursor_state: &CursorRenderState,
+        cursor_color: kasane_core::protocol::Color,
+        overlay_opacities: &[f32],
+        visual_hints: &kasane_core::render::VisualHints,
+    ) -> Result<(), super::backend::BackendError> {
+        SceneRenderer::render_with_cursor(
+            self,
+            gpu,
+            commands,
+            color_resolver,
+            cursor_style,
+            cursor_state,
+            cursor_color,
+            overlay_opacities,
+            visual_hints,
+        )
+        .map_err(super::backend::BackendError::from)
+    }
+
+    fn resize(
+        &mut self,
+        gpu: &super::GpuState,
+        font_config: &FontConfig,
+        scale_factor: f64,
+        window_size: PhysicalSize<u32>,
+    ) {
+        SceneRenderer::resize(self, gpu, font_config, scale_factor, window_size);
+    }
+
+    fn capabilities(&self) -> super::backend::BackendCapabilities {
+        super::backend::BackendCapabilities {
+            supports_paths: false,
+            supports_compute: false,
+            atlas_kind: super::backend::AtlasKind::EtagereShelf,
         }
     }
 }

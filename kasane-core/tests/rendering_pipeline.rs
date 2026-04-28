@@ -82,17 +82,14 @@ fn empty_buffer_shows_padding() {
 fn buffer_with_colored_atoms() {
     let red = Color::Rgb { r: 255, g: 0, b: 0 };
     let line = vec![
-        Atom {
-            face: Face {
+        Atom::from_face(
+            Face {
                 fg: red,
                 ..Face::default()
             },
-            contents: "red".into(),
-        },
-        Atom {
-            face: Face::default(),
-            contents: " plain".into(),
-        },
+            "red",
+        ),
+        Atom::from_face(Face::default(), " plain"),
     ];
     let state = setup_state(vec![line]);
     let grid = render(&state);

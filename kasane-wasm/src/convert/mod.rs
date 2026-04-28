@@ -90,10 +90,7 @@ fn wit_color_to_color(wc: &wit::Color) -> Color {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn wit_atom_to_atom(wa: &wit::Atom) -> Atom {
-    Atom {
-        face: wit_face_to_face(&wa.face),
-        contents: wa.contents.as_str().into(),
-    }
+    Atom::from_face(wit_face_to_face(&wa.face), wa.contents.as_str())
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +120,7 @@ pub(crate) fn face_to_wit(f: &Face) -> wit::Face {
 
 pub(crate) fn atom_to_wit(a: &Atom) -> wit::Atom {
     wit::Atom {
-        face: face_to_wit(&a.face),
+        face: face_to_wit(&a.face()),
         contents: a.contents.to_string(),
     }
 }

@@ -40,10 +40,7 @@ fn arb_face() -> impl Strategy<Value = Face> {
 
 fn arb_line() -> impl Strategy<Value = Vec<Atom>> {
     prop::collection::vec(
-        ("[a-z]{1,10}", arb_face()).prop_map(|(contents, face)| Atom {
-            contents: contents.into(),
-            face,
-        }),
+        ("[a-z]{1,10}", arb_face()).prop_map(|(contents, face)| Atom::from_face(face, contents)),
         1..5,
     )
 }
@@ -57,24 +54,20 @@ fn arb_lines() -> impl Strategy<Value = Vec<Vec<Atom>>> {
 fn arb_line_with_cursor() -> impl Strategy<Value = (Vec<Atom>, u32)> {
     // prefix: 0-5 ASCII atoms, then one cursor atom, then 0-3 suffix atoms
     let prefix = prop::collection::vec(
-        "[a-z]{1,5}".prop_map(|s| Atom {
-            contents: s.into(),
-            face: Face::default(),
-        }),
+        "[a-z]{1,5}".prop_map(|s: String| Atom::from_face(Face::default(), s)),
         0..5,
     );
-    let cursor_text = "[a-z]{1,3}".prop_map(|s| Atom {
-        contents: s.into(),
-        face: Face {
-            attributes: Attributes::FINAL_FG | Attributes::REVERSE,
-            ..Face::default()
-        },
+    let cursor_text = "[a-z]{1,3}".prop_map(|s: String| {
+        Atom::from_face(
+            Face {
+                attributes: Attributes::FINAL_FG | Attributes::REVERSE,
+                ..Face::default()
+            },
+            s,
+        )
     });
     let suffix = prop::collection::vec(
-        "[a-z]{1,5}".prop_map(|s| Atom {
-            contents: s.into(),
-            face: Face::default(),
-        }),
+        "[a-z]{1,5}".prop_map(|s: String| Atom::from_face(Face::default(), s)),
         0..3,
     );
     (prefix, cursor_text, suffix).prop_map(|(mut pre, cursor, suf)| {
@@ -123,13 +116,13 @@ proptest! {
 
         // Add another cursor atom at end of last line
         let last = lines.len() - 1;
-        lines[last].push(Atom {
-            contents: "x".into(),
-            face: Face {
+        lines[last].push(Atom::from_face(
+            Face {
                 attributes: Attributes::FINAL_FG | Attributes::REVERSE,
                 ..Face::default()
             },
-        });
+            "x",
+        ));
 
         let (count_after, _) = derived::detect_cursors(&lines, pos);
         prop_assert_eq!(count_after, count_before + 1);

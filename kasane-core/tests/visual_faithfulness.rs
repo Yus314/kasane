@@ -16,10 +16,7 @@ fn fold_toggle_recovers_all_folded_lines() {
     let fold_range = 10..20;
     let directives = vec![DisplayDirective::Fold {
         range: fold_range.clone(),
-        summary: vec![Atom {
-            face: Face::default(),
-            contents: "…".into(),
-        }],
+        summary: vec![Atom::from_face(Face::default(), "…")],
     }];
 
     // Before toggle: folded lines map to a single summary display line.
@@ -57,10 +54,7 @@ fn fold_toggle_is_single_interaction() {
     let line_count = 20;
     let directives = vec![DisplayDirective::Fold {
         range: fold_range.clone(),
-        summary: vec![Atom {
-            face: Face::default(),
-            contents: "…".into(),
-        }],
+        summary: vec![Atom::from_face(Face::default(), "…")],
     }];
 
     // A single toggle call is sufficient to expand the fold.

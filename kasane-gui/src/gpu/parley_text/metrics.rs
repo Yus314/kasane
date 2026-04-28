@@ -43,10 +43,7 @@ pub fn calculate_with_parley(
     let letter_spacing_px = font_config.letter_spacing * scale_factor as f32;
 
     // Build a single-atom "M" line with default style.
-    let probe_atom = Atom {
-        face: kasane_core::protocol::Face::default(),
-        contents: "M".into(),
-    };
+    let probe_atom = Atom::from_face(kasane_core::protocol::Face::default(), "M");
     let line = StyledLine::from_atoms(
         &[probe_atom],
         &Style::default(),

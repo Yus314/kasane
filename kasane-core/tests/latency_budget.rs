@@ -31,68 +31,47 @@ fn typical_state(line_count: usize) -> AppState {
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
+    let keyword_face = Face {
+        fg: Color::Rgb {
+            r: 255,
+            g: 100,
+            b: 0,
+        },
+        bg: Color::Default,
+        ..Face::default()
+    };
+    let ident_face = Face {
+        fg: Color::Rgb {
+            r: 0,
+            g: 200,
+            b: 100,
+        },
+        bg: Color::Default,
+        ..Face::default()
+    };
+    let literal_face = Face {
+        fg: Color::Rgb {
+            r: 100,
+            g: 100,
+            b: 255,
+        },
+        bg: Color::Default,
+        ..Face::default()
+    };
     state.observed.lines = (0..line_count)
         .map(|i| {
             vec![
-                Atom {
-                    face: Face {
-                        fg: Color::Rgb {
-                            r: 255,
-                            g: 100,
-                            b: 0,
-                        },
-                        bg: Color::Default,
-                        ..Face::default()
-                    },
-                    contents: "let".into(),
-                },
-                Atom {
-                    face: Face::default(),
-                    contents: " ".into(),
-                },
-                Atom {
-                    face: Face {
-                        fg: Color::Rgb {
-                            r: 0,
-                            g: 200,
-                            b: 100,
-                        },
-                        bg: Color::Default,
-                        ..Face::default()
-                    },
-                    contents: format!("var_{i}").into(),
-                },
-                Atom {
-                    face: Face::default(),
-                    contents: " = ".into(),
-                },
-                Atom {
-                    face: Face {
-                        fg: Color::Rgb {
-                            r: 100,
-                            g: 100,
-                            b: 255,
-                        },
-                        bg: Color::Default,
-                        ..Face::default()
-                    },
-                    contents: format!("\"{i}_value\"").into(),
-                },
-                Atom {
-                    face: Face::default(),
-                    contents: ";".into(),
-                },
+                Atom::from_face(keyword_face, "let"),
+                Atom::from_face(Face::default(), " "),
+                Atom::from_face(ident_face, format!("var_{i}")),
+                Atom::from_face(Face::default(), " = "),
+                Atom::from_face(literal_face, format!("\"{i}_value\"")),
+                Atom::from_face(Face::default(), ";"),
             ]
         })
         .collect();
-    state.inference.status_line = vec![Atom {
-        face: Face::default(),
-        contents: " NORMAL ".into(),
-    }];
-    state.observed.status_mode_line = vec![Atom {
-        face: Face::default(),
-        contents: "normal".into(),
-    }];
+    state.inference.status_line = vec![Atom::from_face(Face::default(), " NORMAL ")];
+    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "normal")];
     state
 }
 
@@ -145,25 +124,27 @@ fn full_frame_under_2ms() {
 #[test]
 #[ignore]
 fn parse_request_under_500us() {
-    // Build a 100-line draw JSON message
-    let lines: Vec<kasane_core::protocol::Line> = (0..100)
-        .map(|i| {
-            vec![Atom {
-                face: Face::default(),
-                contents: format!("line {i}").into(),
-            }]
-        })
-        .collect();
+    // Build a 100-line draw JSON message. Atom no longer derives Serialize
+    // (its style_id is host-side state), so we construct the wire-format
+    // JSON directly with Face values.
     let default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
     let cursor_pos = kasane_core::protocol::Coord::default();
+    let lines_json: Vec<Vec<serde_json::Value>> = (0..100)
+        .map(|i| {
+            vec![serde_json::json!({
+                "face": Face::default(),
+                "contents": format!("line {i}"),
+            })]
+        })
+        .collect();
     let json = serde_json::to_vec(&serde_json::json!({
         "jsonrpc": "2.0",
         "method": "draw",
-        "params": [lines, cursor_pos, default_face, default_face, 0]
+        "params": [lines_json, cursor_pos, default_face, default_face, 0]
     }))
     .unwrap();
 
@@ -194,12 +175,7 @@ fn parse_request_under_500us() {
 fn state_apply_under_200us() {
     let draw = KakouneRequest::Draw {
         lines: (0..23)
-            .map(|i| {
-                vec![Atom {
-                    face: Face::default(),
-                    contents: format!("line {i}").into(),
-                }]
-            })
+            .map(|i| vec![Atom::from_face(Face::default(), format!("line {i}"))])
             .collect(),
         cursor_pos: kasane_core::protocol::Coord::default(),
         default_face: Face {

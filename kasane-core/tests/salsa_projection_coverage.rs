@@ -17,10 +17,7 @@ use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
 use kasane_core::state::AppState;
 
 fn atom(s: &str) -> Atom {
-    Atom {
-        face: Face::default(),
-        contents: s.into(),
-    }
+    Atom::from_face(Face::default(), s)
 }
 
 #[test]

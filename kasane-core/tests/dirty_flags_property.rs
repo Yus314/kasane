@@ -43,10 +43,8 @@ fn arb_coord() -> impl Strategy<Value = Coord> {
 /// Generate a random Line (vec of Atoms).
 fn arb_line() -> impl Strategy<Value = Vec<Atom>> {
     prop::collection::vec(
-        ("[a-z]{1,10}", arb_face()).prop_map(|(contents, face)| Atom {
-            contents: contents.into(),
-            face,
-        }),
+        ("[a-z]{1,10}", arb_face())
+            .prop_map(|(contents, face): (String, _)| Atom::from_face(face, contents)),
         1..5,
     )
 }
@@ -147,7 +145,7 @@ proptest! {
         menu_face in arb_face(),
     ) {
         let items: Vec<_> = (0..item_count)
-            .map(|i| vec![Atom { contents: format!("item{i}").into(), face: Face::default() }])
+            .map(|i| vec![Atom::from_face(Face::default(), format!("item{i}"))])
             .collect();
         let mut state = AppState::default();
         state.runtime.rows = 24;
@@ -170,7 +168,7 @@ proptest! {
         state.runtime.cols = 80;
         // First show a menu
         let items: Vec<_> = (0..10)
-            .map(|i| vec![Atom { contents: format!("item{i}").into(), face: Face::default() }])
+            .map(|i| vec![Atom::from_face(Face::default(), format!("item{i}"))])
             .collect();
         state.apply(KakouneRequest::MenuShow {
             items,
@@ -204,10 +202,7 @@ proptest! {
 }
 
 fn make_atom(s: &str) -> Atom {
-    Atom {
-        contents: compact_str::CompactString::new(s),
-        face: Face::default(),
-    }
+    Atom::from_face(Face::default(), s)
 }
 
 /// MenuHide returns MENU | BUFFER_CONTENT.
