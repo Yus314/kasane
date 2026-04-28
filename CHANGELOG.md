@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Added — ADR-032 Vello evaluation framework (in flight)
+
+Forward-looking framework that re-opens the ADR-014 Vello rejection in light of
+2026 Q1 changes (Glifo glyph caching, Vello Hybrid GPU/CPU path). **No
+production renderer change** — current `winit + wgpu + Parley + swash` stack
+remains authoritative until ADR-032 is updated to "Accepted with adoption plan"
+based on a future spike outcome.
+
+- **gui**: `kasane_gui::gpu::backend::GpuBackend` trait — current
+  `SceneRenderer` implements it via pass-through; reserved for a future
+  Vello-backed implementor. `BackendCapabilities { supports_paths,
+  supports_compute, atlas_kind }` for runtime feature negotiation. Pure
+  additive; no production call site changes.
+- **gui (tests)**: headless wgpu golden-image harness scaffold at
+  `kasane-gui/tests/golden_render.rs`. Renders to an offscreen RGBA8 texture,
+  reads back via `copy_texture_to_buffer`, compares with DSSIM via
+  `image-compare`. Snapshots at `kasane-gui/tests/golden/snapshots/`. Update
+  via `KASANE_GOLDEN_UPDATE=1`. Sandboxed environments without GPU access
+  graceful-skip rather than fail. Pipeline-level fixtures (QuadPipeline,
+  ImagePipeline, full SceneRenderer) tracked as W2 Phase 2 follow-up.
+- **workspace**: new `kasane-vello-spike` member — isolated, exploratory
+  crate that hosts a stub `VelloBackend` behind the `with-vello` feature
+  flag. Pinned to `vello_hybrid = 0.0.7`. With the feature off, all methods
+  return `BackendError::Unsupported`; with the feature on, the impl is a
+  documented `todo!()` placeholder pending Glifo crates.io publication and
+  the 5-day spike timebox per ADR-032 §Spike Plan.
+- **docs**: ADR-032 in `docs/decisions.md` (Status: Proposed); roadmap
+  Backlog entry in `docs/roadmap.md` §2.2 with externalised triggers
+  (Vello ≥ 1.0, Glifo on crates.io, spike `frame_warm_24_lines` ≤ 70 µs).
+
 ### Changed — ADR-031 Parley text stack migration (Phase 11 lands)
 
 The GPU text pipeline is now Parley + swash end-to-end; cosmic-text and the
