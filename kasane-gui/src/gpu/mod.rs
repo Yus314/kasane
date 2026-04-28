@@ -3,6 +3,7 @@
 //! Changes here should be coordinated with `kasane-core/src/render/scene/` which
 //! defines the `DrawCommand` and scene cache layer consumed by this renderer.
 
+pub mod backend;
 pub mod cell_renderer;
 pub mod compositor;
 pub mod depth_stencil;
