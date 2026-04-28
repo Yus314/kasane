@@ -706,7 +706,7 @@ impl SceneRenderer {
 
         // 1. Line-wide background fill.
         let (base_visual_fg, base_bg, _) =
-            color_resolver.resolve_face_colors_linear(&para.base_face);
+            color_resolver.resolve_face_colors_linear(&para.base_face.to_face());
         if !self.should_skip_default_bg(&base_bg, color_resolver) {
             self.quad.push_solid(px, py, max_width, cell_h, base_bg);
         }
@@ -742,7 +742,7 @@ impl SceneRenderer {
             .enumerate()
             .map(|(i, atom)| {
                 let face = if clear_cursor_atom_idx == Some(i) {
-                    para.base_face
+                    para.base_face.to_face()
                 } else {
                     atom.face()
                 };
@@ -819,7 +819,7 @@ impl SceneRenderer {
         let mut cell_x_cursor = px;
         for i in 0..atom_count {
             let face = if clear_cursor_atom_idx == Some(i) {
-                para.base_face
+                para.base_face.to_face()
             } else {
                 para.atoms[i].face()
             };

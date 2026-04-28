@@ -191,7 +191,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         max_width: row_w,
                         paragraph: BufferParagraph {
                             atoms: resolved,
-                            base_face,
+                            base_face: base_face.into(),
                             annotations,
                         },
                         line_idx: display_line as u32,

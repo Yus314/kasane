@@ -84,8 +84,9 @@ pub enum ParagraphAnnotation {
 pub struct BufferParagraph {
     /// Styled atoms (resolved against base face).
     pub atoms: Vec<ResolvedAtom>,
-    /// Base face for the line (used for background fill).
-    pub base_face: Face,
+    /// Base style for the line (used for background fill).
+    /// ADR-031 Phase A.3: migrated from `Face`.
+    pub base_face: Style,
     /// Semantic annotations (cursors, etc.).
     pub annotations: Vec<ParagraphAnnotation>,
 }
