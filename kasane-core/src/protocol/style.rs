@@ -239,13 +239,25 @@ impl std::hash::Hash for TextDecoration {
 // Style
 // ---------------------------------------------------------------------------
 
-/// Parley-native text style.
+/// Parley-native, post-resolution text style.
 ///
-/// Replaces the combination of [`Face`](super::color::Face) +
-/// [`Attributes`](super::color::Attributes) used by the cosmic-text-era
-/// pipeline. The wire format from Kakoune is still translated through the
-/// legacy `Face` deserialiser; conversion to `Style` happens at the protocol
-/// boundary via [`Style::from_face`].
+/// `Style` is the render-ready type: every brush is either `Brush::Default`
+/// (meaning "use whatever the renderer's terminal/canvas default is") or an
+/// explicit colour, and there are no Kakoune-specific resolution flags. WIT
+/// exposes only this type to plugins — the parse-side
+/// [`UnresolvedStyle`] is a host-internal concern.
+///
+/// To build a `Style` from a Kakoune wire face, the migration path is:
+///
+/// 1. Parse the wire face into an [`UnresolvedStyle`] via
+///    [`UnresolvedStyle::from_face`].
+/// 2. Resolve it against a base context via [`resolve_style`] to obtain
+///    a `Style`. Kakoune's `final_fg` / `final_bg` / `final_style` flags
+///    govern this step and then drop out of the type.
+///
+/// The convenience [`Style::from_face`] shortcut is equivalent to
+/// `UnresolvedStyle::from_face(face).resolved_against_default()` — useful
+/// for sites that hold an unparented Face.
 #[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
 pub struct Style {
     // Colours
@@ -268,15 +280,10 @@ pub struct Style {
     // Bidi
     pub bidi_override: Option<BidiOverride>,
 
-    // Behavioural flags
+    // Behavioural flags (real terminal attributes — SGR 5/7/2)
     pub blink: bool,
     pub reverse: bool,
     pub dim: bool,
-
-    // Inheritance control (Kakoune `final_*` semantics)
-    pub final_fg: bool,
-    pub final_bg: bool,
-    pub final_style: bool,
 }
 
 // Bit-pattern Eq + Hash for `StyleStore`. The derived `PartialEq` continues
@@ -300,9 +307,6 @@ impl std::hash::Hash for Style {
         self.blink.hash(state);
         self.reverse.hash(state);
         self.dim.hash(state);
-        self.final_fg.hash(state);
-        self.final_bg.hash(state);
-        self.final_style.hash(state);
     }
 }
 
@@ -315,8 +319,132 @@ impl Style {
 
     /// Convert from the legacy Kakoune face representation.
     ///
-    /// Called at the protocol boundary during the ADR-031 migration; will be
-    /// removed once the legacy [`Face`](super::color::Face) type is deleted.
+    /// Drops Kakoune resolution flags (`final_fg` / `final_bg` / `final_style`).
+    /// Use [`UnresolvedStyle::from_face`] when those flags must be preserved
+    /// for a downstream [`resolve_style`] call.
+    pub fn from_face(face: &super::color::Face) -> Self {
+        UnresolvedStyle::from_face(face).style
+    }
+
+    /// Lossy conversion back to the legacy face representation.
+    ///
+    /// Used by sites that still consume `Face`. Preserves bold/italic/blink
+    /// /reverse/dim/strike/underline-style. `font_weight` outside the discrete
+    /// `{NORMAL, BOLD}` set rounds to bold when ≥ 600. `font_variations`,
+    /// `letter_spacing`, and `bidi_override` are dropped. The result has no
+    /// `final_*` attributes set — a `Style` is post-resolution.
+    pub fn to_face(&self) -> super::color::Face {
+        let (face, _) = self.to_face_with_attrs();
+        face
+    }
+
+    /// Internal: project to a `Face` and return the in-progress attribute
+    /// bitset. Shared by [`Style::to_face`] and [`UnresolvedStyle::to_face`]
+    /// so the latter can OR in the `final_*` bits without duplicating the
+    /// rest of the conversion.
+    fn to_face_with_attrs(&self) -> (super::color::Face, super::color::Attributes) {
+        use super::color::{Attributes, Color, Face};
+        let mut attrs = Attributes::empty();
+
+        if self.font_weight.0 >= FontWeight::SEMI_BOLD.0 {
+            attrs |= Attributes::BOLD;
+        }
+        if matches!(self.font_slant, FontSlant::Italic | FontSlant::Oblique) {
+            attrs |= Attributes::ITALIC;
+        }
+        if self.blink {
+            attrs |= Attributes::BLINK;
+        }
+        if self.reverse {
+            attrs |= Attributes::REVERSE;
+        }
+        if self.dim {
+            attrs |= Attributes::DIM;
+        }
+        if self.strikethrough.is_some() {
+            attrs |= Attributes::STRIKETHROUGH;
+        }
+        let underline_color: Color;
+        if let Some(deco) = self.underline {
+            underline_color = color_from_brush(deco.color);
+            attrs |= match deco.style {
+                DecorationStyle::Solid => Attributes::UNDERLINE,
+                DecorationStyle::Curly => Attributes::CURLY_UNDERLINE,
+                DecorationStyle::Dotted => Attributes::DOTTED_UNDERLINE,
+                DecorationStyle::Dashed => Attributes::DASHED_UNDERLINE,
+                DecorationStyle::Double => Attributes::DOUBLE_UNDERLINE,
+            };
+        } else {
+            underline_color = Color::Default;
+        }
+
+        let face = Face {
+            fg: color_from_brush(self.fg),
+            bg: color_from_brush(self.bg),
+            underline: underline_color,
+            attributes: attrs,
+        };
+        (face, attrs)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UnresolvedStyle — pre-resolution form
+// ---------------------------------------------------------------------------
+
+/// Pre-resolution text style as parsed from Kakoune's wire format.
+///
+/// Kakoune's protocol carries a `Face` whose attribute bitflags include
+/// resolution-control bits (`FINAL_FG`, `FINAL_BG`, `FINAL_ATTR`) that govern
+/// how parent-context inheritance applies during resolution. `UnresolvedStyle`
+/// preserves those bits alongside a [`Style`] until [`resolve_style`] consumes
+/// them; the resulting [`Style`] no longer carries them, since a resolved
+/// style has no parent left to inherit from.
+///
+/// Plugins do not see this type — the WIT boundary exposes only [`Style`].
+/// The split exists so that the canonical render-ready type stays free of
+/// Kakoune-specific resolution metadata.
+#[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
+pub struct UnresolvedStyle {
+    /// All non-resolution-flag style fields. The contained `Style` is what
+    /// would result if this atom were resolved against a fully-default base.
+    #[serde(flatten)]
+    pub style: Style,
+
+    /// Kakoune `final-fg`: atom's `fg` wins over base even when atom's `fg`
+    /// is `Brush::Default` (i.e. "stay default; don't inherit").
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub final_fg: bool,
+
+    /// Kakoune `final-bg`: as `final_fg` but for the background brush.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub final_bg: bool,
+
+    /// Kakoune `final-attr`: atom replaces base's behavioural flags / weight
+    /// / slant / decorations wholesale instead of layering over them.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub final_style: bool,
+}
+
+#[inline]
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+// Bit-pattern Eq + Hash for `StyleStore`. Same rationale as for `Style`.
+impl Eq for UnresolvedStyle {}
+impl std::hash::Hash for UnresolvedStyle {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.style.hash(state);
+        self.final_fg.hash(state);
+        self.final_bg.hash(state);
+        self.final_style.hash(state);
+    }
+}
+
+impl UnresolvedStyle {
+    /// Convert from the legacy Kakoune face representation, preserving
+    /// `final_*` resolution flags.
     pub fn from_face(face: &super::color::Face) -> Self {
         use super::color::Attributes;
         let attrs = face.attributes;
@@ -373,68 +501,34 @@ impl Style {
             None
         };
 
-        Style {
-            fg: brush_from_color(face.fg),
-            bg: brush_from_color(face.bg),
-            font_weight,
-            font_slant,
-            font_features: FontFeatures::default(),
-            font_variations: Vec::new(),
-            letter_spacing: 0.0,
-            underline,
-            strikethrough,
-            bidi_override: None,
-            blink: attrs.contains(Attributes::BLINK),
-            reverse: attrs.contains(Attributes::REVERSE),
-            dim: attrs.contains(Attributes::DIM),
+        UnresolvedStyle {
+            style: Style {
+                fg: brush_from_color(face.fg),
+                bg: brush_from_color(face.bg),
+                font_weight,
+                font_slant,
+                font_features: FontFeatures::default(),
+                font_variations: Vec::new(),
+                letter_spacing: 0.0,
+                underline,
+                strikethrough,
+                bidi_override: None,
+                blink: attrs.contains(Attributes::BLINK),
+                reverse: attrs.contains(Attributes::REVERSE),
+                dim: attrs.contains(Attributes::DIM),
+            },
             final_fg: attrs.contains(Attributes::FINAL_FG),
             final_bg: attrs.contains(Attributes::FINAL_BG),
             final_style: attrs.contains(Attributes::FINAL_ATTR),
         }
     }
 
-    /// Lossy conversion back to the legacy face representation.
-    ///
-    /// Used by sites that have not yet migrated; preserves bold/italic/blink
-    /// /reverse/dim/strike/underline-style. `font_weight` outside the discrete
-    /// `{NORMAL, BOLD}` set rounds to bold when ≥ 600. `font_variations`,
-    /// `letter_spacing`, and `bidi_override` are dropped.
-    #[allow(dead_code)] // Used pre-A.3; kept for the bridge period.
+    /// Lossy conversion back to the legacy face representation, preserving
+    /// `final_*` flags. Round-trips with [`UnresolvedStyle::from_face`] on
+    /// faces whose attributes lie within the legacy set.
     pub fn to_face(&self) -> super::color::Face {
-        use super::color::{Attributes, Color, Face};
-        let mut attrs = Attributes::empty();
-
-        if self.font_weight.0 >= FontWeight::SEMI_BOLD.0 {
-            attrs |= Attributes::BOLD;
-        }
-        if matches!(self.font_slant, FontSlant::Italic | FontSlant::Oblique) {
-            attrs |= Attributes::ITALIC;
-        }
-        if self.blink {
-            attrs |= Attributes::BLINK;
-        }
-        if self.reverse {
-            attrs |= Attributes::REVERSE;
-        }
-        if self.dim {
-            attrs |= Attributes::DIM;
-        }
-        if self.strikethrough.is_some() {
-            attrs |= Attributes::STRIKETHROUGH;
-        }
-        let underline_color: Color;
-        if let Some(deco) = self.underline {
-            underline_color = color_from_brush(deco.color);
-            attrs |= match deco.style {
-                DecorationStyle::Solid => Attributes::UNDERLINE,
-                DecorationStyle::Curly => Attributes::CURLY_UNDERLINE,
-                DecorationStyle::Dotted => Attributes::DOTTED_UNDERLINE,
-                DecorationStyle::Dashed => Attributes::DASHED_UNDERLINE,
-                DecorationStyle::Double => Attributes::DOUBLE_UNDERLINE,
-            };
-        } else {
-            underline_color = Color::Default;
-        }
+        use super::color::Attributes;
+        let (mut face, mut attrs) = self.style.to_face_with_attrs();
         if self.final_fg {
             attrs |= Attributes::FINAL_FG;
         }
@@ -444,13 +538,8 @@ impl Style {
         if self.final_style {
             attrs |= Attributes::FINAL_ATTR;
         }
-
-        Face {
-            fg: color_from_brush(self.fg),
-            bg: color_from_brush(self.bg),
-            underline: underline_color,
-            attributes: attrs,
-        }
+        face.attributes = attrs;
+        face
     }
 }
 
@@ -475,8 +564,9 @@ impl From<&super::color::Face> for Style {
     }
 }
 
-/// Resolve a style against a base context, mirroring the legacy
-/// [`resolve_face`](super::color::resolve_face) semantics.
+/// Resolve an [`UnresolvedStyle`] against a base context, mirroring the
+/// legacy [`resolve_face`](super::color::resolve_face) semantics. Returns a
+/// [`Style`] — i.e. `final_*` resolution flags are consumed and dropped.
 ///
 /// Inheritance rules:
 /// - `Brush::Default` inherits the parent's brush, unless the corresponding
@@ -484,20 +574,22 @@ impl From<&super::color::Face> for Style {
 /// - When `final_style` is true, all behavioural flags / weight / slant
 ///   / decorations come from the atom; otherwise they layer over the base
 ///   (atom values take precedence where they are non-default).
-pub fn resolve_style(atom: &Style, base: &Style) -> Style {
-    let fg = if atom.final_fg || !atom.fg.is_inherit() {
-        atom.fg
+pub fn resolve_style(atom: &UnresolvedStyle, base: &Style) -> Style {
+    let s = &atom.style;
+
+    let fg = if atom.final_fg || !s.fg.is_inherit() {
+        s.fg
     } else {
         base.fg
     };
-    let bg = if atom.final_bg || !atom.bg.is_inherit() {
-        atom.bg
+    let bg = if atom.final_bg || !s.bg.is_inherit() {
+        s.bg
     } else {
         base.bg
     };
 
     if atom.final_style {
-        let mut out = atom.clone();
+        let mut out = s.clone();
         out.fg = fg;
         out.bg = bg;
         return out;
@@ -506,36 +598,33 @@ pub fn resolve_style(atom: &Style, base: &Style) -> Style {
     Style {
         fg,
         bg,
-        font_weight: if atom.font_weight == FontWeight::default() {
+        font_weight: if s.font_weight == FontWeight::default() {
             base.font_weight
         } else {
-            atom.font_weight
+            s.font_weight
         },
-        font_slant: if matches!(atom.font_slant, FontSlant::Normal) {
+        font_slant: if matches!(s.font_slant, FontSlant::Normal) {
             base.font_slant
         } else {
-            atom.font_slant
+            s.font_slant
         },
-        font_features: FontFeatures(atom.font_features.0 | base.font_features.0),
-        font_variations: if atom.font_variations.is_empty() {
+        font_features: FontFeatures(s.font_features.0 | base.font_features.0),
+        font_variations: if s.font_variations.is_empty() {
             base.font_variations.clone()
         } else {
-            atom.font_variations.clone()
+            s.font_variations.clone()
         },
-        letter_spacing: if atom.letter_spacing != 0.0 {
-            atom.letter_spacing
+        letter_spacing: if s.letter_spacing != 0.0 {
+            s.letter_spacing
         } else {
             base.letter_spacing
         },
-        underline: atom.underline.or(base.underline),
-        strikethrough: atom.strikethrough.or(base.strikethrough),
-        bidi_override: atom.bidi_override.or(base.bidi_override),
-        blink: atom.blink || base.blink,
-        reverse: atom.reverse || base.reverse,
-        dim: atom.dim || base.dim,
-        final_fg: atom.final_fg,
-        final_bg: atom.final_bg,
-        final_style: atom.final_style,
+        underline: s.underline.or(base.underline),
+        strikethrough: s.strikethrough.or(base.strikethrough),
+        bidi_override: s.bidi_override.or(base.bidi_override),
+        blink: s.blink || base.blink,
+        reverse: s.reverse || base.reverse,
+        dim: s.dim || base.dim,
     }
 }
 
@@ -565,7 +654,7 @@ fn color_from_brush(b: Brush) -> super::color::Color {
 // StyleId / StyleStore — content-addressed style interning (ADR-031 Phase A)
 // ---------------------------------------------------------------------------
 
-/// Stable identifier for a [`Style`] interned in a [`StyleStore`].
+/// Stable identifier for an [`UnresolvedStyle`] interned in a [`StyleStore`].
 ///
 /// `StyleId(0)` is reserved for the default style ([`DEFAULT_STYLE_ID`]); a
 /// freshly-constructed `StyleStore` already contains it and `StyleId::default`
@@ -573,12 +662,16 @@ fn color_from_brush(b: Brush) -> super::color::Color {
 /// store lifetime is tied to whatever owns it (typically `AppState`), and
 /// IDs are not portable across stores.
 ///
-/// Why an interner: `Style` is ~100 bytes; an `Atom` carrying a full `Style`
-/// inflates the per-atom payload ~10× over the legacy `Face` representation.
-/// An interned id is 4 bytes, equality is identity (no field walk), and hash
-/// keys for the L1 LayoutCache become trivial. Editors use small style
+/// Why an interner: `UnresolvedStyle` is ~100 bytes; an `Atom` carrying a
+/// full body inflates the per-atom payload ~10× over the legacy `Face`
+/// representation. An interned id is 4 bytes, equality is identity (no
+/// field walk), and hash keys become trivial. Editors use small style
 /// vocabularies (5–20 distinct styles in steady state), so the table stays
 /// compact.
+///
+/// The store holds [`UnresolvedStyle`] (the parse-side form) rather than
+/// [`Style`], since `Atom`s come straight from the protocol parser before
+/// any inheritance has been resolved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct StyleId(pub u32);
@@ -588,13 +681,13 @@ impl StyleId {
     /// produced by a different store; for a non-panicking variant use
     /// [`StyleStore::try_get`].
     #[inline]
-    pub fn get(self, store: &StyleStore) -> &Style {
+    pub fn get(self, store: &StyleStore) -> &UnresolvedStyle {
         store.get(self)
     }
 }
 
-/// The pre-interned id for [`Style::default`]. Always present in any
-/// freshly-constructed [`StyleStore`].
+/// The pre-interned id for [`UnresolvedStyle::default`]. Always present in
+/// any freshly-constructed [`StyleStore`].
 pub const DEFAULT_STYLE_ID: StyleId = StyleId(0);
 
 // ---------------------------------------------------------------------------
@@ -608,10 +701,12 @@ pub const DEFAULT_STYLE_ID: StyleId = StyleId(0);
 // negligible cost (interns are rare; per-frame intern count is bounded by
 // the viewport's distinct styles, typically 5–20).
 //
-// A future refactor (Phase E candidate) may move the store into AppState
-// once the surrounding APIs are settled. The public interface
-// (`Atom::face`, `Atom::style`, `intern_style_global`) is designed to
-// survive that move with minimal call-site churn.
+// Phase B (post-split): the global store is scheduled to be replaced by
+// `Arc<UnresolvedStyle>` carried directly inside `Atom`. Hot-path callers
+// of `with_global_style` / `Atom::face` / `Atom::unresolved_style` will
+// then read the body without locking. The current global is preserved
+// here so the type-split PR stays surgically focused on the
+// `UnresolvedStyle` / `Style` separation.
 
 static GLOBAL_STORE: std::sync::OnceLock<std::sync::Mutex<StyleStore>> = std::sync::OnceLock::new();
 
@@ -619,23 +714,24 @@ fn global_store() -> &'static std::sync::Mutex<StyleStore> {
     GLOBAL_STORE.get_or_init(|| std::sync::Mutex::new(StyleStore::new()))
 }
 
-/// Intern a `Style` in the process-global table and return its id.
-pub fn intern_style_global(style: Style) -> StyleId {
+/// Intern an `UnresolvedStyle` in the process-global table and return its id.
+pub fn intern_style_global(style: UnresolvedStyle) -> StyleId {
     global_store()
         .lock()
         .expect("global style store poisoned")
         .intern(style)
 }
 
-/// Run `f` with a borrow of the [`Style`] at `id` from the process-global
-/// table. Holds the global lock for the duration of `f`.
-pub fn with_global_style<R>(id: StyleId, f: impl FnOnce(&Style) -> R) -> R {
+/// Run `f` with a borrow of the [`UnresolvedStyle`] at `id` from the
+/// process-global table. Holds the global lock for the duration of `f`.
+pub fn with_global_style<R>(id: StyleId, f: impl FnOnce(&UnresolvedStyle) -> R) -> R {
     let store = global_store().lock().expect("global style store poisoned");
     f(store.get(id))
 }
 
-/// Return a copy of the [`Style`] at `id` from the process-global table.
-pub fn style_clone_global(id: StyleId) -> Style {
+/// Return a copy of the [`UnresolvedStyle`] at `id` from the process-global
+/// table.
+pub fn style_clone_global(id: StyleId) -> UnresolvedStyle {
     global_store()
         .lock()
         .expect("global style store poisoned")
@@ -649,15 +745,16 @@ pub fn style_clone_global(id: StyleId) -> Style {
 /// a `'db` lifetime parameter that does not fit `Atom`'s position inside
 /// Salsa-owned `Vec<Line>` inputs. See ADR-031 plan §A.1 for the rationale.
 ///
-/// Internal layout: `Vec<Style>` (id → style) + `HashMap<Style, StyleId>`
-/// (style → id). The map is the slow path (one lookup per intern); the vec
-/// is the hot path (one indexed read per `get`). Memory cost is roughly
-/// `2 × |unique styles| × sizeof(Style)`, which for a typical session
-/// (≈20 styles) is ≈4 KB.
+/// Internal layout: `Vec<UnresolvedStyle>` (id → style) +
+/// `HashMap<UnresolvedStyle, StyleId>` (style → id). The map is the slow
+/// path (one lookup per intern); the vec is the hot path (one indexed read
+/// per `get`). Memory cost is roughly
+/// `2 × |unique styles| × sizeof(UnresolvedStyle)`, which for a typical
+/// session (≈20 styles) is ≈4 KB.
 #[derive(Debug, Clone)]
 pub struct StyleStore {
-    by_id: Vec<Style>,
-    by_style: std::collections::HashMap<Style, StyleId>,
+    by_id: Vec<UnresolvedStyle>,
+    by_style: std::collections::HashMap<UnresolvedStyle, StyleId>,
 }
 
 impl Default for StyleStore {
@@ -667,10 +764,10 @@ impl Default for StyleStore {
 }
 
 impl StyleStore {
-    /// Create a new store, pre-populated with [`Style::default`] at
+    /// Create a new store, pre-populated with [`UnresolvedStyle::default`] at
     /// [`DEFAULT_STYLE_ID`].
     pub fn new() -> Self {
-        let default_style = Style::default();
+        let default_style = UnresolvedStyle::default();
         let mut by_style = std::collections::HashMap::new();
         by_style.insert(default_style.clone(), DEFAULT_STYLE_ID);
         Self {
@@ -680,7 +777,7 @@ impl StyleStore {
     }
 
     /// Return the id for `style`, interning it if not already present.
-    pub fn intern(&mut self, style: Style) -> StyleId {
+    pub fn intern(&mut self, style: UnresolvedStyle) -> StyleId {
         if let Some(&id) = self.by_style.get(&style) {
             return id;
         }
@@ -693,14 +790,14 @@ impl StyleStore {
     /// Look up the style body by id. Panics if the id is not present in this
     /// store; use [`Self::try_get`] when validating cross-store ids.
     #[inline]
-    pub fn get(&self, id: StyleId) -> &Style {
+    pub fn get(&self, id: StyleId) -> &UnresolvedStyle {
         &self.by_id[id.0 as usize]
     }
 
     /// Non-panicking lookup. Returns `None` for ids out of range for this
     /// store.
     #[inline]
-    pub fn try_get(&self, id: StyleId) -> Option<&Style> {
+    pub fn try_get(&self, id: StyleId) -> Option<&UnresolvedStyle> {
         self.by_id.get(id.0 as usize)
     }
 
@@ -877,16 +974,21 @@ mod tests {
             underline: Color::Default,
             attributes: Attributes::FINAL_FG | Attributes::FINAL_BG | Attributes::FINAL_ATTR,
         };
+        let unresolved = UnresolvedStyle::from_face(&face);
+        assert!(unresolved.final_fg);
+        assert!(unresolved.final_bg);
+        assert!(unresolved.final_style);
+
+        // The post-resolve `Style` form drops these flags entirely.
         let style = Style::from_face(&face);
-        assert!(style.final_fg);
-        assert!(style.final_bg);
-        assert!(style.final_style);
+        let _ = style; // no `final_fg` field exists on `Style` post-split
     }
 
     #[test]
     fn to_face_round_trip_preserves_legacy_set() {
-        // Any Face whose attributes lie within the legacy set should round
-        // trip exactly through Style::from_face → Style::to_face.
+        // Any Face whose attributes lie within the legacy set (including
+        // FINAL_*) should round trip exactly through
+        // UnresolvedStyle::from_face → UnresolvedStyle::to_face.
         let face = Face {
             fg: Color::Rgb {
                 r: 10,
@@ -901,8 +1003,24 @@ mod tests {
                 | Attributes::CURLY_UNDERLINE
                 | Attributes::FINAL_FG,
         };
-        let style = Style::from_face(&face);
-        assert_eq!(style.to_face(), face);
+        let unresolved = UnresolvedStyle::from_face(&face);
+        assert_eq!(unresolved.to_face(), face);
+
+        // Without FINAL_*, `Style::to_face` should also round trip.
+        let mut face_no_final = face;
+        face_no_final.attributes.remove(Attributes::FINAL_FG);
+        let style = Style::from_face(&face_no_final);
+        assert_eq!(style.to_face(), face_no_final);
+    }
+
+    /// Lift a `Style` body into an `UnresolvedStyle` with no final flags
+    /// set. Lets pre-existing tests keep their `Style { .. }` literals while
+    /// using the new `resolve_style(&UnresolvedStyle, &Style)` signature.
+    fn unresolved(style: Style) -> UnresolvedStyle {
+        UnresolvedStyle {
+            style,
+            ..UnresolvedStyle::default()
+        }
     }
 
     #[test]
@@ -912,7 +1030,7 @@ mod tests {
             bg: Brush::Named(NamedColor::Black),
             ..Style::default()
         };
-        let atom = Style::default();
+        let atom = unresolved(Style::default());
         let resolved = resolve_style(&atom, &base);
         assert_eq!(resolved.fg, Brush::Named(NamedColor::White));
         assert_eq!(resolved.bg, Brush::Named(NamedColor::Black));
@@ -925,10 +1043,10 @@ mod tests {
             bg: Brush::Named(NamedColor::Black),
             ..Style::default()
         };
-        let atom = Style {
+        let atom = unresolved(Style {
             fg: Brush::Named(NamedColor::Red),
             ..Style::default()
-        };
+        });
         let resolved = resolve_style(&atom, &base);
         assert_eq!(resolved.fg, Brush::Named(NamedColor::Red));
         assert_eq!(resolved.bg, Brush::Named(NamedColor::Black));
@@ -940,10 +1058,13 @@ mod tests {
             fg: Brush::Named(NamedColor::White),
             ..Style::default()
         };
-        let atom = Style {
-            fg: Brush::Default,
+        let atom = UnresolvedStyle {
+            style: Style {
+                fg: Brush::Default,
+                ..Style::default()
+            },
             final_fg: true,
-            ..Style::default()
+            ..UnresolvedStyle::default()
         };
         let resolved = resolve_style(&atom, &base);
         // final_fg=true means atom's fg (Default) wins, so the resolved fg is
@@ -958,10 +1079,13 @@ mod tests {
             blink: true,
             ..Style::default()
         };
-        let atom = Style {
-            fg: Brush::Named(NamedColor::Red),
+        let atom = UnresolvedStyle {
+            style: Style {
+                fg: Brush::Named(NamedColor::Red),
+                ..Style::default()
+            },
             final_style: true,
-            ..Style::default()
+            ..UnresolvedStyle::default()
         };
         let resolved = resolve_style(&atom, &base);
         assert_eq!(resolved.font_weight, FontWeight::NORMAL);
@@ -973,10 +1097,10 @@ mod tests {
     #[test]
     fn resolve_style_layers_underline() {
         let base = Style::default();
-        let atom = Style {
+        let atom = unresolved(Style {
             underline: Some(TextDecoration::default()),
             ..Style::default()
-        };
+        });
         let resolved = resolve_style(&atom, &base);
         assert!(resolved.underline.is_some());
     }
@@ -987,10 +1111,10 @@ mod tests {
             font_features: FontFeatures(FontFeatures::STANDARD_LIGATURES),
             ..Style::default()
         };
-        let atom = Style {
+        let atom = unresolved(Style {
             font_features: FontFeatures(FontFeatures::DISCRETIONARY_LIGATURES),
             ..Style::default()
-        };
+        });
         let resolved = resolve_style(&atom, &base);
         assert!(resolved.font_features.has(FontFeatures::STANDARD_LIGATURES));
         assert!(
@@ -1041,31 +1165,52 @@ mod tests {
             blink: true,
             reverse: false,
             dim: false,
-            final_fg: true,
-            final_bg: false,
-            final_style: false,
         };
         let json = serde_json::to_string(&style).unwrap();
         let parsed: Style = serde_json::from_str(&json).unwrap();
         assert_eq!(style, parsed);
     }
 
+    #[test]
+    fn unresolved_style_serde_round_trip() {
+        let unresolved = UnresolvedStyle {
+            style: Style {
+                fg: Brush::rgb(1, 2, 3),
+                bg: Brush::Default,
+                font_weight: FontWeight::SEMI_BOLD,
+                ..Style::default()
+            },
+            final_fg: true,
+            final_bg: false,
+            final_style: true,
+        };
+        let json = serde_json::to_string(&unresolved).unwrap();
+        let parsed: UnresolvedStyle = serde_json::from_str(&json).unwrap();
+        assert_eq!(unresolved, parsed);
+    }
+
     // ---------------------------------------------------------------------
     // StyleStore / StyleId tests (ADR-031 Phase A.1)
     // ---------------------------------------------------------------------
 
-    fn red_style() -> Style {
-        Style {
-            fg: Brush::Named(NamedColor::Red),
-            ..Style::default()
+    fn red_unresolved() -> UnresolvedStyle {
+        UnresolvedStyle {
+            style: Style {
+                fg: Brush::Named(NamedColor::Red),
+                ..Style::default()
+            },
+            ..UnresolvedStyle::default()
         }
     }
 
-    fn bold_red_style() -> Style {
-        Style {
-            fg: Brush::Named(NamedColor::Red),
-            font_weight: FontWeight::BOLD,
-            ..Style::default()
+    fn bold_red_unresolved() -> UnresolvedStyle {
+        UnresolvedStyle {
+            style: Style {
+                fg: Brush::Named(NamedColor::Red),
+                font_weight: FontWeight::BOLD,
+                ..Style::default()
+            },
+            ..UnresolvedStyle::default()
         }
     }
 
@@ -1073,22 +1218,22 @@ mod tests {
     fn store_starts_with_default_at_id_zero() {
         let store = StyleStore::new();
         assert_eq!(store.len(), 1);
-        assert_eq!(store.get(DEFAULT_STYLE_ID), &Style::default());
+        assert_eq!(store.get(DEFAULT_STYLE_ID), &UnresolvedStyle::default());
         assert_eq!(StyleId::default(), DEFAULT_STYLE_ID);
     }
 
     #[test]
     fn intern_default_returns_zero() {
         let mut store = StyleStore::new();
-        assert_eq!(store.intern(Style::default()), DEFAULT_STYLE_ID);
+        assert_eq!(store.intern(UnresolvedStyle::default()), DEFAULT_STYLE_ID);
         assert_eq!(store.len(), 1, "default must not duplicate");
     }
 
     #[test]
     fn intern_is_idempotent() {
         let mut store = StyleStore::new();
-        let id1 = store.intern(red_style());
-        let id2 = store.intern(red_style());
+        let id1 = store.intern(red_unresolved());
+        let id2 = store.intern(red_unresolved());
         assert_eq!(id1, id2);
         assert_eq!(store.len(), 2); // default + red
     }
@@ -1096,8 +1241,8 @@ mod tests {
     #[test]
     fn distinct_styles_get_distinct_ids() {
         let mut store = StyleStore::new();
-        let red = store.intern(red_style());
-        let bold_red = store.intern(bold_red_style());
+        let red = store.intern(red_unresolved());
+        let bold_red = store.intern(bold_red_unresolved());
         assert_ne!(red, bold_red);
         assert_eq!(store.len(), 3); // default + red + bold_red
     }
@@ -1105,9 +1250,9 @@ mod tests {
     #[test]
     fn get_round_trip() {
         let mut store = StyleStore::new();
-        let id = store.intern(red_style());
-        assert_eq!(store.get(id), &red_style());
-        assert_eq!(id.get(&store), &red_style());
+        let id = store.intern(red_unresolved());
+        assert_eq!(store.get(id), &red_unresolved());
+        assert_eq!(id.get(&store), &red_unresolved());
     }
 
     #[test]
@@ -1119,8 +1264,8 @@ mod tests {
     #[test]
     fn ids_assigned_sequentially() {
         let mut store = StyleStore::new();
-        let id1 = store.intern(red_style());
-        let id2 = store.intern(bold_red_style());
+        let id1 = store.intern(red_unresolved());
+        let id2 = store.intern(bold_red_unresolved());
         assert_eq!(id1, StyleId(1));
         assert_eq!(id2, StyleId(2));
     }
@@ -1130,10 +1275,13 @@ mod tests {
         // letter_spacing and font_variations both contain f32; verify the
         // bit-pattern Hash + Eq impls let them intern as expected.
         let mut store = StyleStore::new();
-        let s = Style {
-            letter_spacing: 1.5,
-            font_variations: vec![FontVariation::new(*b"wght", 350.0)],
-            ..Style::default()
+        let s = UnresolvedStyle {
+            style: Style {
+                letter_spacing: 1.5,
+                font_variations: vec![FontVariation::new(*b"wght", 350.0)],
+                ..Style::default()
+            },
+            ..UnresolvedStyle::default()
         };
         let id_a = store.intern(s.clone());
         let id_b = store.intern(s);
@@ -1143,13 +1291,30 @@ mod tests {
     #[test]
     fn styles_differing_only_in_letter_spacing_distinct() {
         let mut store = StyleStore::new();
-        let a = Style {
-            letter_spacing: 1.0,
-            ..Style::default()
+        let a = UnresolvedStyle {
+            style: Style {
+                letter_spacing: 1.0,
+                ..Style::default()
+            },
+            ..UnresolvedStyle::default()
         };
-        let b = Style {
-            letter_spacing: 2.0,
-            ..Style::default()
+        let b = UnresolvedStyle {
+            style: Style {
+                letter_spacing: 2.0,
+                ..Style::default()
+            },
+            ..UnresolvedStyle::default()
+        };
+        assert_ne!(store.intern(a), store.intern(b));
+    }
+
+    #[test]
+    fn unresolved_styles_differing_only_in_final_flag_distinct() {
+        let mut store = StyleStore::new();
+        let a = UnresolvedStyle::default();
+        let b = UnresolvedStyle {
+            final_fg: true,
+            ..UnresolvedStyle::default()
         };
         assert_ne!(store.intern(a), store.intern(b));
     }

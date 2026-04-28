@@ -135,7 +135,7 @@ impl InfoSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Color, NamedColor};
+    use crate::protocol::{Atom, Color, Face, NamedColor};
     use crate::state::menu::MenuParams;
 
     fn make_atom(text: &str) -> Atom {

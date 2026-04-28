@@ -102,7 +102,7 @@ impl StyledLine {
         let mut current_resolved: Option<ResolvedParleyStyle> = None;
 
         for atom in atoms {
-            let raw = atom.style();
+            let raw = atom.unresolved_style();
             let resolved_style = resolve_style(&raw, base_style);
             let resolved_parley = resolve_for_parley(&resolved_style, fallback_text_color);
 

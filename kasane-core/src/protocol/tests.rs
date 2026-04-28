@@ -627,11 +627,11 @@ fn test_atom_style_projection_final_flags() {
     let face = parse_face_json(
         r#"{"fg":"black","bg":"white","underline":"default","attributes":["final_fg","final_bg"]}"#,
     );
-    let style = Style::from_face(&face);
-    assert!(style.final_fg);
-    assert!(style.final_bg);
-    assert!(!style.final_style);
-    assert_eq!(style.fg, Brush::Named(NamedColor::Black));
+    let unresolved = crate::protocol::style::UnresolvedStyle::from_face(&face);
+    assert!(unresolved.final_fg);
+    assert!(unresolved.final_bg);
+    assert!(!unresolved.final_style);
+    assert_eq!(unresolved.style.fg, Brush::Named(NamedColor::Black));
 }
 
 #[test]
@@ -646,11 +646,21 @@ fn test_atom_style_projection_rgb_brushes() {
 
 #[test]
 fn test_atom_style_round_trip_face() {
-    // Style::from_face followed by Style::to_face must round-trip any face
-    // whose attributes lie within the legacy bitset.
+    // UnresolvedStyle::from_face followed by ::to_face must round-trip any
+    // face whose attributes lie within the legacy bitset, including the
+    // Kakoune `final_*` resolution flags.
     let face = parse_face_json(
         r#"{"fg":"red","bg":"blue","underline":"green","attributes":["bold","italic","dim","curly_underline","final_fg"]}"#,
     );
-    let style = Style::from_face(&face);
-    assert_eq!(style.to_face(), face);
+    let unresolved = crate::protocol::style::UnresolvedStyle::from_face(&face);
+    assert_eq!(unresolved.to_face(), face);
+
+    // The post-resolve Style form drops `final_*`; round-trip works only on
+    // faces without those flags.
+    let mut face_no_final = face;
+    face_no_final
+        .attributes
+        .remove(crate::protocol::Attributes::FINAL_FG);
+    let style = Style::from_face(&face_no_final);
+    assert_eq!(style.to_face(), face_no_final);
 }

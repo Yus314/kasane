@@ -282,7 +282,7 @@ impl MenuState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::Color;
+    use crate::protocol::{Color, Face};
 
     /// Helper: build a 3-atom completion item: candidate + padding + colored docstring.
     fn make_completion_item(candidate: &str, padding: &str, docstring: &str) -> Line {
