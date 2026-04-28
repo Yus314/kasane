@@ -1,0 +1,42 @@
+[package]
+name = "kasane-vello-spike"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "ADR-032 W5 spike — exploratory Vello-backed GpuBackend impl. Not for production."
+
+# ADR-032 W5 — Vello adoption is gated on (a) Vello ≥ 1.0, (b) Glifo on
+# crates.io, (c) the spike measurement matrix passing. The dep is
+# feature-flagged so the workspace `cargo check` works without pulling
+# in Vello until those gates open.
+
+[dependencies]
+kasane-gui = { path = "../kasane-gui" }
+kasane-core = { workspace = true }
+anyhow = { workspace = true }
+winit = { workspace = true }
+wgpu = { workspace = true }
+
+# Pinned to vello_hybrid 0.0.7 (Linebender, March 2026). Activate via
+# `--features with-vello`. Once Glifo lands on crates.io and the API
+# stabilises, bump to that version range.
+vello_hybrid = { version = "0.0.7", optional = true }
+
+[features]
+default = []
+# Pulls in vello_hybrid and switches the VelloBackend impl from
+# `Unsupported`-stub to actual GPU/CPU rendering.
+with-vello = ["dep:vello_hybrid"]
+
+[dev-dependencies]
+criterion = { workspace = true }
+pollster = { workspace = true }
+image = { workspace = true }
+
+# Spike performance bench; requires --features with-vello to do
+# anything meaningful. Without the feature it compiles and runs as a
+# no-op so CI does not break.
+[[bench]]
+name = "spike_bench"
+harness = false
