@@ -24,6 +24,11 @@ image = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 kasane-core = { workspace = true }
+# ADR-032 W2 — golden image regression harness. DSSIM via image-compare to
+# absorb sub-pixel noise from driver / MSAA differences. (`pollster` is
+# already in [dependencies] above and is reused by the test harness for
+# blocking on `request_adapter` / `request_device` / `map_async`.)
+image-compare = "0.4"
 
 [[bench]]
 name = "cpu_rendering"
