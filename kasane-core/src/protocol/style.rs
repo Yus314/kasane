@@ -32,7 +32,7 @@ use super::color::NamedColor;
 ///
 /// `Default` is the Kakoune sentinel that means "inherit from the parent
 /// context". Resolution against a base style happens in [`resolve_style`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, Serialize)]
 pub enum Brush {
     /// Inherit from the containing context.
     #[default]
@@ -86,7 +86,7 @@ impl Default for FontWeight {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, Serialize)]
 pub enum FontSlant {
     #[default]
     Normal,
@@ -103,7 +103,7 @@ pub enum FontSlant {
 /// Current bits cover the most common programming-font use cases (ligatures
 /// and contextual alternates). Additional bits may be added without breaking
 /// the wire format because the field type is a transparent `u32`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct FontFeatures(pub u32);
 
@@ -154,13 +154,26 @@ impl FontVariation {
     }
 }
 
+// Bit-pattern Eq + Hash for use in `StyleStore`. Treats two `FontVariation`s
+// as equal iff their `tag` and the bit pattern of `value` match. NaN values
+// are not produced by Kasane (Kakoune wire format = strings; plugins use
+// literals); the construction site should debug_assert finiteness if it ever
+// accepts plugin-supplied floats.
+impl Eq for FontVariation {}
+impl std::hash::Hash for FontVariation {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.tag.hash(state);
+        self.value.to_bits().hash(state);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // BidiOverride
 // ---------------------------------------------------------------------------
 
 /// Explicit bidi direction override for a span. `None` (the default on
 /// [`Style`]) lets ICU4X infer direction from the strong characters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum BidiOverride {
     Ltr,
     Rtl,
@@ -170,7 +183,7 @@ pub enum BidiOverride {
 // TextDecoration
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, Serialize)]
 pub enum DecorationStyle {
     #[default]
     Solid,
@@ -209,6 +222,16 @@ impl Default for TextDecoration {
     #[inline]
     fn default() -> Self {
         Self::solid()
+    }
+}
+
+// Bit-pattern Eq + Hash for `StyleStore`. See FontVariation comment for NaN.
+impl Eq for TextDecoration {}
+impl std::hash::Hash for TextDecoration {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.style.hash(state);
+        self.color.hash(state);
+        self.thickness.map(f32::to_bits).hash(state);
     }
 }
 
@@ -254,6 +277,33 @@ pub struct Style {
     pub final_fg: bool,
     pub final_bg: bool,
     pub final_style: bool,
+}
+
+// Bit-pattern Eq + Hash for `StyleStore`. The derived `PartialEq` continues
+// to use IEEE float equality (correct for non-NaN inputs); `Eq` and `Hash`
+// here use bitwise comparison so the interner can serve as a true content
+// table. Hash and Eq are mutually consistent; they may diverge from
+// PartialEq only on NaN, which Kasane does not construct.
+impl Eq for Style {}
+impl std::hash::Hash for Style {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.fg.hash(state);
+        self.bg.hash(state);
+        self.font_weight.hash(state);
+        self.font_slant.hash(state);
+        self.font_features.hash(state);
+        self.font_variations.hash(state);
+        self.letter_spacing.to_bits().hash(state);
+        self.underline.hash(state);
+        self.strikethrough.hash(state);
+        self.bidi_override.hash(state);
+        self.blink.hash(state);
+        self.reverse.hash(state);
+        self.dim.hash(state);
+        self.final_fg.hash(state);
+        self.final_bg.hash(state);
+        self.final_style.hash(state);
+    }
 }
 
 impl Style {
@@ -490,6 +540,114 @@ fn color_from_brush(b: Brush) -> super::color::Color {
         Brush::Default => Color::Default,
         Brush::Named(n) => Color::Named(n),
         Brush::Solid([r, g, b, _a]) => Color::Rgb { r, g, b },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StyleId / StyleStore — content-addressed style interning (ADR-031 Phase A)
+// ---------------------------------------------------------------------------
+
+/// Stable identifier for a [`Style`] interned in a [`StyleStore`].
+///
+/// `StyleId(0)` is reserved for the default style ([`DEFAULT_STYLE_ID`]); a
+/// freshly-constructed `StyleStore` already contains it and `StyleId::default`
+/// returns it. IDs are assigned sequentially as new styles are interned;
+/// store lifetime is tied to whatever owns it (typically `AppState`), and
+/// IDs are not portable across stores.
+///
+/// Why an interner: `Style` is ~100 bytes; an `Atom` carrying a full `Style`
+/// inflates the per-atom payload ~10× over the legacy `Face` representation.
+/// An interned id is 4 bytes, equality is identity (no field walk), and hash
+/// keys for the L1 LayoutCache become trivial. Editors use small style
+/// vocabularies (5–20 distinct styles in steady state), so the table stays
+/// compact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct StyleId(pub u32);
+
+impl StyleId {
+    /// Look the style body up in a [`StyleStore`]. Panics if the id was
+    /// produced by a different store; for a non-panicking variant use
+    /// [`StyleStore::try_get`].
+    #[inline]
+    pub fn get(self, store: &StyleStore) -> &Style {
+        store.get(self)
+    }
+}
+
+/// The pre-interned id for [`Style::default`]. Always present in any
+/// freshly-constructed [`StyleStore`].
+pub const DEFAULT_STYLE_ID: StyleId = StyleId(0);
+
+/// Content-addressed style table.
+///
+/// Hand-rolled (not `salsa::interned`) because Salsa's interned types carry
+/// a `'db` lifetime parameter that does not fit `Atom`'s position inside
+/// Salsa-owned `Vec<Line>` inputs. See ADR-031 plan §A.1 for the rationale.
+///
+/// Internal layout: `Vec<Style>` (id → style) + `HashMap<Style, StyleId>`
+/// (style → id). The map is the slow path (one lookup per intern); the vec
+/// is the hot path (one indexed read per `get`). Memory cost is roughly
+/// `2 × |unique styles| × sizeof(Style)`, which for a typical session
+/// (≈20 styles) is ≈4 KB.
+#[derive(Debug, Clone)]
+pub struct StyleStore {
+    by_id: Vec<Style>,
+    by_style: std::collections::HashMap<Style, StyleId>,
+}
+
+impl Default for StyleStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StyleStore {
+    /// Create a new store, pre-populated with [`Style::default`] at
+    /// [`DEFAULT_STYLE_ID`].
+    pub fn new() -> Self {
+        let default_style = Style::default();
+        let mut by_style = std::collections::HashMap::new();
+        by_style.insert(default_style.clone(), DEFAULT_STYLE_ID);
+        Self {
+            by_id: vec![default_style],
+            by_style,
+        }
+    }
+
+    /// Return the id for `style`, interning it if not already present.
+    pub fn intern(&mut self, style: Style) -> StyleId {
+        if let Some(&id) = self.by_style.get(&style) {
+            return id;
+        }
+        let id = StyleId(self.by_id.len() as u32);
+        self.by_id.push(style.clone());
+        self.by_style.insert(style, id);
+        id
+    }
+
+    /// Look up the style body by id. Panics if the id is not present in this
+    /// store; use [`Self::try_get`] when validating cross-store ids.
+    #[inline]
+    pub fn get(&self, id: StyleId) -> &Style {
+        &self.by_id[id.0 as usize]
+    }
+
+    /// Non-panicking lookup. Returns `None` for ids out of range for this
+    /// store.
+    #[inline]
+    pub fn try_get(&self, id: StyleId) -> Option<&Style> {
+        self.by_id.get(id.0 as usize)
+    }
+
+    /// Number of distinct interned styles, including the pre-interned
+    /// default.
+    pub fn len(&self) -> usize {
+        self.by_id.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_id.is_empty()
     }
 }
 
@@ -826,5 +984,109 @@ mod tests {
         let json = serde_json::to_string(&style).unwrap();
         let parsed: Style = serde_json::from_str(&json).unwrap();
         assert_eq!(style, parsed);
+    }
+
+    // ---------------------------------------------------------------------
+    // StyleStore / StyleId tests (ADR-031 Phase A.1)
+    // ---------------------------------------------------------------------
+
+    fn red_style() -> Style {
+        Style {
+            fg: Brush::Named(NamedColor::Red),
+            ..Style::default()
+        }
+    }
+
+    fn bold_red_style() -> Style {
+        Style {
+            fg: Brush::Named(NamedColor::Red),
+            font_weight: FontWeight::BOLD,
+            ..Style::default()
+        }
+    }
+
+    #[test]
+    fn store_starts_with_default_at_id_zero() {
+        let store = StyleStore::new();
+        assert_eq!(store.len(), 1);
+        assert_eq!(store.get(DEFAULT_STYLE_ID), &Style::default());
+        assert_eq!(StyleId::default(), DEFAULT_STYLE_ID);
+    }
+
+    #[test]
+    fn intern_default_returns_zero() {
+        let mut store = StyleStore::new();
+        assert_eq!(store.intern(Style::default()), DEFAULT_STYLE_ID);
+        assert_eq!(store.len(), 1, "default must not duplicate");
+    }
+
+    #[test]
+    fn intern_is_idempotent() {
+        let mut store = StyleStore::new();
+        let id1 = store.intern(red_style());
+        let id2 = store.intern(red_style());
+        assert_eq!(id1, id2);
+        assert_eq!(store.len(), 2); // default + red
+    }
+
+    #[test]
+    fn distinct_styles_get_distinct_ids() {
+        let mut store = StyleStore::new();
+        let red = store.intern(red_style());
+        let bold_red = store.intern(bold_red_style());
+        assert_ne!(red, bold_red);
+        assert_eq!(store.len(), 3); // default + red + bold_red
+    }
+
+    #[test]
+    fn get_round_trip() {
+        let mut store = StyleStore::new();
+        let id = store.intern(red_style());
+        assert_eq!(store.get(id), &red_style());
+        assert_eq!(id.get(&store), &red_style());
+    }
+
+    #[test]
+    fn try_get_out_of_range_returns_none() {
+        let store = StyleStore::new();
+        assert!(store.try_get(StyleId(999)).is_none());
+    }
+
+    #[test]
+    fn ids_assigned_sequentially() {
+        let mut store = StyleStore::new();
+        let id1 = store.intern(red_style());
+        let id2 = store.intern(bold_red_style());
+        assert_eq!(id1, StyleId(1));
+        assert_eq!(id2, StyleId(2));
+    }
+
+    #[test]
+    fn style_with_f32_fields_interns_correctly() {
+        // letter_spacing and font_variations both contain f32; verify the
+        // bit-pattern Hash + Eq impls let them intern as expected.
+        let mut store = StyleStore::new();
+        let s = Style {
+            letter_spacing: 1.5,
+            font_variations: vec![FontVariation::new(*b"wght", 350.0)],
+            ..Style::default()
+        };
+        let id_a = store.intern(s.clone());
+        let id_b = store.intern(s);
+        assert_eq!(id_a, id_b);
+    }
+
+    #[test]
+    fn styles_differing_only_in_letter_spacing_distinct() {
+        let mut store = StyleStore::new();
+        let a = Style {
+            letter_spacing: 1.0,
+            ..Style::default()
+        };
+        let b = Style {
+            letter_spacing: 2.0,
+            ..Style::default()
+        };
+        assert_ne!(store.intern(a), store.intern(b));
     }
 }
