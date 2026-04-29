@@ -33,7 +33,7 @@ pub fn apply_cell_decorations(
                     display_scroll_offset,
                 ) && let Some(cell) = grid.get_mut(gx, gy)
                 {
-                    cell.with_face_mut(|f| dec.merge.apply(f, &dec.face));
+                    cell.with_face_mut(|f| dec.merge.apply(f, &dec.style.to_face()));
                 }
             }
             DecorationTarget::Range { start, end } => {
@@ -65,7 +65,7 @@ pub fn apply_cell_decorations(
                         for col in col_start..=col_end {
                             let gx = col + buffer_x_offset;
                             if let Some(cell) = grid.get_mut(gx, gy) {
-                                cell.with_face_mut(|f| dec.merge.apply(f, &dec.face));
+                                cell.with_face_mut(|f| dec.merge.apply(f, &dec.style.to_face()));
                             }
                         }
                     }
@@ -76,7 +76,7 @@ pub fn apply_cell_decorations(
                 let gx = *column + buffer_x_offset;
                 for gy in 0..grid.height() {
                     if let Some(cell) = grid.get_mut(gx, gy) {
-                        cell.with_face_mut(|f| dec.merge.apply(f, &dec.face));
+                        cell.with_face_mut(|f| dec.merge.apply(f, &dec.style.to_face()));
                     }
                 }
             }
@@ -120,12 +120,12 @@ mod tests {
     fn make_decoration(target: DecorationTarget, merge: FaceMerge) -> CellDecoration {
         CellDecoration {
             target,
-            face: Face {
+            style: crate::protocol::Style::from_face(&Face {
                 fg: Color::Default,
                 bg: Color::Rgb { r: 255, g: 0, b: 0 },
                 underline: Color::Default,
                 attributes: Default::default(),
-            },
+            }),
             merge,
             priority: 0,
         }

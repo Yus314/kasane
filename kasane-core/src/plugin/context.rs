@@ -324,7 +324,12 @@ pub struct AnnotationResult {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CellDecoration {
     pub target: DecorationTarget,
-    pub face: Face,
+    /// Inline style applied to the targeted cell(s). ADR-031 Phase B3 commit
+    /// 4c migrated from `Face` to the post-resolve [`Style`]. The `merge`
+    /// mode still operates on the legacy `Face` projection internally; that
+    /// retires when `StyleMerge` lands as part of the Cell hot-path
+    /// migration (Block D).
+    pub style: crate::protocol::Style,
     pub merge: FaceMerge,
     pub priority: i16,
 }

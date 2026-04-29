@@ -142,7 +142,7 @@ fn test_collect_ornaments() {
         batch: OrnamentBatch {
             emphasis: vec![CellDecoration {
                 target: DecorationTarget::Column { column: 3 },
-                face: crate::protocol::Face::default(),
+                style: crate::protocol::Style::default(),
                 merge: FaceMerge::Background,
                 priority: 10,
             }],
