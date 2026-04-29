@@ -1,6 +1,6 @@
 //! Cursor detection: primary + secondary cursor position inference.
 
-use crate::protocol::{Atom, Attributes, Color, Coord, Line};
+use crate::protocol::{Atom, Color, Coord, Line};
 
 use super::atom_metrics::{atom_display_width, face_at_coord};
 
@@ -68,8 +68,8 @@ fn detect_cursors_by_attributes(lines: &[Line]) -> Vec<Coord> {
 fn scan_line_cursor_columns(line: &[Atom], out: &mut Vec<u32>) {
     let mut col: u32 = 0;
     for atom in line.iter() {
-        let is_cursor = atom.face().attributes.contains(Attributes::FINAL_FG)
-            && atom.face().attributes.contains(Attributes::REVERSE);
+        let s = atom.unresolved_style();
+        let is_cursor = s.final_fg && s.style.reverse;
         if is_cursor {
             out.push(col);
         }
