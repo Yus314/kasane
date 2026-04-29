@@ -2086,21 +2086,73 @@ ornament merge (`05c0be16`). Performance (post-merge): warm 64.4 µs
 (−3.3 %) — both directions improvement, neither metric regresses
 the Phase 11 closure framework.
 
-**Pending Phase B3 commits 6-7/7:** The remaining bridge cleanup
-covers internal types only (no further plugin-visible API change):
-`Atom::from_face` / `Atom::face`, `Style::from_face` / `to_face` /
-`to_face_with_attrs`, `UnresolvedStyle::from_face` / `to_face`,
-`Theme::set` / `get` / `resolve` Face versions, `FaceMerge::apply`
-Face version (the `apply_to_terminal` Style version landed in commit
-`05c0be16`), `Cell::face()` accessor, `From<Face> for Style` /
-`for ElementStyle`, `TerminalStyle::from_face`. After those retire,
-`Face` / `Color` / `Attributes` downgrade from `pub` to
-`pub(in crate::protocol)` so wire-format types are physically
-isolated to the parse boundary. Atom::with_style(text, Style)
-constructor landed (`c7e21b36`) as the Phase B3 successor to
-`Atom::from_face` and the migration vehicle for the ~104 remaining
-authoring sites. ~250 test/bench refs cascade across the remaining
-work — an independent PR-sized chunk.
+**Landed (Phase B3 Style-native cascade, branch `feat/parley-color-emoji-test`):**
+A five-PR sequence pushed `Style` / `TerminalStyle` end-to-end through
+the menu, info, status, buffer, and cursor render paths:
+
+- `54a466b7` (PR-1) — retired the `ColorResolver` `Style → Face → Style`
+  round-trips on the GPU `FillRect` / `DrawBorder` / `DrawBorderTitle`
+  / `DrawPaddingRow` paths and the dead-code `scene_graph.rs`
+  scaffold. The 817b61da migration in Phase A had only covered the
+  paragraph paths; this commit closed the remaining four matchers and
+  the `dummy_resolve` test fixture.
+- `34f30e54` (PR-2) — `Theme` API became `Style`-native. `set` / `get`
+  / `resolve` (Face fallback) / `resolve_with_protocol_fallback`
+  retired in favour of `set_style` / `get_style` / `resolve(_, &Style)
+  → Style`. The four production callers (`view/info.rs`,
+  `view/menu.rs`, `view/mod.rs ×2`) all already held a `Style` ready
+  (`info.face`, `menu.menu_face`, `state.observed.status_default_style`),
+  so the migration eliminated a Style→Face→Style round-trip on every
+  status / menu / info repaint. `AppView::theme_face` →
+  `theme_style(token) -> Option<&Style>`.
+- `7815e3c2` (PR-3a) — `view/info` / `view/menu` / `view/mod` /
+  `salsa_views/{info,menu,status}` / `render::builders` helpers
+  (`truncate_atoms`, `wrap_content_lines`, `build_content_column`,
+  `build_scrollbar`, `build_styled_line_with_base`) consume `&Style`.
+  ~12 `Style::from_face(&face)` round-trips collapsed to direct
+  `style.clone()` ownership; the docstring portion of split menu
+  items now uses `resolve_style(&atom.style, &style)` instead of
+  `Style::from_face(&resolve_face(&atom.face(), &face))`.
+- `eba04c4a` (PR-3b) — `CellGrid` mutation API takes `&TerminalStyle`
+  (`clear` / `clear_region` / `fill_row` / `fill_region` / `put_char`),
+  matching the internal `Cell.style: TerminalStyle` storage.
+  `put_line_with_base(_, _, _, _, base_style: Option<&Style>)` uses
+  `resolve_style` on the atom's existing `Arc<UnresolvedStyle>` and
+  converts to `TerminalStyle` once per atom rather than once per
+  grapheme. `paint_text` / `paint_shadow` / `paint_border` / 
+  `paint_border_title` cache one `TerminalStyle` per call site.
+- `6ce6e75b` (PR-3c) — `process_draw_text` / `emit_text` / `emit_atoms`
+  / `emit_decorations` consume `&Style`. `emit_decorations`
+  reads `style.underline.style: DecorationStyle` and
+  `style.strikethrough` directly instead of the
+  `face.attributes.contains(Attributes::*UNDERLINE*)` bitflag cascade.
+  Underline / strikethrough thickness now also honour the per-decoration
+  `TextDecoration.thickness: Option<f32>` override (previously only
+  the metrics-derived default was used).
+
+The `Atom::from_face` test cascade noted as ~250 refs in the previous
+status was already complete pre-branch: Block E commits `75439f1f` +
+`3724556f` migrated all post-resolve sites; the 13 remaining
+`Atom::from_face` callsites are correctly wire-aware (cursor_face with
+`FINAL_FG`, detect_cursors fixtures, parser, `test_support::wire`).
+
+**Pending Phase B3 commits 6-7/7 (bridge deletion):** The remaining
+bridge cleanup covers internal types only (no further plugin-visible
+API change): retire `Style::from_face` / `to_face` /
+`to_face_with_attrs`, `UnresolvedStyle::to_face`, `Atom::face`,
+`Cell::face()`, `From<Face> for Style` / `for ElementStyle`,
+`TerminalStyle::from_face`, and the
+`kasane-tui::sgr::emit_sgr_diff(Face)` shim. `UnresolvedStyle::from_face`
+and `Atom::from_face` (wire-aware) stay — they are the construction
+shape used by the Kakoune protocol parser and the `final_*`-preserving
+cursor fixtures. Estimated cascade: ~30 production callsites (mostly
+inline `Face { ... }` literals in `render/cursor`, `inline_decoration`,
+`markup`, `walk_scene`, `ornament`, `halfblock`, plugin / widget
+defaults) plus ~150 test refs. Best executed compile-error-driven
+after deletion — uniform migration shape avoids per-site stylistic
+divergence. After those retire, `Face` / `Color` / `Attributes`
+downgrade from `pub` to `pub(in crate::protocol)` so wire-format types
+are physically isolated to the parse boundary.
 
 **Other pending items.** Phase 10 — bundled `color-preview` WASM plugin
 upgraded to use real `paint_inline_box` (ergonomics demonstration,
