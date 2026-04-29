@@ -3,6 +3,7 @@ use kasane_core::display::projection::{ProjectionCategory, ProjectionDescriptor,
 use kasane_core::display::unit::{DisplayUnit, SemanticRole};
 use kasane_core::display::{DisplayDirective, GutterSide, InlineInteraction, VirtualTextPosition};
 use kasane_core::element::{Element, InteractiveId, PluginTag};
+use kasane_core::protocol::Atom;
 
 use crate::bindings::kasane::plugin::types as wit;
 
@@ -83,21 +84,39 @@ pub(crate) fn wit_display_directive_to_directive_with_resolver(
             priority: d.priority,
         },
 
-        // === InlineBox (ADR-031 Phase 4 paper design — wire shape only) ===
+        // === InlineBox (ADR-031 Phase 4 paper design — placeholder projection) ===
         //
-        // The directive declares a slot; actual content is queried via a
-        // separate `paint-inline-box(box-id)` extension point added in
-        // Phase 5. Until that landing the host has no native variant for
-        // an inline-box slot, so we project it onto a no-op
-        // `DisplayDirective::HideInline` of zero width — it does not
-        // affect rendering. Plugins exercising this directive against
-        // the current host will see the slot ignored, not crash; once
-        // Phase 5 lands the projection becomes an actual InlineBox slot.
-        wit::DisplayDirective::InlineBox(d) => DisplayDirective::HideInline {
-            line: d.line as usize,
-            byte_range: d.byte_offset as usize..d.byte_offset as usize,
-        },
-        // EditableVirtualText is not exposed via the WIT interface yet.
+        // The directive reserves a non-text slot; the actual paint content
+        // will be queried via a `paint-inline-box(box-id)` extension point
+        // landed by the Phase 10 host work. Until then we project the
+        // directive onto a visible `InsertInline` placeholder of
+        // `width_cells` spaces so the slot is observable to the user (and
+        // the plugin author) instead of silently disappearing. This keeps
+        // the line's display-column accounting correct so adjacent atoms
+        // do not snap to the wrong column when the real renderer arrives.
+        //
+        // A `tracing::warn!` per directive surfaces the placeholder
+        // behaviour without crashing; we accept the noise because plugin
+        // authors testing the directive deserve a visible signal that the
+        // host has not yet wired the paint extension.
+        wit::DisplayDirective::InlineBox(d) => {
+            let width_cells = d.width_cells.max(0.0).round() as usize;
+            tracing::warn!(
+                target: "kasane_wasm::inline_box",
+                box_id = d.box_id,
+                line = d.line,
+                byte_offset = d.byte_offset,
+                width_cells,
+                "InlineBox directive projected to a {width_cells}-cell space placeholder; \
+                 host paint extension (Phase 10) is not yet implemented",
+            );
+            DisplayDirective::InsertInline {
+                line: d.line as usize,
+                byte_offset: d.byte_offset as usize,
+                content: vec![Atom::plain(" ".repeat(width_cells))],
+                interaction: InlineInteraction::None,
+            }
+        }
     }
 }
 

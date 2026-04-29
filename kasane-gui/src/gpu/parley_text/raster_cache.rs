@@ -102,6 +102,14 @@ pub struct CacheStats {
     pub misses: u32,
     pub atlas_evictions: u32,
     pub lru_evictions: u32,
+    /// Glyphs that could not be cached because the atlas was full and the
+    /// LRU eviction candidate was protected by same-frame use. The caller
+    /// receives `None` from `get_or_insert`; the glyph for that frame is
+    /// either rendered uncached or dropped, depending on the caller's
+    /// fall-back strategy. Non-zero values indicate atlas pressure and
+    /// should appear as a Service-Level Objective in
+    /// [docs/performance.md](../../../../../../../docs/performance.md).
+    pub dropped: u32,
 }
 
 /// Atlas operations the cache needs. Production wires this to a pair of
@@ -244,6 +252,19 @@ impl GlyphRasterCache {
             if !evictable {
                 // No safe candidate to evict — accept the loss for
                 // this glyph rather than corrupt an in-flight one.
+                if self.stats.dropped == 0 {
+                    tracing::warn!(
+                        target: "kasane_gui::glyph_atlas",
+                        cache_len = self.entries.len(),
+                        cache_cap = self.entries.cap().get(),
+                        epoch,
+                        "GPU glyph atlas pressure: cannot allocate slot and \
+                         no LRU entry is evictable (all candidates from this \
+                         frame). Glyph dropped this frame; increase atlas \
+                         dimensions or LRU capacity if this recurs.",
+                    );
+                }
+                self.stats.dropped += 1;
                 return None;
             }
             let (_, evicted) = self.entries.pop_lru().expect("peek succeeded");
@@ -276,6 +297,19 @@ impl GlyphRasterCache {
             // just allocated and return None so the caller skips the
             // glyph (rather than corrupting a sibling).
             atlases.deallocate(content, &slot);
+            if self.stats.dropped == 0 {
+                tracing::warn!(
+                    target: "kasane_gui::glyph_atlas",
+                    cache_len = self.entries.len(),
+                    cache_cap = self.entries.cap().get(),
+                    epoch,
+                    "GPU glyph atlas pressure: LRU is saturated with \
+                     entries from the current frame and cannot accept a \
+                     new insertion. Glyph dropped this frame; increase \
+                     LRU capacity if this recurs.",
+                );
+            }
+            self.stats.dropped += 1;
             return None;
         }
         if let Some((_evicted_key, evicted)) = self.entries.push(key, entry) {
@@ -504,6 +538,27 @@ mod tests {
         assert_eq!(
             stats.atlas_evictions, 0,
             "same-frame eviction must be refused, got {stats:?}"
+        );
+        assert!(
+            stats.dropped > 0,
+            "refused-eviction path must increment dropped counter, got {stats:?}"
+        );
+    }
+
+    #[test]
+    fn dropped_counter_zero_on_steady_state() {
+        // Exercises the happy path: a small cache with plenty of atlas
+        // headroom should never report dropped glyphs.
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap());
+        let mut at = TestAtlases::new(256);
+        for i in 0..8u16 {
+            cache.bump_epoch();
+            assert!(insert(&mut cache, &mut at, key(1, i), mask_raster(16, 16)));
+        }
+        let stats = cache.take_stats();
+        assert_eq!(
+            stats.dropped, 0,
+            "no atlas pressure expected, got {stats:?}"
         );
     }
 
