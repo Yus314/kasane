@@ -168,6 +168,19 @@ pub enum DecorationKind {
 ///
 /// Panics in debug builds if `style.fg` / `style.bg` are still
 /// `Brush::Default`; this is a programming error caught early.
+///
+/// **Known gap (ADR-031 Phase B3 closure)**: `style.font_features` and
+/// `style.font_variations` are silently dropped here — they are part of the
+/// WIT 1.0.0 contract but not yet plumbed to Parley's `RangedBuilder`. A
+/// plugin specifying `font_variations: [(wght, 450.0)]` currently renders at
+/// the discrete `font_weight` instead. When this gap closes:
+///   1. Add `font_features: u32` and `font_variations: SmallVec<…>` fields
+///      to [`ResolvedParleyStyle`].
+///   2. Push them via `StyleProperty::FontFeatures` / `FontVariations` in
+///      `shaper.rs::shape_line`.
+///   3. Extend `compute_style_hash` in `styled_line.rs` so the L1 cache
+///      treats these as shape-affecting (otherwise stale layouts will
+///      pollute paint output).
 pub fn resolve_for_parley(style: &Style, fallback_text_color: Brush) -> ResolvedParleyStyle {
     let fg = match style.fg {
         KBrush::Default => fallback_text_color,
