@@ -1,11 +1,10 @@
-//! wgpu-side renderer for the Parley pipeline (ADR-031, Phase 9b Step 3).
+//! wgpu-side renderer for the Parley + swash pipeline.
 //!
-//! Mirrors [`text_pipeline::TextRenderer`](crate::gpu::text_pipeline::TextRenderer)
-//! but consumes [`DrawableGlyph`]s from [`super::frame_builder`] and writes
+//! Consumes [`DrawableGlyph`]s from [`super::frame_builder`] and writes
 //! [`ParleyGlyphVertex`]s built by [`super::vertex_builder`]. The shader
-//! (`text_pipeline/shader.wgsl`), vertex layout, atlas bind-group layout,
-//! and uniforms layout are all shared with the cosmic-text renderer
-//! through a single [`text_pipeline::Cache`] instance.
+//! ([`shader.wgsl`](super::wgpu_cache)), vertex layout, atlas bind-group
+//! layout, and uniforms layout all sit on a shared
+//! [`Cache`](super::wgpu_cache::Cache) instance.
 //!
 //! ## Two-call lifecycle
 //!
@@ -38,7 +37,8 @@ use wgpu::{
     Device, MultisampleState, Queue, RenderPass, RenderPipeline,
 };
 
-use crate::gpu::text_pipeline::{Cache, Viewport};
+use super::viewport::Viewport;
+use super::wgpu_cache::Cache;
 
 use super::frame_builder::DrawableGlyph;
 use super::gpu_atlas::GpuAtlasShelf;
@@ -159,7 +159,7 @@ impl TextRenderer {
 }
 
 /// Round `size` up to the next power-of-two `COPY_BUFFER_ALIGNMENT`-aligned
-/// buffer size — matches the helper in `text_pipeline::text_render`.
+/// buffer size — same growth strategy the glyphon-derived renderer used.
 fn next_copy_buffer_size(size: u64) -> u64 {
     let align_mask = COPY_BUFFER_ALIGNMENT - 1;
     ((size.next_power_of_two() + align_mask) & !align_mask).max(COPY_BUFFER_ALIGNMENT)

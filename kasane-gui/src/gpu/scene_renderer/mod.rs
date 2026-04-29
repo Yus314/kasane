@@ -1,4 +1,4 @@
-use super::text_pipeline::{Cache, Resolution, Viewport};
+use super::text::{Cache, Resolution, Viewport};
 use crate::animation::CursorRenderState;
 use kasane_core::config::FontConfig;
 use kasane_core::render::scene::line_display_width_str;

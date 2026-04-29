@@ -32,6 +32,17 @@ pub mod style_resolver;
 pub mod styled_line;
 pub mod text_renderer;
 pub mod vertex_builder;
+pub(crate) mod viewport;
+pub(crate) mod wgpu_cache;
+pub(crate) mod wgpu_types;
+
+// Re-exports for the SceneRenderer wiring layer that owns these wgpu
+// primitives. They originated in the (now-retired) `text_pipeline/`
+// glyphon-derived module; ADR-031 Wave 2.2 merged them into this
+// module so the entire text stack lives under one tree.
+pub(crate) use viewport::Viewport;
+pub(crate) use wgpu_cache::Cache;
+pub use wgpu_types::Resolution;
 
 #[cfg(test)]
 mod integration_test;

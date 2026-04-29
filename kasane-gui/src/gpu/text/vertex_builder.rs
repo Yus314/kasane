@@ -2,10 +2,10 @@
 //!
 //! Produces [`ParleyGlyphVertex`] instances ready to upload into a wgpu
 //! vertex buffer. The struct layout exactly matches the existing
-//! `text_pipeline::GlyphToRender` so the same shader (`shader.wgsl`) can
-//! consume both — `TextRenderer` reuses the
-//! existing pipeline plumbing (vertex layout, bind groups) and only swaps
-//! out the *source* of the vertex data.
+//! [`super::wgpu_types::GlyphToRender`] so the shared
+//! [`shader.wgsl`](super::wgpu_cache) can consume both — `TextRenderer`
+//! reuses the existing pipeline plumbing (vertex layout, bind groups)
+//! and only swaps out the *source* of the vertex data.
 //!
 //! ## Vertex layout (wire format, must match shader.wgsl)
 //!
@@ -21,7 +21,7 @@
 //! ```
 //!
 //! The `content_type` discriminants follow the legacy
-//! `text_pipeline::ContentType` enum (declared as `Color, Mask` so Color=0
+//! `ContentType` enum (declared as `Color, Mask` so Color=0
 //! and Mask=1). Our [`super::glyph_rasterizer::ContentKind`] uses the
 //! reverse order (Mask declared first), so the converter explicitly maps
 //! the values.
@@ -38,7 +38,7 @@ use super::frame_builder::DrawableGlyph;
 use super::glyph_rasterizer::ContentKind;
 
 /// Per-glyph vertex/instance data. Matches the byte layout of
-/// `text_pipeline::GlyphToRender` so the existing shader consumes both.
+/// `super::wgpu_types::GlyphToRender` so the existing shader consumes both.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable, PartialEq)]
 pub struct ParleyGlyphVertex {
@@ -103,7 +103,7 @@ pub fn build_vertices(glyphs: &[DrawableGlyph]) -> Vec<ParleyGlyphVertex> {
 /// the brush in the shader (the bitmap supplies its own colour), but the
 /// field is still written for layout uniformity.
 ///
-/// Channel order is dictated by `text_pipeline/shader.wgsl`, which
+/// Channel order is dictated by [`super::wgpu_cache`]'s `shader.wgsl`, which
 /// extracts components as:
 ///
 /// ```wgsl
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn vertex_layout_size_is_28_bytes() {
-        // Phase 9b Step 3 uses the existing text_pipeline shader, which
+        // Uses the shared shader (super::wgpu_cache::Cache builds it), which
         // expects 28-byte vertices. Catch any silent layout drift here.
         assert_eq!(std::mem::size_of::<ParleyGlyphVertex>(), 28);
     }

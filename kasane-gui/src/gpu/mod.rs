@@ -16,7 +16,6 @@ pub mod scene_graph;
 pub mod scene_renderer;
 pub mod text;
 pub mod text_effects;
-pub(crate) mod text_pipeline;
 pub mod texture_cache;
 pub mod timing;
 
