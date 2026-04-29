@@ -355,7 +355,7 @@ mod tests {
                             "grapheme mismatch at ({x}, {y}): old={:?} new={:?}",
                             o.grapheme, n.grapheme
                         );
-                        assert_eq!(o.face, n.face, "face mismatch at ({x}, {y})");
+                        assert_eq!(o.face(), n.face(), "face mismatch at ({x}, {y})");
                         assert_eq!(o.width, n.width, "width mismatch at ({x}, {y})");
                     }
                     (None, None) => {}

@@ -3,15 +3,26 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::protocol::{Atom, Face, resolve_face};
+use crate::render::terminal_style::TerminalStyle;
 
 // ---------------------------------------------------------------------------
 // Cell + CellGrid
 // ---------------------------------------------------------------------------
 
+/// One column of a [`CellGrid`].
+///
+/// Carries the SGR-emit-ready [`TerminalStyle`] projection of the
+/// originating styled atom (design δ, ADR-031 Phase 3 follow-up). Cell
+/// is the rasterised TUI output; storing the richer [`Style`] would be
+/// wasted since terminals cannot render variable-axis font weight,
+/// font features, letter-spacing, or bidi overrides anyway. The
+/// projection happens once at paint time (in [`CellGrid::put_char`] /
+/// [`CellGrid::clear`] / etc.); the backend reads `cell.style` directly
+/// and emits SGR without any further conversion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cell {
     pub grapheme: CompactString,
-    pub face: Face,
+    pub style: TerminalStyle,
     /// Display width: 1 for normal, 2 for wide chars, 0 for continuation cells.
     pub width: u8,
 }
@@ -20,19 +31,83 @@ impl Default for Cell {
     fn default() -> Self {
         Cell {
             grapheme: CompactString::const_new(" "),
-            face: Face::default(),
+            style: TerminalStyle::default(),
             width: 1,
         }
     }
 }
 
 impl Cell {
-    /// Method-style accessor for the `face` field. Symmetry with
-    /// [`Atom::face`](crate::protocol::Atom::face) lets call sites use the
-    /// same syntax across both types.
+    /// Project the cell's [`TerminalStyle`] back to the legacy [`Face`]
+    /// representation. Bridge for sites that still consume `Face` (tests,
+    /// theme APIs, plugin decoration emit). Drops fields that have no
+    /// `Face` equivalent. Retires when Phase B3 removes [`Face`].
     #[inline]
     pub fn face(&self) -> Face {
-        self.face
+        terminal_style_to_face(&self.style)
+    }
+
+    /// Apply a [`Face`]-level mutation to the cell. Bridge during the
+    /// design-δ migration: callers that hold a `Face`-keyed merge API
+    /// (decoration overlays, cursor face composition) can still operate
+    /// without knowing about [`TerminalStyle`]. The call projects the
+    /// stored style back to a `Face`, runs the mutation, then projects
+    /// forward again. Retires when Phase B3 removes [`Face`] entirely.
+    #[inline]
+    pub fn with_face_mut<F: FnOnce(&mut Face)>(&mut self, f: F) {
+        let mut face = self.face();
+        f(&mut face);
+        self.style = TerminalStyle::from_face(&face);
+    }
+
+    /// Set the cell's style from a [`Face`]. Bridge equivalent to
+    /// `cell.style = TerminalStyle::from_face(face)`; retires with [`Face`].
+    #[inline]
+    pub fn set_face(&mut self, face: &Face) {
+        self.style = TerminalStyle::from_face(face);
+    }
+}
+
+/// Lossy projection from [`TerminalStyle`] back to legacy [`Face`].
+///
+/// Bridge that keeps `cell.face()` working during the design-δ migration.
+/// Used by tests and any code path that still pattern-matches on `Face`
+/// fields. Dropped in Phase B3 along with [`Face`] itself.
+fn terminal_style_to_face(ts: &TerminalStyle) -> Face {
+    use crate::protocol::Attributes;
+    let mut attrs = Attributes::empty();
+    if ts.bold {
+        attrs |= Attributes::BOLD;
+    }
+    if ts.italic {
+        attrs |= Attributes::ITALIC;
+    }
+    if ts.dim {
+        attrs |= Attributes::DIM;
+    }
+    if ts.blink {
+        attrs |= Attributes::BLINK;
+    }
+    if ts.reverse {
+        attrs |= Attributes::REVERSE;
+    }
+    if ts.strikethrough {
+        attrs |= Attributes::STRIKETHROUGH;
+    }
+    use crate::render::terminal_style::UnderlineKind;
+    match ts.underline {
+        UnderlineKind::None => {}
+        UnderlineKind::Solid => attrs |= Attributes::UNDERLINE,
+        UnderlineKind::Curly => attrs |= Attributes::CURLY_UNDERLINE,
+        UnderlineKind::Dotted => attrs |= Attributes::DOTTED_UNDERLINE,
+        UnderlineKind::Dashed => attrs |= Attributes::DASHED_UNDERLINE,
+        UnderlineKind::Double => attrs |= Attributes::DOUBLE_UNDERLINE,
+    }
+    Face {
+        fg: ts.fg,
+        bg: ts.bg,
+        underline: ts.underline_color,
+        attributes: attrs,
     }
 }
 
@@ -133,9 +208,10 @@ impl CellGrid {
 
         // --- Write the new cell ---
 
+        let style = TerminalStyle::from_face(face);
         self.current[idx] = Cell {
             grapheme: CompactString::from(grapheme),
-            face: *face,
+            style,
             width: w,
         };
         // If wide character, mark next cell as continuation
@@ -143,7 +219,7 @@ impl CellGrid {
             let next_idx = self.idx(x + 1, y);
             self.current[next_idx] = Cell {
                 grapheme: CompactString::default(),
-                face: *face,
+                style,
                 width: 0,
             };
         }
@@ -211,9 +287,10 @@ impl CellGrid {
     }
 
     pub fn clear(&mut self, face: &Face) {
+        let style = TerminalStyle::from_face(face);
         for cell in &mut self.current {
             cell.grapheme = CompactString::const_new(" ");
-            cell.face = *face;
+            cell.style = style;
             cell.width = 1;
         }
         for d in &mut self.dirty_rows {
@@ -225,12 +302,13 @@ impl CellGrid {
         if y >= self.height {
             return;
         }
+        let style = TerminalStyle::from_face(face);
         self.dirty_rows[y as usize] = true;
         for x in 0..self.width {
             let idx = self.idx(x, y);
             self.current[idx] = Cell {
                 grapheme: CompactString::const_new(" "),
-                face: *face,
+                style,
                 width: 1,
             };
         }
@@ -242,13 +320,14 @@ impl CellGrid {
         if y >= self.height {
             return;
         }
+        let style = TerminalStyle::from_face(face);
         self.dirty_rows[y as usize] = true;
         let x_end = (x_start + width).min(self.width);
         for x in x_start..x_end {
             let idx = self.idx(x, y);
             self.current[idx] = Cell {
                 grapheme: CompactString::const_new(" "),
-                face: *face,
+                style,
                 width: 1,
             };
         }
@@ -256,6 +335,7 @@ impl CellGrid {
 
     /// Clear only a rectangular region of the grid to the given face.
     pub fn clear_region(&mut self, rect: &crate::layout::Rect, face: &Face) {
+        let style = TerminalStyle::from_face(face);
         let x_end = (rect.x + rect.w).min(self.width);
         let y_end = (rect.y + rect.h).min(self.height);
         for y in rect.y..y_end {
@@ -264,7 +344,7 @@ impl CellGrid {
                 let idx = self.idx(x, y);
                 self.current[idx] = Cell {
                     grapheme: CompactString::const_new(" "),
-                    face: *face,
+                    style,
                     width: 1,
                 };
             }
@@ -397,7 +477,7 @@ impl CellGrid {
         if self.current.len() == size {
             for cell in &mut self.current {
                 cell.grapheme = CompactString::const_new(" ");
-                cell.face = Face::default();
+                cell.style = TerminalStyle::default();
                 cell.width = 1;
             }
         } else {
@@ -729,7 +809,7 @@ mod tests {
         assert!(
             grid.get(2, 0)
                 .unwrap()
-                .face
+                .face()
                 .attributes
                 .contains(Attributes::STRIKETHROUGH)
         );

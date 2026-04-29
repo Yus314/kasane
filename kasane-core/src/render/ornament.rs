@@ -155,7 +155,7 @@ fn apply_rect_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merge: FaceMer
     for y in rect.y..y_end {
         for x in rect.x..x_end {
             if let Some(cell) = grid.get_mut(x, y) {
-                merge.apply(&mut cell.face, face);
+                cell.with_face_mut(|f| merge.apply(f, face));
             }
         }
     }
@@ -171,7 +171,7 @@ fn apply_rect_perimeter_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merg
     // Top row
     for x in rect.x..x_end {
         if let Some(cell) = grid.get_mut(x, rect.y) {
-            merge.apply(&mut cell.face, face);
+            cell.with_face_mut(|f| merge.apply(f, face));
         }
     }
     // Bottom row (skip if same as top)
@@ -179,20 +179,20 @@ fn apply_rect_perimeter_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merg
     if bottom != rect.y {
         for x in rect.x..x_end {
             if let Some(cell) = grid.get_mut(x, bottom) {
-                merge.apply(&mut cell.face, face);
+                cell.with_face_mut(|f| merge.apply(f, face));
             }
         }
     }
     // Left and right columns (excluding corners already covered)
     for y in (rect.y + 1)..bottom {
         if let Some(cell) = grid.get_mut(rect.x, y) {
-            merge.apply(&mut cell.face, face);
+            cell.with_face_mut(|f| merge.apply(f, face));
         }
         let right = x_end - 1;
         if right != rect.x
             && let Some(cell) = grid.get_mut(right, y)
         {
-            merge.apply(&mut cell.face, face);
+            cell.with_face_mut(|f| merge.apply(f, face));
         }
     }
 }

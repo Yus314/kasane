@@ -15,6 +15,7 @@ mod pipeline_salsa;
 pub mod scene;
 #[cfg(feature = "svg")]
 pub mod svg;
+pub mod terminal_style;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 pub mod theme;
@@ -38,6 +39,7 @@ pub use pipeline_salsa::{
     RenderPipelineOptions, SceneRenderOptions, render_pipeline_cached, scene_render_pipeline_cached,
 };
 pub use scene::{CellSize, DrawCommand, PixelPos, PixelRect, ResolvedAtom, SceneCache};
+pub use terminal_style::{TerminalStyle, UnderlineKind};
 pub use visual_hints::VisualHints;
 
 // ---------------------------------------------------------------------------

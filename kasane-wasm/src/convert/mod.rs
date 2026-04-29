@@ -261,7 +261,7 @@ pub(crate) fn wit_atom_to_atom(wa: &wit::Atom) -> Atom {
 
 pub(crate) fn atom_to_wit(a: &Atom) -> wit::Atom {
     wit::Atom {
-        style: style_to_wit(&Style::from_face(&a.face())),
+        style: style_to_wit(&a.style_resolved_default()),
         contents: a.contents.to_string(),
     }
 }

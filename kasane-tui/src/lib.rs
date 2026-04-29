@@ -4,7 +4,13 @@ mod event_handler;
 mod input;
 pub mod kitty;
 pub mod sgr;
-pub mod terminal_style;
+
+/// Re-export of [`kasane_core::render::TerminalStyle`]. Kept as a path
+/// alias so existing `kasane_tui::terminal_style::*` imports continue to
+/// work after design-δ centralised the type in kasane-core.
+pub mod terminal_style {
+    pub use kasane_core::render::{TerminalStyle, UnderlineKind};
+}
 
 use std::io::Write;
 use std::sync::Arc;

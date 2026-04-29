@@ -101,10 +101,10 @@ pub fn dump_cellgrid(grid: &CellGrid) -> String {
         for x in 0..grid.width() {
             let cell = grid.get(x, y).expect("cell in bounds");
             text.push_str(&cell.grapheme);
-            let id = match faces.iter().position(|f| *f == cell.face) {
+            let id = match faces.iter().position(|f| *f == cell.face()) {
                 Some(i) => i,
                 None => {
-                    faces.push(cell.face);
+                    faces.push(cell.face());
                     faces.len() - 1
                 }
             };

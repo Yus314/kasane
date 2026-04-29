@@ -1,29 +1,26 @@
-//! Terminal-friendly projection of `Style` / `Face` (ADR-031 Phase 3).
+//! Terminal-friendly projection of `Style` / `Face` (ADR-031 Phase 3, design δ).
 //!
-//! `TerminalStyle` is the SGR-emit-ready intermediate consumed by
-//! [`crate::sgr::emit_sgr_diff`]. It collapses continuous fields that
-//! terminals cannot represent (`FontWeight` axis, `font_variations`,
-//! `letter_spacing`, `bidi_override`) into the discrete attributes
-//! crossterm exposes (`bold`, `italic`, etc.).
+//! `TerminalStyle` is the SGR-emit-ready, [`Copy`]-able compact projection
+//! of a styled atom. It is the canonical representation stored on
+//! [`crate::render::Cell`] under the design-δ migration: the cell-grid
+//! is the rasterised TUI output and the renderer must already have
+//! decided which terminal-expressible attributes to emit, so storing the
+//! richer [`Style`] would be wasted memory and CPU.
 //!
-//! Two construction paths exist:
+//! Continuous fields the terminal cannot represent (`FontWeight` axis,
+//! `font_variations`, `letter_spacing`, `bidi_override`) collapse here
+//! into discrete attributes (`bold`, `italic`, etc.).
 //!
-//! - [`TerminalStyle::from_face`] — current call site path. The central
-//!   [`kasane_core::render::Cell`] still stores [`Face`]; backend.rs
-//!   converts via this constructor just before SGR emission. This
-//!   replaces the previous "sgr.rs consumes Face directly" arrangement
-//!   so that emission stays decoupled from the upstream cell
-//!   representation.
-//! - [`TerminalStyle::from_style`] — Phase 3 Step 2 forward path.
-//!   Unblocks a future `Cell.style: Style` migration: when the central
-//!   cell type carries `Style`, backend.rs will switch to this
-//!   constructor and the upstream `Style → Face` conversion currently
-//!   paid at paint time can retire (ADR-031 Phase 3 closes).
+//! Two construction paths:
 //!
-//! See [ADR-031](../../../docs/decisions.md) §Phase 3 and the
-//! `decisions.md` Style → TerminalStyle projection table.
+//! - [`TerminalStyle::from_face`] — bridge from the legacy [`Face`]
+//!   representation. Used while [`Face`] is still the upstream protocol
+//!   shape; retires when Phase B3 removes [`Face`] entirely.
+//! - [`TerminalStyle::from_style`] — direct projection from the post-resolve
+//!   [`Style`]. Used by call sites that already hold a [`Style`] (atom
+//!   conversion, plugin output).
 
-use kasane_core::protocol::{
+use crate::protocol::{
     Attributes, Brush, Color, DecorationStyle, Face, FontSlant, FontWeight, Style,
 };
 
@@ -76,7 +73,7 @@ pub struct TerminalStyle {
 }
 
 impl TerminalStyle {
-    /// Build from a legacy [`Face`] (current Cell-stored type).
+    /// Build from a legacy [`Face`].
     ///
     /// Splits the [`Attributes`] bitflag into individual booleans and
     /// maps the underline-style flag (UNDERLINE / CURLY_UNDERLINE / etc.)
@@ -112,13 +109,6 @@ impl TerminalStyle {
     }
 
     /// Build directly from a resolved [`Style`].
-    ///
-    /// This is the Phase 3 Step 2 forward path: once
-    /// [`kasane_core::render::Cell`] stores `Style` instead of `Face`,
-    /// backend.rs switches to this constructor and the upstream
-    /// `Style → Face` conversion (currently in
-    /// `kasane-core/src/render/view/mod.rs` and elsewhere) retires.
-    /// Until then this constructor is exercised only by tests.
     ///
     /// `font_weight ≥ FontWeight::SEMI_BOLD (600)` collapses to bold;
     /// `font_slant` of either `Italic` or `Oblique` collapses to italic.
@@ -156,9 +146,6 @@ impl TerminalStyle {
 /// Project a kasane-core `Brush` to the terminal-side `Color` enum.
 ///
 /// `Brush::Default` becomes `Color::Default` (terminal default colour).
-/// Mirrors the private `color_from_brush` helper in
-/// `kasane-core/src/protocol/style.rs`; kept inline because the helper
-/// is not part of kasane-core's public API.
 fn brush_to_color(brush: Brush) -> Color {
     match brush {
         Brush::Default => Color::Default,
@@ -170,7 +157,7 @@ fn brush_to_color(brush: Brush) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kasane_core::protocol::{Attributes, Color, Face, NamedColor, TextDecoration};
+    use crate::protocol::{Attributes, Color, Face, NamedColor, TextDecoration};
 
     #[test]
     fn from_face_default_is_default() {
@@ -196,7 +183,6 @@ mod tests {
 
     #[test]
     fn from_face_underline_style_priority() {
-        // Curly takes precedence over solid when both bits accidentally set.
         let face = Face {
             attributes: Attributes::UNDERLINE | Attributes::CURLY_UNDERLINE,
             ..Face::default()
@@ -223,19 +209,16 @@ mod tests {
 
     #[test]
     fn from_face_drops_final_attrs() {
-        // FINAL_FG / FINAL_BG / FINAL_ATTR are Kakoune-internal; no terminal effect.
         let face = Face {
             attributes: Attributes::FINAL_FG | Attributes::FINAL_BG | Attributes::FINAL_ATTR,
             ..Face::default()
         };
         let ts = TerminalStyle::from_face(&face);
-        // None of bold/italic/dim/blink/reverse/strikethrough should be set.
         assert!(!ts.bold && !ts.italic && !ts.dim && !ts.blink && !ts.reverse && !ts.strikethrough);
     }
 
     #[test]
     fn from_style_bold_threshold() {
-        // FontWeight::SEMI_BOLD (600) is the lower bound for bold.
         let mut s = Style::default();
         s.font_weight = FontWeight(599);
         assert!(!TerminalStyle::from_style(&s).bold);
@@ -282,11 +265,10 @@ mod tests {
 
     #[test]
     fn from_face_and_from_style_agree_via_to_face() {
-        // The central invariant: for any `Style`, projecting via the
-        // legacy Cell.face: Face path (Style → Face → TerminalStyle)
-        // yields the same TerminalStyle as the direct path
-        // (Style → TerminalStyle). This keeps Phase 3 Step 2 a
-        // behavioural no-op when migrating Cell to store Style.
+        // Invariant: for any `Style`, projecting via the legacy
+        // Cell.face: Face path (Style → Face → TerminalStyle) yields the
+        // same TerminalStyle as the direct path (Style → TerminalStyle).
+        // Pinning this lets the design-δ migration be a behavioural no-op.
         let cases = vec![
             Style::default(),
             Style {
@@ -312,7 +294,7 @@ mod tests {
             assert_eq!(
                 via_face, direct,
                 "TerminalStyle::from_face(style.to_face()) must equal TerminalStyle::from_style(style); \
-                 mismatch indicates a Phase 3 Step 2 migration would change behaviour for {s:?}"
+                 mismatch for {s:?}"
             );
         }
     }

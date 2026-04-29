@@ -18,11 +18,11 @@ use crossterm::{
         LeaveAlternateScreen,
     },
 };
-use kasane_core::protocol::Face;
 use kasane_core::render::{Cell, CellGrid, CursorStyle, ImageRequest, RenderResult};
 
 use crate::kitty::KittyState;
-use crate::sgr::emit_sgr_diff;
+use crate::sgr::emit_sgr_diff_style;
+use crate::terminal_style::TerminalStyle;
 
 pub struct TuiBackend {
     stdout: Stdout,
@@ -97,7 +97,7 @@ impl TuiBackend {
         let w = grid.width() as usize;
         let full_redraw = self.previous.is_empty();
 
-        let mut last_face: Option<Face> = None;
+        let mut last_terminal_style: Option<TerminalStyle> = None;
         let mut last_x: u16 = u16::MAX;
         let mut last_y: u16 = u16::MAX;
 
@@ -126,10 +126,9 @@ impl TuiBackend {
                     queue!(self.buf, cursor::MoveTo(x, y))?;
                 }
 
-                let face = &cell.face;
-                if last_face.as_ref() != Some(face) {
-                    emit_sgr_diff(&mut self.buf, last_face.as_ref(), face)?;
-                    last_face = Some(*face);
+                if last_terminal_style.as_ref() != Some(&cell.style) {
+                    emit_sgr_diff_style(&mut self.buf, last_terminal_style.as_ref(), &cell.style)?;
+                    last_terminal_style = Some(cell.style);
                 }
 
                 let s = if cell.grapheme.is_empty() {

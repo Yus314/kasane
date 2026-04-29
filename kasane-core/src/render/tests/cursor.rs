@@ -156,7 +156,7 @@ fn test_clear_cursor_face_at_bar() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 2, 0);
 
     let cell = grid.get(2, 0).unwrap();
-    assert_eq!(cell.face, state.observed.default_style.to_face());
+    assert_eq!(cell.face(), state.observed.default_style.to_face());
 }
 
 #[test]
@@ -180,7 +180,7 @@ fn test_clear_cursor_face_at_underline() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Underline, 3, 1);
 
     let cell = grid.get(3, 1).unwrap();
-    assert_eq!(cell.face, state.observed.default_style.to_face());
+    assert_eq!(cell.face(), state.observed.default_style.to_face());
 }
 
 #[test]
@@ -197,7 +197,7 @@ fn test_clear_cursor_face_at_block_noop() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Block, 0, 0);
 
     let cell = grid.get(0, 0).unwrap();
-    assert_eq!(cell.face, cursor_face);
+    assert_eq!(cell.face(), cursor_face);
 }
 
 #[test]
@@ -222,7 +222,7 @@ fn test_clear_cursor_face_at_prompt() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 4, 4);
 
     let cell = grid.get(4, 4).unwrap();
-    assert_eq!(cell.face, state.observed.status_default_style.to_face());
+    assert_eq!(cell.face(), state.observed.status_default_style.to_face());
 }
 
 #[test]

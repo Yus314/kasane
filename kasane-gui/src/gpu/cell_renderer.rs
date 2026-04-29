@@ -27,7 +27,7 @@ pub fn build_bg_instances(
             let cell = grid
                 .get(col, row)
                 .expect("grid bounds in build_bg_instances");
-            let bg = color_resolver.resolve(cell.face.bg, false);
+            let bg = color_resolver.resolve(cell.style.bg, false);
             let x = col as f32 * cell_w;
             out.extend_from_slice(&[x, y, cell_w, cell_h, bg[0], bg[1], bg[2], bg[3]]);
         }
@@ -42,14 +42,10 @@ pub fn build_bg_instances(
         let cc = grid
             .get(cx, cy)
             .map(|cell| {
-                if cell
-                    .face
-                    .attributes
-                    .contains(kasane_core::protocol::Attributes::REVERSE)
-                {
-                    color_resolver.resolve(cell.face.fg, true)
+                if cell.style.reverse {
+                    color_resolver.resolve(cell.style.fg, true)
                 } else {
-                    color_resolver.resolve(cell.face.bg, false)
+                    color_resolver.resolve(cell.style.bg, false)
                 }
             })
             .unwrap_or_else(|| color_resolver.resolve(kasane_core::protocol::Color::Default, true));
@@ -84,8 +80,8 @@ pub fn compute_row_hash(grid: &CellGrid, row: u16, color_resolver: &ColorResolve
     for col in 0..grid.width() {
         let cell = grid.get(col, row).expect("grid bounds in compute_row_hash");
         cell.grapheme.hash(&mut hasher);
-        std::mem::discriminant(&cell.face.fg).hash(&mut hasher);
-        let fg_bits = color_resolver.resolve(cell.face.fg, true);
+        std::mem::discriminant(&cell.style.fg).hash(&mut hasher);
+        let fg_bits = color_resolver.resolve(cell.style.fg, true);
         fg_bits[0].to_bits().hash(&mut hasher);
         fg_bits[1].to_bits().hash(&mut hasher);
         fg_bits[2].to_bits().hash(&mut hasher);
@@ -119,7 +115,7 @@ pub fn build_row_spans(
             &cell.grapheme
         };
         row_text.push_str(grapheme);
-        let fg = color_resolver.resolve(cell.face.fg, true);
+        let fg = color_resolver.resolve(cell.style.fg, true);
         span_ranges.push((start, row_text.len(), fg));
     }
 }
