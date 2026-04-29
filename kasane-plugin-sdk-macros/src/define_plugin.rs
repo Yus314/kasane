@@ -34,6 +34,7 @@ pub(crate) struct PluginDef {
     handle_mouse: Option<HandleMouseDef>,
     handle_drop: Option<HandleDropDef>,
     handle_default_scroll: Option<ParamBodyDef>,
+    paint_inline_box: Option<ParamBodyDef>,
     capabilities: Option<proc_macro2::TokenStream>,
     authorities: Option<proc_macro2::TokenStream>,
     on_io_event_effects: Option<ParamBodyDef>,
@@ -626,6 +627,19 @@ pub(crate) fn define_plugin_impl(
         quote! {}
     };
 
+    let paint_inline_box_method = if let Some(ref pib) = def.paint_inline_box {
+        let box_id_param = &pib.param;
+        let body = &pib.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn paint_inline_box(#box_id_param: u64) -> Option<ElementHandle> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let capabilities_method = if let Some(ref m) = def.manifest {
         let variants = &m.capability_variants;
         quote! {
@@ -878,6 +892,7 @@ pub(crate) fn define_plugin_impl(
             #handle_mouse_method
             #handle_drop_method
             #handle_default_scroll_method
+            #paint_inline_box_method
             #capabilities_method
             #authorities_method
             #on_io_event_method
@@ -1053,6 +1068,7 @@ impl syn::parse::Parse for PluginDef {
             handle_mouse: None,
             handle_drop: None,
             handle_default_scroll: None,
+            paint_inline_box: None,
             capabilities: None,
             authorities: None,
             on_io_event_effects: None,
@@ -1350,6 +1366,17 @@ impl syn::parse::Parse for PluginDef {
                     let body;
                     syn::braced!(body in input);
                     def.handle_default_scroll = Some(ParamBodyDef {
+                        param,
+                        body: body.parse()?,
+                    });
+                }
+                "paint_inline_box" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.paint_inline_box = Some(ParamBodyDef {
                         param,
                         body: body.parse()?,
                     });
