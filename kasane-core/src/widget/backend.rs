@@ -22,7 +22,10 @@ pub(super) fn to_style(face_or_token: &FaceOrToken) -> ElementStyle {
 pub(super) fn resolve_face(face_or_token: &FaceOrToken, state: &AppView<'_>) -> Face {
     match face_or_token {
         FaceOrToken::Direct(face) => *face,
-        FaceOrToken::Token(token) => state.theme_face(token).unwrap_or_default(),
+        FaceOrToken::Token(token) => state
+            .theme_style(token)
+            .map(|s| s.to_face())
+            .unwrap_or_default(),
     }
 }
 

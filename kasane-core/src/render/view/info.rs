@@ -12,7 +12,8 @@ fn resolve_info_face(info: &InfoState, state: &AppState) -> Face {
     state
         .config
         .theme
-        .resolve_with_protocol_fallback(&StyleToken::INFO_TEXT, info.face.to_face())
+        .resolve_with_protocol_fallback(&StyleToken::INFO_TEXT, info.face.clone())
+        .to_face()
 }
 
 /// Compute the floating window for an info popup, returning `None` if zero-size.

@@ -120,7 +120,9 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
 
     match element {
         Element::Text(text, style) => {
-            let face = theme.resolve(style, &state.observed.default_style.to_face());
+            let face = theme
+                .resolve(style, &state.observed.default_style)
+                .to_face();
             visitor.visit_text(text, &face, area);
         }
         Element::StyledLine(atoms) => {
@@ -213,11 +215,12 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
             style: el_style,
             title,
         } => {
-            let face = theme.resolve(el_style, &state.observed.default_style.to_face());
+            let face_style = theme.resolve(el_style, &state.observed.default_style);
+            let face = face_style.to_face();
             let border_face = border.as_ref().map(|bc| {
                 bc.style
                     .as_ref()
-                    .map(|s| theme.resolve(s, &face))
+                    .map(|s| theme.resolve(s, &face_style).to_face())
                     .unwrap_or(face)
             });
             let child_area = layout.children.first().map(|cl| cl.area);

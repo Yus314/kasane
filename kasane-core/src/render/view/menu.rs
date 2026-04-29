@@ -17,15 +17,20 @@ use super::build_styled_line_with_base;
 /// Resolve menu item face: theme override takes precedence, protocol face as fallback.
 fn resolve_menu_face(menu: &MenuState, selected: bool, state: &AppState) -> Face {
     if selected {
-        state.config.theme.resolve_with_protocol_fallback(
-            &StyleToken::MENU_ITEM_SELECTED,
-            menu.selected_item_face.to_face(),
-        )
+        state
+            .config
+            .theme
+            .resolve_with_protocol_fallback(
+                &StyleToken::MENU_ITEM_SELECTED,
+                menu.selected_item_face.clone(),
+            )
+            .to_face()
     } else {
         state
             .config
             .theme
-            .resolve_with_protocol_fallback(&StyleToken::MENU_ITEM_NORMAL, menu.menu_face.to_face())
+            .resolve_with_protocol_fallback(&StyleToken::MENU_ITEM_NORMAL, menu.menu_face.clone())
+            .to_face()
     }
 }
 

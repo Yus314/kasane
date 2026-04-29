@@ -7,12 +7,9 @@ use crate::protocol::{Attributes, Color, Face, NamedColor};
 
 /// Theme maps StyleTokens to styles for consistent visual styling.
 ///
-/// ADR-031 Phase A.3.2: storage migrated from `Face` to `Style`. The
-/// public API still exposes `Face`-shaped methods (`set`, `get`,
-/// `resolve`, `resolve_with_protocol_fallback`) for callers that have
-/// not yet migrated; new methods (`set_style`, `get_style`,
-/// `resolve_style`) return the underlying `Style` directly so the
-/// projection cost can be paid lazily where needed.
+/// Storage and the public API are both `Style`-native. Wire-format `Face`
+/// values produced by [`parse_face_spec`] are converted to `Style` at the
+/// theme boundary, so callers never see the legacy bitflag representation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     map: HashMap<StyleToken, PStyle>,
@@ -32,50 +29,18 @@ impl Theme {
 
         // Menu: Default means "use protocol face from Kakoune".
         // User can override via config.toml [theme] section.
-        map.insert(StyleToken::MENU_ITEM_NORMAL, (Face::default()).into());
-        map.insert(StyleToken::MENU_ITEM_SELECTED, (Face::default()).into());
-        map.insert(StyleToken::MENU_SCROLLBAR, (Face::default()).into());
-        map.insert(StyleToken::MENU_SCROLLBAR_THUMB, (Face::default()).into());
+        map.insert(StyleToken::MENU_ITEM_NORMAL, PStyle::default());
+        map.insert(StyleToken::MENU_ITEM_SELECTED, PStyle::default());
+        map.insert(StyleToken::MENU_SCROLLBAR, PStyle::default());
+        map.insert(StyleToken::MENU_SCROLLBAR_THUMB, PStyle::default());
 
-        // Info
-        map.insert(
-            StyleToken::INFO_TEXT,
-            (Face {
-                fg: Color::Default,
-                bg: Color::Default,
-                ..Face::default()
-            })
-            .into(),
-        );
-        map.insert(
-            StyleToken::INFO_BORDER,
-            (Face {
-                fg: Color::Default,
-                bg: Color::Default,
-                ..Face::default()
-            })
-            .into(),
-        );
-
-        // Status
-        map.insert(
-            StyleToken::STATUS_LINE,
-            (Face {
-                fg: Color::Default,
-                bg: Color::Default,
-                ..Face::default()
-            })
-            .into(),
-        );
-        map.insert(
-            StyleToken::STATUS_MODE,
-            (Face {
-                fg: Color::Default,
-                bg: Color::Default,
-                ..Face::default()
-            })
-            .into(),
-        );
+        // Info / Status — semantically equivalent to default, kept explicit
+        // so the user-configured detection (`is_user_configured`) reports
+        // false for these tokens until config overrides them.
+        map.insert(StyleToken::INFO_TEXT, PStyle::default());
+        map.insert(StyleToken::INFO_BORDER, PStyle::default());
+        map.insert(StyleToken::STATUS_LINE, PStyle::default());
+        map.insert(StyleToken::STATUS_MODE, PStyle::default());
 
         // Workspace split divider
         map.insert(
@@ -140,39 +105,28 @@ impl Theme {
         Theme { map }
     }
 
-    /// Set a token's face. Internally stores as Style (Face → Style via `From`).
-    pub fn set(&mut self, token: StyleToken, face: Face) {
-        self.map.insert(token, face.into());
-    }
-
-    /// Set a token's style directly.
+    /// Set a token's style.
     pub fn set_style(&mut self, token: StyleToken, style: PStyle) {
         self.map.insert(token, style);
     }
 
-    /// Resolve a Style to a Face.
-    /// - Inline(unresolved) → projects via `to_face()`
-    /// - Token(token) → looks up in theme map, falls back to `fallback`
-    pub fn resolve(&self, style: &ElementStyle, fallback: &Face) -> Face {
+    /// Resolve an [`ElementStyle`] to a concrete [`Style`] using this theme.
+    /// - `Inline(arc)` projects the inline style directly
+    /// - `Token(token)` looks up the theme map; missing entries yield `fallback`
+    pub fn resolve(&self, style: &ElementStyle, fallback: &PStyle) -> PStyle {
         match style {
-            ElementStyle::Inline(arc) => arc.to_face(),
+            ElementStyle::Inline(arc) => arc.style.clone(),
             ElementStyle::Token(token) => self
                 .map
                 .get(token)
-                .map(|s| s.to_face())
-                .unwrap_or(*fallback),
+                .cloned()
+                .unwrap_or_else(|| fallback.clone()),
         }
     }
 
-    /// Look up a token's style directly (without fallback). Phase A.3 API.
+    /// Look up a token's style directly (without fallback).
     pub fn get_style(&self, token: &StyleToken) -> Option<&PStyle> {
         self.map.get(token)
-    }
-
-    /// Look up a token directly (without fallback). Returns Face for
-    /// back-compat; consumers should migrate to [`Self::get_style`].
-    pub fn get(&self, token: &StyleToken) -> Option<Face> {
-        self.map.get(token).map(|s| s.to_face())
     }
 
     /// Merge another theme's entries into this one (overlay wins on conflict).
@@ -206,7 +160,7 @@ impl Theme {
                 ThemeValue::FaceSpec(spec) => {
                     if let Some(face) = parse_face_spec(spec) {
                         let token = normalize_config_key(name);
-                        theme.set(token, face);
+                        theme.set_style(token, face.into());
                     }
                 }
                 ThemeValue::TokenRef(ref_name) => {
@@ -224,7 +178,7 @@ impl Theme {
                     ThemeValue::FaceSpec(spec) => {
                         if let Some(face) = parse_face_spec(spec) {
                             let token = normalize_config_key(name);
-                            theme.set(token, face);
+                            theme.set_style(token, face.into());
                         }
                         // Remove any pending ref for this key (variant overrides base)
                         pending_refs.retain(|(n, _)| n != name);
@@ -261,7 +215,8 @@ impl Theme {
                     bg: Color::Default,
                     underline: Color::Default,
                     attributes: Attributes::DIM,
-                },
+                }
+                .into(),
             );
             self.set_if_still_default(
                 StyleToken::SPLIT_DIVIDER,
@@ -269,7 +224,8 @@ impl Theme {
                     fg: palette.chrome_bg,
                     bg: palette.chrome_bg,
                     ..Face::default()
-                },
+                }
+                .into(),
             );
             self.set_if_still_default(
                 StyleToken::SPLIT_DIVIDER_FOCUSED,
@@ -277,7 +233,8 @@ impl Theme {
                     fg: Color::Default,
                     bg: palette.chrome_bg,
                     ..Face::default()
-                },
+                }
+                .into(),
             );
         }
     }
@@ -293,18 +250,21 @@ impl Theme {
         })
     }
 
-    /// Resolve a face with protocol fallback: if the user configured the token
-    /// in the theme, use that; otherwise use the protocol-provided face.
-    pub fn resolve_with_protocol_fallback(&self, token: &StyleToken, protocol_face: Face) -> Face {
+    /// Resolve a token with protocol fallback: if the user configured the token
+    /// in the theme, use that; otherwise return `protocol_style`.
+    pub fn resolve_with_protocol_fallback(
+        &self,
+        token: &StyleToken,
+        protocol_style: PStyle,
+    ) -> PStyle {
         if self.is_user_configured(token) {
-            self.map.get(token).unwrap().to_face()
+            self.map.get(token).unwrap().clone()
         } else {
-            protocol_face
+            protocol_style
         }
     }
 
-    fn set_if_still_default(&mut self, token: StyleToken, derived: Face) {
-        let derived_style: PStyle = derived.into();
+    fn set_if_still_default(&mut self, token: StyleToken, derived: PStyle) {
         match self.map.get(&token) {
             Some(existing)
                 if !matches!(existing.fg, crate::protocol::Brush::Default)
@@ -313,7 +273,7 @@ impl Theme {
                 // User explicitly configured -- don't override
             }
             _ => {
-                self.map.insert(token, derived_style);
+                self.map.insert(token, derived);
             }
         }
     }
@@ -366,7 +326,7 @@ fn resolve_token_refs(
             match target_value {
                 Some(ThemeValue::FaceSpec(spec)) => {
                     if let Some(face) = parse_face_spec(spec) {
-                        theme.set(token.clone(), face);
+                        theme.set_style(token.clone(), face.into());
                         resolved = true;
                     }
                     break;
@@ -378,8 +338,8 @@ fn resolve_token_refs(
                 None => {
                     // Not in config; check if it's already in theme map
                     let ref_token = normalize_config_key(&current_ref);
-                    if let Some(face) = theme.get(&ref_token) {
-                        theme.set(token.clone(), face);
+                    if let Some(style) = theme.get_style(&ref_token).cloned() {
+                        theme.set_style(token.clone(), style);
                         resolved = true;
                     }
                     break;
@@ -388,8 +348,8 @@ fn resolve_token_refs(
         }
 
         if !resolved {
-            // Fallback to default face
-            theme.set(token, Face::default());
+            // Fallback to default style
+            theme.set_style(token, PStyle::default());
         }
     }
 }
@@ -476,6 +436,7 @@ impl Default for Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::Brush;
 
     #[test]
     fn test_resolve_direct() {
@@ -485,41 +446,41 @@ mod tests {
             ..Face::default()
         };
         let style = ElementStyle::from(face);
-        let result = theme.resolve(&style, &Face::default());
-        assert_eq!(result.fg, Color::Named(NamedColor::Red));
+        let result = theme.resolve(&style, &PStyle::default());
+        assert_eq!(result.fg, Brush::Named(NamedColor::Red));
     }
 
     #[test]
     fn test_resolve_token_found() {
         let mut theme = Theme::new();
-        let face = Face {
-            fg: Color::Named(NamedColor::Green),
-            ..Face::default()
+        let style = PStyle {
+            fg: Brush::Named(NamedColor::Green),
+            ..PStyle::default()
         };
-        theme.set(StyleToken::MENU_ITEM_NORMAL, face);
-        let style = ElementStyle::Token(StyleToken::MENU_ITEM_NORMAL);
-        let result = theme.resolve(&style, &Face::default());
-        assert_eq!(result.fg, Color::Named(NamedColor::Green));
+        theme.set_style(StyleToken::MENU_ITEM_NORMAL, style);
+        let element_style = ElementStyle::Token(StyleToken::MENU_ITEM_NORMAL);
+        let result = theme.resolve(&element_style, &PStyle::default());
+        assert_eq!(result.fg, Brush::Named(NamedColor::Green));
     }
 
     #[test]
     fn test_resolve_token_fallback() {
         let theme = Theme::new();
-        let fallback = Face {
-            fg: Color::Named(NamedColor::Yellow),
-            ..Face::default()
+        let fallback = PStyle {
+            fg: Brush::Named(NamedColor::Yellow),
+            ..PStyle::default()
         };
-        let style = ElementStyle::Token(StyleToken::MENU_ITEM_NORMAL);
-        let result = theme.resolve(&style, &fallback);
-        assert_eq!(result.fg, Color::Named(NamedColor::Yellow));
+        let element_style = ElementStyle::Token(StyleToken::MENU_ITEM_NORMAL);
+        let result = theme.resolve(&element_style, &fallback);
+        assert_eq!(result.fg, Brush::Named(NamedColor::Yellow));
     }
 
     #[test]
     fn test_default_theme_has_menu_faces() {
         let theme = Theme::default_theme();
-        assert!(theme.get(&StyleToken::MENU_ITEM_NORMAL).is_some());
-        assert!(theme.get(&StyleToken::MENU_ITEM_SELECTED).is_some());
-        assert!(theme.get(&StyleToken::SHADOW).is_some());
+        assert!(theme.get_style(&StyleToken::MENU_ITEM_NORMAL).is_some());
+        assert!(theme.get_style(&StyleToken::MENU_ITEM_SELECTED).is_some());
+        assert!(theme.get_style(&StyleToken::SHADOW).is_some());
     }
 
     #[test]
@@ -544,46 +505,49 @@ mod tests {
             ThemeValue::FaceSpec("cyan,black".into()),
         );
         let theme = Theme::from_config(&config);
-        let face = theme.get(&StyleToken::MENU_ITEM_NORMAL).unwrap();
-        assert_eq!(face.fg, Color::Named(NamedColor::Cyan));
-        assert_eq!(face.bg, Color::Named(NamedColor::Black));
+        let style = theme.get_style(&StyleToken::MENU_ITEM_NORMAL).unwrap();
+        assert_eq!(style.fg, Brush::Named(NamedColor::Cyan));
+        assert_eq!(style.bg, Brush::Named(NamedColor::Black));
     }
 
     #[test]
     fn test_theme_merge() {
         let mut base = Theme::default_theme();
         let mut overlay = Theme::new();
-        let custom_face = Face {
-            fg: Color::Named(NamedColor::Red),
-            ..Face::default()
+        let custom = PStyle {
+            fg: Brush::Named(NamedColor::Red),
+            ..PStyle::default()
         };
-        overlay.set(StyleToken::MENU_ITEM_NORMAL, custom_face);
-        overlay.set(StyleToken::new("myplugin.highlight"), custom_face);
+        overlay.set_style(StyleToken::MENU_ITEM_NORMAL, custom.clone());
+        overlay.set_style(StyleToken::new("myplugin.highlight"), custom);
 
         base.merge(&overlay);
 
         // Overlay wins for existing token
         assert_eq!(
-            base.get(&StyleToken::MENU_ITEM_NORMAL).unwrap().fg,
-            Color::Named(NamedColor::Red)
+            base.get_style(&StyleToken::MENU_ITEM_NORMAL).unwrap().fg,
+            Brush::Named(NamedColor::Red)
         );
         // Custom token was added
-        assert!(base.get(&StyleToken::new("myplugin.highlight")).is_some());
+        assert!(
+            base.get_style(&StyleToken::new("myplugin.highlight"))
+                .is_some()
+        );
         // Unmodified token preserved
-        assert!(base.get(&StyleToken::SHADOW).is_some());
+        assert!(base.get_style(&StyleToken::SHADOW).is_some());
     }
 
     #[test]
     fn test_custom_token_registration() {
         let mut theme = Theme::default_theme();
-        let face = Face {
-            fg: Color::Named(NamedColor::Magenta),
-            ..Face::default()
+        let style = PStyle {
+            fg: Brush::Named(NamedColor::Magenta),
+            ..PStyle::default()
         };
         let token = StyleToken::new("color-preview.swatch");
-        theme.set(token.clone(), face);
-        let resolved = theme.get(&token).unwrap();
-        assert_eq!(resolved.fg, Color::Named(NamedColor::Magenta));
+        theme.set_style(token.clone(), style);
+        let resolved = theme.get_style(&token).unwrap();
+        assert_eq!(resolved.fg, Brush::Named(NamedColor::Magenta));
     }
 
     #[test]
@@ -596,7 +560,7 @@ mod tests {
         let theme = Theme::from_config(&config);
         // Unknown keys are normalized and stored
         let token = StyleToken::new("my.plugin.highlight");
-        assert!(theme.get(&token).is_some());
+        assert!(theme.get_style(&token).is_some());
     }
 
     #[test]
@@ -620,15 +584,8 @@ mod tests {
             }),
         };
         theme.apply_color_context(&ctx);
-        let shadow = theme.get(&StyleToken::SHADOW).unwrap();
-        assert_eq!(
-            shadow.fg,
-            Color::Rgb {
-                r: 150,
-                g: 150,
-                b: 150
-            }
-        );
+        let shadow = theme.get_style(&StyleToken::SHADOW).unwrap();
+        assert_eq!(shadow.fg, Brush::rgb(150, 150, 150),);
     }
 
     #[test]
@@ -658,22 +615,25 @@ mod tests {
         };
         theme.apply_color_context(&ctx);
         // User's cyan should be preserved
-        let shadow = theme.get(&StyleToken::SHADOW).unwrap();
-        assert_eq!(shadow.fg, Color::Named(NamedColor::Cyan));
+        let shadow = theme.get_style(&StyleToken::SHADOW).unwrap();
+        assert_eq!(shadow.fg, Brush::Named(NamedColor::Cyan));
     }
 
     #[test]
     fn test_apply_color_context_k1_noop() {
         use crate::render::color_context::{ColorContext, ColorKnowledge};
         let mut theme = Theme::default_theme();
-        let original_shadow = theme.get(&StyleToken::SHADOW).unwrap();
+        let original_shadow = theme.get_style(&StyleToken::SHADOW).cloned().unwrap();
         let ctx = ColorContext {
             is_dark: true,
             knowledge: ColorKnowledge::K1,
             chrome: None,
         };
         theme.apply_color_context(&ctx);
-        assert_eq!(theme.get(&StyleToken::SHADOW).unwrap(), original_shadow);
+        assert_eq!(
+            theme.get_style(&StyleToken::SHADOW).unwrap(),
+            &original_shadow
+        );
     }
 
     // ── Token reference tests ────────────────────────────────────────────
@@ -689,8 +649,8 @@ mod tests {
             .faces
             .insert("status_mode".into(), ThemeValue::TokenRef("accent".into()));
         let theme = Theme::from_config(&config);
-        let face = theme.get(&StyleToken::new("status.mode")).unwrap();
-        assert_eq!(face.fg, Color::Named(NamedColor::Green));
+        let style = theme.get_style(&StyleToken::new("status.mode")).unwrap();
+        assert_eq!(style.fg, Brush::Named(NamedColor::Green));
     }
 
     #[test]
@@ -706,8 +666,8 @@ mod tests {
             .faces
             .insert("c".into(), ThemeValue::TokenRef("b".into()));
         let theme = Theme::from_config(&config);
-        let face = theme.get(&StyleToken::new("c")).unwrap();
-        assert_eq!(face.fg, Color::Named(NamedColor::Cyan));
+        let style = theme.get_style(&StyleToken::new("c")).unwrap();
+        assert_eq!(style.fg, Brush::Named(NamedColor::Cyan));
     }
 
     #[test]
@@ -720,9 +680,9 @@ mod tests {
             .faces
             .insert("b".into(), ThemeValue::TokenRef("a".into()));
         let theme = Theme::from_config(&config);
-        // Cycle → falls back to default face
-        let face = theme.get(&StyleToken::new("a")).unwrap();
-        assert_eq!(face.fg, Color::Default);
+        // Cycle → falls back to default style
+        let style = theme.get_style(&StyleToken::new("a")).unwrap();
+        assert_eq!(style.fg, Brush::Default);
     }
 
     #[test]
@@ -739,15 +699,15 @@ mod tests {
         // Without variant
         let theme = Theme::from_config(&config);
         assert_eq!(
-            theme.get(&StyleToken::new("accent")).unwrap().fg,
-            Color::Named(NamedColor::Green)
+            theme.get_style(&StyleToken::new("accent")).unwrap().fg,
+            Brush::Named(NamedColor::Green)
         );
 
         // With dark variant
         let theme_dark = Theme::from_config_with_variant(&config, Some("dark"));
         assert_eq!(
-            theme_dark.get(&StyleToken::new("accent")).unwrap().fg,
-            Color::Named(NamedColor::Cyan)
+            theme_dark.get_style(&StyleToken::new("accent")).unwrap().fg,
+            Brush::Named(NamedColor::Cyan)
         );
     }
 
@@ -767,7 +727,7 @@ mod tests {
 
         let theme = Theme::from_config_with_variant(&config, Some("dark"));
         // status_mode → @accent → "cyan,default" (from dark variant)
-        let face = theme.get(&StyleToken::new("status.mode")).unwrap();
-        assert_eq!(face.fg, Color::Named(NamedColor::Cyan));
+        let style = theme.get_style(&StyleToken::new("status.mode")).unwrap();
+        assert_eq!(style.fg, Brush::Named(NamedColor::Cyan));
     }
 }

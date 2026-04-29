@@ -250,10 +250,14 @@ fn build_info_section_with_avoid(
 }
 
 fn build_status_core(state: &AppState) -> Element {
-    let status_face = state.config.theme.resolve_with_protocol_fallback(
-        &StyleToken::STATUS_LINE,
-        state.observed.status_default_style.to_face(),
-    );
+    let status_face = state
+        .config
+        .theme
+        .resolve_with_protocol_fallback(
+            &StyleToken::STATUS_LINE,
+            state.observed.status_default_style.clone(),
+        )
+        .to_face();
     let status_line = build_styled_line_with_base(&state.inference.status_line, &status_face, 0);
     let mode_line = build_styled_line_with_base(&state.observed.status_mode_line, &status_face, 0);
     let mode_width = line_display_width(&state.observed.status_mode_line) as u16;
@@ -278,10 +282,14 @@ pub(crate) fn build_status_surface_abstract(
         )
         .into_element();
 
-    let status_face = state.config.theme.resolve_with_protocol_fallback(
-        &StyleToken::STATUS_LINE,
-        state.observed.status_default_style.to_face(),
-    );
+    let status_face = state
+        .config
+        .theme
+        .resolve_with_protocol_fallback(
+            &StyleToken::STATUS_LINE,
+            state.observed.status_default_style.clone(),
+        )
+        .to_face();
     let row = Element::container(
         Element::row(vec![
             FlexChild::fixed(Element::slot_placeholder(

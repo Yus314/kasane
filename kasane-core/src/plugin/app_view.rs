@@ -363,10 +363,13 @@ impl<'a> AppView<'a> {
     // Tier 9: Theme / Color context
     // =========================================================================
 
-    /// Look up a theme token face.
+    /// Look up a theme token style.
     #[inline]
-    pub fn theme_face(&self, token: &crate::element::StyleToken) -> Option<crate::protocol::Face> {
-        self.state.config.theme.get(token)
+    pub fn theme_style(
+        &self,
+        token: &crate::element::StyleToken,
+    ) -> Option<&crate::protocol::Style> {
+        self.state.config.theme.get_style(token)
     }
 
     /// Whether the background is dark.

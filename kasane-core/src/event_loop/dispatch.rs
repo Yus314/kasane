@@ -478,8 +478,8 @@ fn handle_workspace_command(
         Command::RegisterThemeTokens(tokens) => {
             for (name, face) in tokens {
                 let token = crate::element::StyleToken::new(name);
-                if ctx.state.config.theme.get(&token).is_none() {
-                    ctx.state.config.theme.set(token, face);
+                if ctx.state.config.theme.get_style(&token).is_none() {
+                    ctx.state.config.theme.set_style(token, face.into());
                 }
             }
             *ctx.dirty |= DirtyFlags::OPTIONS;

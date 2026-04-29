@@ -111,13 +111,17 @@ impl PaintVisitor for GridPaintVisitor<'_> {
     fn visit_container_pre(&mut self, info: &ContainerPaintInfo) {
         // Shadow (drawn first, behind the container)
         if info.shadow {
-            let shadow_face = self.theme.resolve(
-                &crate::element::ElementStyle::Token(crate::element::StyleToken::SHADOW),
-                &Face {
-                    attributes: crate::protocol::Attributes::DIM,
-                    ..Face::default()
-                },
-            );
+            let shadow_fallback = crate::protocol::Style::from_face(&Face {
+                attributes: crate::protocol::Attributes::DIM,
+                ..Face::default()
+            });
+            let shadow_face = self
+                .theme
+                .resolve(
+                    &crate::element::ElementStyle::Token(crate::element::StyleToken::SHADOW),
+                    &shadow_fallback,
+                )
+                .to_face();
             paint_shadow(self.grid, &info.area, &shadow_face);
         }
 
@@ -176,7 +180,8 @@ impl PaintVisitor for GridPaintVisitor<'_> {
 
         let gutter_face = self
             .theme
-            .get(&StyleToken::GUTTER_LINE_NUMBER)
+            .get_style(&StyleToken::GUTTER_LINE_NUMBER)
+            .map(|s| s.to_face())
             .unwrap_or_default();
 
         for row in 0..area.h {
@@ -207,7 +212,8 @@ impl PaintVisitor for GridPaintVisitor<'_> {
                 {
                     let cursor_face = self
                         .theme
-                        .get(&StyleToken::TEXT_PANEL_CURSOR)
+                        .get_style(&StyleToken::TEXT_PANEL_CURSOR)
+                        .map(|s| s.to_face())
                         .unwrap_or_default();
                     self.grid.fill_region(y, content_x, content_w, &cursor_face);
                 }
