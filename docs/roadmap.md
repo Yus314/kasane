@@ -39,7 +39,7 @@ GPU swap.
 | 1a — Style + Brush types | ✅ | Coexists with `Face`; `Atom::style()` bridge |
 | 1b–d — `Atom { face, contents }` migration | ✅ | B-wide commit `98592a47` carries `Arc<UnresolvedStyle>` directly on `Atom`; mutex-on-`StyleStore` retired |
 | 2 — kasane-core type migration | ✅ | Phase A.3 cascade landed (commits `0388a6f5`–`9266c5ed`); `final_*` resolution flags consumed at the protocol boundary |
-| 3 — TUI `TerminalStyle` | Pending | TUI `sgr.rs` still emits SGR from `Face`; redundant `Style → Face` round-trip per cell remains |
+| 3 — TUI `TerminalStyle` | Step 1 done | Step 1 (`d4c7c16b`): `TerminalStyle` projection + `UnderlineKind` enum land in `kasane-tui/src/terminal_style.rs`; `sgr.rs` consumes `TerminalStyle`; `emit_sgr_diff(&Face)` retained as a shim that projects via `TerminalStyle::from_face`. `from_style` constructor unblocks Step 2. Step 2 (multi-PR): migrate central `Cell.face: Face` → `Cell.style: Style` in `kasane-core/render/grid.rs` and all paint sites; backend.rs switches to `emit_sgr_diff_style` direct, retiring the upstream `Style → Face` round-trip |
 | 4 — WIT plugin ABI redesign | ✅ | Tier A `a5ef9f56` (brush/style/inline-box, ABI 1.0.0) + Tier B `8f281f52` (SDK macros + helpers + 5 templates) |
 | 5 — Bundled WASM plugins rebuild | ✅ | All 10 examples + 6 bundled + 11 fixtures rebuilt against `kasane:plugin@1.0.0` (`f4df0762`); `cargo test -p kasane-wasm` 188/0 |
 | 6 — `parley_text` facade + cargo deps | ✅ | parley 0.9 + swash 0.2.7 |
