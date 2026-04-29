@@ -1,9 +1,39 @@
 //! Inline decoration: byte-range Style/Hide/Insert operations applied to buffer line atoms.
 
+use crate::display::InlineBoxAlignment;
+use crate::plugin::PluginId;
 use crate::protocol::{Atom, Face};
 
+/// Metadata for an inline-box slot reserved within a line.
+///
+/// Produced by [`InlineDecoration::inline_box_slots`]; consumed by GUI
+/// renderers that wire the slots through to Parley's `push_inline_box`
+/// and the host's `paint_inline_box` callback (ADR-031 Phase 10
+/// Step 2-renderer). The atom-level pipeline ([`apply_inline_ops`])
+/// also emits `width_cells` placeholder spaces so backends that do not
+/// yet consume slot metadata (TUI cell-grid) keep correct display-column
+/// accounting.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineBoxSlotMeta {
+    /// Buffer-line byte offset where the slot is reserved.
+    pub byte_offset: usize,
+    /// Width in display columns (cell units). The renderer multiplies
+    /// by current cell metrics to derive physical pixels.
+    pub width_cells: f32,
+    /// Height in fractional lines.
+    pub height_lines: f32,
+    /// Plugin-supplied stable identifier; used as the L2 paint cache
+    /// key and as the argument to `paint_inline_box(box_id)`.
+    pub box_id: u64,
+    /// Baseline alignment of the slot.
+    pub alignment: InlineBoxAlignment,
+    /// Owning plugin — the renderer dispatches `paint_inline_box` to
+    /// this plugin only.
+    pub owner: PluginId,
+}
+
 /// An inline operation applied within a buffer line.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum InlineOp {
     /// Insert virtual text atoms at the given byte gap position.
     Insert { at: usize, content: Vec<Atom> },
@@ -14,14 +44,33 @@ pub enum InlineOp {
     },
     /// Hide the given byte range (omit from output).
     Hide { range: std::ops::Range<usize> },
+    /// Reserve a non-text inline slot (ADR-031 Phase 10 Step 2-renderer).
+    ///
+    /// The atom-level pipeline ([`apply_inline_ops`]) emits `width_cells`
+    /// spaces so cell-grid backends keep correct display-column
+    /// accounting; the GUI renderer consumes the slot metadata via
+    /// [`InlineDecoration::inline_box_slots`] and routes it through
+    /// Parley's `push_inline_box` plus the host's `paint_inline_box`
+    /// callback for the actual paint.
+    InlineBox {
+        at: usize,
+        width_cells: f32,
+        height_lines: f32,
+        box_id: u64,
+        alignment: InlineBoxAlignment,
+        owner: PluginId,
+    },
 }
 
 impl InlineOp {
     /// Unified sort key: (position, variant_order).
-    /// Insert (0) sorts before Style/Hide (1) at the same position.
+    /// Insert (0) sorts before InlineBox (0) before Style/Hide (1) at
+    /// the same position. Insert and InlineBox share order 0 because
+    /// both inject content at a gap; InlineBox is treated as a special
+    /// kind of insert for ordering purposes.
     pub fn sort_key(&self) -> (usize, u8) {
         match self {
-            InlineOp::Insert { at, .. } => (*at, 0),
+            InlineOp::Insert { at, .. } | InlineOp::InlineBox { at, .. } => (*at, 0),
             InlineOp::Style { range, .. } | InlineOp::Hide { range } => (range.start, 1),
         }
     }
@@ -37,7 +86,7 @@ impl InlineOp {
 /// Invariants (checked in debug builds):
 /// - INV-INLINE-1: ops are sorted by `sort_key()` (position, then Insert before Style/Hide)
 /// - INV-INLINE-2: range-based ops (Style/Hide) are non-overlapping
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct InlineDecoration {
     ops: Vec<InlineOp>,
 }
@@ -81,6 +130,41 @@ impl InlineDecoration {
     /// Access the operations slice.
     pub fn ops(&self) -> &[InlineOp] {
         &self.ops
+    }
+
+    /// Extract inline-box slot metadata (ADR-031 Phase 10 Step 2-renderer).
+    ///
+    /// Returns one entry per [`InlineOp::InlineBox`] in declaration order.
+    /// GUI renderers consume this to populate
+    /// [`StyledLine::with_inline_boxes`] so Parley can reserve the slot
+    /// geometry; the host then dispatches `paint_inline_box(box_id)` to
+    /// the slot's owning plugin at paint time.
+    ///
+    /// The cell-grid (TUI) backend ignores this — [`apply_inline_ops`]
+    /// already emits `width_cells` placeholder spaces so column
+    /// accounting stays correct.
+    pub fn inline_box_slots(&self) -> Vec<InlineBoxSlotMeta> {
+        self.ops
+            .iter()
+            .filter_map(|op| match op {
+                InlineOp::InlineBox {
+                    at,
+                    width_cells,
+                    height_lines,
+                    box_id,
+                    alignment,
+                    owner,
+                } => Some(InlineBoxSlotMeta {
+                    byte_offset: *at,
+                    width_cells: *width_cells,
+                    height_lines: *height_lines,
+                    box_id: *box_id,
+                    alignment: *alignment,
+                    owner: owner.clone(),
+                }),
+                _ => None,
+            })
+            .collect()
     }
 }
 
@@ -141,8 +225,10 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
 
             let op = &ops[op_idx];
             match op {
-                InlineOp::Insert { .. } => {
-                    // Insert with at > pos but at < atom_end: emit gap up to it
+                InlineOp::Insert { .. } | InlineOp::InlineBox { .. } => {
+                    // Insert / InlineBox with at > pos but at < atom_end:
+                    // emit gap up to the op's anchor; drain_inserts on the
+                    // next loop iteration consumes the op itself.
                     let gap_end = op.start().min(atom_end);
                     emit_sub_atom(
                         contents,
@@ -273,17 +359,33 @@ fn advance_style(
     false
 }
 
-/// Emit all consecutive Insert ops whose `at <= pos`.
+/// Emit all consecutive Insert / InlineBox ops whose `at <= pos`.
+///
+/// `InlineOp::InlineBox` is treated like `Insert` for atom-pipeline
+/// purposes: it produces `width_cells` placeholder spaces so cell-grid
+/// backends keep correct display-column accounting. The GUI renderer
+/// reads the slot metadata via [`InlineDecoration::inline_box_slots`]
+/// for its own paint path; the placeholder spaces also pass through
+/// harmlessly because GUI consumers strip them when wiring slots into
+/// `StyledLine::with_inline_boxes` (Step 2-renderer C).
 fn drain_inserts(ops: &[InlineOp], op_idx: &mut usize, pos: usize, result: &mut Vec<Atom>) {
     while *op_idx < ops.len() {
-        if let InlineOp::Insert { at, content } = &ops[*op_idx]
-            && *at <= pos
-        {
-            result.extend(content.iter().cloned());
-            *op_idx += 1;
-            continue;
+        match &ops[*op_idx] {
+            InlineOp::Insert { at, content } if *at <= pos => {
+                result.extend(content.iter().cloned());
+                *op_idx += 1;
+            }
+            InlineOp::InlineBox {
+                at, width_cells, ..
+            } if *at <= pos => {
+                let n = width_cells.max(0.0).round() as usize;
+                if n > 0 {
+                    result.push(Atom::plain(" ".repeat(n)));
+                }
+                *op_idx += 1;
+            }
+            _ => break,
         }
-        break;
     }
 }
 
@@ -354,6 +456,95 @@ mod tests {
     }
 
     // ---- Existing tests (Style/Hide) ----
+
+    fn pid(s: &str) -> PluginId {
+        PluginId(s.to_string())
+    }
+
+    // ---- InlineBox slot metadata + atom-pipeline projection ----
+
+    #[test]
+    fn inline_box_atom_pipeline_emits_placeholder_spaces() {
+        // ADR-031 Phase 10 Step 2-renderer B: InlineOp::InlineBox emits
+        // width_cells placeholder spaces in the atom output (TUI cell-grid
+        // contract). GUI consumers strip these via inline_box_slots().
+        let atoms = vec![make_atom("ab", default_face())];
+        let deco = InlineDecoration::new(vec![InlineOp::InlineBox {
+            at: 1,
+            width_cells: 3.0,
+            height_lines: 1.0,
+            box_id: 42,
+            alignment: InlineBoxAlignment::Center,
+            owner: pid("test.plugin"),
+        }]);
+        let result = apply_inline_ops(&atoms, &deco);
+        let text: String = result.iter().map(|a| a.contents.as_str()).collect();
+        assert_eq!(text, "a   b", "3 placeholder spaces inserted at byte 1");
+    }
+
+    #[test]
+    fn inline_box_slot_metadata_extracted() {
+        let deco = InlineDecoration::new(vec![InlineOp::InlineBox {
+            at: 4,
+            width_cells: 2.5,
+            height_lines: 1.0,
+            box_id: 0xCAFE,
+            alignment: InlineBoxAlignment::Top,
+            owner: pid("color.preview"),
+        }]);
+        let slots = deco.inline_box_slots();
+        assert_eq!(slots.len(), 1);
+        assert_eq!(slots[0].byte_offset, 4);
+        assert_eq!(slots[0].width_cells, 2.5);
+        assert_eq!(slots[0].box_id, 0xCAFE);
+        assert_eq!(slots[0].alignment, InlineBoxAlignment::Top);
+        assert_eq!(slots[0].owner, pid("color.preview"));
+    }
+
+    #[test]
+    fn inline_box_slots_skips_other_ops() {
+        let deco = InlineDecoration::new(vec![
+            InlineOp::Insert {
+                at: 0,
+                content: vec![make_atom(">>", red_face())],
+            },
+            InlineOp::InlineBox {
+                at: 1,
+                width_cells: 1.0,
+                height_lines: 1.0,
+                box_id: 1,
+                alignment: InlineBoxAlignment::Center,
+                owner: pid("p"),
+            },
+            InlineOp::Hide { range: 3..5 },
+        ]);
+        let slots = deco.inline_box_slots();
+        assert_eq!(
+            slots.len(),
+            1,
+            "only InlineOp::InlineBox surfaces in the slot list"
+        );
+        assert_eq!(slots[0].box_id, 1);
+    }
+
+    #[test]
+    fn inline_box_zero_width_emits_no_placeholder() {
+        let atoms = vec![make_atom("ab", default_face())];
+        let deco = InlineDecoration::new(vec![InlineOp::InlineBox {
+            at: 1,
+            width_cells: 0.0,
+            height_lines: 1.0,
+            box_id: 0,
+            alignment: InlineBoxAlignment::Center,
+            owner: pid("p"),
+        }]);
+        let result = apply_inline_ops(&atoms, &deco);
+        let text: String = result.iter().map(|a| a.contents.as_str()).collect();
+        assert_eq!(text, "ab", "zero-width slot inserts no characters");
+        assert_eq!(deco.inline_box_slots().len(), 1);
+    }
+
+    // ---- Existing tests (Style/Hide/Insert) ----
 
     #[test]
     fn empty_decoration_returns_clone() {

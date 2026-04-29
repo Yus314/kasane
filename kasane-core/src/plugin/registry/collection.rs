@@ -591,25 +591,32 @@ impl<'a> PluginView<'a> {
                         line,
                         byte_offset,
                         width_cells,
-                        ..
+                        height_lines,
+                        box_id,
+                        alignment,
                     } if *line < line_count => {
-                        // Phase 10 Step 1 — placeholder projection. The WIT
-                        // contract reserves a non-text inline slot, but the
-                        // host paint extension (`paint-inline-box(box-id)`)
-                        // is not yet wired (Step 2). Project to a
-                        // `width_cells`-space `InsertInline` so adjacent
-                        // atoms keep correct display-column accounting and
-                        // the slot is observable to plugin authors.
-                        let n = width_cells.max(0.0).round() as usize;
-                        if n > 0 {
-                            uni_inline.entry(*line).or_default().push(
-                                crate::render::InlineOp::Insert {
-                                    at: *byte_offset,
-                                    content: vec![crate::protocol::Atom::plain(" ".repeat(n))],
-                                },
-                            );
-                            has_inline = true;
-                        }
+                        // Phase 10 Step 2-renderer B (commit forthcoming):
+                        // emit InlineOp::InlineBox so GUI consumers can
+                        // extract slot metadata via
+                        // `InlineDecoration::inline_box_slots()` and route
+                        // it through Parley's `push_inline_box` plus the
+                        // host's `paint_inline_box(box_id)` callback. The
+                        // atom-level pipeline (`apply_inline_ops`) still
+                        // emits `width_cells` placeholder spaces so the
+                        // cell-grid (TUI) backend and any GUI path that
+                        // does not yet consume slot metadata keep correct
+                        // display-column accounting.
+                        uni_inline.entry(*line).or_default().push(
+                            crate::render::InlineOp::InlineBox {
+                                at: *byte_offset,
+                                width_cells: *width_cells,
+                                height_lines: *height_lines,
+                                box_id: *box_id,
+                                alignment: *alignment,
+                                owner: pid.clone(),
+                            },
+                        );
+                        has_inline = true;
                     }
                     crate::display::DisplayDirective::StyleInline {
                         line,
