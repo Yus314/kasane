@@ -37,26 +37,34 @@ GPU swap.
 |---|---|---|
 | 0 — Baseline + ADR | ✅ | `baselines/pre-parley.tar.gz`; ADR-031 in [decisions.md](./decisions.md). 80×24 baseline = 53.13 µs |
 | 1a — Style + Brush types | ✅ | Coexists with `Face`; `Atom::style()` bridge |
-| 1b–d — `Atom { face, contents }` migration | Pending | 58 files × 468 occurrences cascade |
-| 2 — kasane-core type migration | Pending | Depends on 1b–d |
-| 3 — TUI `TerminalStyle` | Pending | Depends on 2 |
-| 4 — WIT plugin ABI redesign | Pending | Independent of 1–3; cascades to 5 |
-| 5 — Bundled WASM plugins rebuild | Pending | 10 plugins + native examples |
+| 1b–d — `Atom { face, contents }` migration | ✅ | B-wide commit `98592a47` carries `Arc<UnresolvedStyle>` directly on `Atom`; mutex-on-`StyleStore` retired |
+| 2 — kasane-core type migration | ✅ | Phase A.3 cascade landed (commits `0388a6f5`–`9266c5ed`); `final_*` resolution flags consumed at the protocol boundary |
+| 3 — TUI `TerminalStyle` | Pending | TUI `sgr.rs` still emits SGR from `Face`; redundant `Style → Face` round-trip per cell remains |
+| 4 — WIT plugin ABI redesign | ✅ | Tier A `a5ef9f56` (brush/style/inline-box, ABI 1.0.0) + Tier B `8f281f52` (SDK macros + helpers + 5 templates) |
+| 5 — Bundled WASM plugins rebuild | ✅ | All 10 examples + 6 bundled + 11 fixtures rebuilt against `kasane:plugin@1.0.0` (`f4df0762`); `cargo test -p kasane-wasm` 188/0 |
 | 6 — `parley_text` facade + cargo deps | ✅ | parley 0.9 + swash 0.2.7 |
 | 7 — Parley shaper + L1 `LayoutCache` | ✅ | `Arc<ParleyLayout>`, content/style/font_size key |
 | 8 — swash rasteriser + L2/L3 caches | ✅ | LRU + etagere atlas, mask + color split |
 | 9 — `SceneRenderer` Parley path | ✅ | All four DrawCommand text variants routed through Parley |
 | 9b Step 4c — L2 cache refactor + frame-epoch eviction | ✅ | Same-frame entries protected from eviction |
 | 10 — Rich underlines (font metrics) | ✅ | `RunMetrics::underline_offset/size` drives quad geometry |
-| 10 — RTL hit_test, InlineBox, Variable font | Pending | Glyph-accurate paragraph hit_test wires next |
+| 10 — RTL hit_test, InlineBox host paint, Variable font | Pending | Glyph-accurate hit_test already in code (`hit_test.rs`); RTL/combining-mark/ZWJ test coverage missing. InlineBox WIT directive currently projects to a no-op zero-width `HideInline`; host paint extension point is the remaining work |
 | 11 — cosmic-text removal | ✅ | ~1900 LOC dropped; deps gone |
-| 11 — perf tune | Pending | Re-baseline pending; target: ≤ 70 µs warm 80×24 frame |
-| 12 — Docs + golden image tests | In progress | ADR / CHANGELOG updated; goldens pending |
+| 11 — perf tune | Pending | Re-baseline pending — `frame_one_line_changed_24_lines` was measured at 83.3 µs (+19% over target) before the B-wide mutex elimination (`98592a47`); a fresh measurement on master is owed before deciding what to optimise |
+| 12 — Docs + golden image tests | In progress | ADR / CHANGELOG updated; CellGrid `golden_grid` 80×24 ASCII baseline pinned (`a2ca6834`); CJK / cursor / selection golden coverage pending |
 
-Parley pipeline benchmarks (post-Phase-11 baseline, 2026-04-26):
+Parley pipeline benchmarks (last captured pre-B-wide, 2026-04-26):
 - `frame_warm_24_lines`: 63.8 µs (within ≤ 70 µs target)
-- `frame_one_line_changed_24_lines`: 83.3 µs (typing pattern; +19% over target — perf-tune candidate)
+- `frame_one_line_changed_24_lines`: 83.3 µs (typing pattern; +19% over target — perf-tune candidate; **expected to drop after B-wide but unmeasured**)
 - Core `salsa_scaling/full_frame/80x24`: 49.2 µs (backend-agnostic; unchanged)
+
+Open follow-up debts surfaced during the Phase 5 landing (2026-04-29) but not addressed in this round:
+- L1 `LayoutCache` test coverage: `bg`/`underline`/`reverse` change paths are not pinned by negative tests; design intent (paint-time, not shaping-time) is documented only in code comments.
+- GPU atlas pressure: `GlyphRasterCache::get_or_insert` returns `None` and silently drops glyphs when the atlas is full and LRU eviction is blocked by same-frame use; no metric.
+- `ResolvedParleyStyle` carries `italic: bool` AND `oblique: bool` as independent fields — make-illegal-states-unrepresentable would prefer a single enum.
+- `wit_atom_to_atom` in `kasane-wasm/src/convert/mod.rs` still routes through `Style::from_face(&a.face())`; B-wide direct path not consumed.
+- `text-decoration.thickness` is specified in physical pixels — plugin authors cannot reason about scale-factor changes. Wire-shape design or semantics.md note required.
+- GPU color pipeline intentionally bypasses sRGB conversion (`gpu_atlas.rs` comments); not yet documented in `semantics.md`.
 
 ### 2.2 Backlog
 

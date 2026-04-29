@@ -482,6 +482,22 @@ In TUI, the output of the rendering pipeline is not drawn in full each frame. In
 
 On terminal resize, `backend.invalidate()` clears the previous buffer, forcing a full redraw on the next `present()` call.
 
+### 5.8 Style and Color Pipeline Invariants
+
+The post-resolve `Style` record (`kasane:plugin@1.0.0` `style`, `kasane_core::protocol::Style`) is the canonical render-ready style across both backends. Plugin authors and contributors must treat the following as load-bearing invariants; a change to any of them requires updating this section first.
+
+**Brush colour space** — Named-colour and RGB brushes (`Brush::Named` / `Brush::Rgb`) are interpreted as sRGB at the source (Kakoune `Face` colours, theme tokens, `Brush::Rgb { r, g, b }` literals from plugins). The GPU pipeline currently composites in linear space without performing sRGB → linear conversion at the texture sample boundary (`kasane-gui/src/gpu/parley_text/gpu_atlas.rs`, `vertex_builder.rs`). The mismatch is intentional for performance: glyph rasters are produced premultiplied in linear space by swash, and the framebuffer view is non-sRGB. Visually, this means low-value channels (e.g. dim greys, anti-aliased glyph edges) render slightly brighter than a strict sRGB compositor would produce, and gradient blending is non-perceptual. Re-introducing sRGB conversion is tracked behind the `SRGB_FLAG` constant in `vertex_builder.rs`. Until that flag is wired up, plugins specifying RGB values should pre-correct for brightness if perceptual accuracy matters.
+
+**Decoration thickness unit** — `TextDecoration.thickness: Option<f32>` is in **physical pixels** at the time the directive is constructed. `None` (the strongly preferred default) means "use the font's recommended thickness from `RunMetrics`", which scales naturally with `font_size`. An explicit `Some(t)` is invariant under scale-factor changes: a plugin that emits `Some(1.0)` will produce a 1-physical-pixel underline regardless of the user's display scale or the current font size. Plugin authors MUST prefer `None` for body text and reserve explicit values for special cases where visual loudness must be controlled independently of the font (LSP error pulses, draft markers). The wire-shape rationale is in `decisions.md` §Phase 10 Wire Shape; this constraint is a candidate for revision in a future ABI break.
+
+**Decoration enablement vs paint-time properties (L1 LayoutCache invariant)** — within an enabled decoration, the `decoration-style` (Solid, Curly, Dotted, Dashed, Double), the brush, and the thickness are **paint-time** properties: they are read from the current `StyledLine` at draw time, not baked into the cached `Arc<ParleyLayout>`. Toggling enablement (`None` ↔ `Some(_)`) IS a shape-time change because `parley::StyleProperty::Underline(true)` / `Strikethrough(true)` causes Parley's `RunMetrics` to populate offset / thickness fields. The L1 `LayoutCache::hash_style` reflects this: it hashes only `decoration_enabled(...)`, not the full decoration record. Two layouts that differ only in decoration colour or curly-vs-solid style share a cache entry; the renderer reads the current value at paint time. See `kasane-gui/src/gpu/parley_text/layout_cache.rs` for the contract and `style_resolver.rs::DecorationKind` for the projection.
+
+**Background, reverse, dim, blink** — the four post-shape effects are **paint-time only**. They never reach Parley's shaper and never affect glyph positioning, advance widths, or run metrics. Changing any of these on an atom does not invalidate the L1 LayoutCache; the renderer reads from `StyledLine.atom_styles` at paint time. `reverse` (SGR 7) swaps foreground and background brush at paint; `dim` (SGR 2) attenuates the foreground brush by a fixed factor; `blink` (SGR 5) toggles visibility on a wall-clock cadence (currently a no-op in the GPU pipeline; see TUI for the active implementation).
+
+**Slant exclusivity** — `FontSlant` is an enum (`Normal | Italic | Oblique`), not a pair of booleans. `ResolvedParleyStyle::slant: SlantKind` mirrors this. The combination "italic AND oblique" is not representable; it would not parse and could not be constructed.
+
+**Font weight axis** — `FontWeight: u16` is continuous on the CSS [100, 900] axis. The legacy `Attributes::BOLD` bitflag projects to weight 700; `Attributes::DIM` does NOT affect weight (it is a paint-time attenuation, see above). Variable-font axes outside `wght` are carried separately on `Style.font_variations: Vec<FontVariation>`.
+
 ## 6. Input Semantics
 
 ### 6.1 Input Routing Model

@@ -2026,12 +2026,30 @@ Phase 5b — `EffectCategory` + `EffectFootprint`:
 ## ADR-031: Text Stack Migration — cosmic-text → Parley + swash, with Protocol Style Redesign
 
 **Status:** Accepted — Parley + swash is the production stack as of
-2026-04-26. Phases 0, 1, 6, 7, 8, 9, 9b (Step 4a–g + 4c L2 cache fix +
-frame-epoch eviction guard), and 11 (cosmic-text removal) are landed.
-Phase 10's rich underlines ship with the font's own `RunMetrics`;
-subpixel positioning and bidi shaping are inherent to the Parley path.
-Glyph-accurate paragraph hit testing and the protocol-side `Style`
-migration (Phases 2–5) remain on the roadmap.
+2026-04-26. The protocol-side `Style` redesign and plugin ABI break
+landed across April 28–29 (Phase A.4 split `7fca4784`, B-wide
+`98592a47`, Phase 4 Tier A `a5ef9f56`, Phase 5 Tier B `8f281f52` +
+binaries `f4df0762`). All 50 workspace test suites and the full 188
+`kasane-wasm` cases now pass against `kasane:plugin@1.0.0`.
+
+**Landed:** Phases 0, 1a, 1b–d (B-wide), 2 (kasane-core type cascade
+via Phase A.3), 4 (WIT 1.0.0 brush/style/inline-box), 5 (10 example
+plugins + 6 bundled + 11 fixtures rebuilt + SDK 0.5.0 + HOST_ABI_VERSION
+1.0.0), 6, 7, 8, 9, 9b (Step 4a–g + 4c L2 cache fix + frame-epoch
+eviction guard), 10 (rich underlines via `RunMetrics::underline_*`,
+glyph-accurate hit_test via Parley `Cluster::from_point`), and 11
+(cosmic-text removal).
+
+**Pending:** Phase 3 (TUI `TerminalStyle`; `kasane-tui/src/sgr.rs:14`
+still consumes `Face`, paying a redundant `Style → Face` round-trip per
+visible cell). Phase 10 host-side InlineBox paint extension (the WIT
+directive currently projects to a no-op zero-width `HideInline` in
+`kasane-wasm/src/convert/display.rs:96`). Phase 10 RTL / combining-mark
+/ ZWJ / trailing-position hit_test test coverage. Phase 11 perf-tune
+re-baseline (last `frame_one_line_changed_24_lines = 83.3 µs` was
+captured 2026-04-26, before the B-wide mutex elimination; the +19 %
+gap may have closed but is unmeasured). Phase 12 golden image coverage
+beyond the 80×24 ASCII baseline pinned at `a2ca6834`.
 
 **Supersedes (text stack only):** [ADR-014](#adr-014-gui-technology-stack--winit--wgpu--glyphon) §14-1's selection of glyphon (cosmic-text + swash + etagere). Window management (winit) and GPU API (wgpu) are unchanged. The atlas allocator (etagere) and the swash rasterizer are retained — only cosmic-text's layout/buffer abstraction and the glyphon-derived text pipeline are replaced.
 

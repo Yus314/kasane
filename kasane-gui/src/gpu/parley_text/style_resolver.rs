@@ -120,6 +120,16 @@ pub fn decoration_needs_custom_quad(style: DecorationStyle) -> bool {
     !matches!(style, DecorationStyle::Solid)
 }
 
+/// Slant axis projected for Parley. Italic and oblique are mutually
+/// exclusive in OpenType / CSS; modelling them as a single enum makes the
+/// invalid `italic && oblique` combination unrepresentable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SlantKind {
+    Normal,
+    Italic,
+    Oblique,
+}
+
 /// Resolved style ready to be pushed into `parley::RangedBuilder` at Phase 7.
 ///
 /// At Phase 6 this is the boundary type that lets us unit-test the
@@ -129,8 +139,7 @@ pub struct ResolvedParleyStyle {
     pub fg: Brush,
     pub bg: Brush,
     pub weight: f32,
-    pub italic: bool,
-    pub oblique: bool,
+    pub slant: SlantKind,
     pub letter_spacing: f32,
     pub underline: DecorationKind,
     pub strikethrough: DecorationKind,
@@ -173,8 +182,11 @@ pub fn resolve_for_parley(style: &Style, fallback_text_color: Brush) -> Resolved
         fg,
         bg,
         weight: style.font_weight.0 as f32,
-        italic: matches!(style.font_slant, FontSlant::Italic),
-        oblique: matches!(style.font_slant, FontSlant::Oblique),
+        slant: match style.font_slant {
+            FontSlant::Normal => SlantKind::Normal,
+            FontSlant::Italic => SlantKind::Italic,
+            FontSlant::Oblique => SlantKind::Oblique,
+        },
         letter_spacing: style.letter_spacing,
         underline: project_decoration(style.underline, fg),
         strikethrough: project_decoration(style.strikethrough, fg),
@@ -295,8 +307,7 @@ mod tests {
         assert_eq!(resolved.fg, Brush::opaque(205, 0, 0));
         assert_eq!(resolved.bg, Brush::opaque(0, 0, 0));
         assert_eq!(resolved.weight, 700.0);
-        assert!(resolved.italic);
-        assert!(!resolved.oblique);
+        assert_eq!(resolved.slant, SlantKind::Italic);
     }
 
     #[test]

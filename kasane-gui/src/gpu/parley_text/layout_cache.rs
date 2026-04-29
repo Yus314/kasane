@@ -156,8 +156,19 @@ fn hash_content(line: &StyledLine) -> u64 {
     h.finish()
 }
 
-/// Hash the resolved style runs and base style. Captures everything that
-/// affects the shaped output but is not in `content_hash`.
+/// Hash the resolved style runs and base style. Captures every shape-
+/// affecting input that is not in `content_hash`.
+///
+/// Paint-only properties (`bg`, `reverse`, `dim`, `blink`, decoration style /
+/// brush / thickness *within* an enabled decoration) are intentionally NOT
+/// hashed — they are read from the current `StyledLine` at draw time, so a
+/// cache hit that returns a layout shaped against a different paint-time
+/// state is still correct. Decoration *enablement* (`None` vs `Some`) IS
+/// hashed because [`shaper.rs`](super::shaper) calls `RangedBuilder::push`
+/// with `StyleProperty::Underline(true)` / `Strikethrough(true)`, which
+/// causes Parley's `RunMetrics` to populate the offset / thickness fields.
+/// Two layouts that differ only by which side of that bool was on are not
+/// interchangeable at paint time.
 fn hash_style(line: &StyledLine) -> u64 {
     let mut h = FxHasher::default();
     for run in &line.runs {
@@ -167,10 +178,16 @@ fn hash_style(line: &StyledLine) -> u64 {
         // bit pattern so two equal styles produce the same hash.
         run.resolved.weight.to_bits().hash(&mut h);
         run.resolved.letter_spacing.to_bits().hash(&mut h);
-        run.resolved.italic.hash(&mut h);
-        run.resolved.oblique.hash(&mut h);
+        run.resolved.slant.hash(&mut h);
+        decoration_enabled(&run.resolved.underline).hash(&mut h);
+        decoration_enabled(&run.resolved.strikethrough).hash(&mut h);
     }
     h.finish()
+}
+
+#[inline]
+fn decoration_enabled(d: &super::style_resolver::DecorationKind) -> bool {
+    !matches!(d, super::style_resolver::DecorationKind::None)
 }
 
 #[cfg(test)]
@@ -344,5 +361,213 @@ mod tests {
         let stats = cache.take_stats();
         assert_eq!(stats.hits, 2);
         assert_eq!(stats.misses, 2); // from the initial population
+    }
+
+    // === Negative tests pinning the cache key contract ===
+    //
+    // The L1 LayoutCache is keyed on shape-affecting inputs only. Paint-time
+    // properties (background brush, reverse / dim / blink, decoration colour
+    // / thickness — when decoration enablement is unchanged) are read from
+    // the current `StyledLine.atom_styles` at draw time, so a cache hit is
+    // correct even when those fields change. The shape-affecting properties
+    // (foreground brush, font weight, slant, letter spacing, decoration
+    // *enablement* because Parley emits underline/strikethrough run metadata)
+    // must miss.
+    //
+    // These tests pin the contract by exercising both halves explicitly. If
+    // a future change moves a paint-time property into shaping (e.g. variable
+    // axes from `font_variations`) the corresponding test must move with it.
+
+    fn line_with_style(content: &str, style: &Style) -> StyledLine {
+        // Build via UnresolvedStyle so we exercise the same construction path
+        // the protocol layer uses (Phase A.4 split). `final_*` flags stay
+        // false; the LayoutCache key never reaches them.
+        let unresolved = kasane_core::protocol::UnresolvedStyle {
+            style: style.clone(),
+            final_fg: false,
+            final_bg: false,
+            final_style: false,
+        };
+        let atoms = vec![Atom::from_style(content, std::sync::Arc::new(unresolved))];
+        StyledLine::from_atoms(
+            &atoms,
+            &Style::default(),
+            Brush::opaque(255, 255, 255),
+            14.0,
+            None,
+        )
+    }
+
+    #[test]
+    fn bg_change_does_not_miss() {
+        let mut text = ParleyText::new(&FontConfig::default());
+        let mut cache = LayoutCache::new();
+        let plain = default_line("hello");
+        let with_bg = line_with_style(
+            "hello",
+            &Style {
+                bg: kasane_core::protocol::Brush::Named(NamedColor::Red),
+                ..Style::default()
+            },
+        );
+
+        let _ = cache.get_or_compute(0, &plain, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &with_bg, |l| {
+            shape_line_with_default_family(&mut text, l)
+        });
+        let stats = cache.take_stats();
+        assert_eq!(
+            stats.misses, 1,
+            "bg is paint-time only; second call must hit — mismatch indicates the cache key over-invalidates"
+        );
+        assert_eq!(stats.hits, 1);
+    }
+
+    #[test]
+    fn reverse_dim_blink_changes_do_not_miss() {
+        // SGR 7 / SGR 2 / SGR 5 are all post-shape effects.
+        let mut text = ParleyText::new(&FontConfig::default());
+        let mut cache = LayoutCache::new();
+        let plain = default_line("hello");
+        let toggled = line_with_style(
+            "hello",
+            &Style {
+                reverse: true,
+                dim: true,
+                blink: true,
+                ..Style::default()
+            },
+        );
+
+        let _ = cache.get_or_compute(0, &plain, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &toggled, |l| {
+            shape_line_with_default_family(&mut text, l)
+        });
+        let stats = cache.take_stats();
+        assert_eq!(stats.misses, 1, "reverse/dim/blink are paint-time only");
+        assert_eq!(stats.hits, 1);
+    }
+
+    #[test]
+    fn font_weight_change_misses() {
+        let mut text = ParleyText::new(&FontConfig::default());
+        let mut cache = LayoutCache::new();
+        let normal = default_line("hello");
+        let bold = line_with_style(
+            "hello",
+            &Style {
+                font_weight: kasane_core::protocol::FontWeight(700),
+                ..Style::default()
+            },
+        );
+
+        let _ = cache.get_or_compute(0, &normal, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &bold, |l| shape_line_with_default_family(&mut text, l));
+        let stats = cache.take_stats();
+        assert_eq!(
+            stats.misses, 2,
+            "font_weight changes glyph metrics; cache must miss"
+        );
+    }
+
+    #[test]
+    fn font_slant_change_misses() {
+        let mut text = ParleyText::new(&FontConfig::default());
+        let mut cache = LayoutCache::new();
+        let upright = default_line("hello");
+        let italic = line_with_style(
+            "hello",
+            &Style {
+                font_slant: kasane_core::protocol::FontSlant::Italic,
+                ..Style::default()
+            },
+        );
+
+        let _ = cache.get_or_compute(0, &upright, |l| {
+            shape_line_with_default_family(&mut text, l)
+        });
+        let _ = cache.get_or_compute(0, &italic, |l| shape_line_with_default_family(&mut text, l));
+        let stats = cache.take_stats();
+        assert_eq!(stats.misses, 2, "italic ≠ normal must miss");
+    }
+
+    #[test]
+    fn letter_spacing_change_misses() {
+        let mut text = ParleyText::new(&FontConfig::default());
+        let mut cache = LayoutCache::new();
+        let tight = default_line("hello");
+        let loose = line_with_style(
+            "hello",
+            &Style {
+                letter_spacing: 2.5,
+                ..Style::default()
+            },
+        );
+
+        let _ = cache.get_or_compute(0, &tight, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &loose, |l| shape_line_with_default_family(&mut text, l));
+        let stats = cache.take_stats();
+        assert_eq!(
+            stats.misses, 2,
+            "letter_spacing changes advance widths; cache must miss"
+        );
+    }
+
+    #[test]
+    fn underline_enablement_change_misses() {
+        // Adding/removing the underline decoration toggles the
+        // `StyleProperty::Underline(true)` push in
+        // `kasane-gui/src/gpu/parley_text/shaper.rs:89`. Parley's run metrics
+        // change when this property is set, so the cache key MUST observe it.
+        let mut text = ParleyText::new(&FontConfig::default());
+        let mut cache = LayoutCache::new();
+        let plain = default_line("hello");
+        let underlined = line_with_style(
+            "hello",
+            &Style {
+                underline: Some(kasane_core::protocol::TextDecoration {
+                    style: kasane_core::protocol::DecorationStyle::Solid,
+                    color: kasane_core::protocol::Brush::Default,
+                    thickness: None,
+                }),
+                ..Style::default()
+            },
+        );
+
+        let _ = cache.get_or_compute(0, &plain, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &underlined, |l| {
+            shape_line_with_default_family(&mut text, l)
+        });
+        let stats = cache.take_stats();
+        assert_eq!(
+            stats.misses, 2,
+            "underline enablement toggles a Parley StyleProperty — cache must miss"
+        );
+    }
+
+    #[test]
+    fn strikethrough_enablement_change_misses() {
+        let mut text = ParleyText::new(&FontConfig::default());
+        let mut cache = LayoutCache::new();
+        let plain = default_line("hello");
+        let struck = line_with_style(
+            "hello",
+            &Style {
+                strikethrough: Some(kasane_core::protocol::TextDecoration {
+                    style: kasane_core::protocol::DecorationStyle::Solid,
+                    color: kasane_core::protocol::Brush::Default,
+                    thickness: None,
+                }),
+                ..Style::default()
+            },
+        );
+
+        let _ = cache.get_or_compute(0, &plain, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &struck, |l| shape_line_with_default_family(&mut text, l));
+        let stats = cache.take_stats();
+        assert_eq!(
+            stats.misses, 2,
+            "strikethrough enablement toggles a Parley StyleProperty — cache must miss"
+        );
     }
 }

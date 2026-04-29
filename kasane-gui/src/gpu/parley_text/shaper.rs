@@ -60,13 +60,11 @@ pub fn shape_line(
             range.clone(),
         );
 
-        // Slant — italic/oblique.
-        let slant = if run.resolved.italic {
-            PFontStyle::Italic
-        } else if run.resolved.oblique {
-            PFontStyle::Oblique(None)
-        } else {
-            PFontStyle::Normal
+        // Slant — italic/oblique are mutually exclusive (encoded as one enum).
+        let slant = match run.resolved.slant {
+            super::style_resolver::SlantKind::Normal => PFontStyle::Normal,
+            super::style_resolver::SlantKind::Italic => PFontStyle::Italic,
+            super::style_resolver::SlantKind::Oblique => PFontStyle::Oblique(None),
         };
         builder.push(StyleProperty::FontStyle(slant), range.clone());
 
