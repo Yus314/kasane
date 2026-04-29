@@ -2348,7 +2348,7 @@ A Phase 4 PR is acceptable when:
 4. The generated bindings in `kasane-plugin-sdk/src/*` expose the new types as Rust idioms (e.g. `font_variation!("wght", 350.0)` macro).
 5. Phase 5 (bundled WASM rewrite) starts immediately after — Phase 4 PR landing with old plugins still in `bundled/` is a known broken state and must not last across a calendar day.
 
-### Phase 11 perf-tune — closure framework (proposed, 2026-04-29)
+### Phase 11 perf-tune — closure framework (accepted, 2026-04-29)
 
 This sub-section applies [ADR-024](#adr-024-perception-oriented-performance-policy) to the Phase 11 typing-pattern gap so the perf-tune workstream has a defined stopping condition rather than open-ended pursuit of the original 70 µs target.
 
