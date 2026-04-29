@@ -227,7 +227,7 @@ mod tests {
             fg: Color::Named(NamedColor::Red),
             ..Face::default()
         };
-        let red_atoms = vec![Atom::from_face(red_face, "hello")];
+        let red_atoms = vec![Atom::with_style("hello", Style::from_face(&red_face))];
         let red_line = StyledLine::from_atoms(
             &red_atoms,
             &Style::default(),

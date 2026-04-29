@@ -71,12 +71,12 @@ fn realistic_atoms(line_no: usize) -> Vec<Atom> {
         ..Face::default()
     };
     vec![
-        Atom::from_face(kw_face, "let"),
+        Atom::with_style("let", Style::from_face(&kw_face)),
         Atom::plain(" "),
-        Atom::from_face(var_face, format!("var_{line_no}")),
+        Atom::with_style(format!("var_{line_no}"), Style::from_face(&var_face)),
         Atom::plain(" = "),
-        Atom::from_face(str_face, format!("\"{line_no}_value\"")),
-        Atom::from_face(semi_face, ";"),
+        Atom::with_style(format!("\"{line_no}_value\""), Style::from_face(&str_face)),
+        Atom::with_style(";", Style::from_face(&semi_face)),
     ]
 }
 

@@ -320,7 +320,7 @@ impl SceneRenderer {
             return;
         }
 
-        let atoms = vec![Atom::from_face(*face, text)];
+        let atoms = vec![Atom::with_style(text, Style::from_face(face))];
         let line = StyledLine::from_atoms(
             &atoms,
             &Style::default(),
@@ -590,7 +590,11 @@ impl SceneRenderer {
             window_size.width.max(1),
             window_size.height.max(1),
         );
-        // Font / scale changed → all cached glyph bitmaps are invalid.
+        // Font / scale changed → all three cache tiers must drop in lockstep.
+        // L1 entries would natural-miss on the new font_size_bits key, but
+        // never get evicted; this leaks one entry per resized line until
+        // process exit. See docs/semantics.md "three-tier cache invalidation".
+        self.parley_layout_cache.invalidate_all();
         self.parley_raster_cache.invalidate_all();
         self.parley_mask_atlas.clear();
         self.parley_color_atlas.clear();

@@ -767,7 +767,7 @@ impl SceneRenderer {
                 } else {
                     atom.face()
                 };
-                Atom::from_face(face, atom.contents.clone())
+                Atom::with_style(atom.contents.clone(), Style::from_face(&face))
             })
             .collect();
         let fallback_brush = PBrush::rgba(

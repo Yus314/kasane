@@ -137,7 +137,7 @@ mod tests {
     use super::super::Brush;
 
     fn ascii_atoms(s: &str) -> Vec<Atom> {
-        vec![Atom::from_face(kasane_core::protocol::Face::default(), s)]
+        vec![Atom::plain(s)]
     }
 
     #[test]
@@ -173,19 +173,19 @@ mod tests {
         use kasane_core::protocol::{Color, Face, NamedColor};
         let mut text = ParleyText::new(&FontConfig::default());
         let atoms = vec![
-            Atom::from_face(
-                Face {
+            Atom::with_style(
+                "red ",
+                Style::from_face(&Face {
                     fg: Color::Named(NamedColor::Red),
                     ..Face::default()
-                },
-                "red ",
+                }),
             ),
-            Atom::from_face(
-                Face {
+            Atom::with_style(
+                "blue",
+                Style::from_face(&Face {
                     fg: Color::Named(NamedColor::Blue),
                     ..Face::default()
-                },
-                "blue",
+                }),
             ),
         ];
         let line = StyledLine::from_atoms(
