@@ -4,6 +4,7 @@ mod event_handler;
 mod input;
 pub mod kitty;
 pub mod sgr;
+pub mod terminal_style;
 
 use std::io::Write;
 use std::sync::Arc;
