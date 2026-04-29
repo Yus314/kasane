@@ -506,6 +506,40 @@ The post-resolve `Style` record (`kasane:plugin@1.0.0` `style`, `kasane_core::pr
 
 The boundary is intentionally one-way: a plugin's `paint_inline_box(box_id) -> Element` may itself contain editable widgets (`Container { children: [..., editable_text_widget] }`), but those widgets live in the rendered Element tree, not in the buffer's text plane. They are not addressable via `BufferLine` / column coordinates.
 
+### 5.9 Three-Tier Cache Invalidation Policy (Parley pipeline)
+
+The GPU text path uses three layered caches introduced by ADR-031:
+
+| Tier | Module | Holds |
+|---|---|---|
+| L1 LayoutCache | `kasane-gui/src/gpu/parley_text/layout_cache.rs` | `(line_idx, content_hash, style_hash, max_width, font_size, context_gen) → Arc<ParleyLayout>` |
+| L2 GlyphRasterCache | `kasane-gui/src/gpu/parley_text/raster_cache.rs` | `(font_id, glyph_id, size_q, subpx_x, var_hash, hint) → bitmap + atlas slot` |
+| L3 AtlasShelf | `kasane-gui/src/gpu/parley_text/{gpu_atlas, atlas}.rs` | `etagere` allocator + LRU; backed by GPU mask / colour textures |
+
+**Coarse invalidation events** (renderer-config changes that invalidate cached state across all three tiers):
+
+- Font family change (config reload)
+- Font size change (config reload, scale-factor update)
+- Window scale-factor change (HiDPI move)
+- Theme reload that affects font definitions (rare; most theme changes only touch brushes)
+
+The host MUST flush all three tiers together on a coarse event. Skipping any tier produces one of two failure modes: (a) **stale layout** — L1 returns an `Arc<ParleyLayout>` shaped against the previous metrics, then L2 rasterises with the new metrics → glyph quads place at wrong positions; (b) **memory leak** — L1 entries linger after a natural miss has already moved past them on the new key, accumulating one entry per resized line until process exit. The canonical entry point is `SceneRenderer::resize` (`kasane-gui/src/gpu/scene_renderer/mod.rs`), which calls `parley_layout_cache.invalidate_all()`, `parley_raster_cache.invalidate_all()`, and `parley_{mask,color}_atlas.clear()` in lockstep.
+
+**Fine invalidation events** (operate on a single tier or rely on key-based natural miss):
+
+- Buffer text edit on line `n` → L1 entry for `n` natural-misses on `content_hash`; L2 / L3 untouched (the new line's glyphs are likely already cached).
+- Atlas slot reuse under pressure → L2 evicts the LRU entry and signals L3 via the `AtlasOps::deallocate` callback (bidirectional evict link). L1 untouched.
+- Style change that touches paint-time-only properties (`bg`, `reverse`, `dim`, `blink`, decoration colour / thickness within an enabled decoration) → no tier invalidates; the new value is read at draw time from the current `StyledLine`. See §5.8.
+- Style change that touches shape-affecting properties (`fg`, `font_weight`, `font_slant`, `letter_spacing`, decoration enablement) → L1 natural-misses on `style_hash`; L2 / L3 are untouched (glyph rasterisation results are font/glyph-keyed and the same glyph instance is reusable across many style hashes).
+
+**Cross-tier invariants:**
+
+- **L2 → L3 evict link is bidirectional.** Removing an L2 entry deallocates the L3 atlas slot through the `AtlasOps::deallocate` callback. Conversely, L3 cannot drop a slot independently without notifying L2 — there is no path that does so today.
+- **L1 entries reference layouts, not glyphs.** An L1 entry can outlive any individual L2 entry. A `ParleyLayout` carries glyph IDs but not glyph bitmaps; the bitmaps live in L2 and are looked up at paint time.
+- **`context_gen` is for L1 only.** L2 / L3 use `current_epoch` (per-frame monotonic counter, bumped at frame start in `parley_frame_start`) for the same-frame protection during eviction loops, not for invalidation. The two counters are independent.
+
+**Diagnostic switch.** Setting `KASANE_PARLEY_NO_CACHE=1` causes `parley_frame_start` to invalidate L2 + clear L3 every frame (L1 still operates normally). Used to confirm whether a visual bug originates in the glyph rasterisation tier vs. the layout tier.
+
 ## 6. Input Semantics
 
 ### 6.1 Input Routing Model
