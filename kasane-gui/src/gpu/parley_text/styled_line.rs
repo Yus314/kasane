@@ -45,9 +45,6 @@ pub struct StyledLine {
     /// projection to `ResolvedParleyStyle` (e.g. `bg`, `dim`, `blink`,
     /// `reverse`) so the renderer can paint backgrounds and post-effects.
     pub atom_styles: Vec<Style>,
-    /// Base style used to resolve atom styles. Kept here so the L1 cache
-    /// key can include it.
-    pub base_style: Style,
     /// Font size in physical pixels (already multiplied by scale factor).
     pub font_size: f32,
     /// Optional maximum advance for line wrapping. `None` means no wrap
@@ -160,7 +157,6 @@ impl StyledLine {
             inline_boxes: Vec::new(),
             atom_boundaries,
             atom_styles,
-            base_style: base_style.clone(),
             font_size,
             max_width,
             content_hash,
@@ -250,6 +246,13 @@ fn compute_content_hash_with_boxes(
 /// Parley's `RunMetrics` to populate the offset / thickness fields. Two
 /// layouts that differ only by which side of that bool was on are not
 /// interchangeable at paint time.
+///
+/// **Known gap (ADR-031 Phase B3 closure)**: `font_features` and
+/// `font_variations` are not hashed — but only because [`ResolvedParleyStyle`]
+/// does not carry them. They are dropped at `style_resolver::resolve_for_parley`
+/// and never reach Parley. When that plumbing lands, this hash MUST include
+/// the new fields or stale layouts will pollute the paint output. See the
+/// matching gap note in `style_resolver.rs::resolve_for_parley`.
 fn compute_style_hash(runs: &[StyleRun]) -> u64 {
     let mut h = FxHasher::default();
     for run in runs {
@@ -274,10 +277,12 @@ fn decoration_enabled(d: &DecorationKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kasane_core::protocol::{Brush as KBrush, Face, FontWeight as KFontWeight, NamedColor};
+    use kasane_core::protocol::{
+        Brush as KBrush, Face, FontWeight as KFontWeight, NamedColor, Style,
+    };
 
     fn atom(text: &str, face: Face) -> Atom {
-        Atom::from_face(face, text)
+        Atom::with_style(text, Style::from_face(&face))
     }
 
     fn red_face() -> Face {
