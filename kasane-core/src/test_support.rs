@@ -2,6 +2,17 @@
 //!
 //! This module is `#[doc(hidden)]` but `pub` so that integration tests
 //! (which are separate crates) can access these helpers.
+//!
+//! ## Wire-format-aware helpers
+//!
+//! The [`wire`] submodule provides ergonomic constructors for tests
+//! that exercise the Kakoune wire-format path — specifically the
+//! `Attributes::FINAL_FG` / `FINAL_BG` / `FINAL_ATTR` resolution
+//! flags that distinguish "this colour is final, do not inherit" from
+//! "this colour will be resolved later" semantics. Production code
+//! uses [`Style`](crate::protocol::Style) and never constructs `Face`
+//! directly; tests that simulate wire input (cursor detection
+//! fixtures, protocol-parser fixtures, etc.) belong in `wire`.
 
 use compact_str::CompactString;
 
@@ -256,5 +267,182 @@ impl Surface for TestSurfaceImpl {
 
     fn declared_slots(&self) -> &[SlotDeclaration] {
         &self.slots
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Wire-format-aware Face constructors
+// ---------------------------------------------------------------------------
+
+/// Wire-format-aware [`Face`](crate::protocol::Face) constructors for tests.
+///
+/// Production code uses [`Style`](crate::protocol::Style); the only
+/// remaining legitimate `Face` callers are the Kakoune wire-format
+/// parser (which receives `Face` over JSON-RPC) and tests that
+/// simulate that parser's input.
+///
+/// The helpers here name the wire-format patterns that would
+/// otherwise require multi-line `Face { fg, attributes:
+/// Attributes::FINAL_FG | ..., ..Face::default() }` literal struct
+/// updates at every call site.
+///
+/// `cursor_atom`, `cursor_text`, and the `_with_final_*` variants
+/// preserve the resolution flags that
+/// [`detect_cursors`](crate::state::derived::cursor::detect_cursors)
+/// reads to identify cursor atoms — see
+/// `kasane-core/src/state/derived/cursor.rs` and the closure rationale
+/// in `project_adr_031_phase_b3_semantic_split.md` (memory).
+pub mod wire {
+    use crate::protocol::{Atom, Attributes, Color, Face, NamedColor};
+
+    /// Plain default face. Equivalent to `Face::default()` but named
+    /// for symmetry with the other constructors below.
+    #[inline]
+    pub fn default_face() -> Face {
+        Face::default()
+    }
+
+    /// `Face { fg, ..default }` — the simplest wire-format face.
+    pub fn face_with_fg(fg: Color) -> Face {
+        Face {
+            fg,
+            ..Face::default()
+        }
+    }
+
+    /// `Face { bg, ..default }` — background-only face.
+    pub fn face_with_bg(bg: Color) -> Face {
+        Face {
+            bg,
+            ..Face::default()
+        }
+    }
+
+    /// `Face { fg, bg, ..default }`.
+    pub fn face_with_fg_bg(fg: Color, bg: Color) -> Face {
+        Face {
+            fg,
+            bg,
+            ..Face::default()
+        }
+    }
+
+    /// Face carrying the `FINAL_FG` resolution flag — instructs the
+    /// inheritance resolver to treat `fg` as final and skip parent
+    /// lookup. Used by Kakoune for theme-resolved foreground that
+    /// should not be re-inherited downstream, and by
+    /// [`detect_cursors`](crate::state::derived::cursor::detect_cursors)
+    /// fixtures to mark a cell as a cursor.
+    pub fn face_with_final_fg(fg: Color) -> Face {
+        Face {
+            fg,
+            attributes: Attributes::FINAL_FG,
+            ..Face::default()
+        }
+    }
+
+    /// Face with the `FINAL_BG` resolution flag set.
+    pub fn face_with_final_bg(bg: Color) -> Face {
+        Face {
+            bg,
+            attributes: Attributes::FINAL_BG,
+            ..Face::default()
+        }
+    }
+
+    /// Face with both `FINAL_FG` and `FINAL_BG` set — typical for a
+    /// theme-resolved `default_face` arriving over the wire.
+    pub fn face_with_final_fg_bg(fg: Color, bg: Color) -> Face {
+        Face {
+            fg,
+            bg,
+            attributes: Attributes::FINAL_FG | Attributes::FINAL_BG,
+            ..Face::default()
+        }
+    }
+
+    /// Face with arbitrary attribute bits set on top of fg/bg. Use
+    /// when a fixture needs e.g. `REVERSE | FINAL_FG`.
+    pub fn face_with_attrs(fg: Color, bg: Color, attributes: Attributes) -> Face {
+        Face {
+            fg,
+            bg,
+            attributes,
+            ..Face::default()
+        }
+    }
+
+    /// Atom carrying a cursor-marker face (`FINAL_FG` set, white-on-
+    /// black). Mirrors the wire-format shape that
+    /// `detect_cursors` recognises.
+    pub fn cursor_atom(text: impl Into<String>) -> Atom {
+        Atom::from_face(
+            face_with_final_fg(Color::Named(NamedColor::White)),
+            text.into(),
+        )
+    }
+
+    /// Atom with the supplied wire-format face.
+    pub fn atom_with_face(face: Face, text: impl Into<String>) -> Atom {
+        Atom::from_face(face, text.into())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn default_face_equals_face_default() {
+            assert_eq!(default_face(), Face::default());
+        }
+
+        #[test]
+        fn face_with_fg_sets_only_fg() {
+            let f = face_with_fg(Color::Named(NamedColor::Red));
+            assert_eq!(f.fg, Color::Named(NamedColor::Red));
+            assert_eq!(f.bg, Color::Default);
+            assert!(f.attributes.is_empty());
+        }
+
+        #[test]
+        fn face_with_final_fg_sets_resolution_flag() {
+            let f = face_with_final_fg(Color::Named(NamedColor::Cyan));
+            assert!(f.attributes.contains(Attributes::FINAL_FG));
+            assert!(!f.attributes.contains(Attributes::FINAL_BG));
+        }
+
+        #[test]
+        fn face_with_final_fg_bg_sets_both_flags() {
+            let f = face_with_final_fg_bg(
+                Color::Named(NamedColor::White),
+                Color::Named(NamedColor::Black),
+            );
+            assert!(f.attributes.contains(Attributes::FINAL_FG));
+            assert!(f.attributes.contains(Attributes::FINAL_BG));
+            assert_eq!(f.fg, Color::Named(NamedColor::White));
+            assert_eq!(f.bg, Color::Named(NamedColor::Black));
+        }
+
+        #[test]
+        fn cursor_atom_is_detected_by_detect_cursors_logic() {
+            // The contract: `detect_cursors` keys on FINAL_FG. The
+            // helper produces an atom whose face has FINAL_FG set, so
+            // any test fixture using `cursor_atom` will be picked up
+            // by the cursor-detection pipeline.
+            let atom = cursor_atom("X");
+            assert!(atom.face().attributes.contains(Attributes::FINAL_FG));
+        }
+
+        #[test]
+        fn face_with_attrs_combines_inputs() {
+            let f = face_with_attrs(
+                Color::Named(NamedColor::Red),
+                Color::Default,
+                Attributes::REVERSE | Attributes::FINAL_FG,
+            );
+            assert_eq!(f.fg, Color::Named(NamedColor::Red));
+            assert!(f.attributes.contains(Attributes::REVERSE));
+            assert!(f.attributes.contains(Attributes::FINAL_FG));
+        }
     }
 }
