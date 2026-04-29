@@ -454,6 +454,18 @@ impl SceneRenderer {
                     *line_idx,
                     color_resolver,
                 );
+                // ADR-031 Phase 10 Step 2-renderer (Step A.2b): drain the
+                // inline-box deferred queue accumulated during paragraph
+                // painting. Each entry is an already-translated copy of
+                // the slot's plugin paint content; recursing through
+                // process_draw_command lets the same dispatch table apply
+                // (so plugin content can include FillRect, DrawText, etc.).
+                if !self.deferred_inline_box_cmds.is_empty() {
+                    let drained = std::mem::take(&mut self.deferred_inline_box_cmds);
+                    for sub in &drained {
+                        self.process_draw_command(sub, gpu, color_resolver, cell_w, cell_h);
+                    }
+                }
             }
             DrawCommand::BeginOverlay => {} // handled by layer splitting
         }
@@ -764,13 +776,35 @@ impl SceneRenderer {
             (base_visual_fg[2].clamp(0.0, 1.0) * 255.0).round() as u8,
             (base_visual_fg[3].clamp(0.0, 1.0) * 255.0).round() as u8,
         );
-        let line = StyledLine::from_atoms(
+        let mut line = StyledLine::from_atoms(
             &kasane_atoms,
             &Style::default(),
             fallback_brush,
             self.font_size,
             None,
         );
+        // ADR-031 Phase 10 Step 2-renderer C: thread inline-box slot
+        // metadata into the StyledLine so Parley reserves the declared
+        // geometry via push_inline_box. Cells → physical pixels via
+        // current cell metrics. The L1 LayoutCache content_hash is
+        // recomputed inside `with_inline_boxes` so a slot change correctly
+        // invalidates a cached layout.
+        if !para.inline_box_slots.is_empty() {
+            use super::super::parley_text::styled_line::InlineBoxSlot;
+            let cw = cell_w;
+            let ch = cell_h;
+            let slots: Vec<InlineBoxSlot> = para
+                .inline_box_slots
+                .iter()
+                .map(|m| InlineBoxSlot {
+                    id: m.box_id,
+                    byte_offset: m.byte_offset as u32,
+                    width: m.width_cells * cw,
+                    height: m.height_lines * ch,
+                })
+                .collect();
+            line = line.with_inline_boxes(slots);
+        }
         let parley_text = &mut self.parley_text;
         let layout = self
             .parley_layout_cache
@@ -923,8 +957,46 @@ impl SceneRenderer {
             let leading = (cell_h - lm.line_height).max(0.0);
             let layout_origin_y = py + leading * 0.5;
             for item in layout_line.items() {
-                let PositionedLayoutItem::GlyphRun(run) = item else {
-                    continue;
+                let run = match item {
+                    PositionedLayoutItem::GlyphRun(run) => run,
+                    PositionedLayoutItem::InlineBox(pos_box) => {
+                        // ADR-031 Phase 10 Step 2-renderer (Step A.2b):
+                        // Parley reserved geometry for the inline box.
+                        // If the host pre-painted the slot's plugin
+                        // content (origin (0,0) Vec<DrawCommand>), enqueue
+                        // a translated copy onto the deferred-emit queue.
+                        // Otherwise emit a translucent placeholder so the
+                        // reserved space is still visually observable.
+                        let abs_x = px + pos_box.x;
+                        let abs_y = layout_origin_y + pos_box.y;
+                        let slot_idx = para
+                            .inline_box_slots
+                            .iter()
+                            .position(|m| m.box_id == pos_box.id);
+                        let painted = slot_idx.and_then(|i| para.inline_box_paint_commands.get(i));
+                        match painted {
+                            Some(sub_cmds) if !sub_cmds.is_empty() => {
+                                let mut cloned = sub_cmds.clone();
+                                kasane_core::render::scene::translate_draw_commands(
+                                    &mut cloned,
+                                    abs_x,
+                                    abs_y,
+                                );
+                                self.deferred_inline_box_cmds.extend(cloned);
+                            }
+                            _ => {
+                                let placeholder = [0.5, 0.5, 0.55, 0.35];
+                                self.quad.push_solid(
+                                    abs_x,
+                                    abs_y,
+                                    pos_box.width,
+                                    pos_box.height,
+                                    placeholder,
+                                );
+                            }
+                        }
+                        continue;
+                    }
                 };
                 let parley_run = run.run();
                 let font = parley_run.font();

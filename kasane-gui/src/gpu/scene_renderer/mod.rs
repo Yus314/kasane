@@ -88,6 +88,15 @@ pub struct SceneRenderer {
     /// during the layer's DrawCommand walk and drained by
     /// `parley_finalize_frame` before the render pass executes.
     parley_drawables: Vec<super::parley_text::frame_builder::DrawableGlyph>,
+
+    /// Inline-box paint sub-commands queued during paragraph painting.
+    /// `process_render_paragraph_parley` pushes translated copies of the
+    /// host-pre-painted plugin content here when it encounters a
+    /// `PositionedLayoutItem::InlineBox`; the surrounding
+    /// `process_draw_command` `RenderParagraph` arm drains and recurses
+    /// once the paragraph is done, so sub-commands compose on top of the
+    /// paragraph layout. ADR-031 Phase 10 Step 2-renderer (Step A.2b).
+    pub(super) deferred_inline_box_cmds: Vec<DrawCommand>,
 }
 
 /// Diagnostic kill-switch for the Parley L2 raster cache.
@@ -216,6 +225,7 @@ impl SceneRenderer {
             parley_renderer,
             cache,
             parley_drawables: Vec::with_capacity(2048),
+            deferred_inline_box_cmds: Vec::new(),
         }
     }
 
