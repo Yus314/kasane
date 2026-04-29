@@ -15,10 +15,9 @@
 //! a hit requires every shaping input to match — content, style, max width,
 //! font size, and the context generation.
 
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use rustc_hash::{FxHashMap, FxHasher};
+use rustc_hash::FxHashMap;
 
 use super::layout::ParleyLayout;
 use super::styled_line::StyledLine;
@@ -104,8 +103,11 @@ impl LayoutCache {
             return Arc::new(compute(line));
         }
 
-        let content_hash = hash_content(line);
-        let style_hash = hash_style(line);
+        // Hashes are memoized on `StyledLine::from_atoms` (Phase 11 case A:
+        // hot-path lookups previously paid hash_content + hash_style on
+        // every hit, ~3-5 µs across 24 lines).
+        let content_hash = line.content_hash;
+        let style_hash = line.style_hash;
         let max_width_bits = line.max_width.map(f32::to_bits).unwrap_or(u32::MAX);
         let font_size_bits = line.font_size.to_bits();
 
@@ -146,49 +148,9 @@ impl LayoutCache {
     }
 }
 
-/// Hash the textual content of a styled line. Two lines with identical
-/// `text` and atom boundaries share the same content hash regardless of
-/// styling.
-fn hash_content(line: &StyledLine) -> u64 {
-    let mut h = FxHasher::default();
-    line.text.hash(&mut h);
-    line.atom_boundaries.hash(&mut h);
-    h.finish()
-}
-
-/// Hash the resolved style runs and base style. Captures every shape-
-/// affecting input that is not in `content_hash`.
-///
-/// Paint-only properties (`bg`, `reverse`, `dim`, `blink`, decoration style /
-/// brush / thickness *within* an enabled decoration) are intentionally NOT
-/// hashed — they are read from the current `StyledLine` at draw time, so a
-/// cache hit that returns a layout shaped against a different paint-time
-/// state is still correct. Decoration *enablement* (`None` vs `Some`) IS
-/// hashed because [`shaper.rs`](super::shaper) calls `RangedBuilder::push`
-/// with `StyleProperty::Underline(true)` / `Strikethrough(true)`, which
-/// causes Parley's `RunMetrics` to populate the offset / thickness fields.
-/// Two layouts that differ only by which side of that bool was on are not
-/// interchangeable at paint time.
-fn hash_style(line: &StyledLine) -> u64 {
-    let mut h = FxHasher::default();
-    for run in &line.runs {
-        run.byte_range.hash(&mut h);
-        run.resolved.fg.hash(&mut h);
-        // ResolvedParleyStyle uses f32 for weight / letter_spacing — hash by
-        // bit pattern so two equal styles produce the same hash.
-        run.resolved.weight.to_bits().hash(&mut h);
-        run.resolved.letter_spacing.to_bits().hash(&mut h);
-        run.resolved.slant.hash(&mut h);
-        decoration_enabled(&run.resolved.underline).hash(&mut h);
-        decoration_enabled(&run.resolved.strikethrough).hash(&mut h);
-    }
-    h.finish()
-}
-
-#[inline]
-fn decoration_enabled(d: &super::style_resolver::DecorationKind) -> bool {
-    !matches!(d, super::style_resolver::DecorationKind::None)
-}
+// Hash functions moved to `styled_line.rs` so they can be memoized at
+// construction time. The `StyledLine::content_hash` / `style_hash` fields
+// are populated by `from_atoms`; this cache reads them as plain `u64`.
 
 #[cfg(test)]
 mod tests {

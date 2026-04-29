@@ -16,12 +16,14 @@
 //!   surfaced here as an [`InlineBoxSlot`] so Phase 10's shaper integration
 //!   can call `RangedBuilder::push_inline_box` directly.
 
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
 use kasane_core::protocol::{Atom, Style, resolve_style};
+use rustc_hash::FxHasher;
 
 use super::Brush;
-use super::style_resolver::{ResolvedParleyStyle, resolve_for_parley};
+use super::style_resolver::{DecorationKind, ResolvedParleyStyle, resolve_for_parley};
 
 /// A line of text styled and ready for Parley shaping.
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +53,16 @@ pub struct StyledLine {
     /// Optional maximum advance for line wrapping. `None` means no wrap
     /// (Kasane's normal mode — Kakoune already paginated the buffer).
     pub max_width: Option<f32>,
+    /// Memoized hash of `text` + `atom_boundaries`. Computed once at
+    /// construction so `LayoutCache` lookups (24 lines per frame in the
+    /// dominant typing scenario) avoid re-hashing the line content on hits.
+    pub content_hash: u64,
+    /// Memoized hash of the shape-affecting style fields across all runs
+    /// (`fg`, `weight`, `letter_spacing`, `slant`, decoration enablement).
+    /// Paint-time properties (`bg`, `reverse`, `dim`, `blink`, decoration
+    /// colour / thickness) are intentionally excluded — see the
+    /// `LayoutCache` invariant in `semantics.md:493`.
+    pub style_hash: u64,
 }
 
 /// A single style span within a [`StyledLine`].
@@ -139,6 +151,9 @@ impl StyledLine {
             });
         }
 
+        let content_hash = compute_content_hash(&text, &atom_boundaries);
+        let style_hash = compute_style_hash(&runs);
+
         StyledLine {
             text,
             runs,
@@ -148,6 +163,8 @@ impl StyledLine {
             base_style: base_style.clone(),
             font_size,
             max_width,
+            content_hash,
+            style_hash,
         }
     }
 
@@ -164,6 +181,50 @@ impl StyledLine {
         }
         Some(self.atom_boundaries[atom_idx]..self.atom_boundaries[atom_idx + 1])
     }
+}
+
+/// Hash the textual content of a styled line. Two lines with identical
+/// `text` and atom boundaries share the same content hash regardless of
+/// styling.
+fn compute_content_hash(text: &str, atom_boundaries: &[u32]) -> u64 {
+    let mut h = FxHasher::default();
+    text.hash(&mut h);
+    atom_boundaries.hash(&mut h);
+    h.finish()
+}
+
+/// Hash the resolved style runs. Captures every shape-affecting input that
+/// is not in `compute_content_hash`.
+///
+/// Paint-only properties (`bg`, `reverse`, `dim`, `blink`, decoration style /
+/// brush / thickness *within* an enabled decoration) are intentionally NOT
+/// hashed — they are read from the current `StyledLine` at draw time, so a
+/// cache hit that returns a layout shaped against a different paint-time
+/// state is still correct. Decoration *enablement* (`None` vs `Some`) IS
+/// hashed because `shaper.rs` calls `RangedBuilder::push` with
+/// `StyleProperty::Underline(true)` / `Strikethrough(true)`, which causes
+/// Parley's `RunMetrics` to populate the offset / thickness fields. Two
+/// layouts that differ only by which side of that bool was on are not
+/// interchangeable at paint time.
+fn compute_style_hash(runs: &[StyleRun]) -> u64 {
+    let mut h = FxHasher::default();
+    for run in runs {
+        run.byte_range.hash(&mut h);
+        run.resolved.fg.hash(&mut h);
+        // ResolvedParleyStyle uses f32 for weight / letter_spacing — hash by
+        // bit pattern so two equal styles produce the same hash.
+        run.resolved.weight.to_bits().hash(&mut h);
+        run.resolved.letter_spacing.to_bits().hash(&mut h);
+        run.resolved.slant.hash(&mut h);
+        decoration_enabled(&run.resolved.underline).hash(&mut h);
+        decoration_enabled(&run.resolved.strikethrough).hash(&mut h);
+    }
+    h.finish()
+}
+
+#[inline]
+fn decoration_enabled(d: &DecorationKind) -> bool {
+    !matches!(d, DecorationKind::None)
 }
 
 #[cfg(test)]
