@@ -37,7 +37,7 @@ impl SceneRenderer {
                 let Some((cx, cy, cw, ch)) = self.clip_rect(rect.x, rect.y, rect.w, rect.h) else {
                     return;
                 };
-                let (_, mut bg, _) = color_resolver.resolve_face_colors_linear(&face.to_face());
+                let (_, mut bg, _) = color_resolver.resolve_style_colors_linear(face);
 
                 // When gradient is active, skip fills matching default bg
                 // so the gradient shows through.
@@ -99,13 +99,12 @@ impl SceneRenderer {
                 face,
                 fill_face,
             } => {
-                let (visual_fg, _, _) = color_resolver.resolve_face_colors_linear(&face.to_face());
+                let (visual_fg, _, _) = color_resolver.resolve_style_colors_linear(face);
                 let border_color = visual_fg;
                 let (corner_radius, border_width) = border_style_params(line_style.clone(), cell_h);
                 let fill = match fill_face {
                     Some(ff) => {
-                        let (_, ff_bg, _) =
-                            color_resolver.resolve_face_colors_linear(&ff.to_face());
+                        let (_, ff_bg, _) = color_resolver.resolve_style_colors_linear(ff);
                         ff_bg
                     }
                     None => [0.0, 0.0, 0.0, 0.0],
@@ -161,8 +160,7 @@ impl SceneRenderer {
                 let title_x = rect.x + (rect.w - title_w) / 2.0;
                 let title_y = rect.y - cell_h * 0.35;
 
-                let (_, mut title_bg, _) =
-                    color_resolver.resolve_face_colors_linear(&border_face.to_face());
+                let (_, mut title_bg, _) = color_resolver.resolve_style_colors_linear(border_face);
                 if *elevated {
                     // Subtle elevation: ~10/255 in sRGB ≈ VS Code's floating window offset
                     title_bg[0] = (title_bg[0] + 0.003).min(1.0);
