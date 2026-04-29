@@ -1,4 +1,4 @@
-use kasane_core::element::{Element, Style};
+use kasane_core::element::{Element, ElementStyle};
 use kasane_core::plugin::{TransformContext, TransformSubject, TransformTarget};
 use kasane_core::protocol::Face;
 
@@ -74,7 +74,7 @@ fn wraps_in_prompt_mode() {
         Element::Container { style, .. } => {
             // Should have yellow background
             match style {
-                Style::Direct(face) => {
+                ElementStyle::Direct(face) => {
                     assert_eq!(
                         face.bg,
                         Color::Named(kasane_core::protocol::NamedColor::Yellow)

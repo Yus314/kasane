@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use kasane_core::element::{Element, Style, StyleToken};
+use kasane_core::element::{Element, ElementStyle, StyleToken};
 use kasane_core::input::{Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::{Rect, SplitDirection};
 use kasane_core::plugin::{Command, PluginId, PluginRuntime};
@@ -529,7 +529,10 @@ fn test_registry_compose_split_includes_explicit_divider_node() {
             assert_eq!(children[1].max_size, Some(1));
             match &children[1].element {
                 Element::Container { style, .. } => {
-                    assert_eq!(style, &Style::Token(StyleToken::SPLIT_DIVIDER_FOCUSED))
+                    assert_eq!(
+                        style,
+                        &ElementStyle::Token(StyleToken::SPLIT_DIVIDER_FOCUSED)
+                    )
                 }
                 other => panic!("expected divider container, got {other:?}"),
             }
@@ -1192,7 +1195,7 @@ fn test_registry_compose_split_divider_physical_adjacency() {
                 assert_eq!(children.len(), 3);
                 let outer = match &children[1].element {
                     Element::Container {
-                        style: Style::Token(t),
+                        style: ElementStyle::Token(t),
                         ..
                     } => t.clone(),
                     other => panic!("expected outer divider, got {other:?}"),
@@ -1204,7 +1207,7 @@ fn test_registry_compose_split_divider_physical_adjacency() {
                         assert_eq!(inner.len(), 3);
                         match &inner[1].element {
                             Element::Container {
-                                style: Style::Token(t),
+                                style: ElementStyle::Token(t),
                                 ..
                             } => t.clone(),
                             other => panic!("expected inner divider, got {other:?}"),

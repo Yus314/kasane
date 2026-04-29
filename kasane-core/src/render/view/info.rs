@@ -1,5 +1,5 @@
 use crate::element::{
-    BorderConfig, BorderLineStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style,
+    BorderConfig, BorderLineStyle, Edges, Element, ElementStyle, FlexChild, Overlay, OverlayAnchor,
     StyleToken,
 };
 use crate::layout::{self, ASSISTANT_CLIPPY, ASSISTANT_WIDTH, layout_info, line_display_width};
@@ -144,7 +144,7 @@ fn build_info_prompt(
             bottom: 0,
             left: 1,
         },
-        style: Style::from(face),
+        style: ElementStyle::from(face),
         title: if info.title.is_empty() {
             None
         } else {
@@ -159,7 +159,7 @@ fn build_info_prompt(
         FlexChild::flexible(Element::text("", face), 1.0),
     ]);
     let container = Element::stack(
-        Element::container(base, Style::from(face)),
+        Element::container(base, ElementStyle::from(face)),
         vec![Overlay {
             element: framed_content,
             anchor: OverlayAnchor::Absolute {
@@ -196,7 +196,7 @@ fn build_info_framed(
             bottom: 0,
             left: 1,
         },
-        style: Style::from(face),
+        style: ElementStyle::from(face),
         title: if info.title.is_empty() {
             None
         } else {
@@ -215,7 +215,7 @@ fn build_info_nonframed(
     let face = resolve_info_face(info, state);
     let content_col = build_content_column(&info.content, win.width, win.height, &face);
 
-    Some(Element::container(content_col, Style::from(face)))
+    Some(Element::container(content_col, ElementStyle::from(face)))
 }
 
 // ---------------------------------------------------------------------------

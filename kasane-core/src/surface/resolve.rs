@@ -819,7 +819,7 @@ mod tests {
 
     use super::*;
     use crate::element::FlexChild;
-    use crate::element::{Edges, Style};
+    use crate::element::{Edges, ElementStyle};
     use crate::layout::flex;
     use crate::plugin::{AppView, PluginBackend, PluginCapabilities, PluginId, PluginRuntime};
     use crate::protocol::Face;
@@ -972,7 +972,7 @@ mod tests {
                 bottom: 2,
                 left: 2,
             },
-            style: Style::from(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: None,
         };
 

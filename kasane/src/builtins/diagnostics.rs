@@ -4,7 +4,7 @@
 //! as an overlay in the top-right corner. Registered as the highest z-index
 //! overlay so it's always visible above other content.
 
-use kasane_core::element::{BorderConfig, BorderLineStyle, Element, FlexChild, Style};
+use kasane_core::element::{BorderConfig, BorderLineStyle, Element, ElementStyle, FlexChild};
 use kasane_core::plugin::diagnostics::PluginDiagnosticOverlayState;
 use kasane_core::plugin::{
     AppView, OverlayContext, OverlayContribution, PluginBackend, PluginCapabilities, PluginId,
@@ -94,11 +94,11 @@ fn build_diagnostic_element(
         child: Box::new(body),
         border: Some(BorderConfig {
             line_style: BorderLineStyle::Single,
-            face: Some(Style::from(border_face)),
+            style: Some(ElementStyle::from(border_face)),
         }),
         shadow: spec.shadow.is_some(),
         padding: kasane_core::element::Edges::ZERO,
-        style: Style::from(spec.body_face),
+        style: ElementStyle::from(spec.body_face),
         title: None,
     };
 

@@ -1,6 +1,8 @@
 use unicode_width::UnicodeWidthStr;
 
-use crate::element::{Element, FlexChild, GridColumn, Overlay, OverlayAnchor, Style, StyleToken};
+use crate::element::{
+    Element, ElementStyle, FlexChild, GridColumn, Overlay, OverlayAnchor, StyleToken,
+};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
 use crate::plugin::{AppView, PluginView};
 use crate::protocol::resolve_face;
@@ -74,7 +76,7 @@ fn build_menu_item_element(
     } else {
         Element::text("", face)
     };
-    Element::container(item, Style::from(face))
+    Element::container(item, ElementStyle::from(face))
 }
 
 use builders::truncate_atoms;
@@ -95,7 +97,7 @@ fn build_split_item_element(
     let face = resolve_menu_face(menu, selected, state);
 
     if item_idx >= menu.items.len() {
-        return Element::container(Element::text("", face), Style::from(face));
+        return Element::container(Element::text("", face), ElementStyle::from(face));
     }
 
     let item = &menu.items[item_idx];
@@ -147,7 +149,7 @@ fn build_split_item_element(
         ));
     }
 
-    Element::container(Element::StyledLine(atoms), Style::from(face))
+    Element::container(Element::StyledLine(atoms), ElementStyle::from(face))
 }
 
 fn build_menu_inline(
@@ -262,7 +264,10 @@ fn build_menu_prompt(
     ]);
 
     Some(Overlay {
-        element: Element::container(row, Style::from(resolve_menu_face(menu, false, state))),
+        element: Element::container(
+            row,
+            ElementStyle::from(resolve_menu_face(menu, false, state)),
+        ),
         anchor: OverlayAnchor::Absolute {
             x: 0,
             y: start_y,
@@ -325,7 +330,7 @@ fn build_menu_search(
         }
     }
 
-    let element = Element::container(Element::StyledLine(atoms), Style::from(normal_face));
+    let element = Element::container(Element::StyledLine(atoms), ElementStyle::from(normal_face));
 
     Some(Overlay {
         element,

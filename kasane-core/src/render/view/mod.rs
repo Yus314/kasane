@@ -8,7 +8,9 @@ use std::sync::Arc;
 
 use crate::display::DisplayMapRef;
 use crate::display::segment_map::SegmentMap;
-use crate::element::{Direction, Element, FlexChild, Overlay, OverlayAnchor, Style, StyleToken};
+use crate::element::{
+    Direction, Element, ElementStyle, FlexChild, Overlay, OverlayAnchor, StyleToken,
+};
 use crate::layout::line_display_width;
 use crate::plugin::{AnnotateContext, AppView, PluginView, TransformSubject, TransformTarget};
 use crate::protocol::{Atom, Face, Line, MenuStyle};
@@ -292,7 +294,7 @@ pub(crate) fn build_status_surface_abstract(
                 Direction::Row,
             )),
         ]),
-        Style::from(status_face),
+        ElementStyle::from(status_face),
     );
 
     Element::column(vec![

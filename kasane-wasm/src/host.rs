@@ -1,8 +1,8 @@
 //! Host function implementations for guest-to-host calls defined in the WIT interface.
 
 use kasane_core::element::{
-    BorderConfig, BorderLineStyle, Direction, Element, FlexChild, InteractiveId, Overlay,
-    PluginTag, Style,
+    BorderConfig, BorderLineStyle, Direction, Element, ElementStyle, FlexChild, InteractiveId,
+    Overlay, PluginTag,
 };
 use kasane_core::plugin::PluginId;
 use kasane_core::plugin::setting::SettingValue;
@@ -616,7 +616,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             border: border.as_ref().map(convert::wit_border_to_border_config),
             shadow,
             padding: convert::wit_edges_to_edges(&padding),
-            style: Style::Direct(Face::default()),
+            style: ElementStyle::Direct(Face::default()),
             title: None,
         };
         self.store_element(element)
@@ -714,7 +714,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             border: border.as_ref().map(convert::wit_border_to_border_config),
             shadow,
             padding: convert::wit_edges_to_edges(&padding),
-            style: Style::Direct(convert::wit_style_to_face(&style)),
+            style: ElementStyle::Direct(convert::wit_style_to_face(&style)),
             title: title_line,
         };
         self.store_element(element)
@@ -785,7 +785,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             border: border_config,
             shadow,
             padding: convert::wit_edges_to_edges(&padding),
-            style: Style::Direct(convert::wit_style_to_face(&style)),
+            style: ElementStyle::Direct(convert::wit_style_to_face(&style)),
             title: title_line,
         };
         self.store_element(element)

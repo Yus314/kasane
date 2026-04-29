@@ -1,6 +1,6 @@
 //! Shared widget evaluation functions and legacy `WidgetBackend` (test-only).
 
-use crate::element::{Element, Style};
+use crate::element::{Element, ElementStyle};
 use crate::plugin::{AppView, PluginDiagnostic, PluginId};
 use crate::protocol::{Atom, Face};
 
@@ -11,10 +11,10 @@ use super::variables::VariableResolver;
 const PLUGIN_ID: &str = "kasane.widgets";
 
 /// Convert a `FaceOrToken` to a `Style` without resolving tokens against the theme.
-pub(super) fn to_style(face_or_token: &FaceOrToken) -> Style {
+pub(super) fn to_style(face_or_token: &FaceOrToken) -> ElementStyle {
     match face_or_token {
-        FaceOrToken::Direct(face) => Style::Direct(*face),
-        FaceOrToken::Token(token) => Style::Token(token.clone()),
+        FaceOrToken::Direct(face) => ElementStyle::Direct(*face),
+        FaceOrToken::Token(token) => ElementStyle::Token(token.clone()),
     }
 }
 
@@ -50,7 +50,7 @@ pub(super) fn resolve_face_rules(
 /// preserving `Style::Token` for deferred theme resolution. Returns `None`
 /// if the rules require conditional evaluation (caller should fall back to
 /// `resolve_face_rules`).
-fn try_resolve_style(rules: &[FaceRule]) -> Option<Style> {
+fn try_resolve_style(rules: &[FaceRule]) -> Option<ElementStyle> {
     match rules {
         [single] if single.when.is_none() => Some(to_style(&single.face)),
         _ => None,

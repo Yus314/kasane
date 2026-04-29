@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::config::{ThemeConfig, ThemeValue};
-use crate::element::{Style, StyleToken};
+use crate::element::{ElementStyle, StyleToken};
 use crate::protocol::Style as PStyle;
 use crate::protocol::{Attributes, Color, Face, NamedColor};
 
@@ -153,10 +153,10 @@ impl Theme {
     /// Resolve a Style to a Face.
     /// - Direct(face) → returns that face
     /// - Token(token) → looks up in theme map, falls back to `fallback`
-    pub fn resolve(&self, style: &Style, fallback: &Face) -> Face {
+    pub fn resolve(&self, style: &ElementStyle, fallback: &Face) -> Face {
         match style {
-            Style::Direct(face) => *face,
-            Style::Token(token) => self
+            ElementStyle::Direct(face) => *face,
+            ElementStyle::Token(token) => self
                 .map
                 .get(token)
                 .map(|s| s.to_face())
@@ -484,7 +484,7 @@ mod tests {
             fg: Color::Named(NamedColor::Red),
             ..Face::default()
         };
-        let style = Style::Direct(face);
+        let style = ElementStyle::Direct(face);
         let result = theme.resolve(&style, &Face::default());
         assert_eq!(result.fg, Color::Named(NamedColor::Red));
     }
@@ -497,7 +497,7 @@ mod tests {
             ..Face::default()
         };
         theme.set(StyleToken::MENU_ITEM_NORMAL, face);
-        let style = Style::Token(StyleToken::MENU_ITEM_NORMAL);
+        let style = ElementStyle::Token(StyleToken::MENU_ITEM_NORMAL);
         let result = theme.resolve(&style, &Face::default());
         assert_eq!(result.fg, Color::Named(NamedColor::Green));
     }
@@ -509,7 +509,7 @@ mod tests {
             fg: Color::Named(NamedColor::Yellow),
             ..Face::default()
         };
-        let style = Style::Token(StyleToken::MENU_ITEM_NORMAL);
+        let style = ElementStyle::Token(StyleToken::MENU_ITEM_NORMAL);
         let result = theme.resolve(&style, &fallback);
         assert_eq!(result.fg, Color::Named(NamedColor::Yellow));
     }

@@ -112,7 +112,7 @@ impl PaintVisitor for GridPaintVisitor<'_> {
         // Shadow (drawn first, behind the container)
         if info.shadow {
             let shadow_face = self.theme.resolve(
-                &crate::element::Style::Token(crate::element::StyleToken::SHADOW),
+                &crate::element::ElementStyle::Token(crate::element::StyleToken::SHADOW),
                 &Face {
                     attributes: crate::protocol::Attributes::DIM,
                     ..Face::default()

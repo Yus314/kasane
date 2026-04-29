@@ -209,25 +209,33 @@ impl StyleToken {
     }
 }
 
-/// Style can be either a direct Face or a semantic StyleToken resolved via Theme.
+/// Style attached to an Element variant — either a direct face, or a semantic
+/// [`StyleToken`] that the renderer resolves through the active
+/// [`Theme`](crate::render::Theme).
+///
+/// Renamed from `Style` to `ElementStyle` in ADR-031 Phase B3 to remove the
+/// name collision with [`crate::protocol::Style`]. The `Direct` variant still
+/// carries [`Face`] for the moment; a follow-up commit converts it to
+/// `Arc<UnresolvedStyle>` once the Element-tree-touching call sites are all
+/// migrated.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Style {
+pub enum ElementStyle {
     Direct(Face),
     Token(StyleToken),
 }
 
-impl From<Face> for Style {
+impl From<Face> for ElementStyle {
     fn from(face: Face) -> Self {
-        Style::Direct(face)
+        ElementStyle::Direct(face)
     }
 }
 
-impl Style {
+impl ElementStyle {
     /// Get the face, either directly or as a fallback (Token variants return None).
     pub fn face(&self) -> Option<&Face> {
         match self {
-            Style::Direct(face) => Some(face),
-            Style::Token(_) => None,
+            ElementStyle::Direct(face) => Some(face),
+            ElementStyle::Token(_) => None,
         }
     }
 }
@@ -298,14 +306,14 @@ pub type BorderStyle = BorderLineStyle;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BorderConfig {
     pub line_style: BorderLineStyle,
-    pub face: Option<Style>,
+    pub style: Option<ElementStyle>,
 }
 
 impl BorderConfig {
     pub fn new(line_style: BorderLineStyle) -> Self {
         BorderConfig {
             line_style,
-            face: None,
+            style: None,
         }
     }
 }
@@ -425,7 +433,7 @@ pub struct BufferRefState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Element {
-    Text(CompactString, Style),
+    Text(CompactString, ElementStyle),
     StyledLine(Vec<Atom>),
     SlotPlaceholder {
         slot_name: CompactString,
@@ -461,7 +469,7 @@ pub enum Element {
         border: Option<BorderConfig>,
         shadow: bool,
         padding: Edges,
-        style: Style,
+        style: ElementStyle,
         title: Option<Line>,
     },
     /// Transparent wrapper for mouse hit testing. Renders child unchanged.
@@ -528,7 +536,7 @@ pub enum Element {
 
 impl Element {
     pub fn text(s: impl Into<CompactString>, face: Face) -> Self {
-        Element::Text(s.into(), Style::from(face))
+        Element::Text(s.into(), ElementStyle::from(face))
     }
 
     pub fn styled_line(line: Line) -> Self {
@@ -611,7 +619,7 @@ impl Element {
         }
     }
 
-    pub fn container(child: Element, style: Style) -> Self {
+    pub fn container(child: Element, style: ElementStyle) -> Self {
         Element::Container {
             child: Box::new(child),
             border: None,
@@ -704,7 +712,7 @@ mod tests {
 
     #[test]
     fn test_element_container() {
-        let style = Style::from(Face::default());
+        let style = ElementStyle::from(Face::default());
         let el = Element::container(Element::Empty, style);
         match el {
             Element::Container {
@@ -749,14 +757,14 @@ mod tests {
     #[test]
     fn test_style_from_face() {
         let face = Face::default();
-        let style = Style::from(face);
-        assert_eq!(style, Style::Direct(face));
+        let style = ElementStyle::from(face);
+        assert_eq!(style, ElementStyle::Direct(face));
         assert_eq!(style.face(), Some(&face));
     }
 
     #[test]
     fn test_style_token() {
-        let style = Style::Token(StyleToken::MENU_ITEM_NORMAL);
+        let style = ElementStyle::Token(StyleToken::MENU_ITEM_NORMAL);
         assert_eq!(style.face(), None);
     }
 

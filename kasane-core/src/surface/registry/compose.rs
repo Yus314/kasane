@@ -340,8 +340,10 @@ impl SurfaceRegistry {
                 } else {
                     crate::element::StyleToken::SPLIT_DIVIDER
                 };
-                let divider =
-                    Element::container(Element::Empty, crate::element::Style::Token(divider_token));
+                let divider = Element::container(
+                    Element::Empty,
+                    crate::element::ElementStyle::Token(divider_token),
+                );
                 let elem_direction = match direction {
                     crate::layout::SplitDirection::Vertical => crate::element::Direction::Row,
                     crate::layout::SplitDirection::Horizontal => crate::element::Direction::Column,

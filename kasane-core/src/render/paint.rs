@@ -508,7 +508,8 @@ pub(crate) fn paint_shadow(grid: &mut CellGrid, area: &Rect, shadow_face: &Face)
 mod tests {
     use super::*;
     use crate::element::{
-        BorderConfig, BorderLineStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style,
+        BorderConfig, BorderLineStyle, Edges, Element, ElementStyle, FlexChild, Overlay,
+        OverlayAnchor,
     };
     use crate::layout::flex::place;
     use crate::protocol::Face;
@@ -574,7 +575,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: Style::from(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: None,
         };
         let area = Rect {
@@ -628,7 +629,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: Style::from(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: Some(make_line("Hi")),
         };
         let area = Rect {
@@ -701,7 +702,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: Style::from(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: None,
         };
         let area = Rect {

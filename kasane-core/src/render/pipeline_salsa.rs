@@ -18,7 +18,7 @@ use super::grid::CellGrid;
 use super::pipeline::{ViewSource, render_cached_core, scene_render_core};
 use super::scene::{self, DrawCommand, SceneCache};
 use super::view;
-use crate::element::{Element, FlexChild, Style};
+use crate::element::{Element, ElementStyle, FlexChild};
 use crate::layout::Rect;
 use crate::plugin::{AppView, PluginCapabilities, PluginView, TransformSubject, TransformTarget};
 use crate::protocol::MenuStyle;
@@ -387,7 +387,7 @@ fn compose_base_from_salsa(
 
     let status_styled = Element::container(
         status_inner,
-        Style::from(state.observed.status_default_style.to_face()),
+        ElementStyle::from(state.observed.status_default_style.to_face()),
     );
 
     // Wrap with above_status if present

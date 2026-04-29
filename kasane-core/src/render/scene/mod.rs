@@ -439,7 +439,7 @@ mod tests {
 
     #[test]
     fn test_container_produces_border_and_fill() {
-        use crate::element::{BorderConfig, BorderLineStyle, Edges, Element, Style};
+        use crate::element::{BorderConfig, BorderLineStyle, Edges, Element, ElementStyle};
 
         let state = default_state();
         let el = Element::Container {
@@ -447,7 +447,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: Style::from(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: None,
         };
         let area = Rect {
@@ -479,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_container_with_shadow() {
-        use crate::element::{BorderConfig, BorderLineStyle, Edges, Element, Style};
+        use crate::element::{BorderConfig, BorderLineStyle, Edges, Element, ElementStyle};
 
         let state = default_state();
         let el = Element::Container {
@@ -487,7 +487,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Single)),
             shadow: true,
             padding: Edges::ZERO,
-            style: Style::from(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: None,
         };
         let area = Rect {
@@ -518,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_container_with_title() {
-        use crate::element::{BorderConfig, BorderLineStyle, Edges, Element, Style};
+        use crate::element::{BorderConfig, BorderLineStyle, Edges, Element, ElementStyle};
 
         let state = default_state();
         let el = Element::Container {
@@ -526,7 +526,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: Style::from(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: Some(make_line("Title")),
         };
         let area = Rect {

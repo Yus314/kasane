@@ -15,7 +15,7 @@ use super::walk_grid::GridPaintVisitor;
 use super::walk_scene::ScenePaintVisitor;
 use crate::display::DisplayMap;
 use crate::element::{
-    BorderConfig, BufferRefState, Element, ImageFit, ImageSource, Style, StyleToken,
+    BorderConfig, BufferRefState, Element, ElementStyle, ImageFit, ImageSource, StyleToken,
 };
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
@@ -215,7 +215,7 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
         } => {
             let face = theme.resolve(el_style, &state.observed.default_style.to_face());
             let border_face = border.as_ref().map(|bc| {
-                bc.face
+                bc.style
                     .as_ref()
                     .map(|s| theme.resolve(s, &face))
                     .unwrap_or(face)
@@ -223,7 +223,7 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
             let child_area = layout.children.first().map(|cl| cl.area);
             let is_split_divider = matches!(
                 el_style,
-                Style::Token(t) if *t == StyleToken::SPLIT_DIVIDER || *t == StyleToken::SPLIT_DIVIDER_FOCUSED
+                ElementStyle::Token(t) if *t == StyleToken::SPLIT_DIVIDER || *t == StyleToken::SPLIT_DIVIDER_FOCUSED
             );
             let info = ContainerPaintInfo {
                 area,
@@ -322,8 +322,8 @@ pub(crate) fn walk_paint_scene(
 mod tests {
     use super::*;
     use crate::element::{
-        BorderConfig, BorderLineStyle, Direction, Edges, Element, FlexChild, Overlay,
-        OverlayAnchor, Style,
+        BorderConfig, BorderLineStyle, Direction, Edges, Element, ElementStyle, FlexChild, Overlay,
+        OverlayAnchor,
     };
     use crate::layout::flex::place;
     use crate::plugin::PluginRuntime;
@@ -468,7 +468,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: Style::from(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: None,
         };
         let area = Rect {
@@ -506,7 +506,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: true,
             padding: Edges::ZERO,
-            style: Style::from(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: Some(make_line("Title")),
         };
         let area = Rect {
@@ -717,7 +717,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: true,
             padding: Edges::ZERO,
-            style: Style::from(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: Some(make_line("Title")),
         };
         let area = Rect {
@@ -1066,7 +1066,10 @@ mod tests {
     fn grid_divider_vertical_fills_box_drawing() {
         let state = default_state();
         let theme = Theme::default_theme();
-        let el = Element::container(Element::Empty, Style::Token(StyleToken::SPLIT_DIVIDER));
+        let el = Element::container(
+            Element::Empty,
+            ElementStyle::Token(StyleToken::SPLIT_DIVIDER),
+        );
         let area = Rect {
             x: 5,
             y: 0,
@@ -1096,7 +1099,10 @@ mod tests {
     fn grid_divider_horizontal_fills_box_drawing() {
         let state = default_state();
         let theme = Theme::default_theme();
-        let el = Element::container(Element::Empty, Style::Token(StyleToken::SPLIT_DIVIDER));
+        let el = Element::container(
+            Element::Empty,
+            ElementStyle::Token(StyleToken::SPLIT_DIVIDER),
+        );
         let area = Rect {
             x: 0,
             y: 3,
@@ -1135,7 +1141,10 @@ mod tests {
         };
 
         // Normal divider: fg matches bg (BrightBlack), chars blend in
-        let el_normal = Element::container(Element::Empty, Style::Token(StyleToken::SPLIT_DIVIDER));
+        let el_normal = Element::container(
+            Element::Empty,
+            ElementStyle::Token(StyleToken::SPLIT_DIVIDER),
+        );
         let layout = place(&el_normal, area, &state);
         let mut grid = CellGrid::new(5, 3);
         walk_paint_grid(
@@ -1158,7 +1167,7 @@ mod tests {
         // Focused divider: fg is Default (bright), chars stand out
         let el_focused = Element::container(
             Element::Empty,
-            Style::Token(StyleToken::SPLIT_DIVIDER_FOCUSED),
+            ElementStyle::Token(StyleToken::SPLIT_DIVIDER_FOCUSED),
         );
         let layout = place(&el_focused, area, &state);
         let mut grid = CellGrid::new(5, 3);
@@ -1188,7 +1197,10 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let cs = default_cell_size();
-        let el = Element::container(Element::Empty, Style::Token(StyleToken::SPLIT_DIVIDER));
+        let el = Element::container(
+            Element::Empty,
+            ElementStyle::Token(StyleToken::SPLIT_DIVIDER),
+        );
         let area = Rect {
             x: 5,
             y: 0,

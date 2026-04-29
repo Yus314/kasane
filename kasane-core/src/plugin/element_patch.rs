@@ -20,7 +20,7 @@
 
 use std::sync::Arc;
 
-use crate::element::{Align, Direction, Element, FlexChild, OverlayAnchor, Style};
+use crate::element::{Align, Direction, Element, ElementStyle, FlexChild, OverlayAnchor};
 use crate::protocol::Face;
 use crate::widget::predicate::Predicate;
 
@@ -393,11 +393,11 @@ fn overlay_face_on_element(el: Element, face: &Face) -> Element {
     match el {
         Element::Text(text, style) => {
             let new_style = match style {
-                Style::Direct(mut base) => {
+                ElementStyle::Direct(mut base) => {
                     FaceMerge::Overlay.apply(&mut base, face);
-                    Style::Direct(base)
+                    ElementStyle::Direct(base)
                 }
-                token @ Style::Token(_) => token, // Cannot modify token-based styles
+                token @ ElementStyle::Token(_) => token, // Cannot modify token-based styles
             };
             Element::Text(text, new_style)
         }

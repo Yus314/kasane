@@ -581,7 +581,7 @@ fn apply_min_max(size: u16, min: Option<u16>, max: Option<u16>) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::element::{Edges, Element, FlexChild, Style};
+    use crate::element::{Edges, Element, ElementStyle, FlexChild};
     use crate::protocol::Face;
     use crate::test_utils::*;
 
@@ -666,7 +666,7 @@ mod tests {
             )),
             shadow: false,
             padding: Edges::ZERO,
-            style: Style::from(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: None,
         };
         let size = measure(&el, Constraints::loose(80, 24), &state);
