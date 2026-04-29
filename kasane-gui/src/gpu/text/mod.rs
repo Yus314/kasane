@@ -1,14 +1,18 @@
-//! Parley-based text rendering scaffold (ADR-031, Phase 6).
+//! Parley + swash text pipeline.
 //!
-//! This module is the future replacement for the cosmic-text-derived
-//! [`text_pipeline`](super::text_pipeline) and the cosmic-text-driven path in
-//! [`scene_renderer`](super::scene_renderer). At Phase 6 it contains only the
-//! shared contexts and conversion helpers; Phase 7 adds shaping and the L1
-//! `LayoutCache`, Phase 8 adds the swash rasteriser and L2/L3 caches, and
-//! Phase 9 wires it into `SceneRenderer`.
+//! End-to-end:
+//! `Atom` → [`styled_line::StyledLine`] → [`shaper::shape_line`] (Parley
+//! `RangedBuilder`) → [`layout::ParleyLayout`] (cached by
+//! [`layout_cache::LayoutCache`]) → [`glyph_emitter::emit`] /
+//! [`frame_builder::build_frame`] → swash raster ([`glyph_rasterizer`]) →
+//! L2 [`raster_cache::GlyphRasterCache`] + L3 atlas
+//! ([`atlas`] / [`gpu_atlas`]) → [`text_renderer::TextRenderer`].
 //!
-//! Until Phase 11 cuts the legacy path, the cosmic-text pipeline remains the
-//! production renderer and this module is exercised only by unit tests.
+//! [`mouse hit_test`](hit_test) operates on a shaped layout and
+//! returns byte-precise cluster positions; the production
+//! [`SceneRenderer::hit_test`](crate::gpu::scene_renderer) translates to
+//! the cell grid because Kakoune is cell-based — see that method's
+//! docstring for the design rationale.
 
 pub mod atlas;
 pub mod font_id;
@@ -21,12 +25,12 @@ pub mod hit_test;
 pub mod layout;
 pub mod layout_cache;
 pub mod metrics;
-pub mod parley_text_renderer;
 pub mod raster_cache;
 pub mod raster_cache_glue;
 pub mod shaper;
 pub mod style_resolver;
 pub mod styled_line;
+pub mod text_renderer;
 pub mod vertex_builder;
 
 #[cfg(test)]
@@ -111,7 +115,7 @@ impl ParleyText {
 /// Linear-space RGBA8 brush flowing through Parley layout.
 ///
 /// Layout-time `Brush` does not carry "default / inherited" semantics: any
-/// inheritance is resolved by [`crate::gpu::parley_text::style_resolver`]
+/// inheritance is resolved by [`crate::gpu::text::style_resolver`]
 /// before the brush enters Parley. This keeps the Layout immutable across
 /// resolution changes and lets the L1 `LayoutCache` (Phase 7) hash it
 /// trivially.

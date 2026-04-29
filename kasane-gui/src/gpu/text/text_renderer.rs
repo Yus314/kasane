@@ -44,8 +44,12 @@ use super::frame_builder::DrawableGlyph;
 use super::gpu_atlas::GpuAtlasShelf;
 use super::vertex_builder::build_vertices;
 
-/// Parley equivalent of `text_pipeline::TextRenderer`.
-pub struct ParleyTextRenderer {
+/// Renders accumulated [`DrawableGlyph`]s into the wgpu vertex buffer.
+///
+/// Owns the vertex buffer, the render pipeline, and the per-frame
+/// atlas bind group. `prepare` builds the vertex data from the
+/// drawables list; `render` issues the draw call.
+pub struct TextRenderer {
     vertex_buffer: Buffer,
     vertex_buffer_size: u64,
     pipeline: RenderPipeline,
@@ -56,7 +60,7 @@ pub struct ParleyTextRenderer {
     glyph_count: u32,
 }
 
-impl ParleyTextRenderer {
+impl TextRenderer {
     /// Build a new renderer. Reuses the supplied [`Cache`]'s shader / bind
     /// layouts / pipeline cache, which means the parley renderer and the
     /// cosmic-text renderer share their wgpu pipeline state machine.
@@ -164,7 +168,7 @@ fn next_copy_buffer_size(size: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     //! Vertex packing + buffer sizing are unit-tested without wgpu. The
-    //! ParleyTextRenderer construction itself is exercised through the
+    //! TextRenderer construction itself is exercised through the
     //! SceneRenderer end-to-end smoke (Phase 9b Step 4) — building a
     //! headless wgpu device here would force every CI runner to find a
     //! Vulkan / Metal / DX adapter.

@@ -30,15 +30,15 @@ use kasane_core::config::FontConfig;
 use kasane_core::protocol::{Atom, Color, Face, NamedColor, Style};
 use parley::PositionedLayoutItem;
 
-use kasane_gui::gpu::parley_text::atlas::{AtlasShelf, AtlasSlot};
-use kasane_gui::gpu::parley_text::font_id::{font_id_from_data, var_hash_from_coords};
-use kasane_gui::gpu::parley_text::glyph_rasterizer::ContentKind;
-use kasane_gui::gpu::parley_text::glyph_rasterizer::{GlyphRasterizer, SubpixelX};
-use kasane_gui::gpu::parley_text::layout::ParleyLayout;
-use kasane_gui::gpu::parley_text::layout_cache::LayoutCache;
-use kasane_gui::gpu::parley_text::raster_cache::{AtlasOps, GlyphRasterCache, GlyphRasterKey};
-use kasane_gui::gpu::parley_text::styled_line::StyledLine;
-use kasane_gui::gpu::parley_text::{Brush, ParleyText};
+use kasane_gui::gpu::text::atlas::{AtlasShelf, AtlasSlot};
+use kasane_gui::gpu::text::font_id::{font_id_from_data, var_hash_from_coords};
+use kasane_gui::gpu::text::glyph_rasterizer::ContentKind;
+use kasane_gui::gpu::text::glyph_rasterizer::{GlyphRasterizer, SubpixelX};
+use kasane_gui::gpu::text::layout::ParleyLayout;
+use kasane_gui::gpu::text::layout_cache::LayoutCache;
+use kasane_gui::gpu::text::raster_cache::{AtlasOps, GlyphRasterCache, GlyphRasterKey};
+use kasane_gui::gpu::text::styled_line::StyledLine;
+use kasane_gui::gpu::text::{Brush, ParleyText};
 
 fn realistic_atoms(line_no: usize) -> Vec<Atom> {
     let kw_face = Face {

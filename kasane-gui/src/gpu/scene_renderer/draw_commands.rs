@@ -91,7 +91,7 @@ impl SceneRenderer {
                 ch,
                 face,
             } => {
-                self.parley_emit_text(ch, &face.to_face(), pos.x, pos.y, color_resolver);
+                self.emit_text(ch, &face.to_face(), pos.x, pos.y, color_resolver);
             }
             DrawCommand::DrawBorder {
                 rect,
@@ -688,7 +688,7 @@ impl SceneRenderer {
         }
 
         // Route glyph rendering through Parley.
-        self.parley_emit_atoms(atoms, px, py, color_resolver);
+        self.emit_atoms(atoms, px, py, color_resolver);
     }
 
     /// Render a buffer paragraph through Parley with **whole-line
@@ -713,11 +713,11 @@ impl SceneRenderer {
         line_idx: u32,
         color_resolver: &ColorResolver,
     ) {
-        use super::super::parley_text::Brush as PBrush;
-        use super::super::parley_text::frame_builder::DrawableGlyph;
-        use super::super::parley_text::glyph_rasterizer::SubpixelX;
-        use super::super::parley_text::hit_test::byte_to_advance;
-        use super::super::parley_text::styled_line::StyledLine;
+        use super::super::text::Brush as PBrush;
+        use super::super::text::frame_builder::DrawableGlyph;
+        use super::super::text::glyph_rasterizer::SubpixelX;
+        use super::super::text::hit_test::byte_to_advance;
+        use super::super::text::styled_line::StyledLine;
         use kasane_core::protocol::{Atom, Style};
         use parley::PositionedLayoutItem;
 
@@ -789,7 +789,7 @@ impl SceneRenderer {
         // recomputed inside `with_inline_boxes` so a slot change correctly
         // invalidates a cached layout.
         if !para.inline_box_slots.is_empty() {
-            use super::super::parley_text::styled_line::InlineBoxSlot;
+            use super::super::text::styled_line::InlineBoxSlot;
             let cw = cell_w;
             let ch = cell_h;
             let slots: Vec<InlineBoxSlot> = para
@@ -804,10 +804,10 @@ impl SceneRenderer {
                 .collect();
             line = line.with_inline_boxes(slots);
         }
-        let parley_text = &mut self.parley_text;
+        let text = &mut self.text;
         let layout = self
-            .parley_layout_cache
-            .get_or_compute(line_idx, &line, |l| parley_text.shape(l));
+            .layout_cache
+            .get_or_compute(line_idx, &line, |l| text.shape(l));
 
         // 4. Build atom-byte-start prefix sums + per-atom (x_min, x_max)
         // from the shaped layout. atom_x ranges are absolute pixel
@@ -942,13 +942,13 @@ impl SceneRenderer {
         // atom's colour — visible as "all text in one colour" / "no
         // syntax highlighting".
         let styles_table = layout.layout.styles();
-        let rasterizer = &mut self.parley_glyph_rasterizer;
-        let cache = &mut self.parley_raster_cache;
-        let mut atlases = super::super::parley_text::raster_cache_glue::ParleyAtlasPair {
-            mask: &mut self.parley_mask_atlas,
-            color: &mut self.parley_color_atlas,
+        let rasterizer = &mut self.glyph_rasterizer;
+        let cache = &mut self.raster_cache;
+        let mut atlases = super::super::text::raster_cache_glue::ParleyAtlasPair {
+            mask: &mut self.mask_atlas,
+            color: &mut self.color_atlas,
         };
-        let drawables = &mut self.parley_drawables;
+        let drawables = &mut self.drawables;
         for layout_line in layout.layout.lines() {
             let lm = layout_line.metrics();
             let leading = (cell_h - lm.line_height).max(0.0);
@@ -997,8 +997,8 @@ impl SceneRenderer {
                 };
                 let parley_run = run.run();
                 let font = parley_run.font();
-                let font_id = super::super::parley_text::font_id::font_id_from_data(font);
-                let var_hash = super::super::parley_text::font_id::var_hash_from_coords(
+                let font_id = super::super::text::font_id::font_id_from_data(font);
+                let var_hash = super::super::text::font_id::var_hash_from_coords(
                     parley_run.normalized_coords(),
                 );
                 let font_size = parley_run.font_size();
@@ -1018,7 +1018,7 @@ impl SceneRenderer {
                         .get(glyph.style_index())
                         .map(|s| s.brush)
                         .unwrap_or(fallback_brush);
-                    let key = super::super::parley_text::raster_cache::GlyphRasterKey {
+                    let key = super::super::text::raster_cache::GlyphRasterKey {
                         font_id,
                         glyph_id,
                         size_q,
@@ -1094,7 +1094,7 @@ impl SceneRenderer {
             self.emit_decorations(px, py, actual_w, face, visual_fg, color_resolver);
         }
 
-        self.parley_emit_text(text, face, px, py, color_resolver);
+        self.emit_text(text, face, px, py, color_resolver);
     }
 }
 

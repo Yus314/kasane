@@ -3,7 +3,7 @@
 //! Produces [`ParleyGlyphVertex`] instances ready to upload into a wgpu
 //! vertex buffer. The struct layout exactly matches the existing
 //! `text_pipeline::GlyphToRender` so the same shader (`shader.wgsl`) can
-//! consume both — Phase 9b Step 3's `ParleyTextRenderer` reuses the
+//! consume both — `TextRenderer` reuses the
 //! existing pipeline plumbing (vertex layout, bind groups) and only swaps
 //! out the *source* of the vertex data.
 //!

@@ -1,7 +1,7 @@
-//! Shared `CellMetrics` type. Phase 11 dropped the cosmic-text-based
-//! `calculate` constructor along with the dependency; the Parley
-//! implementation in `parley_text::metrics::calculate_with_parley` is
-//! now the only producer.
+//! Shared `CellMetrics` type. The Parley implementation in
+//! [`text::metrics::calculate_with_parley`](super::text::metrics) is the
+//! only producer; the cosmic-text-based `calculate` constructor was
+//! removed when its backing dependency retired.
 
 /// Pre-computed cell dimensions in physical pixels.
 #[derive(Debug, Clone)]
