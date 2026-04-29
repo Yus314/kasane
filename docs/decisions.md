@@ -2064,8 +2064,45 @@ added for decoration colour, decoration thickness, and strikethrough
 colour (paint-time invariants). ShadowCursor × InlineBox boundary
 condition pinned in `docs/semantics.md`.
 
-**Pending:** Phase B3 — full `Face` removal from public API (108 files,
-~1100 references). Phase 10 — bundled `color-preview` WASM plugin
+**Landed (Phase B3, commits 1-5/7):** Plugin extension points
+de-Faced. `KakouneRequest` enum fields migrated from `Face` to
+`Arc<UnresolvedStyle>` (commit `bca4d5b5`); `element::Style` enum
+renamed to `ElementStyle` and its `Direct(Face)` variant replaced by
+`Inline(Arc<UnresolvedStyle>)` (commits `930d1132` + `2c56f610`);
+`Element::plain_text(s)` + `Atom::plain(s)` introduced and 316
+`Face::default()` boilerplate references collapsed
+(`11c5ddea`); `ElementPatch::ModifyFace`/`WrapContainer{face}` →
+`ModifyStyle`/`WrapContainer{style}` with `Arc<UnresolvedStyle>`
+field types and Salsa-friendly content-based `Hash`/`Eq`
+(`b4445770`); `BackgroundLayer.face` and `CellDecoration.face` migrated
+to `style: Style` so plugin annotation/decoration extension points
+expose only the post-resolve `protocol::Style`
+(`844fff10` + `846ca960`); `Cell::with_face_mut`/`set_face` retired
+in favour of `Cell::with_style_mut<F: FnOnce(&mut TerminalStyle)>`
+operating directly on the cell-grid representation, eliminating the
+`TerminalStyle ↔ Face ↔ bitflags` round-trip on every decoration /
+ornament merge (`05c0be16`). Performance (post-merge): warm 64.4 µs
+(−1.0 % vs Phase 11 case A baseline), one_line_changed 81.6 µs
+(−3.3 %) — both directions improvement, neither metric regresses
+the Phase 11 closure framework.
+
+**Pending Phase B3 commits 6-7/7:** The remaining bridge cleanup
+covers internal types only (no further plugin-visible API change):
+`Atom::from_face` / `Atom::face`, `Style::from_face` / `to_face` /
+`to_face_with_attrs`, `UnresolvedStyle::from_face` / `to_face`,
+`Theme::set` / `get` / `resolve` Face versions, `FaceMerge::apply`
+Face version (the `apply_to_terminal` Style version landed in commit
+`05c0be16`), `Cell::face()` accessor, `From<Face> for Style` /
+`for ElementStyle`, `TerminalStyle::from_face`. After those retire,
+`Face` / `Color` / `Attributes` downgrade from `pub` to
+`pub(in crate::protocol)` so wire-format types are physically
+isolated to the parse boundary. Atom::with_style(text, Style)
+constructor landed (`c7e21b36`) as the Phase B3 successor to
+`Atom::from_face` and the migration vehicle for the ~104 remaining
+authoring sites. ~250 test/bench refs cascade across the remaining
+work — an independent PR-sized chunk.
+
+**Other pending items.** Phase 10 — bundled `color-preview` WASM plugin
 upgraded to use real `paint_inline_box` (ergonomics demonstration,
 moves the variable-font / inline-box features from "contracted but
 unused" to "exercised end-to-end"). Phase 12 golden image coverage
@@ -2379,6 +2416,24 @@ This sub-section applies [ADR-024](#adr-024-perception-oriented-performance-poli
 | `parley/frame_warm_24_lines` | 64.9 µs | ≤ 70 µs | ✓ −7.3% |
 | `parley/frame_one_line_changed_24_lines` | 83.8 µs | ≤ 70 µs | +19.7% |
 | `parley/shape_warm` | 13.58 µs | (component) | — |
+
+**Re-measurement (post Phase B3 commits 1-5, 2026-04-29):** the cell
+hot-path consolidation in Phase B3 commit 5 (`05c0be16`) eliminates
+the `TerminalStyle ↔ Face ↔ bitflags` round-trip on every decoration
+/ ornament merge:
+
+| Bench | Time | Δ vs Phase 11 case A |
+|---|---|---|
+| `parley/frame_warm_24_lines` | 64.4 µs | −0.8% |
+| `parley/frame_one_line_changed_24_lines` | 81.6 µs | −2.6% |
+
+Both directions improve — the warm-frame win is small because the
+default rendering path is decoration-light, but the typing-pattern
+metric (which the Phase 11 closure framework treated as structurally
+bounded) shrinks by 2.2 µs, narrowing the gap toward the 70 µs target
+without crossing it. The closure framework remains in force (the
+remaining ~12 µs is still bounded by `shape_warm` + L1-miss raster);
+nothing about the ADR-024 Layer 3 acceptance changes.
 
 **Structural lower bound.** The typing-pattern measurement decomposes as:
 

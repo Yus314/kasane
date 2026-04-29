@@ -2,6 +2,74 @@
 
 ## [Unreleased]
 
+### Changed — ADR-031 Phase B3 commits 1-5 (plugin extension points de-Faced)
+
+The plugin extension surface migrates from `Face` (the Kakoune
+wire-format type) to `Style` / `Arc<UnresolvedStyle>` / `ElementStyle`
+across nine atomic commits (`057a67d2..05c0be16`). Per ADR-031's
+"no backward compat" stance, plugin authors writing against host
+APIs see a one-shot ABI break covering all extension points in this
+sweep. The Kakoune wire format is unchanged.
+
+- **protocol**: `KakouneRequest` enum fields migrate from `Face` to
+  `Arc<UnresolvedStyle>`. `Draw { default_face, padding_face }` →
+  `{ default_style, padding_style }`; `DrawStatus { default_face }`
+  → `{ default_style }`; `MenuShow { selected_item_face, menu_face }`
+  → `{ selected_item_style, menu_style }`; `InfoShow { face }`
+  → `{ info_style }`. The parser's per-request interner shares Arcs
+  across atoms and the new style fields when the wire face is
+  identical (`bca4d5b5`).
+- **element tree**: `kasane_core::element::Style` enum renamed to
+  `ElementStyle` to remove the long-standing collision with
+  `protocol::Style`. `Direct(Face)` variant replaced by
+  `Inline(Arc<UnresolvedStyle>)`; `From<Face> for ElementStyle`
+  preserves call-site ergonomics. `BorderConfig.face: Option<Style>`
+  → `style: Option<ElementStyle>` (`930d1132`, `2c56f610`).
+- **element constructors**: `Element::plain_text(s)` and
+  `Element::styled_text(s, ElementStyle)` introduced; together with
+  the existing `Atom::plain(s)` they collapse 316 explicit
+  `Face::default()` references at authoring sites (`11c5ddea`).
+  `Element::text(s, face: Face)` is retained as a transitional bridge.
+- **plugin api (transforms)**: `ElementPatch::ModifyFace { overlay: Face }`
+  → `ModifyStyle { overlay: Arc<UnresolvedStyle> }`. `WrapContainer
+  { face: Face }` → `WrapContainer { style: Arc<UnresolvedStyle> }`.
+  `Hash`/`Eq` impls deref the Arc so Salsa memoization keys remain
+  content-based (`b4445770`).
+- **plugin api (annotation)**: `BackgroundLayer { face: Face }`
+  → `{ style: Style }` (`844fff10`).
+- **plugin api (decoration)**: `CellDecoration { face: Face,
+  merge: FaceMerge }` → `{ style: Style, merge: FaceMerge }`. New
+  `FaceMerge::apply_to_terminal(&mut TerminalStyle, &Style)` mirrors
+  the legacy semantics directly on the cell-grid representation
+  (`846ca960`).
+- **render hot path**: `Cell::with_face_mut` and `Cell::set_face`
+  retired in favour of `Cell::with_style_mut<F: FnOnce(&mut
+  TerminalStyle)>` operating directly on the stored style. The
+  `TerminalStyle ↔ Face ↔ bitflags` round-trip on every decoration /
+  ornament merge is eliminated. 8 hot-path callers migrated to use
+  `apply_to_terminal` (`05c0be16`).
+- **state derivation**: `state/derived/cursor.rs` reads
+  `atom.unresolved_style()` directly instead of routing through
+  `atom.face().attributes.contains(...)`. Same wire-format semantics
+  (FINAL_FG + REVERSE = cursor); per-frame per-line scan no longer
+  pays the Face projection (`057a67d2`).
+- **performance**: `parley/frame_warm_24_lines` 65.1 → 64.4 µs (−1.0 %)
+  vs Phase 11 case A baseline. `parley/frame_one_line_changed_24_lines`
+  84.4 → 81.6 µs (−3.3 %), narrowing the gap toward the Phase 11
+  closure target without crossing it (the ~12 µs residual remains
+  bounded by `shape_warm` + L1-miss raster, per the existing closure
+  framework).
+
+**Pending Phase B3 commits 6-7:** internal-only bridge cleanup
+(`Atom::from_face`/`face`, `Style::from_face`/`to_face`,
+`UnresolvedStyle::from_face`/`to_face`, `Theme::set/get/resolve` Face
+versions, `FaceMerge::apply` Face version, `Cell::face()` accessor,
+`From<Face> for Style`/`for ElementStyle`, `TerminalStyle::from_face`)
+followed by `Face`/`Color`/`Attributes` visibility downgrade to
+`pub(in crate::protocol)`. ~250 test/bench refs cascade. The new
+`Atom::with_style(text, Style)` constructor (`c7e21b36`) provides
+the migration vehicle. Tracked on `phase-b3-block-e`.
+
 ### Changed — ADR-031 Phase 3 design-δ + Phase 10 SDK closure round
 
 Closes the bulk of the ADR-031 follow-up backlog. **Cell representation
