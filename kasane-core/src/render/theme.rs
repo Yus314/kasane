@@ -151,11 +151,11 @@ impl Theme {
     }
 
     /// Resolve a Style to a Face.
-    /// - Direct(face) → returns that face
+    /// - Inline(unresolved) → projects via `to_face()`
     /// - Token(token) → looks up in theme map, falls back to `fallback`
     pub fn resolve(&self, style: &ElementStyle, fallback: &Face) -> Face {
         match style {
-            ElementStyle::Direct(face) => *face,
+            ElementStyle::Inline(arc) => arc.to_face(),
             ElementStyle::Token(token) => self
                 .map
                 .get(token)
@@ -484,7 +484,7 @@ mod tests {
             fg: Color::Named(NamedColor::Red),
             ..Face::default()
         };
-        let style = ElementStyle::Direct(face);
+        let style = ElementStyle::from(face);
         let result = theme.resolve(&style, &Face::default());
         assert_eq!(result.fg, Color::Named(NamedColor::Red));
     }

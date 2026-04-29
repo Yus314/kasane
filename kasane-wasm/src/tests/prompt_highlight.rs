@@ -74,13 +74,14 @@ fn wraps_in_prompt_mode() {
         Element::Container { style, .. } => {
             // Should have yellow background
             match style {
-                ElementStyle::Direct(face) => {
+                ElementStyle::Inline(arc) => {
+                    let face = arc.to_face();
                     assert_eq!(
                         face.bg,
                         Color::Named(kasane_core::protocol::NamedColor::Yellow)
                     );
                 }
-                _ => panic!("expected Direct style, got {style:?}"),
+                _ => panic!("expected Inline style, got {style:?}"),
             }
         }
         other => panic!("expected Container wrap, got {other:?}"),

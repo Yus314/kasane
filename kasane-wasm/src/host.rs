@@ -616,7 +616,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             border: border.as_ref().map(convert::wit_border_to_border_config),
             shadow,
             padding: convert::wit_edges_to_edges(&padding),
-            style: ElementStyle::Direct(Face::default()),
+            style: ElementStyle::from(Face::default()),
             title: None,
         };
         self.store_element(element)
@@ -714,7 +714,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             border: border.as_ref().map(convert::wit_border_to_border_config),
             shadow,
             padding: convert::wit_edges_to_edges(&padding),
-            style: ElementStyle::Direct(convert::wit_style_to_face(&style)),
+            style: ElementStyle::from(convert::wit_style_to_face(&style)),
             title: title_line,
         };
         self.store_element(element)
@@ -785,7 +785,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             border: border_config,
             shadow,
             padding: convert::wit_edges_to_edges(&padding),
-            style: ElementStyle::Direct(convert::wit_style_to_face(&style)),
+            style: ElementStyle::from(convert::wit_style_to_face(&style)),
             title: title_line,
         };
         self.store_element(element)

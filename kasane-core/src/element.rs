@@ -209,32 +209,43 @@ impl StyleToken {
     }
 }
 
-/// Style attached to an Element variant — either a direct face, or a semantic
-/// [`StyleToken`] that the renderer resolves through the active
-/// [`Theme`](crate::render::Theme).
+/// Style attached to an Element variant — either an inline
+/// [`UnresolvedStyle`](crate::protocol::UnresolvedStyle) (held by `Arc` so
+/// frame-level interner allocations can be shared across the Element tree),
+/// or a semantic [`StyleToken`] that the renderer resolves through the
+/// active [`Theme`](crate::render::Theme).
 ///
-/// Renamed from `Style` to `ElementStyle` in ADR-031 Phase B3 to remove the
-/// name collision with [`crate::protocol::Style`]. The `Direct` variant still
-/// carries [`Face`] for the moment; a follow-up commit converts it to
-/// `Arc<UnresolvedStyle>` once the Element-tree-touching call sites are all
-/// migrated.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// ADR-031 Phase B3 commit 3c: the legacy `Direct(Face)` variant is replaced
+/// by `Inline(Arc<UnresolvedStyle>)` so the Element tree no longer holds
+/// `Face` directly. The `From<Face> for ElementStyle` impl preserves the
+/// callsite ergonomics.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ElementStyle {
-    Direct(Face),
+    Inline(Arc<crate::protocol::UnresolvedStyle>),
     Token(StyleToken),
 }
 
 impl From<Face> for ElementStyle {
     fn from(face: Face) -> Self {
-        ElementStyle::Direct(face)
+        ElementStyle::Inline(Arc::new(crate::protocol::UnresolvedStyle::from_face(&face)))
+    }
+}
+
+impl From<Arc<crate::protocol::UnresolvedStyle>> for ElementStyle {
+    fn from(arc: Arc<crate::protocol::UnresolvedStyle>) -> Self {
+        ElementStyle::Inline(arc)
     }
 }
 
 impl ElementStyle {
-    /// Get the face, either directly or as a fallback (Token variants return None).
-    pub fn face(&self) -> Option<&Face> {
+    /// Project the inline style back to a [`Face`], or `None` for token variants.
+    ///
+    /// Replaces the previous `face() -> Option<&Face>` accessor; the inline
+    /// representation is now `Arc<UnresolvedStyle>`, so the projection is a
+    /// (cheap) `to_face()` call rather than a borrow.
+    pub fn face(&self) -> Option<Face> {
         match self {
-            ElementStyle::Direct(face) => Some(face),
+            ElementStyle::Inline(arc) => Some(arc.to_face()),
             ElementStyle::Token(_) => None,
         }
     }
@@ -547,7 +558,10 @@ impl Element {
     /// `Element::plain_text(s)`.
     #[inline]
     pub fn plain_text(s: impl Into<CompactString>) -> Self {
-        Element::Text(s.into(), ElementStyle::Direct(Face::default()))
+        Element::Text(
+            s.into(),
+            ElementStyle::Inline(crate::protocol::default_unresolved_style()),
+        )
     }
 
     /// Construct a styled text element from an [`ElementStyle`].
@@ -779,8 +793,8 @@ mod tests {
     fn test_style_from_face() {
         let face = Face::default();
         let style = ElementStyle::from(face);
-        assert_eq!(style, ElementStyle::Direct(face));
-        assert_eq!(style.face(), Some(&face));
+        assert!(matches!(style, ElementStyle::Inline(_)));
+        assert_eq!(style.face(), Some(face));
     }
 
     #[test]

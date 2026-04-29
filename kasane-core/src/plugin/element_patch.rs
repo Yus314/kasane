@@ -393,9 +393,10 @@ fn overlay_face_on_element(el: Element, face: &Face) -> Element {
     match el {
         Element::Text(text, style) => {
             let new_style = match style {
-                ElementStyle::Direct(mut base) => {
+                ElementStyle::Inline(arc) => {
+                    let mut base = arc.to_face();
                     FaceMerge::Overlay.apply(&mut base, face);
-                    ElementStyle::Direct(base)
+                    ElementStyle::from(base)
                 }
                 token @ ElementStyle::Token(_) => token, // Cannot modify token-based styles
             };

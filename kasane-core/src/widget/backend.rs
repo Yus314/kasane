@@ -13,7 +13,7 @@ const PLUGIN_ID: &str = "kasane.widgets";
 /// Convert a `FaceOrToken` to a `Style` without resolving tokens against the theme.
 pub(super) fn to_style(face_or_token: &FaceOrToken) -> ElementStyle {
     match face_or_token {
-        FaceOrToken::Direct(face) => ElementStyle::Direct(*face),
+        FaceOrToken::Direct(face) => ElementStyle::from(*face),
         FaceOrToken::Token(token) => ElementStyle::Token(token.clone()),
     }
 }
