@@ -1,11 +1,10 @@
-//! Convert [`DrawableGlyph`] to wgpu vertex data (ADR-031, Phase 9b Step 2).
+//! Convert [`DrawableGlyph`] to wgpu vertex data.
 //!
-//! Produces [`ParleyGlyphVertex`] instances ready to upload into a wgpu
-//! vertex buffer. The struct layout exactly matches the existing
+//! Produces [`ParleyGlyphVertex`] instances ready to upload into a
+//! wgpu vertex buffer. The struct layout exactly matches
 //! [`super::wgpu_types::GlyphToRender`] so the shared
-//! [`shader.wgsl`](super::wgpu_cache) can consume both — `TextRenderer`
-//! reuses the existing pipeline plumbing (vertex layout, bind groups)
-//! and only swaps out the *source* of the vertex data.
+//! [`shader.wgsl`](super::wgpu_cache) consumes both — `TextRenderer`
+//! reuses the same pipeline plumbing (vertex layout, bind groups).
 //!
 //! ## Vertex layout (wire format, must match shader.wgsl)
 //!
@@ -26,10 +25,10 @@
 //! reverse order (Mask declared first), so the converter explicitly maps
 //! the values.
 //!
-//! The `srgb` flag mirrors the cosmic-text path's `ColorMode::Web` choice
-//! (1 = no conversion). The Parley path passes already-linear colours; if
-//! a future framebuffer change reintroduces sRGB conversion, [`SRGB_FLAG`]
-//! is the single knob to flip.
+//! The `srgb` flag is the per-vertex sRGB-conversion toggle the
+//! shader honours (1 = no conversion). The Parley path passes
+//! already-linear colours; if a future framebuffer change
+//! reintroduces sRGB conversion, [`SRGB_FLAG`] is the single knob.
 
 use bytemuck::{Pod, Zeroable};
 
@@ -209,8 +208,8 @@ mod tests {
     fn srgb_flag_matches_color_mode_web() {
         let g = drawable(0.0, 0.0, ContentKind::Mask, Brush::default());
         let v = ParleyGlyphVertex::from_drawable(&g);
-        // 1 = ColorMode::Web (no extra sRGB conversion); matches the
-        // existing cosmic-text path.
+        // 1 = ColorMode::Web in the shader: no sRGB conversion (we
+        // already pass linear colours).
         assert_eq!(v.srgb, SRGB_FLAG);
         assert_eq!(SRGB_FLAG, 1);
     }

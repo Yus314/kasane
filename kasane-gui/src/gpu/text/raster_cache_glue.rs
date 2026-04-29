@@ -1,11 +1,11 @@
 //! Glue between [`raster_cache::AtlasOps`] and the wgpu-backed
 //! [`GpuAtlasShelf`] pair (mask + color).
 //!
-//! ADR-031 Phase 9b Step 4c. The L2 cache no longer owns its atlases —
-//! the production path holds two `GpuAtlasShelf`s on the SceneRenderer,
-//! and this wrapper exposes them as a single `&mut dyn AtlasOps` that
-//! the cache can call into. Tests use a CPU-only adapter that lives
-//! alongside their tests; only the production path needs wgpu.
+//! The L2 cache does not own its atlases — the production path holds
+//! two `GpuAtlasShelf`s on the SceneRenderer, and this wrapper exposes
+//! them as a single `&mut dyn AtlasOps` that the cache can call into.
+//! Tests use a CPU-only adapter that lives alongside their tests;
+//! only the production path needs wgpu.
 //!
 //! Why a `Vec<u8>` clone in `allocate`: `GpuAtlasShelf::allocate_and_queue`
 //! needs an owned bitmap to keep the queue stable across the renderer's

@@ -1,13 +1,13 @@
-//! Build a frame's worth of [`DrawableGlyph`] from a list of styled lines
-//! (ADR-031 Phase 9b).
+//! Build a frame's worth of [`DrawableGlyph`] from a list of styled
+//! lines.
 //!
-//! Sits one layer above [`glyph_emitter`](super::glyph_emitter): drives the
-//! L1 [`LayoutCache`](super::layout_cache::LayoutCache) → emit → L2
-//! [`GlyphRasterCache`](super::raster_cache::GlyphRasterCache) chain, and
-//! returns a flat list of glyphs *with* their atlas slots resolved and
-//! pixel positions assigned. The result is wgpu-agnostic — the caller
-//! converts it to vertex data in a separate step (a follow-up commit will
-//! port that step from the cosmic-text TextRenderer).
+//! Sits one layer above [`glyph_emitter`](super::glyph_emitter):
+//! drives the L1 [`LayoutCache`](super::layout_cache::LayoutCache) →
+//! emit → L2 [`GlyphRasterCache`](super::raster_cache::GlyphRasterCache)
+//! chain, and returns a flat list of glyphs *with* their atlas slots
+//! resolved and pixel positions assigned. The result is wgpu-agnostic
+//! — [`super::vertex_builder::build_vertices`] converts it to vertex
+//! data in a separate step.
 //!
 //! Why one more layer:
 //!
@@ -153,7 +153,7 @@ fn walk_one_layout(
     stats: &mut FrameBuildStats,
 ) {
     for line in layout.layout.lines() {
-        // ADR-031 Phase 9b: Parley's `positioned_glyphs()` already
+        // Parley's `positioned_glyphs()` already
         // includes `run.baseline()` in each glyph.y; do not add it
         // again. (Same fix landed in scene_renderer / glyph_emitter.)
         for item in line.items() {

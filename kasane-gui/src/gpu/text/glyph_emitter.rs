@@ -1,9 +1,9 @@
 //! Walk a [`ParleyLayout`] and emit fully positioned [`GlyphPlacement`]s
-//! ready for the L2 raster cache + GPU vertex generation (ADR-031 Phase 9b).
+//! ready for the L2 raster cache + GPU vertex generation.
 //!
-//! Sits between [`ParleyLayout`](super::layout::ParleyLayout) (the cached
-//! shape result) and the future wgpu vertex emission stage. By splitting the
-//! "walk Parley" step out of the renderer we get:
+//! Sits between [`ParleyLayout`](super::layout::ParleyLayout) (the
+//! cached shape result) and the wgpu vertex emission stage. Splitting
+//! the "walk Parley" step out of the renderer gives:
 //!
 //! - **Testability**: the emitter is pure — given a layout and an origin, it
 //!   produces a deterministic list of placements that we can inspect without
@@ -45,11 +45,9 @@ pub struct GlyphPlacement {
     pub font_size: f32,
 }
 
-/// Aggregate output of [`emit`]. Decorations (underline / strikethrough /
-/// styled variants) are deferred to Phase 10 — that work pulls per-run
-/// `RunMetrics::underline_offset` / `underline_size` /
-/// `strikethrough_offset` / `strikethrough_size` and feeds them into the
-/// quad pipeline. Phase 9b only routes glyph placements.
+/// Aggregate output of [`emit`]. Decoration metrics (underline /
+/// strikethrough offsets and thicknesses) flow through
+/// [`super::metrics`]; this emitter handles only glyph placements.
 #[derive(Debug, Default, Clone)]
 pub struct EmittedFrame {
     pub glyphs: Vec<GlyphPlacement>,
@@ -62,11 +60,11 @@ pub struct EmittedFrame {
 pub fn emit(layout: &Arc<ParleyLayout>, origin_x: f32, origin_y: f32, hint: bool) -> EmittedFrame {
     let mut frame = EmittedFrame::default();
     for line in layout.layout.lines() {
-        // ADR-031 Phase 9b — Parley's `positioned_glyphs()` already
-        // includes `run.baseline()` in each glyph's `y` (parley v0.9
+        // Parley's `positioned_glyphs()` already includes
+        // `run.baseline()` in each glyph's `y` (parley v0.9:
         // `Run::positioned_glyphs` sets `y = run.baseline() + glyph.y`).
-        // So `origin_y + glyph.y` is the baseline y in absolute coords;
-        // adding `metrics.baseline` again would double-count it.
+        // So `origin_y + glyph.y` is the baseline y in absolute
+        // coords; adding `metrics.baseline` again would double-count.
         for item in line.items() {
             let PositionedLayoutItem::GlyphRun(run) = item else {
                 continue;

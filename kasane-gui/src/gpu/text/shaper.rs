@@ -1,15 +1,17 @@
 //! Parley shaper — turns a [`StyledLine`] into a [`ParleyLayout`].
 //!
-//! ADR-031, Phase 7. This is the boundary where Kasane talks to Parley's
-//! `RangedBuilder`. Each [`StyleRun`] in the line is pushed as a span of
-//! `StyleProperty::Brush` + `FontWeight` + `FontStyle` properties; the
-//! line's `font_size` and base font family come from the line's `base_style`
-//! plus the `ParleyText` font configuration.
+//! Boundary where Kasane talks to Parley's `RangedBuilder`. Each
+//! [`StyleRun`](super::styled_line::StyleRun) in the line is pushed as
+//! a span of `StyleProperty::Brush` + `FontWeight` + `FontStyle` +
+//! optional `LetterSpacing` / `FontFeatures` / `FontVariations` /
+//! `Underline` / `Strikethrough`; the line's `font_size` and base
+//! font family come from the line's `base_style` plus the
+//! [`ParleyText`] font configuration.
 //!
-//! The shaper is allocation-conscious: `LayoutContext` reuses its internal
-//! buffers across calls, so the only per-line allocation is the `Layout`
-//! itself (Parley does not currently expose a `build_into` for a reusable
-//! `Layout`, so each call creates a new one). The L1
+//! The shaper is allocation-conscious: `LayoutContext` reuses its
+//! internal buffers across calls, so the only per-line allocation is
+//! the `Layout` itself (Parley 0.9 does not expose a `build_into` for
+//! a reusable `Layout`, so each call creates a new one). The L1
 //! [`super::layout_cache::LayoutCache`] amortises this by caching the
 //! `Arc<ParleyLayout>` across frames.
 
@@ -92,10 +94,11 @@ pub fn shape_line(
             );
         }
 
-        // Underline — Parley's StyleProperty::Underline is a bool toggle. The
-        // styled (curly/dotted/dashed/double) variants are deferred to
-        // Phase 10's quad pipeline; here we set the plain underline so the
-        // glyph metrics include the offset/size hint.
+        // Underline — Parley's StyleProperty::Underline is a bool
+        // toggle. Styled (curly/dotted/dashed/double) variants are
+        // drawn separately by the quad pipeline; here we set the
+        // plain underline so the glyph metrics include the offset /
+        // size hint.
         if !matches!(
             run.resolved.underline,
             super::style_resolver::DecorationKind::None
@@ -112,12 +115,12 @@ pub fn shape_line(
         }
     }
 
-    // ADR-031 Phase 10 Step 2-renderer: reserve inline-box slots in the
-    // layout. Each slot in `StyledLine::inline_boxes` becomes a Parley
-    // `InlineBox` so the layout engine flows surrounding text around the
-    // declared geometry. The actual paint content is queried via the
-    // host's `paint_inline_box(box_id)` callback at render time; the
-    // layout only knows the slot's id, byte offset, width, and height.
+    // Reserve inline-box slots in the layout. Each slot in
+    // `StyledLine::inline_boxes` becomes a Parley `InlineBox` so the
+    // layout engine flows surrounding text around the declared
+    // geometry. The actual paint content is queried via the host's
+    // `paint_inline_box(box_id)` callback at render time; the layout
+    // only knows the slot's id, byte offset, width, and height.
     for slot in &line.inline_boxes {
         builder.push_inline_box(InlineBox {
             id: slot.id,

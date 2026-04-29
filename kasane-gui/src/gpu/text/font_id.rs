@@ -61,7 +61,7 @@ mod tests {
         // The only stable way to construct FontData without taking a direct
         // dep on linebender_resource_handle is to drive Parley end-to-end and
         // pull the FontData off a real shaped run. This also exercises the
-        // intended use site (Phase 9b).
+        // intended use site (`frame_builder` + `glyph_emitter`).
         use super::super::styled_line::StyledLine;
         use super::super::{Brush, ParleyText};
         use kasane_core::protocol::{Atom, Style};

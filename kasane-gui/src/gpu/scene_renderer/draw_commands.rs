@@ -454,7 +454,7 @@ impl SceneRenderer {
                     *line_idx,
                     color_resolver,
                 );
-                // ADR-031 Phase 10 Step 2-renderer (Step A.2b): drain the
+                // Inline-box paint sub-commands: drain the
                 // inline-box deferred queue accumulated during paragraph
                 // painting. Each entry is an already-translated copy of
                 // the slot's plugin paint content; recursing through
@@ -543,7 +543,7 @@ impl SceneRenderer {
 
         let baseline = self.metrics.baseline;
         let cell_h = self.metrics.cell_height;
-        // Phase 10 — prefer the font's own underline geometry when the
+        // Prefer the font's own underline geometry when the
         // metrics layer captured it (Parley path). Falls back to the
         // historical `cell_h × ratio` heuristic when zero (cosmic path).
         let ul_thickness = if self.metrics.underline_thickness > 0.0 {
@@ -639,14 +639,14 @@ impl SceneRenderer {
         _line_idx: u32,
         color_resolver: &ColorResolver,
     ) {
-        // Phase 11 — Parley is the only backend; the `line_idx`
+        // Parley is the only backend; the `line_idx`
         // parameter was used by the cosmic line shaping cache and is
         // no longer needed. Kept on the signature to avoid touching
         // the DrawCommand match arms in this commit.
         self.process_draw_atoms_parley(px, py, atoms, max_width, color_resolver);
     }
 
-    /// ADR-031 Phase 9b Step 4e — Parley alternative to process_draw_atoms.
+    /// Render an atom run through the Parley pipeline.
     /// Runs the per-atom backgrounds + decorations using cell-grid
     /// estimates (no glyph extents from cosmic), then routes glyph
     /// rendering through Parley.
@@ -782,7 +782,7 @@ impl SceneRenderer {
             self.font_size,
             None,
         );
-        // ADR-031 Phase 10 Step 2-renderer C: thread inline-box slot
+        // Thread inline-box slot
         // metadata into the StyledLine so Parley reserves the declared
         // geometry via push_inline_box. Cells → physical pixels via
         // current cell metrics. The L1 LayoutCache content_hash is
@@ -957,7 +957,7 @@ impl SceneRenderer {
                 let run = match item {
                     PositionedLayoutItem::GlyphRun(run) => run,
                     PositionedLayoutItem::InlineBox(pos_box) => {
-                        // ADR-031 Phase 10 Step 2-renderer (Step A.2b):
+                        // Inline-box paint dispatch:
                         // Parley reserved geometry for the inline box.
                         // If the host pre-painted the slot's plugin
                         // content (origin (0,0) Vec<DrawCommand>), enqueue

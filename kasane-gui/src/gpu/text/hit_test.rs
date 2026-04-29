@@ -1,4 +1,4 @@
-//! Pixel ↔ byte-offset hit testing on a Parley layout (ADR-031, Phase 9b).
+//! Pixel ↔ byte-offset hit testing on a Parley layout.
 //!
 //! Wraps Parley's [`Cluster::from_point`] / [`Cluster::from_byte_index`] with
 //! Kasane-shaped helpers that the renderer needs:

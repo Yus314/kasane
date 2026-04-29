@@ -1,20 +1,22 @@
-//! Styled line data model for the Parley shaper (ADR-031, Phase 7).
+//! Styled line data model for the Parley shaper.
 //!
-//! `StyledLine` is the GUI-internal representation of a single Kakoune line
-//! shaped by Parley. It is built from a slice of [`Atom`]s plus a base
-//! [`Style`] (the line's `default_face` analogue), then handed to
-//! [`super::shaper::ParleyShaper`] to produce a [`super::layout::ParleyLayout`].
+//! `StyledLine` is the GUI-internal representation of a single Kakoune
+//! line shaped by Parley. It is built from a slice of [`Atom`]s plus a
+//! base [`Style`] (the line's `default_face` analogue), then handed to
+//! [`super::shaper::shape_line`] to produce
+//! [`super::layout::ParleyLayout`].
 //!
 //! Why a separate type instead of feeding `&[Atom]` directly to Parley:
 //!
-//! - **Style merging**: Adjacent atoms with identical resolved styles can
-//!   share a single [`StyleRun`], reducing the number of properties pushed
-//!   into Parley's `RangedBuilder` and improving ligature continuity.
-//! - **Cache key**: Hashing a `StyledLine` (small fixed-shape struct) is much
-//!   cheaper than re-walking the source atoms each frame.
+//! - **Style merging**: adjacent atoms with identical resolved styles
+//!   share a single [`StyleRun`], reducing the number of properties
+//!   pushed into Parley's `RangedBuilder` and improving ligature
+//!   continuity.
+//! - **Cache key**: hashing a `StyledLine` (small fixed-shape struct)
+//!   is much cheaper than re-walking the source atoms each frame.
 //! - **InlineBox bridge**: `DisplayDirective::InsertInline` content is
-//!   surfaced here as an [`InlineBoxSlot`] so Phase 10's shaper integration
-//!   can call `RangedBuilder::push_inline_box` directly.
+//!   surfaced as an [`InlineBoxSlot`] so the shaper can call
+//!   `RangedBuilder::push_inline_box` directly.
 
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
@@ -33,8 +35,10 @@ pub struct StyledLine {
     /// Style runs covering `text`. Sorted, non-overlapping, contiguous; the
     /// union of all `byte_range`s equals `0..text.len()` for non-empty lines.
     pub runs: Vec<StyleRun>,
-    /// Inline-box slots from `DisplayDirective::InsertInline`. Empty until
-    /// Phase 10 wires the directive translation.
+    /// Inline-box slots from `DisplayDirective::InsertInline`. Empty
+    /// for paragraphs that declare no inline boxes; populated by
+    /// [`Self::with_inline_boxes`] when a host paragraph carries
+    /// `inline_box_slots` metadata.
     pub inline_boxes: Vec<InlineBoxSlot>,
     /// Per-atom byte boundaries in `text`. Length = `source_atom_count + 1`;
     /// `atom_boundaries[i]..atom_boundaries[i+1]` is the byte range of the
@@ -70,8 +74,7 @@ pub struct StyleRun {
 }
 
 /// Slot for an inline widget injected into the layout via
-/// `DisplayDirective::InsertInline`. Phase 10 fills these in; until then the
-/// vector is always empty.
+/// `DisplayDirective::InsertInline`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InlineBoxSlot {
     /// Stable identifier (typically the hash of `(line_idx, byte_offset,
@@ -180,17 +183,17 @@ impl StyledLine {
 
     /// Attach inline-box slots to a styled line built from atoms.
     ///
-    /// ADR-031 Phase 10 Step 2-renderer: `DisplayDirective::InlineBox`
-    /// declarations propagate to the GUI renderer through this builder.
-    /// The shaper (`shaper.rs::shape_line`) calls Parley's
-    /// `push_inline_box` for each slot so the layout engine reserves the
-    /// declared geometry; the host then queries
-    /// `PluginBackend::paint_inline_box(box_id)` per slot at render time
-    /// to obtain the paint Element.
+    /// `DisplayDirective::InlineBox` declarations propagate to the GUI
+    /// renderer through this builder. The shaper
+    /// ([`super::shaper::shape_line`]) calls Parley's
+    /// `push_inline_box` for each slot so the layout engine reserves
+    /// the declared geometry; the host then queries
+    /// `PluginBackend::paint_inline_box(box_id)` per slot at render
+    /// time to obtain the paint Element.
     ///
-    /// `box_id` and slot geometry are part of the L1 LayoutCache content
-    /// hash — changing any slot field invalidates the cache, since slot
-    /// geometry shapes the surrounding text flow.
+    /// `box_id` and slot geometry are part of the L1 LayoutCache
+    /// content hash — changing any slot field invalidates the cache,
+    /// since slot geometry shapes the surrounding text flow.
     pub fn with_inline_boxes(mut self, slots: Vec<InlineBoxSlot>) -> Self {
         self.inline_boxes = slots;
         // Re-hash with the new slots folded into the content hash.

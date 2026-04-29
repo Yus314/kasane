@@ -61,9 +61,10 @@ pub struct TextRenderer {
 }
 
 impl TextRenderer {
-    /// Build a new renderer. Reuses the supplied [`Cache`]'s shader / bind
-    /// layouts / pipeline cache, which means the parley renderer and the
-    /// cosmic-text renderer share their wgpu pipeline state machine.
+    /// Build a new renderer. Reuses the supplied [`Cache`]'s shader,
+    /// bind layouts, and pipeline cache so the wgpu pipeline state
+    /// machine is shared with anything else that constructed against
+    /// the same `Cache`.
     pub fn new(
         device: &Device,
         cache: &Cache,
@@ -167,11 +168,11 @@ fn next_copy_buffer_size(size: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    //! Vertex packing + buffer sizing are unit-tested without wgpu. The
+    //! Vertex packing + buffer sizing are unit-tested without wgpu.
     //! TextRenderer construction itself is exercised through the
-    //! SceneRenderer end-to-end smoke (Phase 9b Step 4) — building a
-    //! headless wgpu device here would force every CI runner to find a
-    //! Vulkan / Metal / DX adapter.
+    //! SceneRenderer end-to-end smoke — building a headless wgpu
+    //! device here would force every CI runner to find a Vulkan /
+    //! Metal / DX adapter.
     use super::*;
 
     #[test]

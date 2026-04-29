@@ -1,13 +1,15 @@
-//! Kasane [`Style`] → Parley [`StyleProperty`] conversion (ADR-031, Phase 6).
+//! Kasane [`Style`] → Parley [`StyleProperty`] conversion.
 //!
-//! Pushed into `parley::RangedBuilder` as a sequence of properties at shape
-//! time. Each call to [`apply_style_to_builder`] (Phase 7) emits roughly
-//! `O(non_default_fields(style))` properties.
+//! [`resolve_for_parley`] projects a kasane [`Style`] onto a
+//! [`ResolvedParleyStyle`]; [`super::shaper::shape_line`] then pushes
+//! the resolved values into `parley::RangedBuilder` as a sequence of
+//! properties.
 //!
 //! Inheritance: `Style::fg = Brush::Default` is resolved upstream by
 //! [`kasane_core::protocol::resolve_style`] before we get here, so the
 //! Parley-side brush is always concrete. This separation lets the L1
-//! LayoutCache key on the resolved brush directly.
+//! [`LayoutCache`](super::layout_cache::LayoutCache) key on the resolved
+//! brush directly.
 
 use std::sync::Arc;
 
@@ -91,11 +93,11 @@ pub struct DecorationProperties {
 /// expects. Returns disabled / no-brush / no-size when the decoration is
 /// `None` so the caller can write a single uniform `apply()` loop.
 ///
-/// Note: at Phase 6 we collapse the four "non-solid" decoration styles
-/// (Curly / Dotted / Dashed / Double) to plain underline at the Parley layer
-/// because Parley does not yet expose styled underline kinds. The actual
-/// decoration style is preserved on the `Style` side and re-applied in the
-/// quad pipeline (Phase 10).
+/// Note: the four "non-solid" decoration styles (Curly / Dotted /
+/// Dashed / Double) collapse to plain underline at the Parley layer
+/// because Parley does not expose styled underline kinds. The actual
+/// decoration style is preserved on the `Style` side and re-applied
+/// by the quad pipeline.
 pub fn decoration_properties(deco: Option<TextDecoration>) -> DecorationProperties {
     match deco {
         None => DecorationProperties {

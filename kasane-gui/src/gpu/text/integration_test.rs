@@ -1,15 +1,15 @@
-//! End-to-end pipeline tests for the Parley text stack (ADR-031, Phase 9b).
+//! End-to-end pipeline tests for the Parley + swash text stack.
 //!
-//! Exercises the full chain in a single test: shape through Parley → cache
-//! the resulting `ParleyLayout` in [`LayoutCache`] → walk the layout's glyph
-//! runs → rasterise each glyph through [`GlyphRasterizer`] → store in
-//! [`GlyphRasterCache`] (which allocates from the L3 [`AtlasShelf`]). Two
-//! frames are run; the second frame must hit both the L1 and L2 caches for
-//! every glyph.
+//! Exercises the full chain in a single test: shape through Parley →
+//! cache the resulting `ParleyLayout` in [`LayoutCache`] → walk the
+//! layout's glyph runs → rasterise each glyph through
+//! [`GlyphRasterizer`] → store in [`GlyphRasterCache`] (which
+//! allocates from the L3 [`AtlasShelf`]). Two frames are run; the
+//! second frame must hit both the L1 and L2 caches for every glyph.
 //!
-//! These tests are the contract that Phase 9b's `SceneRenderer` integration
-//! will rely on. Failures here usually indicate an API drift between
-//! Parley/swash and the cache layer rather than a Kasane bug.
+//! These tests are the contract `SceneRenderer` relies on. Failures
+//! here usually indicate API drift between Parley/swash and the
+//! cache layer rather than a Kasane bug.
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -273,12 +273,12 @@ fn pipeline_invalidate_all_resets_caches() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Color emoji coverage (ADR-031 Phase 11 Wave 1.1).
+// Color emoji coverage.
 //
 // `cjk_pipeline_completes` only exercises the Mask path. The Color
 // path (`Source::ColorOutline` / `ColorBitmap` in
-// `glyph_rasterizer.rs:132-137`, `ContentKind::Color` atlas branch)
-// has been a CI blind spot. These tests pin the contract that:
+// `glyph_rasterizer.rs`, `ContentKind::Color` atlas branch) was a CI
+// blind spot before these tests. They pin the contract that:
 //
 //   1. A line containing a color emoji codepoint, shaped against a
 //      family stack that includes a color emoji font, produces at

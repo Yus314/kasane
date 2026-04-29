@@ -95,7 +95,7 @@ pub struct SceneRenderer {
     /// `PositionedLayoutItem::InlineBox`; the surrounding
     /// `process_draw_command` `RenderParagraph` arm drains and recurses
     /// once the paragraph is done, so sub-commands compose on top of the
-    /// paragraph layout. ADR-031 Phase 10 Step 2-renderer (Step A.2b).
+    /// paragraph layout.
     pub(super) deferred_inline_box_cmds: Vec<DrawCommand>,
 }
 
@@ -246,30 +246,11 @@ impl SceneRenderer {
         &mut self.text
     }
 
-    /// ADR-031 Phase 9b Step 4b smoke test — render a hard-coded "PARLEY"
-    /// string at top-left through the Parley pipeline.
-    ///
-    /// **L2 cache bypass**: this smoke deliberately bypasses the
-    /// `parley_raster_cache`. The L2 cache currently owns its own
-    /// CPU-only `AtlasShelf` allocator, but the GPU bind group reads
-    /// from `parley_mask_atlas` / `parley_color_atlas` (separate
-    /// `GpuAtlasShelf` allocators). Routing through L2 would produce
-    /// atlas slot coordinates that point at empty regions of the GPU
-    /// texture. The architectural fix (raster_cache should own the
-    /// `GpuAtlasShelf`s) is staged separately; for the visual smoke we
-    /// rasterise + allocate + queue + render directly.
-    ///
-    /// Atlases are cleared each frame to keep memory bounded — every
-    /// "PARLEY" frame re-allocates and re-uploads. Per-frame waste is
-    /// fine for a smoke test of fixed-size content.
-    ///
-    /// No-op unless `KASANE_TEXT_BACKEND=parley` is set.
     /// Emit a multi-atom run through Parley by shaping each atom
-    /// independently and snapping each to its cell-grid x. Mirrors the
-    /// cosmic-text DrawAtoms layout strategy (atom_estimated_x =
-    /// cumulative cell_w × unicode_width), so per-atom positions match
-    /// the cell-grid backgrounds + decorations emitted in
-    /// `process_draw_atoms_parley`.
+    /// independently and snapping each to its cell-grid x. The
+    /// cumulative `atom_estimated_x = cell_w × unicode_width` keeps
+    /// per-atom positions in lock-step with the cell-grid backgrounds
+    /// and decorations emitted by the surrounding draw command.
     ///
     /// We deliberately do NOT shape the whole `[atom]` slice as one
     /// Parley `StyledLine`: a single Parley layout would lay glyphs out
@@ -336,13 +317,13 @@ impl SceneRenderer {
             (visual_fg[3].clamp(0.0, 1.0) * 255.0).round() as u8,
         );
 
-        // ADR-031 Phase 9b — Parley's `positioned_glyphs()` already
-        // returns each glyph's `y` in layout-relative coordinates that
-        // include the run's baseline (`y = run.baseline() + glyph.y` per
-        // parley v0.9). So `py + glyph.y` already places the glyph at the
-        // intended baseline — adding our own `line_baseline` on top would
-        // double-count the baseline and shift every glyph down by ~ascent
-        // (precisely the bug that put status bar text below its bg).
+        // Parley's `positioned_glyphs()` returns each glyph's `y` in
+        // layout-relative coordinates that already include the run's
+        // baseline (`y = run.baseline() + glyph.y` per parley v0.9).
+        // So `py + glyph.y` places the glyph at the intended baseline
+        // — adding our own `line_baseline` would double-count it and
+        // shift every glyph down by ~ascent (the regression that put
+        // status bar text below its background).
         //
         // We still need a per-line cell-grid leading offset because
         // Parley's intrinsic `line_height` (no LineHeight pushed) is
@@ -421,22 +402,23 @@ impl SceneRenderer {
     /// Reset Parley per-frame state. Called once at the start of each
     /// frame.
     ///
-    /// Phase 9b Step 4c: atlases are no longer cleared per frame. The
-    /// L2 [`GlyphRasterCache`](super::text::raster_cache::GlyphRasterCache)
-    /// owns the atlas slots and only releases them on LRU / atlas-full
-    /// eviction. Per-frame clearing was a workaround for the previous
-    /// double-allocator architecture and meant we re-rasterised every
-    /// glyph every frame.
+    /// Reset Parley per-frame state at the start of every frame.
     ///
-    /// Diagnostic: `KASANE_PARLEY_NO_CACHE=1` reverts to the pre-Step-4c
-    /// behaviour by invalidating the cache + clearing both atlases here.
-    /// Used to confirm whether a bug originates in the cache layer.
+    /// Atlases are NOT cleared per frame — the L2
+    /// [`GlyphRasterCache`](super::text::raster_cache::GlyphRasterCache)
+    /// owns the slots and releases them only on LRU / atlas-full
+    /// eviction.
+    ///
+    /// Diagnostic: `KASANE_PARLEY_NO_CACHE=1` invalidates the cache
+    /// and clears both atlases here, so a bug that vanishes under
+    /// the env var is in the cache layer rather than the shaper /
+    /// rasteriser.
     fn text_frame_start(&mut self) {
         self.drawables.clear();
         // Bump the L2 cache's frame epoch so eviction can distinguish
         // entries already drawable-pushed in this frame from older
-        // ones (Phase 9b Step 4c follow-up — fixes the "info popup
-        // glyphs appear scrambled" bug caused by mid-frame slot reuse).
+        // ones (fixes the "info popup glyphs appear scrambled" bug
+        // caused by mid-frame slot reuse).
         self.raster_cache.bump_epoch();
         if parley_cache_disabled() {
             self.raster_cache.invalidate_all();
@@ -839,11 +821,11 @@ impl SceneRenderer {
             let image_count = self.image.instances.len() / 9;
             self.image.ensure_buffer(gpu, image_count);
 
-            // Phase 11 — finalize the Parley draw for this layer.
-            // process_draw_* has accumulated DrawableGlyphs into
-            // self.drawables during this layer's processing.
-            // finalize_text_frame uploads atlas pixels + writes the
-            // vertex buffer + clears the accumulator for the next layer.
+            // Finalize the text draw for this layer. process_draw_*
+            // has accumulated DrawableGlyphs into self.drawables
+            // during this layer's processing. finalize_text_frame
+            // uploads atlas pixels + writes the vertex buffer + clears
+            // the accumulator for the next layer.
             self.finalize_text_frame(&gpu.device, &gpu.queue);
 
             // Draw this layer: bg → border → text.

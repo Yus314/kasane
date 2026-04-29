@@ -125,11 +125,11 @@ impl ParleyText {
 
 /// Linear-space RGBA8 brush flowing through Parley layout.
 ///
-/// Layout-time `Brush` does not carry "default / inherited" semantics: any
-/// inheritance is resolved by [`crate::gpu::text::style_resolver`]
-/// before the brush enters Parley. This keeps the Layout immutable across
-/// resolution changes and lets the L1 `LayoutCache` (Phase 7) hash it
-/// trivially.
+/// Layout-time `Brush` does not carry "default / inherited" semantics:
+/// any inheritance is resolved by [`crate::gpu::text::style_resolver`]
+/// before the brush enters Parley. This keeps the Layout immutable
+/// across resolution changes and lets the L1
+/// [`LayoutCache`](layout_cache::LayoutCache) hash it trivially.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Brush(pub [u8; 4]);
 
