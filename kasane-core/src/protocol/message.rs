@@ -41,6 +41,23 @@ impl Atom {
         }
     }
 
+    /// Construct an atom from a post-resolve [`Style`], allocating a fresh
+    /// `Arc` for the wrapping `UnresolvedStyle` (with all `final_*` flags
+    /// false). This is the Phase B3 successor to [`Atom::from_face`] for
+    /// authoring sites that already hold a `Style` value.
+    #[inline]
+    pub fn with_style(contents: impl Into<CompactString>, style: Style) -> Self {
+        Self {
+            contents: contents.into(),
+            style: Arc::new(UnresolvedStyle {
+                style,
+                final_fg: false,
+                final_bg: false,
+                final_style: false,
+            }),
+        }
+    }
+
     /// Construct an atom from an already-interned style `Arc`.
     #[inline]
     pub fn from_style(contents: impl Into<CompactString>, style: Arc<UnresolvedStyle>) -> Self {
