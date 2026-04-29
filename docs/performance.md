@@ -431,8 +431,8 @@ The GPU text pipeline now caches at two levels:
 > |---|---|---|---|
 > | `parley/shape_warm` | 13.58 µs | n/a (component) | unchanged |
 > | `parley/frame_cold_24_lines` | 7.77 ms | n/a (cold) | −2.2% |
-> | `parley/frame_warm_24_lines` | 66.39 µs | ≤ 70 µs ✓ | +1.9% (within target) |
-> | `parley/frame_one_line_changed_24_lines` | 84.48 µs | ≤ 70 µs (+20.7% — gap unchanged) | +1.4% |
+> | `parley/frame_warm_24_lines` | 64.89 µs | ≤ 70 µs ✓ | −2.3% (Phase 11 case A — `StyledLine` hash memoize) |
+> | `parley/frame_one_line_changed_24_lines` | 83.77 µs | ≤ 70 µs (+19.7%) | −0.8% (Phase 11 case A) |
 >
 > **Hypothesis refuted.** ADR-031 §動機 hypothesised that the
 > single-line-edit gap (+19% over the 70 µs target) traced to the

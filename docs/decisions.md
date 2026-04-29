@@ -2348,6 +2348,46 @@ A Phase 4 PR is acceptable when:
 4. The generated bindings in `kasane-plugin-sdk/src/*` expose the new types as Rust idioms (e.g. `font_variation!("wght", 350.0)` macro).
 5. Phase 5 (bundled WASM rewrite) starts immediately after — Phase 4 PR landing with old plugins still in `bundled/` is a known broken state and must not last across a calendar day.
 
+### Phase 11 perf-tune — closure framework (proposed, 2026-04-29)
+
+This sub-section applies [ADR-024](#adr-024-perception-oriented-performance-policy) to the Phase 11 typing-pattern gap so the perf-tune workstream has a defined stopping condition rather than open-ended pursuit of the original 70 µs target.
+
+**Measurement (2026-04-29, post Phase 11 case A):**
+
+| Bench | Time | Phase 11 target | Δ vs target |
+|---|---|---|---|
+| `parley/frame_warm_24_lines` | 64.9 µs | ≤ 70 µs | ✓ −7.3% |
+| `parley/frame_one_line_changed_24_lines` | 83.8 µs | ≤ 70 µs | +19.7% |
+| `parley/shape_warm` | 13.58 µs | (component) | — |
+
+**Structural lower bound.** The typing-pattern measurement decomposes as:
+
+```
+83.8 µs ≈ 23 hits × (64.9 / 24 µs) + 1 miss × (2.7 + shape_warm + new_glyph_raster)
+       ≈ 62.2 + 2.7 + 13.58 + ~5
+       ≈ 83.5 µs
+```
+
+Closing the residual ~14 µs requires reducing `shape_warm` itself (Parley-internal optimisation, upstream-dependent) or eliminating the L2 raster lookup for newly introduced glyphs. Neither is reachable through structural rewrites in `kasane-gui`.
+
+**Layer 1 (perceptual compass) evaluation.** Per ADR-024 §Input-to-Photon Model, Kasane's overhead must be imperceptible against a 240 Hz scanout period (4.17 ms). The 83.8 µs typing-frame total is **2.0 % of the scanout period and 0.5 % of the 16.7 ms / 60 Hz frame budget** — well below any plausible perceptual threshold for a single-line edit. The +19.7 % over the 70 µs *engineering target* does not manifest as +19.7 % over any *perceptual* budget.
+
+**Layer 3 (optimisation accountability) evaluation.** Continuing to push `frame_one_line_changed_24_lines` below 70 µs would require:
+
+- Either a Parley upstream change to reduce `shape_warm` (out of Kasane's control), or
+- A structural rewrite of L1 cache key invalidation to share shape state across line-content edits (high complexity, plausibly perf-positive but loses correctness guarantees), or
+- Accepting that ADR-031's adoption of Parley has a fixed per-shape cost that the original 70 µs target did not anticipate.
+
+ADR-024 Layer 3 requires below-threshold optimisation to state justification. None of (a) headroom for planned features, (b) structural improvement side effects, or (c) regression budget preservation applies to the residual 14 µs — the gap is bounded, the absolute number is imperceptible, and further work would be unjustified per Layer 3.
+
+**Closure decision.** Phase 11 perf-tune closes when:
+
+1. `parley/frame_warm_24_lines` stays within ≤ 70 µs (the steady-state target). **Met.**
+2. `parley/frame_one_line_changed_24_lines` is documented and accepted as structurally bounded by `shape_warm`. The ≤ 70 µs target is reframed from "must achieve" to "warm-baseline-only". **This sub-section is the documentation.**
+3. The CI 115% alert threshold (ADR-024 Layer 2) continues to catch regressions on both metrics. **In place.**
+
+**What this does not do.** This closure does not re-baseline the 70 µs target downward, retire the typing-pattern bench, or remove the entry from `docs/performance.md`. The bench remains a regression ratchet (Layer 2). The acceptance is specifically for the **gap between the engineering ratchet and the original Phase 11 target**, on the basis that the gap is structurally bounded and perceptually invisible.
+
 ## ADR-032: GPU Rendering Strategy — Vello Evaluation Framework
 
 **Status:** Proposed (2026-04-28). This ADR establishes a re-evaluation framework for Vello adoption; it does **not** commit to migration. The decision artefact (§Spike Findings) is filled in by a 5-day timeboxed spike. The current GUI stack (winit + wgpu + Parley + swash; ADR-031) remains the production renderer until and unless this ADR is updated to "Accepted with adoption plan".
