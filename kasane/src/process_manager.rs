@@ -446,6 +446,12 @@ impl ProcessManager {
     }
 }
 
+impl Drop for ProcessManager {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
 impl ProcessDispatcher for ProcessManager {
     fn spawn(
         &mut self,
@@ -476,6 +482,10 @@ impl ProcessDispatcher for ProcessManager {
 
     fn remove_finished_job(&mut self, plugin_id: &PluginId, job_id: u64) {
         ProcessManager::remove_finished_job(self, plugin_id, job_id);
+    }
+
+    fn shutdown(&mut self) {
+        ProcessManager::shutdown(self);
     }
 }
 

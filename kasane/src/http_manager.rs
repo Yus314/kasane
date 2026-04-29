@@ -258,6 +258,12 @@ impl HttpManager {
     }
 }
 
+impl Drop for HttpManager {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
 impl HttpDispatcher for HttpManager {
     fn request(&mut self, plugin_id: &PluginId, job_id: u64, config: HttpRequestConfig) {
         self.start_request(plugin_id, job_id, config);
@@ -265,6 +271,10 @@ impl HttpDispatcher for HttpManager {
 
     fn cancel(&mut self, plugin_id: &PluginId, job_id: u64) {
         self.cancel_request(plugin_id, job_id);
+    }
+
+    fn shutdown(&mut self) {
+        HttpManager::shutdown(self);
     }
 }
 

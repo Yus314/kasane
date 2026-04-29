@@ -39,6 +39,8 @@ where
             );
         }
         self.registry.shutdown_all();
+        self.process_dispatcher.shutdown();
+        self.http_dispatcher.shutdown();
     }
 }
 

@@ -71,6 +71,8 @@ pub struct HttpRequestConfig {
 pub trait HttpDispatcher {
     fn request(&mut self, plugin_id: &PluginId, job_id: u64, config: HttpRequestConfig);
     fn cancel(&mut self, plugin_id: &PluginId, job_id: u64);
+    /// Abort all in-flight requests. Called during shutdown.
+    fn shutdown(&mut self) {}
 }
 
 /// No-op HttpDispatcher for contexts where HTTP is not available.
@@ -139,6 +141,8 @@ pub trait ProcessDispatcher {
     /// Remove a finished job from tracking after its Exited or SpawnFailed event
     /// has been delivered. This frees the per-plugin process count slot.
     fn remove_finished_job(&mut self, plugin_id: &PluginId, job_id: u64);
+    /// Abort all running processes. Called during shutdown.
+    fn shutdown(&mut self) {}
 }
 
 /// No-op ProcessDispatcher for contexts where process execution is not available.

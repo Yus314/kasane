@@ -643,6 +643,11 @@ where
         );
     }
     registry.shutdown_all();
+    // Abort all plugin-spawned process and HTTP tasks before backend cleanup.
+    // Without this, spawn_blocking PTY reader tasks survive into Runtime::drop()
+    // and block shutdown indefinitely.
+    process_dispatcher.shutdown();
+    http_dispatcher.shutdown();
     backend.cleanup();
     Ok(())
 }

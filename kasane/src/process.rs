@@ -185,6 +185,11 @@ impl DaemonHandle {
 
     /// Gracefully shut down the daemon, falling back to kill.
     pub fn kill(&mut self) {
+        // Fast path: daemon already dead (e.g. user ran :kill)
+        if let Ok(Some(_)) = self.child.try_wait() {
+            return;
+        }
+
         // Try graceful shutdown via `kak -p <session> <<< kill-session`
         let _ = Command::new("kak")
             .arg("-p")
@@ -200,14 +205,16 @@ impl DaemonHandle {
                 p.wait()
             });
 
-        // Wait for kakoune to process kill-session and run KakEnd hooks
-        // (e.g. kak-lsp's lsp-exit writes to FIFO before busy-waiting).
-        let deadline = Instant::now() + Duration::from_secs(3);
+        // Wait briefly for kakoune to process kill-session and run KakEnd hooks.
+        // Most hooks complete within 200ms. Hooks that take longer (e.g.
+        // kak-lsp's lsp-exit) are interrupted, but LSP servers handle client
+        // disconnect gracefully per the LSP specification.
+        let deadline = Instant::now() + Duration::from_millis(200);
         loop {
             match self.child.try_wait() {
                 Ok(Some(_)) => return,
                 Ok(None) if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(50));
+                    std::thread::sleep(Duration::from_millis(10));
                 }
                 _ => break,
             }

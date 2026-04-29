@@ -299,8 +299,15 @@ fn run_inner(
 
     // Propagate Kakoune's exit code for EDITOR= use case
     if let Some(code) = process::last_kak_exit_code() {
+        // Flush tracing before exit — process::exit skips destructors
+        drop(_guard);
         std::process::exit(code);
     }
+
+    // Explicitly shut down the tokio runtime with a timeout.
+    // ProcessManager/HttpManager.shutdown() should have aborted all tasks,
+    // but this guards against any surviving spawn_blocking tasks.
+    tokio_rt.shutdown_timeout(std::time::Duration::from_millis(200));
 
     Ok(())
 }
