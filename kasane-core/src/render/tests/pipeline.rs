@@ -56,7 +56,9 @@ fn test_treesitter_rgb_colors_preserved() {
 
     // New pipeline
     let mut grid_new = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid_new.clear(&state.observed.default_style.to_face());
+    grid_new.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
     let root_area = Rect {
@@ -176,7 +178,9 @@ fn test_treesitter_colors_persist_across_frames() {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Frame 1
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let el = view::view(&state, &registry.view());
     let area = Rect {
         x: 0,
@@ -202,7 +206,9 @@ fn test_treesitter_colors_persist_across_frames() {
     grid.swap();
 
     // Frame 2: same content → diff should be empty (colors retained)
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let el = view::view(&state, &registry.view());
     let layout = flex::place(&el, area, &state);
     paint::paint(&el, &layout, &mut grid, &state);
@@ -224,7 +230,9 @@ fn test_treesitter_colors_persist_across_frames() {
     };
     state.observed.lines = vec![vec![Atom::with_style("let", Style::from_face(&new_face))]];
 
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let el = view::view(&state, &registry.view());
     let layout = flex::place(&el, area, &state);
     paint::paint(&el, &layout, &mut grid, &state);
@@ -392,7 +400,9 @@ fn test_declarative_matches_imperative_buffer_status() {
 
     // New pipeline
     let mut grid_new = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid_new.clear(&state.observed.default_style.to_face());
+    grid_new.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
     let root_area = Rect {

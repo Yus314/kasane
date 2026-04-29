@@ -133,7 +133,7 @@ mod legacy {
     };
     use crate::state::DirtyFlags;
 
-    use super::super::parse::{WidgetNodeError, parse_widgets};
+    use super::super::parse::parse_widgets;
     use super::super::types::{LineExpr, WidgetFile, WidgetKind, WidgetPatch};
     use super::super::variables::{AppViewResolver, LineContextResolver};
     use super::{

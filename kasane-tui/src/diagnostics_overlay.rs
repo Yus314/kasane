@@ -11,7 +11,7 @@ mod tests {
         PluginDiagnostic, PluginDiagnosticOverlayState, ProviderArtifactStage,
     };
     use kasane_core::protocol::Face;
-    use kasane_core::render::CellGrid;
+    use kasane_core::render::{CellGrid, TerminalStyle};
 
     fn paint_diagnostic_overlay(state: &PluginDiagnosticOverlayState, grid: &mut CellGrid) {
         let cols = grid.width();
@@ -26,8 +26,9 @@ mod tests {
 
     impl PluginDiagnosticOverlayPainter for CellGridOverlayPainter<'_> {
         fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, face: Face) {
+            let style = TerminalStyle::from_face(&face);
             for row in 0..height {
-                self.grid.fill_region(y + row, x, width, &face);
+                self.grid.fill_region(y + row, x, width, &style);
             }
         }
 

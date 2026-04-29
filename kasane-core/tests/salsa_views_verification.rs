@@ -6,7 +6,7 @@
 //! 3. Menu and info view functions handle edge cases correctly
 
 use kasane_core::element::{Element, OverlayAnchor};
-use kasane_core::protocol::{Atom, Coord, Face, InfoStyle, MenuStyle};
+use kasane_core::protocol::{Atom, Coord, InfoStyle, MenuStyle};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
 use kasane_core::salsa_views;

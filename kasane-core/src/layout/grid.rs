@@ -266,7 +266,7 @@ mod tests {
     use super::*;
     use crate::element::{Align, Element, GridColumn};
     use crate::layout::flex::measure;
-    use crate::protocol::Face;
+
     use crate::test_utils::*;
 
     #[test]

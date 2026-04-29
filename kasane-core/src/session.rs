@@ -611,7 +611,7 @@ mod tests {
 
     #[test]
     fn test_enriched_descriptors_active_session() {
-        use crate::protocol::{Atom, Face};
+        use crate::protocol::Atom;
 
         let mut sessions = SessionManager::<(), (), ()>::new();
         sessions
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn test_enriched_descriptors_inactive_session() {
-        use crate::protocol::{Atom, Face};
+        use crate::protocol::Atom;
 
         let mut sessions = SessionManager::<(), (), ()>::new();
         let id_a = sessions
@@ -664,7 +664,7 @@ mod tests {
 
     #[test]
     fn test_enriched_descriptors_prefers_ui_options_bufname() {
-        use crate::protocol::{Atom, Face};
+        use crate::protocol::Atom;
 
         let mut sessions = SessionManager::<(), (), ()>::new();
         sessions
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn test_enriched_descriptors_falls_back_to_status_content() {
-        use crate::protocol::{Atom, Face};
+        use crate::protocol::Atom;
 
         let mut sessions = SessionManager::<(), (), ()>::new();
         sessions
@@ -705,7 +705,7 @@ mod tests {
 
     #[test]
     fn test_enriched_descriptors_empty_bufname_falls_back() {
-        use crate::protocol::{Atom, Face};
+        use crate::protocol::Atom;
 
         let mut sessions = SessionManager::<(), (), ()>::new();
         sessions
@@ -729,14 +729,14 @@ mod tests {
     fn test_extract_atom_text_empty() {
         assert_eq!(extract_atom_text(&[]), None);
 
-        use crate::protocol::{Atom, Face};
+        use crate::protocol::Atom;
         let atoms = vec![Atom::plain("   ")];
         assert_eq!(extract_atom_text(&atoms), None);
     }
 
     #[test]
     fn test_extract_atom_text_trims() {
-        use crate::protocol::{Atom, Face};
+        use crate::protocol::Atom;
         let atoms = vec![Atom::plain(" main.rs ")];
         assert_eq!(extract_atom_text(&atoms).as_deref(), Some("main.rs"));
     }

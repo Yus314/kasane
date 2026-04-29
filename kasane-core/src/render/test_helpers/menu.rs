@@ -51,7 +51,12 @@ fn draw_scrollbar(
         } else {
             "░"
         };
-        grid.put_char(x, y_start + row as u16, ch, face);
+        grid.put_char(
+            x,
+            y_start + row as u16,
+            ch,
+            &crate::render::TerminalStyle::from_face(face),
+        );
     }
 }
 
@@ -98,12 +103,18 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
 
         // Fill row with face
         for x in win.x..win.x + content_w {
-            grid.put_char(x, y, " ", face);
+            grid.put_char(x, y, " ", &crate::render::TerminalStyle::from_face(face));
         }
 
         // Draw item text
         if item_idx < menu.items.len() {
-            grid.put_line_with_base(y, win.x, &menu.items[item_idx], content_w, Some(face));
+            grid.put_line_with_base(
+                y,
+                win.x,
+                &menu.items[item_idx],
+                content_w,
+                Some(&crate::protocol::Style::from_face(face)),
+            );
         }
     }
 
@@ -143,7 +154,10 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
 
     // Fill menu area with menu_face
     for y in start_y..status_row {
-        grid.fill_row(y, &menu.menu_face.to_face());
+        grid.fill_row(
+            y,
+            &crate::render::TerminalStyle::from_style(&menu.menu_face),
+        );
     }
 
     // Draw items in column-major order
@@ -171,12 +185,18 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
             // Fill column width with face
             let fill_end = (x + col_w as u16).min(grid.width().saturating_sub(1));
             for fx in x..fill_end {
-                grid.put_char(fx, y, " ", face);
+                grid.put_char(fx, y, " ", &crate::render::TerminalStyle::from_face(face));
             }
 
             // Draw item text
             let avail = fill_end.saturating_sub(x);
-            grid.put_line_with_base(y, x, &menu.items[item_idx], avail, Some(face));
+            grid.put_line_with_base(
+                y,
+                x,
+                &menu.items[item_idx],
+                avail,
+                Some(&crate::protocol::Style::from_face(face)),
+            );
         }
     }
 
@@ -208,7 +228,10 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
     let screen_w = grid.width() as usize;
 
     // Fill the row with menu_face
-    grid.fill_row(y, &menu.menu_face.to_face());
+    grid.fill_row(
+        y,
+        &crate::render::TerminalStyle::from_style(&menu.menu_face),
+    );
 
     let first = menu.first_item;
     let has_prefix = first > 0;
@@ -216,9 +239,19 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
 
     // Draw "< " prefix if scrolled
     if has_prefix {
-        grid.put_char(x as u16, y, "<", &menu.menu_face.to_face());
+        grid.put_char(
+            x as u16,
+            y,
+            "<",
+            &crate::render::TerminalStyle::from_style(&menu.menu_face),
+        );
         x += 1;
-        grid.put_char(x as u16, y, " ", &menu.menu_face.to_face());
+        grid.put_char(
+            x as u16,
+            y,
+            " ",
+            &crate::render::TerminalStyle::from_style(&menu.menu_face),
+        );
         x += 1;
     }
 
@@ -235,10 +268,20 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
             if has_more && x < screen_w {
                 // Pad remaining space, then draw ">"
                 while x + 1 < screen_w {
-                    grid.put_char(x as u16, y, " ", &menu.menu_face.to_face());
+                    grid.put_char(
+                        x as u16,
+                        y,
+                        " ",
+                        &crate::render::TerminalStyle::from_style(&menu.menu_face),
+                    );
                     x += 1;
                 }
-                grid.put_char(x as u16, y, ">", &menu.menu_face.to_face());
+                grid.put_char(
+                    x as u16,
+                    y,
+                    ">",
+                    &crate::render::TerminalStyle::from_style(&menu.menu_face),
+                );
             }
             break;
         }
@@ -252,12 +295,23 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
 
         // Draw item
         let avail = (screen_w - x).min(item_w) as u16;
-        grid.put_line_with_base(y, x as u16, &menu.items[idx], avail, Some(face));
+        grid.put_line_with_base(
+            y,
+            x as u16,
+            &menu.items[idx],
+            avail,
+            Some(&crate::protocol::Style::from_face(face)),
+        );
         x += item_w;
 
         // Gap between items
         if x < screen_w {
-            grid.put_char(x as u16, y, " ", &menu.menu_face.to_face());
+            grid.put_char(
+                x as u16,
+                y,
+                " ",
+                &crate::render::TerminalStyle::from_style(&menu.menu_face),
+            );
             x += 1;
         }
     }

@@ -12,7 +12,7 @@ use crate::plugin::compose::{
 use crate::plugin::context::{
     ContribSizeHint, Contribution, OverlayContribution, SourcedContribution, TransformTarget,
 };
-use crate::protocol::{Atom, Face};
+use crate::protocol::Atom;
 
 // ---------------------------------------------------------------------------
 // Strategies

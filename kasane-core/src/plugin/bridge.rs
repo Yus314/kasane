@@ -1419,7 +1419,7 @@ mod tests {
         use crate::plugin::{
             AnnotateContext, ContributeContext, OverlayContext, TransformContext, TransformTarget,
         };
-        use crate::protocol::Face;
+
         use crate::scroll::{ResolvedScroll, ScrollGranularity};
 
         const EXPECTED_HANDLER_NAMES: &[&str] = &[

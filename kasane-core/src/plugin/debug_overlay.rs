@@ -179,7 +179,7 @@ fn atom_text_len(atoms: &[Atom]) -> usize {
 mod tests {
     use super::*;
     use crate::plugin::PluginRuntime;
-    use crate::plugin::bridge::PluginBridge;
+
     use crate::state::AppState;
 
     #[test]

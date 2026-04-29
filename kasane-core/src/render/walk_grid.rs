@@ -63,7 +63,7 @@ impl PaintVisitor for GridPaintVisitor<'_> {
                 });
             }
             self.grid
-                .clear_region(&area, &crate::protocol::Face::default());
+                .clear_region(&area, &crate::render::TerminalStyle::default());
             return;
         }
 
@@ -126,19 +126,20 @@ impl PaintVisitor for GridPaintVisitor<'_> {
         }
 
         // Fill entire container area with face
-        self.grid.clear_region(&info.area, &info.face);
+        let info_style = crate::render::TerminalStyle::from_face(&info.face);
+        self.grid.clear_region(&info.area, &info_style);
 
         // Split divider glyphs
         if info.is_split_divider {
             if info.area.w == 1 {
                 for y in info.area.y..info.area.y + info.area.h {
                     self.grid
-                        .put_char(info.area.x, y, info.divider_vertical, &info.face);
+                        .put_char(info.area.x, y, info.divider_vertical, &info_style);
                 }
             } else {
                 for x in info.area.x..info.area.x + info.area.w {
                     self.grid
-                        .put_char(x, info.area.y, info.divider_horizontal, &info.face);
+                        .put_char(x, info.area.y, info.divider_horizontal, &info_style);
                 }
             }
         }
@@ -210,12 +211,13 @@ impl PaintVisitor for GridPaintVisitor<'_> {
                 if let Some((cl, _cc)) = cursor
                     && cl == line_idx
                 {
-                    let cursor_face = self
+                    let cursor_style = self
                         .theme
                         .get_style(&StyleToken::TEXT_PANEL_CURSOR)
-                        .map(|s| s.to_face())
+                        .map(crate::render::TerminalStyle::from_style)
                         .unwrap_or_default();
-                    self.grid.fill_region(y, content_x, content_w, &cursor_face);
+                    self.grid
+                        .fill_region(y, content_x, content_w, &cursor_style);
                 }
             }
         }

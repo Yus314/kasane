@@ -2,7 +2,7 @@ use compact_str::CompactString;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Atom, Face, resolve_face};
+use crate::protocol::{Atom, Face, Style, resolve_style};
 use crate::render::terminal_style::TerminalStyle;
 
 // ---------------------------------------------------------------------------
@@ -160,7 +160,7 @@ impl CellGrid {
         y as usize * self.width as usize + x as usize
     }
 
-    pub fn put_char(&mut self, x: u16, y: u16, grapheme: &str, face: &Face) {
+    pub fn put_char(&mut self, x: u16, y: u16, grapheme: &str, style: &TerminalStyle) {
         if x >= self.width || y >= self.height {
             return;
         }
@@ -197,10 +197,9 @@ impl CellGrid {
 
         // --- Write the new cell ---
 
-        let style = TerminalStyle::from_face(face);
         self.current[idx] = Cell {
             grapheme: CompactString::from(grapheme),
-            style,
+            style: *style,
             width: w,
         };
         // If wide character, mark next cell as continuation
@@ -208,7 +207,7 @@ impl CellGrid {
             let next_idx = self.idx(x + 1, y);
             self.current[next_idx] = Cell {
                 grapheme: CompactString::default(),
-                style,
+                style: *style,
                 width: 0,
             };
         }
@@ -220,25 +219,26 @@ impl CellGrid {
         self.put_line_with_base(y, x_start, line, max_width, None)
     }
 
-    /// Write a protocol Line, resolving `Color::Default` against `base_face`.
-    /// When base_face is Some, atom Default fg/bg inherit from it (Kakoune semantics).
+    /// Write a protocol Line, resolving inherit-default brushes against `base_style`.
+    /// When `base_style` is `Some`, atom `Brush::Default` fg / bg inherit from it
+    /// (Kakoune semantics).
     pub fn put_line_with_base(
         &mut self,
         y: u16,
         x_start: u16,
         line: &[Atom],
         max_width: u16,
-        base_face: Option<&Face>,
+        base_style: Option<&Style>,
     ) -> u16 {
         let mut x = x_start;
         let limit = x_start.saturating_add(max_width).min(self.width);
 
         for atom in line {
-            let atom_face = atom.face();
-            let face = match base_face {
-                Some(base) => resolve_face(&atom_face, base),
-                None => atom_face,
+            let resolved = match base_style {
+                Some(base) => resolve_style(&atom.style, base),
+                None => atom.style_resolved_default(),
             };
+            let term_style = TerminalStyle::from_style(&resolved);
             for grapheme in atom.contents.graphemes(true) {
                 if grapheme.is_empty() {
                     continue;
@@ -252,7 +252,7 @@ impl CellGrid {
                     if x + nl_w > limit {
                         break;
                     }
-                    self.put_char(x, y, &nl, &face);
+                    self.put_char(x, y, &nl, &term_style);
                     x += nl_w;
                     continue;
                 }
@@ -267,7 +267,7 @@ impl CellGrid {
                 if x + w > limit {
                     break;
                 }
-                self.put_char(x, y, grapheme, &face);
+                self.put_char(x, y, grapheme, &term_style);
                 x += w;
             }
         }
@@ -275,11 +275,10 @@ impl CellGrid {
         x - x_start
     }
 
-    pub fn clear(&mut self, face: &Face) {
-        let style = TerminalStyle::from_face(face);
+    pub fn clear(&mut self, style: &TerminalStyle) {
         for cell in &mut self.current {
             cell.grapheme = CompactString::const_new(" ");
-            cell.style = style;
+            cell.style = *style;
             cell.width = 1;
         }
         for d in &mut self.dirty_rows {
@@ -287,44 +286,41 @@ impl CellGrid {
         }
     }
 
-    pub fn fill_row(&mut self, y: u16, face: &Face) {
+    pub fn fill_row(&mut self, y: u16, style: &TerminalStyle) {
         if y >= self.height {
             return;
         }
-        let style = TerminalStyle::from_face(face);
         self.dirty_rows[y as usize] = true;
         for x in 0..self.width {
             let idx = self.idx(x, y);
             self.current[idx] = Cell {
                 grapheme: CompactString::const_new(" "),
-                style,
+                style: *style,
                 width: 1,
             };
         }
     }
 
-    /// Fill a horizontal span of a single row with a face.
+    /// Fill a horizontal span of a single row with `style`.
     /// Only affects columns `x_start..x_start+width`, leaving other columns untouched.
-    pub fn fill_region(&mut self, y: u16, x_start: u16, width: u16, face: &Face) {
+    pub fn fill_region(&mut self, y: u16, x_start: u16, width: u16, style: &TerminalStyle) {
         if y >= self.height {
             return;
         }
-        let style = TerminalStyle::from_face(face);
         self.dirty_rows[y as usize] = true;
         let x_end = (x_start + width).min(self.width);
         for x in x_start..x_end {
             let idx = self.idx(x, y);
             self.current[idx] = Cell {
                 grapheme: CompactString::const_new(" "),
-                style,
+                style: *style,
                 width: 1,
             };
         }
     }
 
-    /// Clear only a rectangular region of the grid to the given face.
-    pub fn clear_region(&mut self, rect: &crate::layout::Rect, face: &Face) {
-        let style = TerminalStyle::from_face(face);
+    /// Clear only a rectangular region of the grid to `style`.
+    pub fn clear_region(&mut self, rect: &crate::layout::Rect, style: &TerminalStyle) {
         let x_end = (rect.x + rect.w).min(self.width);
         let y_end = (rect.y + rect.h).min(self.height);
         for y in rect.y..y_end {
@@ -333,7 +329,7 @@ impl CellGrid {
                 let idx = self.idx(x, y);
                 self.current[idx] = Cell {
                     grapheme: CompactString::const_new(" "),
-                    style,
+                    style: *style,
                     width: 1,
                 };
             }
@@ -556,6 +552,10 @@ mod tests {
         Face::default()
     }
 
+    fn default_style() -> TerminalStyle {
+        TerminalStyle::default()
+    }
+
     #[test]
     fn test_grid_new() {
         let grid = CellGrid::new(10, 5);
@@ -568,7 +568,7 @@ mod tests {
     fn test_put_char() {
         let mut grid = CellGrid::new(10, 5);
         let face = default_face();
-        grid.put_char(0, 0, "A", &face);
+        grid.put_char(0, 0, "A", &TerminalStyle::from_face(&face));
         assert_eq!(grid.get(0, 0).unwrap().grapheme, "A");
         assert_eq!(grid.get(0, 0).unwrap().width, 1);
     }
@@ -577,7 +577,7 @@ mod tests {
     fn test_put_wide_char() {
         let mut grid = CellGrid::new(10, 5);
         let face = default_face();
-        grid.put_char(0, 0, "漢", &face);
+        grid.put_char(0, 0, "漢", &TerminalStyle::from_face(&face));
         assert_eq!(grid.get(0, 0).unwrap().grapheme, "漢");
         assert_eq!(grid.get(0, 0).unwrap().width, 2);
         // Continuation cell
@@ -632,7 +632,7 @@ mod tests {
         let mut grid = CellGrid::new(3, 1);
         grid.swap(); // previous = blank
         let face = default_face();
-        grid.put_char(1, 0, "X", &face);
+        grid.put_char(1, 0, "X", &TerminalStyle::from_face(&face));
         let diffs = grid.diff();
         assert_eq!(diffs.len(), 1);
         assert_eq!(diffs[0].x, 1);
@@ -646,8 +646,8 @@ mod tests {
             fg: Color::Named(NamedColor::Red),
             ..Face::default()
         };
-        grid.put_char(0, 0, "A", &face);
-        grid.clear(&Face::default());
+        grid.put_char(0, 0, "A", &TerminalStyle::from_face(&face));
+        grid.clear(&TerminalStyle::default());
         assert_eq!(grid.get(0, 0).unwrap().grapheme, " ");
     }
 
@@ -812,16 +812,16 @@ mod tests {
         let mut grid = CellGrid::new(3, 3);
         let face = default_face();
         // Paint all rows
-        grid.put_char(0, 0, "A", &face);
-        grid.put_char(0, 1, "B", &face);
-        grid.put_char(0, 2, "C", &face);
+        grid.put_char(0, 0, "A", &TerminalStyle::from_face(&face));
+        grid.put_char(0, 1, "B", &TerminalStyle::from_face(&face));
+        grid.put_char(0, 2, "C", &TerminalStyle::from_face(&face));
         // First frame: full swap to populate previous
         grid.swap();
 
         // Second frame: only modify row 1
-        grid.put_char(0, 0, "A", &face); // same
-        grid.put_char(0, 1, "X", &face); // changed
-        grid.put_char(0, 2, "C", &face); // same
+        grid.put_char(0, 0, "A", &TerminalStyle::from_face(&face)); // same
+        grid.put_char(0, 1, "X", &TerminalStyle::from_face(&face)); // changed
+        grid.put_char(0, 2, "C", &TerminalStyle::from_face(&face)); // same
         // Mark only row 1 dirty (rows 0 and 2 are clean)
         grid.dirty_rows[0] = false;
         grid.dirty_rows[1] = true;
@@ -841,7 +841,7 @@ mod tests {
     fn test_swap_with_dirty_first_frame_fallback() {
         let mut grid = CellGrid::new(3, 2);
         let face = default_face();
-        grid.put_char(0, 0, "A", &face);
+        grid.put_char(0, 0, "A", &TerminalStyle::from_face(&face));
         // previous is empty → swap_with_dirty falls back to swap()
         assert!(grid.previous.is_empty());
         grid.swap_with_dirty();
@@ -855,8 +855,8 @@ mod tests {
         // Full redraw case
         let mut grid = CellGrid::new(3, 2);
         let face = default_face();
-        grid.put_char(0, 0, "A", &face);
-        grid.put_char(1, 0, "B", &face);
+        grid.put_char(0, 0, "A", &TerminalStyle::from_face(&face));
+        grid.put_char(1, 0, "B", &TerminalStyle::from_face(&face));
 
         let diffs = grid.diff();
         let mut buf = Vec::new();
@@ -870,7 +870,7 @@ mod tests {
 
         // Incremental case
         grid.swap();
-        grid.put_char(1, 0, "X", &face);
+        grid.put_char(1, 0, "X", &TerminalStyle::from_face(&face));
         let diffs = grid.diff();
         grid.diff_into(&mut buf);
         assert_eq!(diffs.len(), buf.len());
@@ -882,8 +882,8 @@ mod tests {
 
         // Empty diff case: swap then reproduce same content
         grid.swap();
-        grid.put_char(0, 0, "A", &face);
-        grid.put_char(1, 0, "X", &face);
+        grid.put_char(0, 0, "A", &TerminalStyle::from_face(&face));
+        grid.put_char(1, 0, "X", &TerminalStyle::from_face(&face));
         let diffs = grid.diff();
         grid.diff_into(&mut buf);
         assert_eq!(diffs.len(), buf.len(), "empty diff: lengths should match");
@@ -898,7 +898,7 @@ mod tests {
     fn test_diff_into_reuses_capacity() {
         let mut grid = CellGrid::new(10, 5);
         let face = default_face();
-        grid.put_char(0, 0, "A", &face);
+        grid.put_char(0, 0, "A", &TerminalStyle::from_face(&face));
 
         let mut buf = Vec::new();
         grid.diff_into(&mut buf);
@@ -915,8 +915,8 @@ mod tests {
         // Full redraw
         let mut grid = CellGrid::new(3, 2);
         let face = default_face();
-        grid.put_char(0, 0, "A", &face);
-        grid.put_char(2, 1, "Z", &face);
+        grid.put_char(0, 0, "A", &TerminalStyle::from_face(&face));
+        grid.put_char(2, 1, "Z", &TerminalStyle::from_face(&face));
 
         let diffs = grid.diff();
         let iter_results: Vec<_> = grid.iter_diffs().collect();
@@ -929,7 +929,7 @@ mod tests {
 
         // Incremental
         grid.swap();
-        grid.put_char(1, 0, "X", &face);
+        grid.put_char(1, 0, "X", &TerminalStyle::from_face(&face));
         let diffs = grid.diff();
         let iter_results: Vec<_> = grid.iter_diffs().collect();
         assert_eq!(diffs.len(), iter_results.len());
@@ -954,10 +954,10 @@ mod tests {
     fn test_swap_with_dirty_dirty_rows_reset() {
         let mut grid = CellGrid::new(3, 3);
         let face = default_face();
-        grid.put_char(0, 0, "A", &face);
+        grid.put_char(0, 0, "A", &TerminalStyle::from_face(&face));
         grid.swap(); // populate previous
 
-        grid.put_char(0, 1, "B", &face);
+        grid.put_char(0, 1, "B", &TerminalStyle::from_face(&face));
         assert!(grid.dirty_rows[1]);
         grid.swap_with_dirty();
         // All dirty_rows should be false after swap_with_dirty

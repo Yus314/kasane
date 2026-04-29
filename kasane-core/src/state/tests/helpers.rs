@@ -1,4 +1,4 @@
-use crate::protocol::{Atom, Coord, CursorMode, Face, InfoStyle, MenuStyle};
+use crate::protocol::{Atom, Coord, CursorMode, InfoStyle, MenuStyle};
 use crate::state::{AppState, InfoIdentity, InfoState, MenuParams, MenuState};
 
 #[test]

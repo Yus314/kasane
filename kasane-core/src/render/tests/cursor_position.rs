@@ -9,7 +9,7 @@ use super::super::*;
 use crate::display::DisplayMapRef;
 use crate::layout::line_display_width;
 use crate::plugin::PluginRuntime;
-use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor, Style};
+use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor};
 use crate::render::cursor;
 use crate::state::AppState;
 use crate::test_support::test_state_80x24;
@@ -60,7 +60,9 @@ fn buffer_state(cols: u16, rows: u16) -> AppState {
 fn render_full(state: &AppState) -> (CellGrid, RenderResult, DisplayMapRef) {
     let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let (result, dm) = pipeline::render_pipeline(state, &registry.view(), &mut grid);
     (grid, result, dm)
 }

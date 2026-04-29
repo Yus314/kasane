@@ -84,11 +84,16 @@ fn selective_clear(grid: &mut CellGrid, state: &AppState, dirty: DirtyFlags) {
                 w: state.runtime.cols,
                 h: 1,
             };
-            grid.clear_region(&status_rect, &state.observed.status_default_style.to_face());
+            grid.clear_region(
+                &status_rect,
+                &crate::render::TerminalStyle::from_style(&state.observed.status_default_style),
+            );
         }
         // Menu/info overlays paint over buffer anyway — no separate clear needed
     } else {
-        grid.clear(&state.observed.default_style.to_face());
+        grid.clear(&crate::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
     }
 }
 
@@ -716,7 +721,7 @@ mod inline_box_dispatch_tests {
     use super::*;
     use crate::display::InlineBoxAlignment;
     use crate::element::Element;
-    use crate::layout::Rect;
+
     use crate::plugin::handler_registry::HandlerRegistry;
     use crate::plugin::state::Plugin;
     use crate::plugin::{PluginId, PluginRuntime};

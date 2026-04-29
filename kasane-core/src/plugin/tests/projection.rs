@@ -6,10 +6,10 @@
 
 use super::*;
 use crate::display::{
-    BufferLine, DisplayDirective, DisplayLine, DisplayMap, FoldToggleState, ProjectionCategory,
-    ProjectionDescriptor, ProjectionId, ProjectionPolicyState,
+    BufferLine, DisplayDirective, FoldToggleState, ProjectionCategory, ProjectionDescriptor,
+    ProjectionId, ProjectionPolicyState,
 };
-use crate::protocol::{Atom, Face};
+use crate::protocol::Atom;
 
 // ---------------------------------------------------------------------------
 // Test plugin: defines one Structural and one Additive projection
@@ -261,7 +261,7 @@ fn legacy_plugin_without_projections_still_works() {
         priority: 0,
     }));
 
-    let mut state = state_with_lines(4);
+    let state = state_with_lines(4);
 
     let dm = registry.view().collect_display_map(&AppView::new(&state));
     // Legacy plugin (no projections) → directives collected regardless of policy

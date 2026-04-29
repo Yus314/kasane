@@ -100,7 +100,9 @@ fn full_frame_under_2ms() {
     for _ in 0..20 {
         let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
-        grid.clear(&state.observed.default_style.to_face());
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
         let _ = grid.diff();
         grid.swap();
@@ -111,7 +113,9 @@ fn full_frame_under_2ms() {
             let start = Instant::now();
             let element = view::view(&state, &registry.view());
             let layout = flex::place(&element, area, &state);
-            grid.clear(&state.observed.default_style.to_face());
+            grid.clear(&kasane_core::render::TerminalStyle::from_style(
+                &state.observed.default_style,
+            ));
             paint::paint(&element, &layout, &mut grid, &state);
             let _ = grid.diff();
             grid.swap();

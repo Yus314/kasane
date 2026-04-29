@@ -151,7 +151,12 @@ fn test_clear_cursor_face_at_bar() {
         bg: Color::Named(NamedColor::White),
         ..Face::default()
     };
-    grid.put_char(2, 0, "x", &cursor_face);
+    grid.put_char(
+        2,
+        0,
+        "x",
+        &crate::render::TerminalStyle::from_face(&cursor_face),
+    );
 
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 2, 0);
 
@@ -175,7 +180,12 @@ fn test_clear_cursor_face_at_underline() {
         bg: Color::Named(NamedColor::White),
         ..Face::default()
     };
-    grid.put_char(3, 1, "y", &cursor_face);
+    grid.put_char(
+        3,
+        1,
+        "y",
+        &crate::render::TerminalStyle::from_face(&cursor_face),
+    );
 
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Underline, 3, 1);
 
@@ -191,7 +201,12 @@ fn test_clear_cursor_face_at_block_noop() {
         bg: Color::Named(NamedColor::White),
         ..Face::default()
     };
-    grid.put_char(0, 0, "z", &cursor_face);
+    grid.put_char(
+        0,
+        0,
+        "z",
+        &crate::render::TerminalStyle::from_face(&cursor_face),
+    );
 
     let state = AppState::default();
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Block, 0, 0);
@@ -217,7 +232,12 @@ fn test_clear_cursor_face_at_prompt() {
         bg: Color::Named(NamedColor::White),
         ..Face::default()
     };
-    grid.put_char(4, 4, "p", &cursor_face);
+    grid.put_char(
+        4,
+        4,
+        "p",
+        &crate::render::TerminalStyle::from_face(&cursor_face),
+    );
 
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 4, 4);
 
@@ -347,7 +367,12 @@ fn test_apply_secondary_cursor_faces_on_grid() {
     };
 
     let mut grid = CellGrid::new(10, 5);
-    grid.put_char(3, 0, "x", &cursor_face);
+    grid.put_char(
+        3,
+        0,
+        "x",
+        &crate::render::TerminalStyle::from_face(&cursor_face),
+    );
 
     apply_secondary_cursor_faces(&state, &mut grid, 0, None, 0, 0, None);
 
@@ -379,7 +404,12 @@ fn test_apply_secondary_cursor_faces_with_offset() {
 
     let mut grid = CellGrid::new(10, 5);
     // buffer_x_offset=3, so the cell is at grid x=5
-    grid.put_char(5, 1, "y", &cursor_face);
+    grid.put_char(
+        5,
+        1,
+        "y",
+        &crate::render::TerminalStyle::from_face(&cursor_face),
+    );
 
     apply_secondary_cursor_faces(&state, &mut grid, 3, None, 0, 0, None);
 

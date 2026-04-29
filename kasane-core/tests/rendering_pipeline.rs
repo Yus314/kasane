@@ -371,7 +371,9 @@ fn parse_draw_status_and_render() {
 fn diff_detects_changes() {
     let state = setup_state(vec![make_line("hello")]);
     let mut grid = CellGrid::new(80, 24);
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
 
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
@@ -390,7 +392,9 @@ fn diff_detects_changes() {
     grid.swap();
 
     // Second identical render: no changes
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     let diffs = grid.diff();
     assert!(

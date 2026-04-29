@@ -86,7 +86,9 @@ pub fn render_with_registry(state: &AppState, registry: &PluginRuntime) -> CellG
     };
     let layout = place(&element, root, state);
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, state);
     grid
 }
@@ -94,7 +96,9 @@ pub fn render_with_registry(state: &AppState, registry: &PluginRuntime) -> CellG
 /// Render to a fresh CellGrid using the non-cached pipeline.
 pub fn render_to_grid(state: &AppState, registry: &PluginRuntime) -> CellGrid {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     render_pipeline(state, &registry.view(), &mut grid);
     grid
 }
@@ -105,7 +109,9 @@ pub fn render_to_grid_with_result(
     registry: &PluginRuntime,
 ) -> (CellGrid, crate::render::RenderResult) {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let (result, _) = render_pipeline(state, &registry.view(), &mut grid);
     (grid, result)
 }

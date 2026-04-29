@@ -179,7 +179,8 @@ pub fn paint_halfblock(grid: &mut CellGrid, area: &Rect, cells: &[HalfblockCell]
                 },
                 ..Face::default()
             };
-            grid.put_char(gx, gy, "\u{2580}", &face);
+            let style = crate::render::TerminalStyle::from_face(&face);
+            grid.put_char(gx, gy, "\u{2580}", &style);
         }
     }
 }

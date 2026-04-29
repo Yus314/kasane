@@ -98,7 +98,7 @@ mod tests {
     use crate::element::{Element, InteractiveId, Overlay, OverlayAnchor};
     use crate::layout::Rect;
     use crate::layout::flex::place;
-    use crate::protocol::Face;
+
     use crate::test_utils::*;
 
     #[test]

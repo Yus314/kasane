@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::plugin::AppView;
 use crate::protocol::{Coord, Face, KakouneRequest, MenuStyle};
 use crate::state::{AppState, DirtyFlags};
 use crate::test_utils::make_line;

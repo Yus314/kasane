@@ -347,7 +347,7 @@ mod tests {
             bg: Color::Named(NamedColor::Black),
             ..Face::default()
         };
-        grid.clear(&default_face);
+        grid.clear(&crate::render::TerminalStyle::from_face(&default_face));
 
         let ornaments = vec![
             ResolvedSurfaceOrn {

@@ -5,7 +5,7 @@
 
 use kasane_core::element::Element;
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Coord, Face, InfoStyle, MenuStyle};
+use kasane_core::protocol::{Coord, InfoStyle, MenuStyle};
 use kasane_core::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuState};
 use kasane_core::surface::buffer::KakouneBufferSurface;

@@ -426,7 +426,6 @@ impl FaceMerge {
 mod tests {
     use super::*;
     use crate::element::{Element, Overlay, OverlayAnchor};
-    use crate::protocol::Face;
 
     fn sample_element() -> Element {
         Element::plain_text("hello")

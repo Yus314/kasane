@@ -65,7 +65,7 @@ impl FoldToggleState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Face};
+    use crate::protocol::Atom;
 
     #[test]
     fn toggle_expands_fold() {

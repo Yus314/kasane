@@ -981,7 +981,7 @@ fn test_sync_ephemeral_no_menu_no_info() {
 }
 
 fn make_test_menu() -> kasane_core::state::MenuState {
-    use kasane_core::protocol::{Coord, Face, MenuStyle};
+    use kasane_core::protocol::{Coord, MenuStyle};
     kasane_core::state::MenuState {
         items: vec![],
         anchor: Coord { line: 0, column: 0 },
@@ -1000,7 +1000,7 @@ fn make_test_menu() -> kasane_core::state::MenuState {
 }
 
 fn make_test_info() -> kasane_core::state::InfoState {
-    use kasane_core::protocol::{Coord, Face, InfoStyle};
+    use kasane_core::protocol::{Coord, InfoStyle};
     kasane_core::state::InfoState {
         title: vec![],
         content: vec![],

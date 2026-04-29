@@ -4,6 +4,7 @@ use unicode_width::UnicodeWidthStr;
 use std::ops::Range;
 
 use super::grid::CellGrid;
+use super::terminal_style::TerminalStyle;
 use super::theme::Theme;
 use crate::display::{DisplayLine, DisplayMap, SourceMapping, SyntheticContent};
 use crate::element::{BorderLineStyle, BufferRefState, Element};
@@ -50,6 +51,7 @@ pub fn paint_themed(
 }
 
 pub(crate) fn paint_text(grid: &mut CellGrid, area: &Rect, text: &str, face: &Face) {
+    let style = TerminalStyle::from_face(face);
     let mut x = area.x;
     let limit = area.x + area.w;
     for grapheme in text.graphemes(true) {
@@ -66,7 +68,7 @@ pub(crate) fn paint_text(grid: &mut CellGrid, area: &Rect, text: &str, face: &Fa
         if x + w > limit {
             break;
         }
-        grid.put_char(x, area.y, grapheme, face);
+        grid.put_char(x, area.y, grapheme, &style);
         x += w;
     }
 }
@@ -342,7 +344,8 @@ pub(crate) fn paint_buffer_ref(
                     .first()
                     .map(|a| a.face())
                     .unwrap_or(params.default_face);
-                grid.fill_region(y, area.x, area.w, &fill_face);
+                let fill_style = TerminalStyle::from_face(&fill_face);
+                grid.fill_region(y, area.x, area.w, &fill_style);
                 grid.put_line_with_base(y, area.x, atoms, area.w, None);
             }
             BufferLineAction::BufferLine {
@@ -352,9 +355,12 @@ pub(crate) fn paint_buffer_ref(
                 virtual_text: vt,
                 ..
             } => {
-                grid.fill_region(y, area.x, area.w, &base_face);
+                let base_term_style = TerminalStyle::from_face(&base_face);
+                grid.fill_region(y, area.x, area.w, &base_term_style);
                 let atoms = decorated.as_deref().unwrap_or(line);
-                let used = grid.put_line_with_base(y, area.x, atoms, area.w, Some(&base_face));
+                let base_proto_style = crate::protocol::Style::from_face(&base_face);
+                let used =
+                    grid.put_line_with_base(y, area.x, atoms, area.w, Some(&base_proto_style));
                 // EOL virtual text: append after buffer content
                 if let Some(vt_atoms) = vt
                     && used < area.w
@@ -364,13 +370,15 @@ pub(crate) fn paint_buffer_ref(
                         area.x + used,
                         vt_atoms,
                         area.w - used,
-                        Some(&base_face),
+                        Some(&base_proto_style),
                     );
                 }
             }
             BufferLineAction::Padding { face, char_face } => {
-                grid.fill_region(y, area.x, area.w, &face);
-                grid.put_char(area.x, y, params.padding_char, &char_face);
+                let fill_style = TerminalStyle::from_face(&face);
+                let char_style = TerminalStyle::from_face(&char_face);
+                grid.fill_region(y, area.x, area.w, &fill_style);
+                grid.put_char(area.x, y, params.padding_char, &char_style);
             }
         }
     }
@@ -433,22 +441,24 @@ pub(crate) fn paint_border(
         horiz
     };
 
+    let style = TerminalStyle::from_face(face);
+
     // Corners
-    grid.put_char(x1, y1, tl, face);
-    grid.put_char(x2, y1, tr, face);
-    grid.put_char(x1, y2, bl, face);
-    grid.put_char(x2, y2, br, face);
+    grid.put_char(x1, y1, tl, &style);
+    grid.put_char(x2, y1, tr, &style);
+    grid.put_char(x1, y2, bl, &style);
+    grid.put_char(x2, y2, br, &style);
 
     // Top and bottom edges
     for x in (x1 + 1)..x2 {
-        grid.put_char(x, y1, horiz, face);
-        grid.put_char(x, y2, bottom_dash, face);
+        grid.put_char(x, y1, horiz, &style);
+        grid.put_char(x, y2, bottom_dash, &style);
     }
 
     // Left and right edges
     for y in (y1 + 1)..y2 {
-        grid.put_char(x1, y, vert, face);
-        grid.put_char(x2, y, vert, face);
+        grid.put_char(x1, y, vert, &style);
+        grid.put_char(x2, y, vert, &style);
     }
 }
 
@@ -474,21 +484,24 @@ pub(crate) fn paint_border_title(
     let left_dashes = dash_count / 2;
     // Position: corner(1) + left_dashes + ┤
     let tx = area.x + 1 + left_dashes as u16;
-    grid.put_char(tx, area.y, "┤", face);
-    grid.put_line_with_base(area.y, tx + 1, title, max_title, Some(face));
+    let term_style = TerminalStyle::from_face(face);
+    let proto_style = crate::protocol::Style::from_face(face);
+    grid.put_char(tx, area.y, "┤", &term_style);
+    grid.put_line_with_base(area.y, tx + 1, title, max_title, Some(&proto_style));
     let after = tx + 1 + max_title;
     if after < area.x + area.w - 1 {
-        grid.put_char(after, area.y, "├", face);
+        grid.put_char(after, area.y, "├", &term_style);
     }
 }
 
 pub(crate) fn paint_shadow(grid: &mut CellGrid, area: &Rect, shadow_face: &Face) {
+    let style = TerminalStyle::from_face(shadow_face);
     // Right shadow (1 cell wide)
     let sx = area.x + area.w;
     if sx < grid.width() {
         for y in (area.y + 1)..=(area.y + area.h) {
             if y < grid.height() {
-                grid.put_char(sx, y, " ", shadow_face);
+                grid.put_char(sx, y, " ", &style);
             }
         }
     }
@@ -498,7 +511,7 @@ pub(crate) fn paint_shadow(grid: &mut CellGrid, area: &Rect, shadow_face: &Face)
     if sy < grid.height() {
         for x in (area.x + 1)..=(area.x + area.w) {
             if x < grid.width() {
-                grid.put_char(x, sy, " ", shadow_face);
+                grid.put_char(x, sy, " ", &style);
             }
         }
     }
@@ -689,10 +702,10 @@ mod tests {
         let state = default_state();
         let mut grid = CellGrid::new(20, 10);
         // Place wide chars in the grid before painting container
-        let wide_face = Face::default();
-        grid.put_char(1, 0, "漢", &wide_face);
-        grid.put_char(3, 0, "字", &wide_face);
-        grid.put_char(1, 1, "あ", &wide_face);
+        let wide_style = TerminalStyle::default();
+        grid.put_char(1, 0, "漢", &wide_style);
+        grid.put_char(3, 0, "字", &wide_style);
+        grid.put_char(1, 1, "あ", &wide_style);
 
         let el = Element::Container {
             child: Box::new(Element::plain_text("hi")),
