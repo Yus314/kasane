@@ -2040,21 +2040,41 @@ eviction guard), 10 (rich underlines via `RunMetrics::underline_*`,
 glyph-accurate hit_test via Parley `Cluster::from_point`), and 11
 (cosmic-text removal).
 
-**Pending:** Phase 3 (TUI `TerminalStyle`; `kasane-tui/src/sgr.rs:14`
-still consumes `Face`, paying a redundant `Style → Face` round-trip per
-visible cell). Phase 10 host-side InlineBox paint extension (the WIT
-directive currently projects to a `width_cells`-space placeholder in
-`kasane-wasm/src/convert/display.rs:102` with a `tracing::warn!` —
-visible to plugin authors but not yet a real inline-box). Phase 10 RTL
-/ combining-mark / ZWJ / trailing-position hit_test test coverage.
-Phase 11 perf-tune scoping (re-baseline 2026-04-29 measured
-`frame_one_line_changed_24_lines = 84.5 µs`, +20.7 % over the 70 µs
-target — the +19 % gap from 2026-04-26 is **not** closed by the
-B-wide mutex elimination, so the originally hypothesised cause is
-refuted; the next investigation needs an allocation/instruction
-profile of the typing pattern, not another structural rewrite). Phase
-12 golden image coverage beyond the 80×24 ASCII baseline pinned at
-`a2ca6834`.
+**Landed (continued, design-δ migration round):** Phase 3 design-δ —
+`TerminalStyle` migrated from `kasane-tui` to `kasane-core::render::terminal_style`,
+`Cell.face: Face` replaced by `Cell.style: TerminalStyle` (Copy, ~50 bytes,
+SGR-emit-ready). The TUI backend reads `cell.style` directly, retiring
+the per-cell `TerminalStyle::from_face(&cell.face)` projection that was
+paid every frame on every visible cell. The GUI cell renderer
+(`kasane-gui/src/gpu/cell_renderer.rs`) likewise reads `cell.style.fg/bg/reverse`
+directly. `Face` survives only at the API surface (paint.rs, decoration,
+theme, plugin API) and is bridged via `Cell::face()` / `Cell::with_face_mut`;
+removing those bridges is Phase B3, tracked separately. atom→wire
+`Style::from_face(&a.face())` round-trip in `kasane-wasm/src/convert/mod.rs`
+also retired (now `style_to_wit(&a.style_resolved_default())` direct).
+Phase 10 host-side InlineBox paint extension landed earlier (Phase 10
+Step 2-renderer A–D, commits `26e392a8`–`a019a169`); this round added
+the `define_plugin!` `paint_inline_box(box_id) { body }` macro section
+parser and host-side recursion-depth (≤ 8) + cycle detection in
+`PluginView::paint_inline_box`, so bundled WASM plugins can override
+paint and the host is robust to malicious / buggy reentrancy. Phase 10
+hit_test coverage extended with RTL Arabic / combining-mark /
+ZWJ-emoji / trailing-position cases. L1 LayoutCache negative tests
+added for decoration colour, decoration thickness, and strikethrough
+colour (paint-time invariants). ShadowCursor × InlineBox boundary
+condition pinned in `docs/semantics.md`.
+
+**Pending:** Phase B3 — full `Face` removal from public API (108 files,
+~1100 references). Phase 10 — bundled `color-preview` WASM plugin
+upgraded to use real `paint_inline_box` (ergonomics demonstration,
+moves the variable-font / inline-box features from "contracted but
+unused" to "exercised end-to-end"). Phase 12 golden image coverage
+beyond the 80×24 ASCII baseline pinned at `a2ca6834` (CJK / cursor /
+selection — recommended path: move under ADR-032 W2 since that
+work pays off regardless of Vello adoption). cosmic-text element
+regression tests for `2f7c0ab9` (RTL cursor double-render) and
+`4d48bbd9` (CJK cursor width clamp) — not blocking ADR-031 closure
+but hardens the motivation cited in §動機 (1).
 
 **Supersedes (text stack only):** [ADR-014](#adr-014-gui-technology-stack--winit--wgpu--glyphon) §14-1's selection of glyphon (cosmic-text + swash + etagere). Window management (winit) and GPU API (wgpu) are unchanged. The atlas allocator (etagere) and the swash rasterizer are retained — only cosmic-text's layout/buffer abstraction and the glyphon-derived text pipeline are replaced.
 
@@ -2387,6 +2407,20 @@ ADR-024 Layer 3 requires below-threshold optimisation to state justification. No
 3. The CI 115% alert threshold (ADR-024 Layer 2) continues to catch regressions on both metrics. **In place.**
 
 **What this does not do.** This closure does not re-baseline the 70 µs target downward, retire the typing-pattern bench, or remove the entry from `docs/performance.md`. The bench remains a regression ratchet (Layer 2). The acceptance is specifically for the **gap between the engineering ratchet and the original Phase 11 target**, on the basis that the gap is structurally bounded and perceptually invisible.
+
+### Next-ADR seeds (open hand-offs after ADR-031 closes)
+
+ADR-031 leaves five distinct workstreams open. Each has been considered during the migration but is out of scope for this ADR; future change here without a follow-up ADR would re-create the "two ABI breaks" trap §動機 (5) was written to prevent. The seeds are recorded so a future engineer (human or automated) can pick them up without re-discovering the constraints.
+
+| Seed | Trigger | Constraint to honour |
+|---|---|---|
+| **WIT 2.0** | A required feature cannot be expressed under WIT 1.x's "additive only" rule (record / variant change). Candidates: `bidi_override`, `letter_spacing` enrichment, font-variation axis metadata, hierarchical Style cascade. | Bundle multiple breaking shapes into a single major bump; do **not** ship 1.x.y minor breaks like Phase 10's ABI 1.1.0. |
+| **Atom interner** | `dhat-rs` measurement shows per-Atom `Arc<UnresolvedStyle>` allocation as the dominant alloc source. The hypothesis is unverified; do not start without measurement. | Thread-local interner with `Weak<UnresolvedStyle>`, per-line flush. Verify cross-thread Salsa correctness; the StyleStore mutex hypothesis was already refuted (B-wide commit `98592a47`). |
+| **Display ↔ Parley canonical coordinate utility** | Bundled `color-preview` upgrade to real `paint_inline_box` exposes the third or fourth ad-hoc `display_col → byte → parley_cluster` round-trip in paint sites. | Single canonical utility in `kasane-core/src/display/coord.rs` (or similar). Pin the conversion direction; ad-hoc per-site logic is a bug magnet for inline-box and folded-region edge cases. |
+| **Atlas pressure policy** | `glyphs_dropped_atlas_full` counter (`raster_cache.rs:103-107`) fires in production. Currently observability-only with once-only warn; no automatic mitigation. | First action: subpixel quantisation 4 → 2 step under pressure (frame-level, with hysteresis). Document the visible-quality trade in `semantics.md`. |
+| **Vello adoption (ADR-032)** | Vello ≥ 1.0 stable + Glifo ≥ 0.2 published + spike `frame_warm_24_lines` ≤ 70 µs at 80×24 (per `roadmap.md` §2.2). | ADR-032 W3 (`GpuBackend` trait) and ADR-032 W2 (golden image harness) land independently as decision-grade artefacts whether or not the spike is positive. The spike crate stays out of `members` until adoption is committed. |
+
+These are also tracked in `docs/roadmap.md` §2.2 where they overlap with backlog entries; the table above is the design-rationale anchor that survives roadmap reorganisations.
 
 ## ADR-032: GPU Rendering Strategy — Vello Evaluation Framework
 

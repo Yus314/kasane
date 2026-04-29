@@ -39,7 +39,7 @@ GPU swap.
 | 1a — Style + Brush types | ✅ | Coexists with `Face`; `Atom::style()` bridge |
 | 1b–d — `Atom { face, contents }` migration | ✅ | B-wide commit `98592a47` carries `Arc<UnresolvedStyle>` directly on `Atom`; mutex-on-`StyleStore` retired |
 | 2 — kasane-core type migration | ✅ | Phase A.3 cascade landed (commits `0388a6f5`–`9266c5ed`); `final_*` resolution flags consumed at the protocol boundary |
-| 3 — TUI `TerminalStyle` | Step 1 done | Step 1 (`d4c7c16b`): `TerminalStyle` projection + `UnderlineKind` enum land in `kasane-tui/src/terminal_style.rs`; `sgr.rs` consumes `TerminalStyle`; `emit_sgr_diff(&Face)` retained as a shim that projects via `TerminalStyle::from_face`. `from_style` constructor unblocks Step 2. Step 2 (multi-PR): migrate central `Cell.face: Face` → `Cell.style: Style` in `kasane-core/render/grid.rs` and all paint sites; backend.rs switches to `emit_sgr_diff_style` direct, retiring the upstream `Style → Face` round-trip |
+| 3 — TUI `TerminalStyle` (design-δ) | ✅ | `TerminalStyle` moved from `kasane-tui` to `kasane-core::render::terminal_style`; `Cell.face: Face` → `Cell.style: TerminalStyle` (Copy, ~50 bytes, SGR-emit-ready); backend reads `cell.style` directly retiring per-cell projection; GUI cell renderer reads `cell.style.fg/bg/reverse` directly. `Face` survives only at the API surface (paint.rs, decoration, theme, plugin API), bridged via `Cell::face()` / `Cell::with_face_mut`. Phase B3 (full Face removal) is tracked separately as a non-blocking follow-up |
 | 4 — WIT plugin ABI redesign | ✅ | Tier A `a5ef9f56` (brush/style/inline-box, ABI 1.0.0) + Tier B `8f281f52` (SDK macros + helpers + 5 templates) |
 | 5 — Bundled WASM plugins rebuild | ✅ | All 10 examples + 6 bundled + 11 fixtures rebuilt against `kasane:plugin@1.0.0` (`f4df0762`); `cargo test -p kasane-wasm` 188/0 |
 | 6 — `parley_text` facade + cargo deps | ✅ | parley 0.9 + swash 0.2.7 |
@@ -48,7 +48,7 @@ GPU swap.
 | 9 — `SceneRenderer` Parley path | ✅ | All four DrawCommand text variants routed through Parley |
 | 9b Step 4c — L2 cache refactor + frame-epoch eviction | ✅ | Same-frame entries protected from eviction |
 | 10 — Rich underlines (font metrics) | ✅ | `RunMetrics::underline_offset/size` drives quad geometry |
-| 10 — RTL hit_test, InlineBox host paint, Variable font | Pending | Glyph-accurate hit_test already in code (`hit_test.rs`); RTL/combining-mark/ZWJ test coverage missing. InlineBox WIT directive currently projects to a `width_cells`-space `InsertInline` placeholder with a `tracing::warn!` per directive (`kasane-wasm/src/convert/display.rs:102-119`, commit `7f0bdb3d`) — observable to plugin authors but not yet a real inline-box; host paint extension point (`paint-inline-box(box-id) -> element-handle`) is the remaining work |
+| 10 — RTL hit_test, InlineBox host paint, Variable font | Mostly ✅ | Host paint extension point landed (Phase 10 Step 2-renderer A–D, `26e392a8`–`a019a169`). `define_plugin!` `paint_inline_box(box_id) { body }` macro section parser landed; bundled WASM plugins can override paint. `PluginView::paint_inline_box` enforces recursion depth (≤ 8) + cycle detection thread-locally with once-only error logging. RTL/combining-mark/ZWJ-emoji/trailing-position hit_test coverage added. Outstanding: bundled `color-preview` plugin should be upgraded to use `paint_inline_box` end-to-end as a worked example (variable-font / InlineBox features currently "contracted but unused") |
 | 11 — cosmic-text removal | ✅ | ~1900 LOC dropped; deps gone |
 | 11 — perf tune | In progress | Case A (`StyledLine` hash memoize, 2026-04-29) landed: warm 64.9 µs ✓, one_line_changed 83.8 µs (+19.7%). Mutex-on-`StyleStore` hypothesis remains refuted. Residual gap is structurally bounded by `shape_warm = 13.58 µs` (per L1 miss); closing it requires either Parley shape optimization or formal acceptance via ADR-024 |
 | 12 — Docs + golden image tests | In progress | ADR / CHANGELOG updated; CellGrid `golden_grid` 80×24 ASCII baseline pinned (`a2ca6834`); CJK / cursor / selection golden coverage pending |
@@ -59,13 +59,14 @@ Parley pipeline benchmarks (post Phase 11 case A, 2026-04-29):
 - `shape_warm`: 13.58 µs (unchanged — fundamental Parley re-shape cost)
 - Core `salsa_scaling/full_frame/80x24`: 49.2 µs (backend-agnostic; unchanged)
 
-Open follow-up debts surfaced during the Phase 5 landing (2026-04-29) but not addressed in this round:
-- L1 `LayoutCache` test coverage: `bg`/`underline`/`reverse` change paths are not pinned by negative tests; design intent (paint-time, not shaping-time) is documented only in code comments.
-- GPU atlas pressure: `GlyphRasterCache::get_or_insert` returns `None` and silently drops glyphs when the atlas is full and LRU eviction is blocked by same-frame use; no metric.
-- `ResolvedParleyStyle` carries `italic: bool` AND `oblique: bool` as independent fields — make-illegal-states-unrepresentable would prefer a single enum.
-- `wit_atom_to_atom` in `kasane-wasm/src/convert/mod.rs` still routes through `Style::from_face(&a.face())`; B-wide direct path not consumed.
-- `text-decoration.thickness` is specified in physical pixels — plugin authors cannot reason about scale-factor changes. Wire-shape design or semantics.md note required.
-- GPU color pipeline intentionally bypasses sRGB conversion (`gpu_atlas.rs` comments); not yet documented in `semantics.md`.
+Open follow-up debts surfaced during the Phase 5 landing (2026-04-29). Most resolved in the design-δ round:
+- ✅ L1 `LayoutCache` test coverage: `bg` / `underline` / `reverse` / `dim` / decoration colour / decoration thickness / strikethrough colour now pinned by negative tests in `layout_cache.rs`.
+- ✅ GPU atlas pressure: `glyphs_dropped_atlas_full` counter (`raster_cache.rs:103-107`) reports drops with a once-per-process warn guard; the SLO entry is in `docs/performance.md`.
+- ✅ `ResolvedParleyStyle` `italic: bool` + `oblique: bool` — replaced by `SlantKind` enum (`6cc6558c`).
+- ✅ `atom_to_wit` (`kasane-wasm/src/convert/mod.rs`) now uses `style_to_wit(&a.style_resolved_default())` directly; the legacy `Style::from_face(&a.face())` round-trip is gone.
+- ✅ `text-decoration.thickness` physical-pixel unit — documented in `semantics.md` ("Decoration thickness unit").
+- ✅ GPU color pipeline sRGB bypass — documented in `semantics.md` ("Brush colour space").
+- Pending: ShadowCursor × InlineBox boundary semantics — landed in `semantics.md` ("InlineBox boundary against ShadowCursor"); a runtime assertion that drops/diagnoses overlap is still on the backlog.
 
 ### 2.2 Backlog
 

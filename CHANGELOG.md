@@ -2,6 +2,61 @@
 
 ## [Unreleased]
 
+### Changed — ADR-031 Phase 3 design-δ + Phase 10 SDK closure round
+
+Closes the bulk of the ADR-031 follow-up backlog. **Cell representation
+shifts from `Face` to `TerminalStyle`** (Copy, ~50 bytes, SGR-emit-ready),
+retiring the per-cell `TerminalStyle::from_face(&cell.face)` projection
+that was paid every frame on every visible cell by both the TUI backend
+and the GUI cell renderer. `Face` survives only at the API surface
+(paint.rs, decoration, theme, plugin API), bridged via `Cell::face()` /
+`Cell::with_face_mut`. Full `Face` removal is tracked as a non-blocking
+follow-up.
+
+- **core**: `kasane_core::render::TerminalStyle` (moved from `kasane-tui`).
+  `Cell { grapheme, style: TerminalStyle, width }` replaces `Cell { grapheme,
+  face: Face, width }`. Grid functions (`put_char` / `clear` / `fill_row`
+  / `fill_region` / `clear_region`) keep their `&Face` API surface and
+  project internally; `Cell::face()` and `Cell::with_face_mut(|f| ...)`
+  bridge the legacy field-access pattern.
+- **tui**: `backend.rs` reads `cell.style` directly into
+  `emit_sgr_diff_style`. The local `terminal_style` module is now a
+  re-export of `kasane_core::render::{TerminalStyle, UnderlineKind}`.
+- **gui**: `cell_renderer.rs` reads `cell.style.fg` / `cell.style.bg` /
+  `cell.style.reverse` directly, dropping the `Face`-routed
+  `attributes.contains(REVERSE)` indirection.
+- **wasm**: `atom_to_wit` switches to `style_to_wit(&a.style_resolved_default())`,
+  retiring the `Style::from_face(&a.face())` round-trip on the
+  native→wire path. The wire `Style` is post-resolve per the Phase A.4
+  split contract.
+- **plugin sdk macros**: `define_plugin! { paint_inline_box(box_id) { ... } }`
+  section parser added. Bundled WASM plugins can now override Phase 10
+  inline-box paint without dropping out of the macro DSL. Capability
+  flag (`INLINE_BOX_PAINTER = 1 << 13`) auto-detected from the emitted
+  function name.
+- **core (plugin)**: `PluginView::paint_inline_box` enforces a per-thread
+  `MAX_INLINE_BOX_DEPTH = 8` recursion bound and detects self-cycles /
+  mutual cycles between inline-box owners. Overflow and cycle errors
+  log once per `(plugin_id, box_id)` pair; subsequent re-entries return
+  `None` silently. Hardens the host against malicious or buggy reentrancy
+  in `paint_inline_box` chains.
+- **gui (tests)**: hit_test coverage extends to RTL Arabic
+  (`is_rtl == true` post ICU4X bidi), combining marks (`e + U+0301`),
+  ZWJ family emoji (`👨‍👩‍👧‍👦`), and trailing-position visual offset.
+  Mixed RTL+LTR direction alternation and narrow-CJK + ASCII advance
+  monotonicity also pinned to address the input class that motivated
+  ADR-031 §動機 (1).
+- **gui (tests)**: L1 LayoutCache negative tests added for decoration
+  colour, decoration thickness, and strikethrough colour — all
+  paint-time properties that must NOT evict the shaped layout cache.
+- **docs**: `semantics.md` § "InlineBox boundary against ShadowCursor"
+  pins the three invariants (placement exclusion, width accounting,
+  EditProjection unit boundary). `decisions.md` ADR-031 gains a
+  § Next-ADR seeds table — five workstreams (WIT 2.0, Atom interner,
+  Display↔Parley canonical coordinate utility, Atlas pressure policy,
+  Vello adoption) that future engineers pick up without re-deriving
+  the constraints.
+
 ### Added — ADR-032 Vello evaluation framework (in flight)
 
 Forward-looking framework that re-opens the ADR-014 Vello rejection in light of

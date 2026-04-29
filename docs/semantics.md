@@ -498,6 +498,14 @@ The post-resolve `Style` record (`kasane:plugin@1.0.0` `style`, `kasane_core::pr
 
 **Font weight axis** — `FontWeight: u16` is continuous on the CSS [100, 900] axis. The legacy `Attributes::BOLD` bitflag projects to weight 700; `Attributes::DIM` does NOT affect weight (it is a paint-time attenuation, see above). Variable-font axes outside `wght` are carried separately on `Style.font_variations: Vec<FontVariation>`.
 
+**InlineBox boundary against ShadowCursor (ADR-031 Phase 10 Step 2)** — an inline-box (`DisplayDirective::InlineBox` / WIT `inline-box-directive`) declares a rectangular slot that a paint plugin owns end-to-end. Its interior is **not** part of the buffer's display-coordinate text grid: the host treats it as a single opaque unit during display projection, hit testing, and edit reconciliation. Three invariants follow.
+
+  - *ShadowCursor placement.* `state::shadow_cursor::ShadowCursor` and its `EditableSpan` regions are attached to buffer-coordinate ranges. They MUST NOT target a byte offset that falls inside an inline-box's `(line, byte_offset .. byte_offset + width_cells)` span. The host enforces this by treating inline-box slots as ineligible targets in `EditProjection`; a plugin that emits a `ShadowCursor` overlapping a peer plugin's inline-box receives a diagnostic and the cursor is dropped for that frame.
+  - *Width accounting.* An inline-box's `width_cells: f32` declares pure visual span; it does NOT include any inner editable region. Plugin authors who need editable text alongside an inline-box must emit the editable text as a regular `Atom` outside the box and the box itself as the non-editable slot.
+  - *EditProjection unit boundary.* `display::EditProjection` walks display lines and assigns one `DisplayUnit` per inline-box, regardless of `width_cells`. Cursor navigation (`MoveLeft` / `MoveRight`) crosses an inline-box in a single step; the host does not synthesise per-cell positions inside it. This pins the navigation model so plugins composing inline-boxes (e.g. nested code-fold previews via `paint_inline_box`) behave predictably.
+
+The boundary is intentionally one-way: a plugin's `paint_inline_box(box_id) -> Element` may itself contain editable widgets (`Container { children: [..., editable_text_widget] }`), but those widgets live in the rendered Element tree, not in the buffer's text plane. They are not addressable via `BufferLine` / column coordinates.
+
 ## 6. Input Semantics
 
 ### 6.1 Input Routing Model
