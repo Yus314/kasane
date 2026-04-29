@@ -39,7 +39,6 @@ use super::glyph_rasterizer::{ContentKind, GlyphRasterizer, SubpixelX};
 use super::layout::ParleyLayout;
 use super::layout_cache::LayoutCache;
 use super::raster_cache::{AtlasOps, GlyphRasterCache, GlyphRasterKey};
-use super::shaper::shape_line_with_default_family;
 use super::styled_line::StyledLine;
 
 /// One glyph ready to be written to the GPU vertex buffer.
@@ -118,11 +117,7 @@ pub fn build_frame(
     // valid for the rest of the frame.
     let layouts: Vec<Arc<ParleyLayout>> = lines
         .iter()
-        .map(|fl| {
-            layout_cache.get_or_compute(fl.line_idx, fl.line, |l| {
-                shape_line_with_default_family(text, l)
-            })
-        })
+        .map(|fl| layout_cache.get_or_compute(fl.line_idx, fl.line, |l| text.shape(l)))
         .collect();
     stats.layouts_walked = layouts.len() as u32;
 
@@ -236,7 +231,7 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use kasane_core::config::FontConfig;
-    use kasane_core::protocol::{Atom, Face, Style};
+    use kasane_core::protocol::{Atom, Style};
 
     fn line(text: &str) -> StyledLine {
         let atoms = vec![Atom::plain(text)];

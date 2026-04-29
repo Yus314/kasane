@@ -15,7 +15,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use kasane_core::config::FontConfig;
-use kasane_core::protocol::{Atom, Face, Style};
+use kasane_core::protocol::{Atom, Style};
 use parley::PositionedLayoutItem;
 
 use super::atlas::{AtlasShelf, AtlasSlot};
@@ -25,7 +25,7 @@ use super::glyph_rasterizer::{GlyphRasterizer, RasterizedGlyph, SubpixelX};
 use super::layout::ParleyLayout;
 use super::layout_cache::LayoutCache;
 use super::raster_cache::{AtlasOps, GlyphRasterCache, GlyphRasterKey};
-use super::shaper::shape_line_with_default_family;
+use super::shaper::shape_line;
 use super::styled_line::StyledLine;
 use super::{Brush, ParleyText};
 
@@ -98,9 +98,8 @@ impl Pipeline {
         let layouts: Vec<Arc<ParleyLayout>> = lines
             .iter()
             .map(|(idx, line)| {
-                self.layout_cache.get_or_compute(*idx, line, |l| {
-                    shape_line_with_default_family(&mut self.text, l)
-                })
+                self.layout_cache
+                    .get_or_compute(*idx, line, |l| self.text.shape(l))
             })
             .collect();
 
@@ -271,4 +270,182 @@ fn pipeline_invalidate_all_resets_caches() {
     let l2_stats = pipe.raster_cache.take_stats();
     assert_eq!(l1_stats.misses, 1, "L1 should miss after invalidate_all");
     assert!(l2_stats.misses > 0, "L2 should miss after invalidate_all");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Color emoji coverage (ADR-031 Phase 11 Wave 1.1).
+//
+// `cjk_pipeline_completes` only exercises the Mask path. The Color
+// path (`Source::ColorOutline` / `ColorBitmap` in
+// `glyph_rasterizer.rs:132-137`, `ContentKind::Color` atlas branch)
+// has been a CI blind spot. These tests pin the contract that:
+//
+//   1. A line containing a color emoji codepoint, shaped against a
+//      family stack that includes a color emoji font, produces at
+//      least one glyph with `entry.content == ContentKind::Color`.
+//   2. That glyph allocates into the *color* atlas, not the mask
+//      atlas (separation invariant — see `raster_cache.rs:67-68`).
+//   3. Mixed text/emoji input splits into multiple Parley
+//      `GlyphRun`s, exercising both the Mask and Color paths in a
+//      single layout.
+//
+// Graceful skip: fontique's system discovery only finds a color
+// emoji font on machines that have one installed (e.g., Noto Color
+// Emoji on Linux/Nix, Apple Color Emoji on macOS). Where no such
+// font is available the test logs a notice and exits — CI in
+// minimal containers stays green, dev machines exercise the full
+// path. Wave 1.2's `FontConfig` wiring will eventually let the
+// fallback list participate; this test will then run unmodified
+// against `FontConfig` instead of the explicit `FontFamily::List`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Build a Parley `FontFamily` list that prefers a color emoji font with a
+/// monospace fallback. Centralised so both tests below stay in sync.
+fn emoji_then_monospace() -> parley::FontFamily<'static> {
+    use parley::{FontFamily, FontFamilyName, GenericFamily};
+    use std::borrow::Cow;
+    FontFamily::List(Cow::Owned(vec![
+        // The two most common system color emoji family names. Fontique
+        // returns the first match; if neither is present the line still
+        // shapes through the monospace fallback, in which case the test
+        // skips gracefully below.
+        FontFamilyName::Named(Cow::Borrowed("Noto Color Emoji")),
+        FontFamilyName::Named(Cow::Borrowed("Apple Color Emoji")),
+        FontFamilyName::Generic(GenericFamily::Monospace),
+    ]))
+}
+
+/// Shape `line` against `family`, then walk the layout and rasterise every
+/// glyph through the L2 cache. Returns `(color_glyphs, mask_glyphs)` counts.
+fn render_with_family(
+    pipe: &mut Pipeline,
+    line: &StyledLine,
+    family: parley::FontFamily<'static>,
+) -> (usize, usize) {
+    let layout = Arc::new(shape_line(&mut pipe.text, line, family));
+    let mut color = 0usize;
+    let mut mask = 0usize;
+    for line_iter in layout.layout.lines() {
+        for item in line_iter.items() {
+            let PositionedLayoutItem::GlyphRun(run) = item else {
+                continue;
+            };
+            let parley_run = run.run();
+            let font = parley_run.font();
+            let font_id = font_id_from_data(font);
+            let var_hash = var_hash_from_coords(parley_run.normalized_coords());
+            let font_size = parley_run.font_size();
+            let font_ref = match swash::FontRef::from_index(font.data.data(), font.index as usize) {
+                Some(r) => r,
+                None => continue,
+            };
+            for glyph in run.positioned_glyphs() {
+                let subpx = SubpixelX::from_fract(glyph.x);
+                let glyph_id = glyph.id as u16;
+                let key = GlyphRasterKey {
+                    font_id,
+                    glyph_id,
+                    size_q: (font_size * 64.0).round() as u16,
+                    subpx_x: subpx.0,
+                    var_hash,
+                    hint: true,
+                };
+                let rasterizer = &mut pipe.rasterizer;
+                let entry = pipe.raster_cache.get_or_insert(key, &mut pipe.atlases, || {
+                    let r: Option<RasterizedGlyph> =
+                        rasterizer.rasterize(font_ref, glyph_id, font_size, subpx, true);
+                    r
+                });
+                if let Some(entry) = entry {
+                    match entry.content {
+                        ContentKind::Color => color += 1,
+                        ContentKind::Mask => mask += 1,
+                    }
+                }
+            }
+        }
+    }
+    (color, mask)
+}
+
+#[test]
+fn color_emoji_routes_through_color_atlas() {
+    let mut pipe = Pipeline::new();
+    // U+1F600 GRINNING FACE — the most fontique-discoverable color codepoint.
+    let atoms = vec![Atom::plain("\u{1F600}")];
+    let line = StyledLine::from_atoms(
+        &atoms,
+        &Style::default(),
+        Brush::opaque(255, 255, 255),
+        14.0,
+        None,
+    );
+
+    let (color_glyphs, _mask_glyphs) = render_with_family(&mut pipe, &line, emoji_then_monospace());
+
+    if color_glyphs == 0 {
+        // No color emoji font available on this system. Pipeline still
+        // completed without panicking, which is all CI without emoji
+        // fonts can verify.
+        eprintln!(
+            "color emoji font not available via fontique; skipping color-atlas \
+             assertion (this is expected in minimal CI environments)"
+        );
+        return;
+    }
+
+    // Color path was exercised — the color atlas must hold ≥ 1 slot, and
+    // the slot must NOT have ended up in the mask atlas (which would mean
+    // swash returned `Content::Mask` for what should have been a colour
+    // glyph, indicating either a shaping miss or a `Format::Alpha`
+    // interaction bug in `glyph_rasterizer.rs:140`).
+    assert!(
+        !pipe.atlases.color.is_empty(),
+        "color atlas must hold ≥ 1 slot when {color_glyphs} color glyph(s) were rasterised"
+    );
+}
+
+#[test]
+fn mixed_text_emoji_splits_into_multiple_runs() {
+    let mut pipe = Pipeline::new();
+    // ASCII surrounding emoji forces Parley to split the layout into
+    // distinct runs (different fonts → different runs). Even when the
+    // emoji font is absent and the codepoint falls back to a tofu glyph,
+    // we still expect ≥ 1 run because non-empty input always shapes.
+    let atoms = vec![Atom::plain("hi \u{1F600} ok")];
+    let line = StyledLine::from_atoms(
+        &atoms,
+        &Style::default(),
+        Brush::opaque(255, 255, 255),
+        14.0,
+        None,
+    );
+
+    let (color_glyphs, mask_glyphs) = render_with_family(&mut pipe, &line, emoji_then_monospace());
+
+    // Mask path is non-negotiable: ASCII letters always rasterise as Mask.
+    assert!(
+        mask_glyphs > 0,
+        "ASCII letters must produce Mask glyphs (got mask={mask_glyphs})"
+    );
+
+    if color_glyphs == 0 {
+        eprintln!("color emoji font not available; mixed-run test verified Mask path only");
+        return;
+    }
+
+    // Both atlases received slots. The pair-of-atlases architecture
+    // (`raster_cache.rs:67-68`) requires that ContentKind dispatches the
+    // allocation to the right shelf; failing this assertion would mean
+    // colour glyphs leaked into the mask atlas (a subtle corruption that
+    // produces visually correct mask renders but inflates the mask
+    // atlas's pressure metrics).
+    assert!(
+        !pipe.atlases.color.is_empty(),
+        "color atlas must be non-empty"
+    );
+    assert!(
+        !pipe.atlases.mask.is_empty(),
+        "mask atlas must be non-empty"
+    );
 }

@@ -132,7 +132,7 @@ fn bench_color_resolve(c: &mut Criterion) {
             for row in 0..grid.height() {
                 for col in 0..grid.width() {
                     let cell = grid.get(col, row).unwrap();
-                    let c = resolver.resolve(cell.face.fg, true);
+                    let c = resolver.resolve(cell.face().fg, true);
                     sum += c[0];
                 }
             }

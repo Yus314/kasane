@@ -37,7 +37,6 @@ use kasane_gui::gpu::parley_text::glyph_rasterizer::{GlyphRasterizer, SubpixelX}
 use kasane_gui::gpu::parley_text::layout::ParleyLayout;
 use kasane_gui::gpu::parley_text::layout_cache::LayoutCache;
 use kasane_gui::gpu::parley_text::raster_cache::{AtlasOps, GlyphRasterCache, GlyphRasterKey};
-use kasane_gui::gpu::parley_text::shaper::shape_line_with_default_family;
 use kasane_gui::gpu::parley_text::styled_line::StyledLine;
 use kasane_gui::gpu::parley_text::{Brush, ParleyText};
 
@@ -154,9 +153,8 @@ impl Pipeline {
     }
 
     fn shape_line_only(&mut self, line_idx: u32, line: &StyledLine) -> Arc<ParleyLayout> {
-        self.layout_cache.get_or_compute(line_idx, line, |l| {
-            shape_line_with_default_family(&mut self.text, l)
-        })
+        self.layout_cache
+            .get_or_compute(line_idx, line, |l| self.text.shape(l))
     }
 
     fn render_frame(&mut self, lines: &[(u32, &StyledLine)]) -> usize {
@@ -212,7 +210,7 @@ fn bench_shape_cold(c: &mut Criterion) {
     c.bench_function("parley/shape_cold", |b| {
         b.iter_with_setup(
             || ParleyText::new(&FontConfig::default()),
-            |mut text| shape_line_with_default_family(&mut text, &lines[0]),
+            |mut text| text.shape(&lines[0]),
         );
     });
 }
@@ -221,7 +219,7 @@ fn bench_shape_warm(c: &mut Criterion) {
     let lines = make_lines(1);
     c.bench_function("parley/shape_warm", |b| {
         let mut text = ParleyText::new(&FontConfig::default());
-        b.iter(|| shape_line_with_default_family(&mut text, &lines[0]));
+        b.iter(|| text.shape(&lines[0]));
     });
 }
 

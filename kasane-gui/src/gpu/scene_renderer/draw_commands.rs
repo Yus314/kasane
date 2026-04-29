@@ -717,7 +717,6 @@ impl SceneRenderer {
         use super::super::parley_text::frame_builder::DrawableGlyph;
         use super::super::parley_text::glyph_rasterizer::SubpixelX;
         use super::super::parley_text::hit_test::byte_to_advance;
-        use super::super::parley_text::shaper::shape_line_with_default_family;
         use super::super::parley_text::styled_line::StyledLine;
         use kasane_core::protocol::{Atom, Style};
         use parley::PositionedLayoutItem;
@@ -808,9 +807,7 @@ impl SceneRenderer {
         let parley_text = &mut self.parley_text;
         let layout = self
             .parley_layout_cache
-            .get_or_compute(line_idx, &line, |l| {
-                shape_line_with_default_family(parley_text, l)
-            });
+            .get_or_compute(line_idx, &line, |l| parley_text.shape(l));
 
         // 4. Build atom-byte-start prefix sums + per-atom (x_min, x_max)
         // from the shaped layout. atom_x ranges are absolute pixel

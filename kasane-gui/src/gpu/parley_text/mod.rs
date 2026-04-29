@@ -33,7 +33,7 @@ pub mod vertex_builder;
 mod integration_test;
 
 use kasane_core::config::FontConfig;
-use parley::{FontContext, LayoutContext};
+use parley::{FontContext, FontFamily, LayoutContext};
 use swash::scale::ScaleContext;
 
 /// Per-renderer Parley state.
@@ -47,14 +47,22 @@ use swash::scale::ScaleContext;
 ///   `Layout::break_all_lines` allocations.
 /// - [`ScaleContext`] caches per-(font, size, hint) scaler state used by
 ///   `swash::scale::Render` during glyph rasterisation.
+/// - `default_family` is the resolved [`FontFamily`] derived from the user's
+///   [`FontConfig`] at construction time. Built once via
+///   [`font_stack::resolve_stack`] so the production hot path
+///   ([`Self::shape`]) does not need to re-derive the family on every line.
+///   Rebuild with [`Self::set_default_family`] when the font config changes.
 ///
-/// `Brush` is the GPU-side colour type that flows through the layout. At the
-/// scaffold stage it is a linear-space RGBA8 quad; later phases may upgrade
-/// it to a richer brush enum (gradients, patterns) without breaking callers.
+/// `Brush` is the GPU-side colour type that flows through the layout. It is a
+/// linear-space RGBA8 quad; richer brushes (gradients, patterns) are tracked
+/// as a Phase 12 question.
 pub struct ParleyText {
     pub font_cx: FontContext,
     pub layout_cx: LayoutContext<Brush>,
     pub scale_cx: ScaleContext,
+    /// User-configured family stack: primary family followed by
+    /// `FontConfig.fallback_list`. Cached so `shape()` is allocation-free.
+    default_family: FontFamily<'static>,
 }
 
 impl ParleyText {
@@ -62,16 +70,41 @@ impl ParleyText {
     ///
     /// Loads the system font collection lazily through Fontique, so the cost
     /// of this constructor is mostly the initial font index scan (~5–20 ms
-    /// on Linux/macOS depending on installed fonts).
-    pub fn new(_font_config: &FontConfig) -> Self {
+    /// on Linux/macOS depending on installed fonts) plus the family-stack
+    /// resolution (negligible).
+    pub fn new(font_config: &FontConfig) -> Self {
         // Fontique walks the system font directories on FontContext::new().
-        // The font_config is currently unused; Phase 7 will pass it into
-        // font_stack::resolve_primary to build the default FontStack.
         Self {
             font_cx: FontContext::new(),
             layout_cx: LayoutContext::new(),
             scale_cx: ScaleContext::new(),
+            default_family: font_stack::resolve_stack(font_config),
         }
+    }
+
+    /// Replace the cached default family stack. Called on font config /
+    /// scale-factor change so the next shape picks up the new fallback
+    /// list. The L1 LayoutCache must be invalidated separately by the
+    /// caller — see `SceneRenderer::resize`.
+    pub fn set_default_family(&mut self, font_config: &FontConfig) {
+        self.default_family = font_stack::resolve_stack(font_config);
+    }
+
+    /// Shape `line` against the cached default family stack.
+    ///
+    /// This is the production entry point that respects the user's
+    /// `FontConfig.family` and `FontConfig.fallback_list`. Equivalent to
+    /// `shaper::shape_line(self, line, self.default_family.clone())` but
+    /// avoids the `clone()` at the call site.
+    pub fn shape(&mut self, line: &styled_line::StyledLine) -> layout::ParleyLayout {
+        let family = self.default_family.clone();
+        shaper::shape_line(self, line, family)
+    }
+
+    /// Read-only access to the resolved family stack. Mostly useful for
+    /// diagnostics and tests; production code should call [`Self::shape`].
+    pub fn default_family(&self) -> &FontFamily<'static> {
+        &self.default_family
     }
 }
 
@@ -109,6 +142,57 @@ mod tests {
         // shape or raster.
         let cfg = FontConfig::default();
         let _text = ParleyText::new(&cfg);
+    }
+
+    #[test]
+    fn font_config_propagates_to_default_family() {
+        // ADR-031 Wave 1.2 regression pin. Before this PR, ParleyText
+        // ignored its `font_config` argument (parameter was prefixed
+        // `_font_config`) and the production hot path always shaped
+        // against `FontFamily::Single(Generic(Monospace))`. This test
+        // pins that user-supplied family + fallback list reach the
+        // cached `default_family` so subsequent shape calls use them.
+        use parley::{FontFamily, FontFamilyName};
+
+        let cfg = FontConfig {
+            family: "Inconsolata".into(),
+            fallback_list: vec!["Noto Color Emoji".into(), "monospace".into()],
+            ..FontConfig::default()
+        };
+        let text = ParleyText::new(&cfg);
+        match text.default_family() {
+            FontFamily::List(list) => {
+                assert_eq!(list.len(), 3, "primary + 2 fallbacks");
+                match &list[0] {
+                    FontFamilyName::Named(n) => assert_eq!(n.as_ref(), "Inconsolata"),
+                    other => panic!("expected primary Named, got {other:?}"),
+                }
+                match &list[1] {
+                    FontFamilyName::Named(n) => assert_eq!(n.as_ref(), "Noto Color Emoji"),
+                    other => panic!("expected fallback Named, got {other:?}"),
+                }
+            }
+            other => panic!("expected List family, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn set_default_family_replaces_cached_stack() {
+        // resize() on font config change calls set_default_family. Pin
+        // that the cached stack actually changes after the call.
+        let initial = FontConfig::default();
+        let mut text = ParleyText::new(&initial);
+        let updated = FontConfig {
+            family: "Cascadia Code".into(),
+            ..FontConfig::default()
+        };
+        text.set_default_family(&updated);
+        match text.default_family() {
+            parley::FontFamily::Single(parley::FontFamilyName::Named(n)) => {
+                assert_eq!(n.as_ref(), "Cascadia Code");
+            }
+            other => panic!("expected Single Named, got {other:?}"),
+        }
     }
 
     #[test]

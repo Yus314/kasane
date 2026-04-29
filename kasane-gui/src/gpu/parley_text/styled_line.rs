@@ -247,12 +247,11 @@ fn compute_content_hash_with_boxes(
 /// layouts that differ only by which side of that bool was on are not
 /// interchangeable at paint time.
 ///
-/// **Known gap (ADR-031 Phase B3 closure)**: `font_features` and
-/// `font_variations` are not hashed — but only because [`ResolvedParleyStyle`]
-/// does not carry them. They are dropped at `style_resolver::resolve_for_parley`
-/// and never reach Parley. When that plumbing lands, this hash MUST include
-/// the new fields or stale layouts will pollute the paint output. See the
-/// matching gap note in `style_resolver.rs::resolve_for_parley`.
+/// `font_features` and `font_variations` are shape-affecting (they change
+/// glyph selection, ligature substitution, and axis-driven advance widths)
+/// and are folded in here. The Wave 1.3 invariant: every field that reaches
+/// `RangedBuilder::push` in `shaper.rs::shape_line` must contribute to this
+/// hash, otherwise stale layouts pollute paint output.
 fn compute_style_hash(runs: &[StyleRun]) -> u64 {
     let mut h = FxHasher::default();
     for run in runs {
@@ -265,6 +264,11 @@ fn compute_style_hash(runs: &[StyleRun]) -> u64 {
         run.resolved.slant.hash(&mut h);
         decoration_enabled(&run.resolved.underline).hash(&mut h);
         decoration_enabled(&run.resolved.strikethrough).hash(&mut h);
+        // OpenType features (`u32` bitset) and variable-font axes
+        // (`[FontVariation]`). Must mirror the corresponding pushes in
+        // `shaper.rs::shape_line`.
+        run.resolved.font_features.hash(&mut h);
+        run.resolved.font_variations.as_ref().hash(&mut h);
     }
     h.finish()
 }
@@ -459,6 +463,79 @@ mod tests {
             height: 14.0,
         }]);
         assert_ne!(small.content_hash, wide.content_hash);
+    }
+
+    #[test]
+    fn style_hash_changes_with_font_features() {
+        // Wave 1.3 cache-stale pin. Two lines with identical text + fg +
+        // weight but different `font_features` MUST produce different
+        // style hashes — otherwise the L1 LayoutCache would return a
+        // layout shaped without the requested ligature toggle.
+        use kasane_core::protocol::FontFeatures;
+        let plain_atoms = vec![Atom::with_style(
+            "==",
+            Style {
+                font_features: FontFeatures::default(),
+                ..Style::default()
+            },
+        )];
+        let liga_atoms = vec![Atom::with_style(
+            "==",
+            Style {
+                font_features: FontFeatures(FontFeatures::COMMON_LIGATURES),
+                ..Style::default()
+            },
+        )];
+        let plain = StyledLine::from_atoms(
+            &plain_atoms,
+            &Style::default(),
+            Brush::default(),
+            14.0,
+            None,
+        );
+        let liga =
+            StyledLine::from_atoms(&liga_atoms, &Style::default(), Brush::default(), 14.0, None);
+        assert_eq!(
+            plain.content_hash, liga.content_hash,
+            "text is identical so content_hash must match"
+        );
+        assert_ne!(
+            plain.style_hash, liga.style_hash,
+            "different font_features must produce distinct style_hash; \
+             otherwise the L1 LayoutCache returns a stale layout"
+        );
+    }
+
+    #[test]
+    fn style_hash_changes_with_font_variations() {
+        // Same Wave 1.3 invariant for the variable-font axis path.
+        use kasane_core::protocol::FontVariation;
+        let plain_atoms = vec![Atom::with_style("a", Style::default())];
+        let weighted_atoms = vec![Atom::with_style(
+            "a",
+            Style {
+                font_variations: vec![FontVariation::new(*b"wght", 350.0)],
+                ..Style::default()
+            },
+        )];
+        let plain = StyledLine::from_atoms(
+            &plain_atoms,
+            &Style::default(),
+            Brush::default(),
+            14.0,
+            None,
+        );
+        let weighted = StyledLine::from_atoms(
+            &weighted_atoms,
+            &Style::default(),
+            Brush::default(),
+            14.0,
+            None,
+        );
+        assert_ne!(
+            plain.style_hash, weighted.style_hash,
+            "different font_variations must produce distinct style_hash"
+        );
     }
 
     #[test]

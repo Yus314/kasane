@@ -158,7 +158,6 @@ mod tests {
     use kasane_core::config::FontConfig;
     use kasane_core::protocol::{Atom, Color, Face, NamedColor, Style};
 
-    use super::super::shaper::shape_line_with_default_family;
     use super::super::styled_line::StyledLine;
     use super::super::{Brush, ParleyText};
 
@@ -181,12 +180,12 @@ mod tests {
         let mut text = ParleyText::new(&FontConfig::default());
         let mut cache = LayoutCache::new();
         let line = default_line("hello");
-        let _l1 = cache.get_or_compute(0, &line, |l| shape_line_with_default_family(&mut text, l));
+        let _l1 = cache.get_or_compute(0, &line, |l| text.shape(l));
         let stats1 = cache.take_stats();
         assert_eq!(stats1.misses, 1);
         assert_eq!(stats1.hits, 0);
 
-        let _l2 = cache.get_or_compute(0, &line, |l| shape_line_with_default_family(&mut text, l));
+        let _l2 = cache.get_or_compute(0, &line, |l| text.shape(l));
         let stats2 = cache.take_stats();
         assert_eq!(stats2.misses, 0);
         assert_eq!(stats2.hits, 1);
@@ -197,8 +196,8 @@ mod tests {
         let mut text = ParleyText::new(&FontConfig::default());
         let mut cache = LayoutCache::new();
         let line = default_line("hello");
-        let l1 = cache.get_or_compute(0, &line, |l| shape_line_with_default_family(&mut text, l));
-        let l2 = cache.get_or_compute(0, &line, |l| shape_line_with_default_family(&mut text, l));
+        let l1 = cache.get_or_compute(0, &line, |l| text.shape(l));
+        let l2 = cache.get_or_compute(0, &line, |l| text.shape(l));
         assert!(Arc::ptr_eq(&l1, &l2), "hit should return the cached Arc");
     }
 
@@ -206,12 +205,8 @@ mod tests {
     fn content_change_misses() {
         let mut text = ParleyText::new(&FontConfig::default());
         let mut cache = LayoutCache::new();
-        let _ = cache.get_or_compute(0, &default_line("hello"), |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
-        let _ = cache.get_or_compute(0, &default_line("world"), |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
+        let _ = cache.get_or_compute(0, &default_line("hello"), |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &default_line("world"), |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(stats.misses, 2);
         assert_eq!(stats.hits, 0);
@@ -236,10 +231,8 @@ mod tests {
             None,
         );
 
-        let _ = cache.get_or_compute(0, &plain, |l| shape_line_with_default_family(&mut text, l));
-        let _ = cache.get_or_compute(0, &red_line, |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
+        let _ = cache.get_or_compute(0, &plain, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &red_line, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(stats.misses, 2);
     }
@@ -262,8 +255,8 @@ mod tests {
             16.0,
             None,
         );
-        let _ = cache.get_or_compute(0, &line_a, |l| shape_line_with_default_family(&mut text, l));
-        let _ = cache.get_or_compute(0, &line_b, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &line_a, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &line_b, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(stats.misses, 2);
     }
@@ -273,12 +266,12 @@ mod tests {
         let mut text = ParleyText::new(&FontConfig::default());
         let mut cache = LayoutCache::new();
         let line = default_line("hello");
-        let _ = cache.get_or_compute(0, &line, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &line, |l| text.shape(l));
         assert_eq!(cache.len(), 1);
         let _ = cache.take_stats(); // discard the populating miss
         cache.invalidate_all();
         assert_eq!(cache.len(), 0);
-        let _ = cache.get_or_compute(0, &line, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &line, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(stats.misses, 1, "should miss after invalidate_all");
         assert_eq!(stats.hits, 0);
@@ -289,12 +282,8 @@ mod tests {
         let mut text = ParleyText::new(&FontConfig::default());
         let mut cache = LayoutCache::new();
         let line = default_line("hello");
-        let _ = cache.get_or_compute(u32::MAX, &line, |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
-        let _ = cache.get_or_compute(u32::MAX, &line, |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
+        let _ = cache.get_or_compute(u32::MAX, &line, |l| text.shape(l));
+        let _ = cache.get_or_compute(u32::MAX, &line, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(stats.bypass, 2);
         assert_eq!(stats.hits, 0);
@@ -306,20 +295,12 @@ mod tests {
     fn distinct_lines_share_cache() {
         let mut text = ParleyText::new(&FontConfig::default());
         let mut cache = LayoutCache::new();
-        let _ = cache.get_or_compute(0, &default_line("first"), |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
-        let _ = cache.get_or_compute(1, &default_line("second"), |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
+        let _ = cache.get_or_compute(0, &default_line("first"), |l| text.shape(l));
+        let _ = cache.get_or_compute(1, &default_line("second"), |l| text.shape(l));
         assert_eq!(cache.len(), 2);
         // Re-request both — both should hit.
-        let _ = cache.get_or_compute(0, &default_line("first"), |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
-        let _ = cache.get_or_compute(1, &default_line("second"), |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
+        let _ = cache.get_or_compute(0, &default_line("first"), |l| text.shape(l));
+        let _ = cache.get_or_compute(1, &default_line("second"), |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(stats.hits, 2);
         assert_eq!(stats.misses, 2); // from the initial population
@@ -373,10 +354,8 @@ mod tests {
             },
         );
 
-        let _ = cache.get_or_compute(0, &plain, |l| shape_line_with_default_family(&mut text, l));
-        let _ = cache.get_or_compute(0, &with_bg, |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
+        let _ = cache.get_or_compute(0, &plain, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &with_bg, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(
             stats.misses, 1,
@@ -401,10 +380,8 @@ mod tests {
             },
         );
 
-        let _ = cache.get_or_compute(0, &plain, |l| shape_line_with_default_family(&mut text, l));
-        let _ = cache.get_or_compute(0, &toggled, |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
+        let _ = cache.get_or_compute(0, &plain, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &toggled, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(stats.misses, 1, "reverse/dim/blink are paint-time only");
         assert_eq!(stats.hits, 1);
@@ -423,8 +400,8 @@ mod tests {
             },
         );
 
-        let _ = cache.get_or_compute(0, &normal, |l| shape_line_with_default_family(&mut text, l));
-        let _ = cache.get_or_compute(0, &bold, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &normal, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &bold, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(
             stats.misses, 2,
@@ -445,10 +422,8 @@ mod tests {
             },
         );
 
-        let _ = cache.get_or_compute(0, &upright, |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
-        let _ = cache.get_or_compute(0, &italic, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &upright, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &italic, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(stats.misses, 2, "italic ≠ normal must miss");
     }
@@ -466,8 +441,8 @@ mod tests {
             },
         );
 
-        let _ = cache.get_or_compute(0, &tight, |l| shape_line_with_default_family(&mut text, l));
-        let _ = cache.get_or_compute(0, &loose, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &tight, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &loose, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(
             stats.misses, 2,
@@ -496,10 +471,8 @@ mod tests {
             },
         );
 
-        let _ = cache.get_or_compute(0, &plain, |l| shape_line_with_default_family(&mut text, l));
-        let _ = cache.get_or_compute(0, &underlined, |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
+        let _ = cache.get_or_compute(0, &plain, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &underlined, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(
             stats.misses, 2,
@@ -539,12 +512,8 @@ mod tests {
                 ..Style::default()
             },
         );
-        let _ = cache.get_or_compute(0, &red_underline, |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
-        let _ = cache.get_or_compute(0, &blue_underline, |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
+        let _ = cache.get_or_compute(0, &red_underline, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &blue_underline, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(
             stats.misses, 1,
@@ -582,8 +551,8 @@ mod tests {
                 ..Style::default()
             },
         );
-        let _ = cache.get_or_compute(0, &thin, |l| shape_line_with_default_family(&mut text, l));
-        let _ = cache.get_or_compute(0, &thick, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &thin, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &thick, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(
             stats.misses, 1,
@@ -622,12 +591,8 @@ mod tests {
                 ..Style::default()
             },
         );
-        let _ = cache.get_or_compute(0, &red_strike, |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
-        let _ = cache.get_or_compute(0, &blue_strike, |l| {
-            shape_line_with_default_family(&mut text, l)
-        });
+        let _ = cache.get_or_compute(0, &red_strike, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &blue_strike, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(
             stats.misses, 1,
@@ -653,8 +618,8 @@ mod tests {
             },
         );
 
-        let _ = cache.get_or_compute(0, &plain, |l| shape_line_with_default_family(&mut text, l));
-        let _ = cache.get_or_compute(0, &struck, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &plain, |l| text.shape(l));
+        let _ = cache.get_or_compute(0, &struck, |l| text.shape(l));
         let stats = cache.take_stats();
         assert_eq!(
             stats.misses, 2,

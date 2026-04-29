@@ -311,7 +311,6 @@ impl SceneRenderer {
         use super::parley_text::Brush as PBrush;
         use super::parley_text::frame_builder::DrawableGlyph;
         use super::parley_text::glyph_rasterizer::SubpixelX;
-        use super::parley_text::shaper::shape_line_with_default_family;
         use super::parley_text::styled_line::StyledLine;
         use kasane_core::protocol::{Atom, Style};
         use parley::PositionedLayoutItem;
@@ -328,7 +327,7 @@ impl SceneRenderer {
             self.font_size,
             None,
         );
-        let parley_layout = shape_line_with_default_family(&mut self.parley_text, &line);
+        let parley_layout = self.parley_text.shape(&line);
 
         let (visual_fg, _bg, _needs_bg) = color_resolver.resolve_face_colors_linear(face);
         let brush = PBrush::rgba(
@@ -475,10 +474,18 @@ impl SceneRenderer {
 
     /// Cell-grid mouse hit test.
     ///
-    /// Phase 11 — the cosmic-text glyph-accurate path is gone with
-    /// the rest of the cosmic code; the Parley path's per-cluster
-    /// hit_test (`super::parley_text::hit_test`) is not yet wired
-    /// here. Until then, mouse coordinates resolve to the cell grid.
+    /// Returns `(col, row)` on the display grid. Kasane is a Kakoune
+    /// frontend and Kakoune is cell-based, so cell-grid resolution is
+    /// the right answer for keyboard / mouse → editor coordinate
+    /// translation; clicks on multi-cell glyphs (CJK, ligatures) land
+    /// on the leftmost cell of the cluster, which matches Kakoune's
+    /// own input model.
+    ///
+    /// `super::parley_text::hit_test::hit_byte` is the byte-precise
+    /// alternative used by paragraph-internal cursor placement
+    /// (`draw_commands.rs::byte_to_advance`). Mouse → byte mapping is
+    /// only needed when the renderer runs a proportional font; until
+    /// that happens the cell-grid path stays as the production hit test.
     pub fn hit_test(&self, px: f64, py: f64) -> (u16, u16) {
         let cell_h = self.metrics.cell_height;
         let cell_w = self.metrics.cell_width;
@@ -572,6 +579,10 @@ impl SceneRenderer {
         self.font_size = font_config.size * scale_factor as f32;
         self.line_height = self.font_size * font_config.line_height;
         self.font_family.clone_from(&font_config.family);
+        // Rebuild the cached default family so subsequent shapes pick up
+        // the new fallback list. Required before metrics recomputation
+        // because `calculate_with_parley` itself shapes a probe line.
+        self.parley_text.set_default_family(font_config);
         self.metrics = super::parley_text::metrics::calculate_with_parley(
             &mut self.parley_text,
             font_config,
@@ -590,10 +601,7 @@ impl SceneRenderer {
             window_size.width.max(1),
             window_size.height.max(1),
         );
-        // Font / scale changed → all three cache tiers must drop in lockstep.
-        // L1 entries would natural-miss on the new font_size_bits key, but
-        // never get evicted; this leaks one entry per resized line until
-        // process exit. See docs/semantics.md "three-tier cache invalidation".
+        // Font / scale changed → all three cache tiers drop in lockstep.
         self.parley_layout_cache.invalidate_all();
         self.parley_raster_cache.invalidate_all();
         self.parley_mask_atlas.clear();

@@ -95,9 +95,8 @@ pub fn is_byte_rtl(layout: &ParleyLayout, byte_index: usize) -> bool {
 mod tests {
     use super::*;
     use kasane_core::config::FontConfig;
-    use kasane_core::protocol::{Atom, Face, Style};
+    use kasane_core::protocol::{Atom, Style};
 
-    use super::super::shaper::shape_line_with_default_family;
     use super::super::styled_line::StyledLine;
     use super::super::{Brush, ParleyText};
 
@@ -115,7 +114,7 @@ mod tests {
     #[test]
     fn hit_at_origin_returns_first_cluster() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line("hello"));
+        let layout = text.shape(&line("hello"));
         let hit = hit_byte(&layout, 0.0, 0.0).expect("hit");
         // Hitting the very first pixel should land at byte 0 (left side of
         // the first cluster).
@@ -126,7 +125,7 @@ mod tests {
     #[test]
     fn hit_past_end_returns_last_cluster_right_side() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line("hi"));
+        let layout = text.shape(&line("hi"));
         // Click far to the right of the line.
         let hit = hit_byte(&layout, 10000.0, 0.0).expect("hit");
         // Should land at the trailing edge of the last cluster (byte == len).
@@ -137,7 +136,7 @@ mod tests {
     #[test]
     fn byte_to_advance_increases_with_offset() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line("hello"));
+        let layout = text.shape(&line("hello"));
         // Only the first 4 bytes are guaranteed to have a Cluster visual_offset
         // — Parley returns None for the trailing position (caller computes
         // end-of-line position from layout.width separately).
@@ -156,7 +155,7 @@ mod tests {
     #[test]
     fn cluster_range_at_byte_within_string() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line("hello"));
+        let layout = text.shape(&line("hello"));
         let range = cluster_range_at(&layout, 1).expect("range");
         assert_eq!(range, 1..2);
     }
@@ -164,7 +163,7 @@ mod tests {
     #[test]
     fn cluster_range_at_cjk_returns_3byte_range() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line("a日b"));
+        let layout = text.shape(&line("a日b"));
         // "日" is 3 bytes (UTF-8: E6 97 A5), starting at byte 1.
         let range = cluster_range_at(&layout, 1).expect("range");
         assert_eq!(range, 1..4);
@@ -173,7 +172,7 @@ mod tests {
     #[test]
     fn ascii_is_not_rtl() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line("hello"));
+        let layout = text.shape(&line("hello"));
         for i in 0..5 {
             assert!(!is_byte_rtl(&layout, i), "ASCII byte {i} should be LTR");
         }
@@ -185,7 +184,7 @@ mod tests {
         // not yield a cluster; this test only pins down that hit_byte does
         // not panic on the empty case.
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line(""));
+        let layout = text.shape(&line(""));
         let _ = hit_byte(&layout, 0.0, 0.0);
         let _ = hit_byte(&layout, 100.0, 100.0);
     }
@@ -203,7 +202,7 @@ mod tests {
         // that breaks bidi run direction is caught here, not silently in
         // production.
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line("سلام"));
+        let layout = text.shape(&line("سلام"));
         // First UTF-8 byte of an Arabic letter is at offset 0; verify the
         // cluster that covers it is RTL.
         assert!(
@@ -225,7 +224,7 @@ mod tests {
         // would be a Parley / font-fallback shift worth investigating.
         let mut text = ParleyText::new(&FontConfig::default());
         let input = "e\u{0301}";
-        let layout = shape_line_with_default_family(&mut text, &line(input));
+        let layout = text.shape(&line(input));
         let range = cluster_range_at(&layout, 0).expect("cluster at base byte");
         assert!(range.start == 0, "cluster must start at byte 0");
         assert!(range.end <= input.len(), "cluster end within text");
@@ -244,7 +243,7 @@ mod tests {
         // does not panic and returns a cluster within the input range.
         let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}";
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line(family));
+        let layout = text.shape(&line(family));
         let range = cluster_range_at(&layout, 0).expect("cluster at start");
         assert_eq!(range.start, 0);
         assert!(range.end <= family.len());
@@ -260,7 +259,7 @@ mod tests {
         // value here would shift the caret rendering for end-of-line
         // cursor positions.
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line("abc"));
+        let layout = text.shape(&line("abc"));
         let trailing = byte_to_advance(&layout, 3);
         assert!(
             trailing.is_none(),
@@ -289,7 +288,7 @@ mod tests {
         // cursor placement at the boundary (the cosmic-text era class
         // of bug).
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line("abcسلامxyz"));
+        let layout = text.shape(&line("abcسلامxyz"));
         // First Latin byte (0) is LTR.
         assert!(!is_byte_rtl(&layout, 0), "leading 'a' must be LTR");
         // Arabic strong-RTL character at byte 3 is RTL.
@@ -317,7 +316,7 @@ mod tests {
         // than the advance of the CJK byte. If a regression flattens
         // the advance table, cursor-on-narrow-CJK rendering breaks.
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line("日a"));
+        let layout = text.shape(&line("日a"));
         let cjk_advance = byte_to_advance(&layout, 0).expect("CJK cluster advance");
         let ascii_advance = byte_to_advance(&layout, 3).expect("ASCII byte advance");
         assert!(
@@ -337,7 +336,7 @@ mod tests {
         // We skip bytes whose visual_offset Parley reports as None (typically
         // the trailing position past the last cluster).
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = shape_line_with_default_family(&mut text, &line("abcde"));
+        let layout = text.shape(&line("abcde"));
         let mut checked = 0;
         for byte in 0..5 {
             let Some(advance) = byte_to_advance(&layout, byte) else {
