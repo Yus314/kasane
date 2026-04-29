@@ -673,7 +673,7 @@ impl SceneRenderer {
             }
             let actual_w = atom_display_w.min(remaining);
             let (visual_fg, visual_bg, needs_bg) =
-                color_resolver.resolve_face_colors_linear(&atom.face());
+                color_resolver.resolve_style_colors_linear(&atom.style);
 
             if actual_w > 0.0
                 && needs_bg
@@ -682,6 +682,9 @@ impl SceneRenderer {
                 self.quad.push_solid(x, py, actual_w, cell_h, visual_bg);
             }
             if actual_w > 0.0 {
+                // emit_decorations consumes Face for its bitflags-based
+                // attribute checks (UNDERLINE / CURLY / DOTTED / etc.);
+                // the projection is local and lossless here.
                 self.emit_decorations(x, py, actual_w, &atom.face(), visual_fg, color_resolver);
             }
             x += actual_w;
@@ -724,9 +727,13 @@ impl SceneRenderer {
         let cell_h = self.metrics.cell_height;
         let cell_w = self.metrics.cell_width;
 
-        // 1. Line-wide background fill.
+        // 1. Line-wide background fill. Style-based; the legacy
+        //    `resolve_face_colors_linear(&para.base_face.to_face())`
+        //    round-trip dropped fields like `font_features` and
+        //    `font_variations` even though the colour resolution only
+        //    cares about fg/bg/reverse — the new method skips that loss.
         let (base_visual_fg, base_bg, _) =
-            color_resolver.resolve_face_colors_linear(&para.base_face.to_face());
+            color_resolver.resolve_style_colors_linear(&para.base_face);
         if !self.should_skip_default_bg(&base_bg, color_resolver) {
             self.quad.push_solid(px, py, max_width, cell_h, base_bg);
         }
@@ -735,7 +742,7 @@ impl SceneRenderer {
             return;
         }
 
-        // 2. Locate the atom under the primary cursor (its face is
+        // 2. Locate the atom under the primary cursor (its style is
         // stripped so render_cursor() owns the visual cursor block).
         let mut clear_cursor_atom_idx: Option<usize> = None;
         for ann in &para.annotations {
@@ -752,21 +759,22 @@ impl SceneRenderer {
             }
         }
 
-        // 3. Build a StyledLine from all atoms (face-stripped if needed)
-        // and shape it once via Parley. The L1 LayoutCache returns the
-        // same `Arc<ParleyLayout>` on cursor-only frames where the line
-        // text + style + width + size are unchanged.
+        // 3. Build a StyledLine from all atoms (style-stripped if
+        //    needed) and shape it once via Parley. The L1 LayoutCache
+        //    returns the same `Arc<ParleyLayout>` on cursor-only frames
+        //    where the line text + style + width + size are unchanged.
+        //    Direct `Style` clone — no Style → Face → Style round-trip.
         let kasane_atoms: Vec<Atom> = para
             .atoms
             .iter()
             .enumerate()
             .map(|(i, atom)| {
-                let face = if clear_cursor_atom_idx == Some(i) {
-                    para.base_face.to_face()
+                let style = if clear_cursor_atom_idx == Some(i) {
+                    para.base_face.clone()
                 } else {
-                    atom.face()
+                    atom.style.clone()
                 };
-                Atom::with_style(atom.contents.clone(), Style::from_face(&face))
+                Atom::with_style(atom.contents.clone(), style)
             })
             .collect();
         let fallback_brush = PBrush::rgba(
@@ -858,10 +866,14 @@ impl SceneRenderer {
         // render.
         let mut cell_x_cursor = px;
         for i in 0..atom_count {
-            let face = if clear_cursor_atom_idx == Some(i) {
-                para.base_face.to_face()
+            // Pick the per-atom style (cursor-stripped if the cursor
+            // sits on this atom). Stays in `Style`-space; only the
+            // decoration call below projects to `Face` for its
+            // bitflags-based attribute checks.
+            let style: &Style = if clear_cursor_atom_idx == Some(i) {
+                &para.base_face
             } else {
-                para.atoms[i].face()
+                &para.atoms[i].style
             };
             let atom_display_w = line_display_width_str(&para.atoms[i].contents) as f32 * cell_w;
             let (x, w) = if atom_x_min[i] <= atom_x_max[i] {
@@ -879,11 +891,12 @@ impl SceneRenderer {
             if w <= 0.0 {
                 continue;
             }
-            let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_face_colors_linear(&face);
+            let (visual_fg, visual_bg, needs_bg) =
+                color_resolver.resolve_style_colors_linear(style);
             if needs_bg && !self.should_skip_default_bg(&visual_bg, color_resolver) {
                 self.quad.push_solid(x, py, w, cell_h, visual_bg);
             }
-            self.emit_decorations(x, py, w, &face, visual_fg, color_resolver);
+            self.emit_decorations(x, py, w, &style.to_face(), visual_fg, color_resolver);
         }
 
         // 6. Cursors via parley hit_test. byte_to_advance returns the

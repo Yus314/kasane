@@ -1,5 +1,5 @@
 use kasane_core::config::ColorsConfig;
-use kasane_core::protocol::{Attributes, Color, Face, NamedColor};
+use kasane_core::protocol::{Attributes, Brush, Color, Face, NamedColor, Style};
 
 /// Resolves kasane-core `Color` values to GPU-ready `[f32; 4]` (sRGB, alpha=1.0).
 ///
@@ -99,6 +99,54 @@ impl ColorResolver {
     /// Default background color in linear color space.
     pub fn default_bg_linear(&self) -> [f32; 4] {
         srgb_color_to_linear(self.palette[1])
+    }
+
+    /// Convert a kasane-core [`Brush`] to a GPU-ready `[f32; 4]` (sRGB).
+    ///
+    /// `Brush::Default` resolves to the renderer's default fg or bg
+    /// depending on `is_fg`. `Brush::Solid` is passed through with its
+    /// own alpha channel (`Color::Rgb` does not carry alpha, so this is
+    /// the only path that produces a non-1.0 alpha).
+    pub fn resolve_brush(&self, brush: Brush, is_fg: bool) -> [f32; 4] {
+        match brush {
+            Brush::Default => {
+                if is_fg {
+                    self.palette[0]
+                } else {
+                    self.palette[1]
+                }
+            }
+            Brush::Named(n) => self.palette[2 + named_color_index(n)],
+            Brush::Solid([r, g, b, a]) => [
+                r as f32 / 255.0,
+                g as f32 / 255.0,
+                b as f32 / 255.0,
+                a as f32 / 255.0,
+            ],
+        }
+    }
+
+    /// Resolve a [`Style`]'s fg/bg to GPU colors (sRGB), applying the
+    /// `reverse` attribute. Returns `(visual_fg, visual_bg, needs_bg)`.
+    ///
+    /// Mirrors [`Self::resolve_face_colors`] but operates on the
+    /// post-resolve [`Style`] type, eliminating the
+    /// `Style → Face → Style` round-trip that historically lived at
+    /// every callsite.
+    pub fn resolve_style_colors(&self, style: &Style) -> ([f32; 4], [f32; 4], bool) {
+        let raw_fg = self.resolve_brush(style.fg, true);
+        let raw_bg = self.resolve_brush(style.bg, false);
+        if style.reverse {
+            (raw_bg, raw_fg, true)
+        } else {
+            (raw_fg, raw_bg, style.bg != Brush::Default)
+        }
+    }
+
+    /// [`Self::resolve_style_colors`] in linear colour space.
+    pub fn resolve_style_colors_linear(&self, style: &Style) -> ([f32; 4], [f32; 4], bool) {
+        let (fg, bg, needs_bg) = self.resolve_style_colors(style);
+        (srgb_color_to_linear(fg), srgb_color_to_linear(bg), needs_bg)
     }
 }
 
@@ -369,6 +417,118 @@ mod tests {
 
         let new_fg = resolver.resolve(Color::Default, true);
         assert_eq!(old_fg, new_fg);
+    }
+
+    #[test]
+    fn test_resolve_brush_default_picks_fg_or_bg() {
+        let config = ColorsConfig::default();
+        let resolver = ColorResolver::from_config(&config);
+        let fg = resolver.resolve_brush(Brush::Default, true);
+        let bg = resolver.resolve_brush(Brush::Default, false);
+        // Defaults differ; matches Color::Default behaviour.
+        assert_ne!(fg, bg);
+        assert_eq!(fg, resolver.resolve(Color::Default, true));
+        assert_eq!(bg, resolver.resolve(Color::Default, false));
+    }
+
+    #[test]
+    fn test_resolve_brush_solid_carries_alpha() {
+        let config = ColorsConfig::default();
+        let resolver = ColorResolver::from_config(&config);
+        // Half-transparent red. Color::Rgb cannot represent this, so
+        // the Solid path is the only way to reach a non-1.0 alpha.
+        let half_red = resolver.resolve_brush(Brush::Solid([255, 0, 0, 128]), true);
+        assert!((half_red[0] - 1.0).abs() < 0.01);
+        assert!((half_red[3] - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_resolve_brush_named_matches_legacy() {
+        let config = ColorsConfig::default();
+        let resolver = ColorResolver::from_config(&config);
+        for &n in &[
+            NamedColor::Red,
+            NamedColor::Cyan,
+            NamedColor::BrightWhite,
+            NamedColor::Black,
+        ] {
+            let via_brush = resolver.resolve_brush(Brush::Named(n), true);
+            let via_color = resolver.resolve(Color::Named(n), true);
+            assert_eq!(via_brush, via_color, "named colour {n:?}");
+        }
+    }
+
+    #[test]
+    fn test_resolve_style_colors_matches_face_round_trip() {
+        // Pin the contract: resolve_style_colors must produce the same
+        // (fg, bg, needs_bg) triple as the legacy
+        //   `let face = style.to_face(); resolve_face_colors(&face)`
+        // round-trip, for every combination that round-trips losslessly.
+        // This is the regression test that protects callers migrating
+        // off the round-trip.
+        let config = ColorsConfig::default();
+        let resolver = ColorResolver::from_config(&config);
+
+        let cases = [
+            Style::default(),
+            Style {
+                fg: Brush::Named(NamedColor::Red),
+                bg: Brush::Named(NamedColor::Blue),
+                ..Style::default()
+            },
+            Style {
+                fg: Brush::Named(NamedColor::Cyan),
+                bg: Brush::Default,
+                reverse: true,
+                ..Style::default()
+            },
+            Style {
+                fg: Brush::Solid([255, 128, 64, 255]),
+                bg: Brush::Solid([16, 32, 48, 255]),
+                ..Style::default()
+            },
+        ];
+        for style in &cases {
+            let via_style = resolver.resolve_style_colors(style);
+            let via_face = resolver.resolve_face_colors(&style.to_face());
+            assert_eq!(via_style, via_face, "style/face mismatch for {style:?}");
+        }
+    }
+
+    #[test]
+    fn test_resolve_style_colors_reverse_swaps() {
+        let config = ColorsConfig::default();
+        let resolver = ColorResolver::from_config(&config);
+        let style = Style {
+            fg: Brush::Named(NamedColor::Red),
+            bg: Brush::Named(NamedColor::Blue),
+            reverse: true,
+            ..Style::default()
+        };
+        let (vfg, vbg, needs_bg) = resolver.resolve_style_colors(&style);
+        assert_eq!(
+            vfg,
+            resolver.resolve_brush(Brush::Named(NamedColor::Blue), false)
+        );
+        assert_eq!(
+            vbg,
+            resolver.resolve_brush(Brush::Named(NamedColor::Red), true)
+        );
+        assert!(needs_bg);
+    }
+
+    #[test]
+    fn test_resolve_style_colors_linear_matches_face_linear() {
+        let config = ColorsConfig::default();
+        let resolver = ColorResolver::from_config(&config);
+        let style = Style {
+            fg: Brush::Named(NamedColor::Yellow),
+            bg: Brush::Solid([10, 20, 30, 255]),
+            ..Style::default()
+        };
+        let via_style = resolver.resolve_style_colors_linear(&style);
+        let via_face = resolver.resolve_face_colors_linear(&style.to_face());
+        assert_eq!(via_style, via_face);
     }
 
     #[test]
