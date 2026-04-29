@@ -766,7 +766,7 @@ mod tests {
             10,
             &[DisplayDirective::Fold {
                 range: 2..5,
-                summary: vec![Atom::from_face(Default::default(), "--- folded ---")],
+                summary: vec![Atom::plain("--- folded ---")],
             }],
         );
         // Display lines: 0=buf0, 1=buf1, 2=fold(2..5), 3=buf5, 4=buf6, ...
@@ -798,7 +798,7 @@ mod tests {
             10,
             &[DisplayDirective::Fold {
                 range: 2..5,
-                summary: vec![Atom::from_face(Default::default(), "--- folded ---")],
+                summary: vec![Atom::plain("--- folded ---")],
             }],
         );
         // Display line 2 is the fold summary (ReadOnly)
@@ -849,7 +849,7 @@ mod tests {
             20,
             &[DisplayDirective::Fold {
                 range: 5..10,
-                summary: vec![Atom::from_face(Default::default(), "folded")],
+                summary: vec![Atom::plain("folded")],
             }],
         );
         // Display lines: 0-4=buf0-4, 5=fold(5..10), 6=buf10, 7=buf11, ...

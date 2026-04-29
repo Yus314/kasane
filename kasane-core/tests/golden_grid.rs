@@ -32,7 +32,7 @@
 use std::path::PathBuf;
 
 use kasane_core::protocol::{
-    Atom, Attributes, Color, Coord, Face, KakouneRequest, NamedColor, StatusStyle,
+    Atom, Attributes, Color, Coord, Face, KakouneRequest, NamedColor, StatusStyle, Style,
 };
 use kasane_core::render::CellGrid;
 use kasane_core::test_support::{render_to_grid, test_state_80x24};
@@ -251,12 +251,15 @@ fn buffer_scene() -> Vec<Vec<Atom>> {
     let kw = red_bold();
     let macro_face = cyan_underline();
     vec![
-        vec![Atom::from_face(kw, "fn"), Atom::plain(" main() {")],
+        vec![
+            Atom::with_style("fn", Style::from_face(&kw)),
+            Atom::plain(" main() {"),
+        ],
         vec![Atom::plain("    let x = 42;")],
         vec![],
         vec![
             Atom::plain("    "),
-            Atom::from_face(macro_face, "println!"),
+            Atom::with_style("println!", Style::from_face(&macro_face)),
             Atom::plain("(\"hello\");"),
         ],
         vec![Atom::plain("}")],

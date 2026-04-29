@@ -421,7 +421,10 @@ fn overlay_face_on_element(el: Element, face: &Face) -> Element {
                 .map(|atom| {
                     let mut merged = atom.face();
                     FaceMerge::Overlay.apply(&mut merged, face);
-                    crate::protocol::Atom::from_face(merged, atom.contents)
+                    crate::protocol::Atom::with_style(
+                        atom.contents,
+                        crate::protocol::Style::from_face(&merged),
+                    )
                 })
                 .collect(),
         ),

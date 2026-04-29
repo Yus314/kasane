@@ -8,7 +8,7 @@ use kasane_core::layout::Rect;
 use kasane_core::layout::flex::place;
 use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{
-    Atom, Color, Coord, Face, InfoStyle, KakouneRequest, Line, MenuStyle, NamedColor,
+    Atom, Color, Coord, Face, InfoStyle, KakouneRequest, Line, MenuStyle, NamedColor, Style,
 };
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
@@ -82,12 +82,12 @@ fn empty_buffer_shows_padding() {
 fn buffer_with_colored_atoms() {
     let red = Color::Rgb { r: 255, g: 0, b: 0 };
     let line = vec![
-        Atom::from_face(
-            Face {
+        Atom::with_style(
+            "red",
+            Style::from_face(&Face {
                 fg: red,
                 ..Face::default()
-            },
-            "red",
+            }),
         ),
         Atom::plain(" plain"),
     ];

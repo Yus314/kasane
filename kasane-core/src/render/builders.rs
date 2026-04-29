@@ -9,7 +9,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::element::{Element, FlexChild};
 use crate::protocol::resolve_face;
-use crate::protocol::{Atom, Face, Line};
+use crate::protocol::{Atom, Face, Line, Style};
 
 /// Width of the scrollbar column (1 cell).
 pub(crate) const SCROLLBAR_WIDTH: u16 = 1;
@@ -47,7 +47,12 @@ pub(crate) fn truncate_atoms(
     if total <= max_w {
         return atoms
             .iter()
-            .map(|a| Atom::from_face(resolve_face(&a.face(), base_face), a.contents.clone()))
+            .map(|a| {
+                Atom::with_style(
+                    a.contents.clone(),
+                    Style::from_face(&resolve_face(&a.face(), base_face)),
+                )
+            })
             .collect();
     }
 
@@ -71,14 +76,17 @@ pub(crate) fn truncate_atoms(
             used += cw;
         }
         if !buf.is_empty() {
-            result.push(Atom::from_face(face, buf));
+            result.push(Atom::with_style(buf, Style::from_face(&face)));
         }
         if used >= limit {
             break;
         }
     }
     // Append truncation indicator with the base face
-    result.push(Atom::from_face(*base_face, truncation_char));
+    result.push(Atom::with_style(
+        truncation_char,
+        Style::from_face(base_face),
+    ));
     result
 }
 
@@ -154,7 +162,10 @@ pub(crate) fn wrap_content_lines(
         }
 
         if graphemes.is_empty() {
-            result.push(vec![Atom::from_face(*base_face, CompactString::default())]);
+            result.push(vec![Atom::with_style(
+                CompactString::default(),
+                Style::from_face(base_face),
+            )]);
             continue;
         }
 
@@ -177,14 +188,17 @@ pub(crate) fn wrap_content_lines(
                     current_text.push_str(grapheme);
                 } else {
                     if let Some(cf) = current_face {
-                        row_atoms.push(Atom::from_face(cf, std::mem::take(&mut current_text)));
+                        row_atoms.push(Atom::with_style(
+                            std::mem::take(&mut current_text),
+                            Style::from_face(&cf),
+                        ));
                     }
                     current_face = Some(face);
                     current_text = CompactString::from(grapheme);
                 }
             }
             if let Some(cf) = current_face {
-                row_atoms.push(Atom::from_face(cf, current_text));
+                row_atoms.push(Atom::with_style(current_text, Style::from_face(&cf)));
             }
 
             result.push(row_atoms);

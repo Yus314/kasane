@@ -10,7 +10,7 @@
 
 use compact_str::CompactString;
 
-use crate::protocol::{Atom, Face, Line};
+use crate::protocol::{Atom, Face, Line, Style};
 use crate::render::theme::parse_face_spec;
 
 /// Parse a markup string into a vector of Atoms.
@@ -31,9 +31,9 @@ pub fn parse_markup(input: &str, base: &Face) -> Line {
         } else if ch == '{' {
             // Start of face spec — flush current text
             if !current_text.is_empty() {
-                atoms.push(Atom::from_face(
-                    current_face,
+                atoms.push(Atom::with_style(
                     std::mem::take(&mut current_text),
+                    Style::from_face(&current_face),
                 ));
             }
 
@@ -59,7 +59,10 @@ pub fn parse_markup(input: &str, base: &Face) -> Line {
 
     // Flush remaining text
     if !current_text.is_empty() {
-        atoms.push(Atom::from_face(current_face, current_text));
+        atoms.push(Atom::with_style(
+            current_text,
+            Style::from_face(&current_face),
+        ));
     }
 
     atoms

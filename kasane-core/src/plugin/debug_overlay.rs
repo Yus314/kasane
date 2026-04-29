@@ -17,7 +17,7 @@ use crate::element::{Element, OverlayAnchor};
 use crate::input::KeyEvent;
 use crate::plugin::context::{OverlayContext, OverlayContribution};
 use crate::plugin::{AppView, Command, HandlerRegistry, Plugin, PluginId};
-use crate::protocol::{Atom, Color, Face, NamedColor};
+use crate::protocol::{Atom, Color, Face, NamedColor, Style};
 use crate::state::DirtyFlags;
 
 /// Debug overlay plugin state.
@@ -161,7 +161,7 @@ fn build_debug_lines(app: &AppView<'_>, ctx: &OverlayContext) -> Vec<Vec<Atom>> 
 }
 
 fn atom(text: &str, face: Face) -> Atom {
-    Atom::from_face(face, text)
+    Atom::with_style(text, Style::from_face(&face))
 }
 
 fn kv_line(key: &str, value: &str, label_face: Face, value_face: Face) -> Vec<Atom> {

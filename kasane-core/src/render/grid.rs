@@ -549,7 +549,7 @@ pub struct CellDiff {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Attributes, Color, Face, NamedColor, resolve_face};
+    use crate::protocol::{Atom, Attributes, Color, Face, NamedColor, Style, resolve_face};
     use crate::test_utils::make_line;
 
     fn default_face() -> Face {
@@ -746,7 +746,10 @@ mod tests {
         let mut grid = CellGrid::new(20, 1);
         // Line with embedded newline and carriage return
         // \n renders as a space (1 cell), \r is skipped
-        let line = vec![Atom::from_face(default_face(), "ab\ncd\ref")];
+        let line = vec![Atom::with_style(
+            "ab\ncd\ref",
+            Style::from_face(&default_face()),
+        )];
         let cols = grid.put_line(0, 0, &line, 20);
         assert_eq!(cols, 7); // "ab" + space(\n) + "cd" + "ef"
         assert_eq!(grid.get(0, 0).unwrap().grapheme, "a");
@@ -788,7 +791,7 @@ mod tests {
             attributes: Attributes::STRIKETHROUGH,
             ..Face::default()
         };
-        let line = vec![Atom::from_face(face, "};\n")];
+        let line = vec![Atom::with_style("};\n", Style::from_face(&face))];
         let cols = grid.put_line(0, 0, &line, 20);
         assert_eq!(cols, 3); // "}" + ";" + space(\n)
         assert_eq!(grid.get(0, 0).unwrap().grapheme, "}");

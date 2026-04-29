@@ -2,7 +2,7 @@
 
 use crate::element::{Element, ElementStyle};
 use crate::plugin::{AppView, PluginDiagnostic, PluginId};
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, Face, Style};
 
 use super::parse::WidgetNodeError;
 use super::types::{ContributionWidget, FaceOrToken, FaceRule};
@@ -75,7 +75,7 @@ pub(super) fn build_contribution_element(
 
         let text = part.template.expand(resolver);
         let face = resolve_face_rules(&part.face_rules, resolver, state);
-        atoms.push(Atom::from_face(face, text));
+        atoms.push(Atom::with_style(text, Style::from_face(&face)));
     }
 
     if atoms.is_empty() {
@@ -534,9 +534,11 @@ mod legacy {
 
                         let text = branch.template.expand(&line_resolver);
                         let face = resolve_face_rules(&branch.face_rules, &line_resolver, state);
-                        let element = Element::styled_line(vec![crate::protocol::Atom::from_face(
-                            face, text,
-                        )]);
+                        let element =
+                            Element::styled_line(vec![crate::protocol::Atom::with_style(
+                                text,
+                                crate::protocol::Style::from_face(&face),
+                            )]);
                         return Some((widget.priority(), element));
                     }
                 }

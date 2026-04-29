@@ -3,7 +3,7 @@ use super::super::*;
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::plugin::PluginRuntime;
-use crate::protocol::{Atom, Color, Face, NamedColor};
+use crate::protocol::{Atom, Color, Face, NamedColor, Style};
 use crate::state::AppState;
 use crate::test_utils::make_line;
 
@@ -43,9 +43,9 @@ fn test_treesitter_rgb_colors_preserved() {
         ..Face::default()
     };
     let ts_line = vec![
-        Atom::from_face(keyword_face, "fn"),
+        Atom::with_style("fn", Style::from_face(&keyword_face)),
         Atom::plain(" "),
-        Atom::from_face(string_face, "main"),
+        Atom::with_style("main", Style::from_face(&string_face)),
     ];
     state.observed.lines = vec![ts_line];
     state.inference.status_line = make_line("status");
@@ -166,7 +166,10 @@ fn test_treesitter_colors_persist_across_frames() {
         bg: Color::Default,
         ..Face::default()
     };
-    state.observed.lines = vec![vec![Atom::from_face(keyword_face, "let")]];
+    state.observed.lines = vec![vec![Atom::with_style(
+        "let",
+        Style::from_face(&keyword_face),
+    )]];
     state.inference.status_line = make_line("st");
 
     let registry = PluginRuntime::new();
@@ -219,7 +222,7 @@ fn test_treesitter_colors_persist_across_frames() {
         bg: Color::Default,
         ..Face::default()
     };
-    state.observed.lines = vec![vec![Atom::from_face(new_face, "let")]];
+    state.observed.lines = vec![vec![Atom::with_style("let", Style::from_face(&new_face))]];
 
     grid.clear(&state.observed.default_style.to_face());
     let el = view::view(&state, &registry.view());

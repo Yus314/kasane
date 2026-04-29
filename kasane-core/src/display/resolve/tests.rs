@@ -2,7 +2,7 @@ use proptest::prelude::*;
 
 use super::*;
 use crate::display::{BufferLine, assert_display_map_invariants};
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, Face, Style};
 
 fn pid(name: &str) -> PluginId {
     PluginId(name.to_string())
@@ -357,7 +357,7 @@ fn resolve_inline_insert_ordering() {
             directive: DisplayDirective::InsertInline {
                 line: 0,
                 byte_offset: 5,
-                content: vec![Atom::from_face(red_face, "X")],
+                content: vec![Atom::with_style("X", Style::from_face(&red_face))],
                 interaction: crate::display::InlineInteraction::None,
             },
             priority: 0,

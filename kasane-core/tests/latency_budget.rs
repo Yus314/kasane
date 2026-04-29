@@ -8,7 +8,7 @@ use std::time::Instant;
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Atom, Color, Face, KakouneRequest, NamedColor, parse_request};
+use kasane_core::protocol::{Atom, Color, Face, KakouneRequest, NamedColor, Style, parse_request};
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
 use kasane_core::render::view;
@@ -63,11 +63,11 @@ fn typical_state(line_count: usize) -> AppState {
     state.observed.lines = (0..line_count)
         .map(|i| {
             vec![
-                Atom::from_face(keyword_face, "let"),
+                Atom::with_style("let", Style::from_face(&keyword_face)),
                 Atom::plain(" "),
-                Atom::from_face(ident_face, format!("var_{i}")),
+                Atom::with_style(format!("var_{i}"), Style::from_face(&ident_face)),
                 Atom::plain(" = "),
-                Atom::from_face(literal_face, format!("\"{i}_value\"")),
+                Atom::with_style(format!("\"{i}_value\""), Style::from_face(&literal_face)),
                 Atom::plain(";"),
             ]
         })

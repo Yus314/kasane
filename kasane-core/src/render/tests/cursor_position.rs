@@ -9,7 +9,7 @@ use super::super::*;
 use crate::display::DisplayMapRef;
 use crate::layout::line_display_width;
 use crate::plugin::PluginRuntime;
-use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor};
+use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor, Style};
 use crate::render::cursor;
 use crate::state::AppState;
 use crate::test_support::test_state_80x24;
@@ -37,6 +37,8 @@ fn make_cursor_line(pre: &str, cursor_char: &str, post: &str) -> Vec<Atom> {
     if !pre.is_empty() {
         atoms.push(Atom::from_face(normal, pre));
     }
+    // Wire-aware: cursor_face() carries FINAL_FG/FINAL_BG that detect_cursors
+    // must observe. `Style::from_face` would strip them (post-resolve form).
     atoms.push(Atom::from_face(cursor_face(), cursor_char));
     if !post.is_empty() {
         atoms.push(Atom::from_face(normal, post));
@@ -186,6 +188,7 @@ fn buffer_cursor_with_widget_columns() {
     state.observed.lines = vec![vec![
         Atom::from_face(gutter_face, " 1│"),
         Atom::from_face(normal, "hello "),
+        // Wire-aware (cursor_face has FINAL_FG/REVERSE): see Style::from_face docstring.
         Atom::from_face(cursor_face(), "w"),
         Atom::from_face(normal, "orld\n"),
     ]];

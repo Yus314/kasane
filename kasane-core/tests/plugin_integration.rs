@@ -238,10 +238,7 @@ fn menu_transform_adds_prefix() {
     assert!(found_prefix, "menu should show items with '>> ' prefix");
 
     // Also verify via the registry API directly that the transform is applied
-    let item = vec![kasane_core::protocol::Atom::from_face(
-        Face::default(),
-        "alpha",
-    )];
+    let item = vec![kasane_core::protocol::Atom::plain("alpha")];
     let transformed = registry
         .view()
         .transform_menu_item(&item, 0, false, &AppView::new(&state));

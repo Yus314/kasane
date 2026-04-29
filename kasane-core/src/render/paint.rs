@@ -512,7 +512,7 @@ mod tests {
         OverlayAnchor,
     };
     use crate::layout::flex::place;
-    use crate::protocol::Face;
+    use crate::protocol::{Face, Style};
     use crate::test_utils::*;
 
     #[test]
@@ -798,7 +798,7 @@ mod tests {
             3,
             &[DisplayDirective::Fold {
                 range: 0..2,
-                summary: vec![Atom::from_face(syn_face, "folded")],
+                summary: vec![Atom::with_style("folded", Style::from_face(&syn_face))],
             }],
         );
         // Display line 0 should be the fold summary (synthetic)
@@ -914,7 +914,10 @@ mod tests {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
             ..Face::default()
         };
-        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::from_face(vt_face, "  err")])];
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::with_style(
+            "  err",
+            Style::from_face(&vt_face),
+        )])];
         match analyze_buffer_line(&params, 0, None, None, None, Some(&vt), false) {
             BufferLineAction::BufferLine { virtual_text, .. } => {
                 let vt_atoms = virtual_text.expect("expected virtual text");
@@ -989,7 +992,10 @@ mod tests {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
             ..Face::default()
         };
-        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::from_face(vt_face, "  err")])];
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::with_style(
+            "  err",
+            Style::from_face(&vt_face),
+        )])];
 
         let mut grid = CellGrid::new(20, 3);
         let area = Rect {
@@ -1078,7 +1084,10 @@ mod tests {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
             ..Face::default()
         };
-        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::from_face(vt_face, " vt")])];
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::with_style(
+            " vt",
+            Style::from_face(&vt_face),
+        )])];
 
         let mut grid = CellGrid::new(20, 1);
         let area = Rect {

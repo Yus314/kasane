@@ -13,7 +13,7 @@ use crate::element::{
 };
 use crate::layout::line_display_width;
 use crate::plugin::{AnnotateContext, AppView, PluginView, TransformSubject, TransformTarget};
-use crate::protocol::{Atom, Face, Line, MenuStyle};
+use crate::protocol::{Atom, Face, Line, MenuStyle, Style};
 use crate::state::AppState;
 use crate::surface::{SurfaceComposeResult, SurfaceRenderReport};
 
@@ -636,9 +636,9 @@ pub(crate) fn build_styled_line_with_base(
     let resolved: Vec<Atom> = line
         .iter()
         .map(|atom| {
-            Atom::from_face(
-                crate::protocol::resolve_face(&atom.face(), base_face),
+            Atom::with_style(
                 atom.contents.clone(),
+                Style::from_face(&crate::protocol::resolve_face(&atom.face(), base_face)),
             )
         })
         .collect();

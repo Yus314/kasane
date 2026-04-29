@@ -2,7 +2,7 @@
 
 use crate::display::InlineBoxAlignment;
 use crate::plugin::PluginId;
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, Face, Style};
 
 /// Metadata for an inline-box slot reserved within a line.
 ///
@@ -440,9 +440,9 @@ fn advance_style(
     let local_start = clamp_to_char_boundary(cx.contents, effective_start - cx.atom_start);
     let local_end = clamp_to_char_boundary(cx.contents, effective_end - cx.atom_start);
     if local_start < local_end {
-        cx.result.push(Atom::from_face(
-            crate::protocol::resolve_face(op_face, &cx.atom_face),
+        cx.result.push(Atom::with_style(
             &cx.contents[local_start..local_end],
+            Style::from_face(&crate::protocol::resolve_face(op_face, &cx.atom_face)),
         ));
     }
     *cx.pos = effective_end;
@@ -495,7 +495,7 @@ fn emit_sub_atom(
     if start < end {
         let sub = &contents[start..end];
         if !sub.is_empty() {
-            result.push(Atom::from_face(face, sub));
+            result.push(Atom::with_style(sub, Style::from_face(&face)));
         }
     }
 }
@@ -545,7 +545,7 @@ mod tests {
     }
 
     fn make_atom(text: &str, face: Face) -> Atom {
-        Atom::from_face(face, text)
+        Atom::with_style(text, Style::from_face(&face))
     }
 
     // ---- Existing tests (Style/Hide) ----

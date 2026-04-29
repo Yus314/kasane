@@ -2,7 +2,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::element::{Element, ElementStyle, FlexChild, Overlay, OverlayAnchor};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
-use crate::protocol::{Atom, MenuStyle};
+use crate::protocol::{Atom, MenuStyle, Style};
 use crate::render::builders::{
     MAX_DROPDOWN_HEIGHT, PREFIX_WIDTH, SCROLLBAR_WIDTH, SUFFIX_RESERVE, build_scrollbar,
     truncate_atoms,
@@ -115,18 +115,18 @@ fn build_split_item_element_pure(
         .sum();
     if (cand_w as u16) < candidate_col_w {
         let pad = candidate_col_w as usize - cand_w;
-        cand_resolved.push(Atom::from_face(face, " ".repeat(pad)));
+        cand_resolved.push(Atom::with_style(" ".repeat(pad), Style::from_face(&face)));
     }
     atoms.extend(cand_resolved);
 
     // 2. Gap
-    atoms.push(Atom::from_face(face, " "));
+    atoms.push(Atom::with_style(" ", Style::from_face(&face)));
 
     // 3. Docstring portion
     for atom in &item[split.docstring_start..] {
-        atoms.push(Atom::from_face(
-            crate::protocol::resolve_face(&atom.face(), &face),
+        atoms.push(Atom::with_style(
             atom.contents.clone(),
+            Style::from_face(&crate::protocol::resolve_face(&atom.face(), &face)),
         ));
     }
 
@@ -263,7 +263,7 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
     let mut atoms: Vec<Atom> = Vec::new();
 
     if has_prefix {
-        atoms.push(Atom::from_face(menu_face, "< "));
+        atoms.push(Atom::with_style("< ", Style::from_face(&menu_face)));
     }
 
     let mut x = if has_prefix { PREFIX_WIDTH } else { 0 };
@@ -276,9 +276,12 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
             if has_more {
                 let pad_len = screen_w.saturating_sub(x + 1);
                 if pad_len > 0 {
-                    atoms.push(Atom::from_face(menu_face, " ".repeat(pad_len)));
+                    atoms.push(Atom::with_style(
+                        " ".repeat(pad_len),
+                        Style::from_face(&menu_face),
+                    ));
                 }
-                atoms.push(Atom::from_face(menu_face, ">"));
+                atoms.push(Atom::with_style(">", Style::from_face(&menu_face)));
             }
             break;
         }
@@ -290,12 +293,15 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
         };
 
         for atom in &menu.items[idx] {
-            atoms.push(Atom::from_face(face, atom.contents.clone()));
+            atoms.push(Atom::with_style(
+                atom.contents.clone(),
+                Style::from_face(&face),
+            ));
         }
         x += item_w;
 
         if x < screen_w {
-            atoms.push(Atom::from_face(menu_face, " "));
+            atoms.push(Atom::with_style(" ", Style::from_face(&menu_face)));
             x += 1;
         }
     }

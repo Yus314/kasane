@@ -4,7 +4,7 @@ use crate::protocol::{
 use crate::state::{AppState, DirtyFlags, MenuState};
 use crate::test_utils::make_line;
 
-use crate::protocol::{Atom, Color, Line, NamedColor};
+use crate::protocol::{Atom, Color, Line, NamedColor, Style};
 
 #[test]
 fn test_apply_draw() {
@@ -385,6 +385,8 @@ fn test_select_out_of_range_resets() {
 
 /// Helper: create a cursor atom (FINAL_FG + REVERSE).
 fn cursor_atom(s: &str) -> Atom {
+    // Wire-aware: `final_*` flags must reach `detect_cursors`. `Style::from_face`
+    // drops them by design — see `protocol/style.rs::Style::from_face` docstring.
     Atom::from_face(
         Face {
             fg: Color::Named(NamedColor::White),

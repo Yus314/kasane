@@ -6,7 +6,7 @@ use crate::element::{
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
 use crate::plugin::{AppView, PluginView};
 use crate::protocol::resolve_face;
-use crate::protocol::{Atom, Face, MenuStyle};
+use crate::protocol::{Atom, Face, MenuStyle, Style};
 use crate::render::builders::{
     self, MAX_DROPDOWN_HEIGHT, PREFIX_WIDTH, SCROLLBAR_WIDTH, SUFFIX_RESERVE,
 };
@@ -134,18 +134,18 @@ fn build_split_item_element(
         .sum();
     if (cand_w as u16) < candidate_col_w {
         let pad = candidate_col_w as usize - cand_w;
-        cand_resolved.push(Atom::from_face(face, " ".repeat(pad)));
+        cand_resolved.push(Atom::with_style(" ".repeat(pad), Style::from_face(&face)));
     }
     atoms.extend(cand_resolved);
 
     // 2. Gap: 1-space separator
-    atoms.push(Atom::from_face(face, " "));
+    atoms.push(Atom::with_style(" ", Style::from_face(&face)));
 
     // 3. Docstring portion: resolve faces (paint-level truncation handles overflow)
     for atom in &effective_item[split.docstring_start..] {
-        atoms.push(Atom::from_face(
-            resolve_face(&atom.face(), &face),
+        atoms.push(Atom::with_style(
             atom.contents.clone(),
+            Style::from_face(&resolve_face(&atom.face(), &face)),
         ));
     }
 
@@ -293,7 +293,7 @@ fn build_menu_search(
 
     // "< " prefix
     if has_prefix {
-        atoms.push(Atom::from_face(normal_face, "< "));
+        atoms.push(Atom::with_style("< ", Style::from_face(&normal_face)));
     }
 
     // Items with gaps
@@ -308,9 +308,12 @@ fn build_menu_search(
                 // Pad and add ">"
                 let pad_len = screen_w.saturating_sub(x + 1);
                 if pad_len > 0 {
-                    atoms.push(Atom::from_face(normal_face, " ".repeat(pad_len)));
+                    atoms.push(Atom::with_style(
+                        " ".repeat(pad_len),
+                        Style::from_face(&normal_face),
+                    ));
                 }
-                atoms.push(Atom::from_face(normal_face, ">"));
+                atoms.push(Atom::with_style(">", Style::from_face(&normal_face)));
             }
             break;
         }
@@ -319,13 +322,16 @@ fn build_menu_search(
 
         // Add item atoms with resolved face
         for atom in &menu.items[idx] {
-            atoms.push(Atom::from_face(face, atom.contents.clone()));
+            atoms.push(Atom::with_style(
+                atom.contents.clone(),
+                Style::from_face(&face),
+            ));
         }
         x += item_w;
 
         // Gap
         if x < screen_w {
-            atoms.push(Atom::from_face(normal_face, " "));
+            atoms.push(Atom::with_style(" ", Style::from_face(&normal_face)));
             x += 1;
         }
     }
@@ -455,12 +461,12 @@ mod tests {
         vec![
             Atom::plain(candidate),
             Atom::plain(padding),
-            Atom::from_face(
-                Face {
+            Atom::with_style(
+                docstring,
+                Style::from_face(&Face {
                     fg: Color::Named(NamedColor::Cyan),
                     ..Face::default()
-                },
-                docstring,
+                }),
             ),
         ]
     }

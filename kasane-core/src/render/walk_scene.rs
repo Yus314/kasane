@@ -15,7 +15,7 @@ use super::walk::{ContainerPaintInfo, PaintVisitor};
 use crate::display::DisplayMap;
 use crate::element::{BufferRefState, ImageFit, ImageSource, StyleToken};
 use crate::layout::Rect;
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, Face, Style};
 use crate::state::AppState;
 
 /// PaintVisitor that emits `DrawCommand`s (GPU rendering).
@@ -397,7 +397,10 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     h: 1,
                 };
                 let pr = to_pixel_rect(&gutter_area, cs);
-                let gutter_atoms = resolve_atoms(&[Atom::from_face(gutter_face, num_str)], None);
+                let gutter_atoms = resolve_atoms(
+                    &[Atom::with_style(num_str, Style::from_face(&gutter_face))],
+                    None,
+                );
                 let gutter_line_idx = self.next_non_buffer_line_idx();
                 self.out.push(DrawCommand::DrawAtoms {
                     pos: PixelPos { x: pr.x, y: pr.y },
