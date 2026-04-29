@@ -466,13 +466,21 @@ mod legacy {
 
                     match &transform.patch {
                         WidgetPatch::ModifyFace(rules) => {
-                            return Some(ElementPatch::ModifyFace {
-                                overlay: resolve_face_rules(rules, &resolver, state),
+                            return Some(ElementPatch::ModifyStyle {
+                                overlay: std::sync::Arc::new(
+                                    crate::protocol::UnresolvedStyle::from_face(
+                                        &resolve_face_rules(rules, &resolver, state),
+                                    ),
+                                ),
                             });
                         }
                         WidgetPatch::WrapContainer(rules) => {
                             return Some(ElementPatch::WrapContainer {
-                                face: resolve_face_rules(rules, &resolver, state),
+                                style: std::sync::Arc::new(
+                                    crate::protocol::UnresolvedStyle::from_face(
+                                        &resolve_face_rules(rules, &resolver, state),
+                                    ),
+                                ),
                             });
                         }
                     }

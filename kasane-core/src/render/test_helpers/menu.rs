@@ -304,8 +304,8 @@ mod tests {
             items,
             MenuParams {
                 anchor,
-                selected_item_face: Face::default().into(),
-                menu_face: Face::default().into(),
+                selected_item_face: crate::protocol::Style::default(),
+                menu_face: crate::protocol::Style::default(),
                 style,
                 screen_w,
                 screen_h,

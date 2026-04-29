@@ -148,8 +148,8 @@ mod tests {
             vec![vec![make_atom("item1")], vec![make_atom("item2")]],
             MenuParams {
                 anchor: Coord { line: 5, column: 0 },
-                selected_item_face: Face::default().into(),
-                menu_face: Face::default().into(),
+                selected_item_face: crate::protocol::Style::default(),
+                menu_face: crate::protocol::Style::default(),
                 style: MenuStyle::Inline,
                 screen_w: 80,
                 screen_h: 23,
@@ -167,8 +167,8 @@ mod tests {
     fn menu_snapshot_equality() {
         let params = MenuParams {
             anchor: Coord { line: 5, column: 0 },
-            selected_item_face: Face::default().into(),
-            menu_face: Face::default().into(),
+            selected_item_face: crate::protocol::Style::default(),
+            menu_face: crate::protocol::Style::default(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 23,

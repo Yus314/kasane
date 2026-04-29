@@ -30,8 +30,8 @@ fn test_has_menu() {
         vec![vec![Atom::plain("a")]],
         MenuParams {
             anchor: Coord::default(),
-            selected_item_face: Face::default().into(),
-            menu_face: Face::default().into(),
+            selected_item_face: crate::protocol::Style::default(),
+            menu_face: crate::protocol::Style::default(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 24,

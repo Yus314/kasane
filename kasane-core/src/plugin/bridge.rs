@@ -1359,11 +1359,15 @@ mod tests {
                 PluginId("test.modify".into())
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
-                r.on_transform(10, |_state, _target, _app, _ctx| ElementPatch::ModifyFace {
-                    overlay: Face {
-                        fg: Color::Named(NamedColor::Red),
-                        ..Face::default()
-                    },
+                r.on_transform(10, |_state, _target, _app, _ctx| {
+                    ElementPatch::ModifyStyle {
+                        overlay: std::sync::Arc::new(crate::protocol::UnresolvedStyle::from_face(
+                            &Face {
+                                fg: Color::Named(NamedColor::Red),
+                                ..Face::default()
+                            },
+                        )),
+                    }
                 });
             }
         }

@@ -55,8 +55,10 @@ pub enum ElementPatch {
     /// No-op transform. Identity element of the composition monoid.
     Identity,
 
-    /// Wrap the subject element in a container with face styling.
-    WrapContainer { face: Face },
+    /// Wrap the subject element in a container with the given inline style.
+    WrapContainer {
+        style: Arc<crate::protocol::UnresolvedStyle>,
+    },
 
     /// Prepend an element before the subject.
     Prepend { element: Element },
@@ -67,8 +69,10 @@ pub enum ElementPatch {
     /// Replace the subject entirely. Absorbs all prior patches in a composition.
     Replace { element: Element },
 
-    /// Overlay face attributes onto the subject element.
-    ModifyFace { overlay: Face },
+    /// Overlay style attributes onto the subject element.
+    ModifyStyle {
+        overlay: Arc<crate::protocol::UnresolvedStyle>,
+    },
 
     /// Sequence of patches applied left-to-right.
     Compose(Vec<ElementPatch>),
@@ -96,7 +100,9 @@ impl Clone for ElementPatch {
     fn clone(&self) -> Self {
         match self {
             Self::Identity => Self::Identity,
-            Self::WrapContainer { face } => Self::WrapContainer { face: *face },
+            Self::WrapContainer { style } => Self::WrapContainer {
+                style: Arc::clone(style),
+            },
             Self::Prepend { element } => Self::Prepend {
                 element: element.clone(),
             },
@@ -106,7 +112,9 @@ impl Clone for ElementPatch {
             Self::Replace { element } => Self::Replace {
                 element: element.clone(),
             },
-            Self::ModifyFace { overlay } => Self::ModifyFace { overlay: *overlay },
+            Self::ModifyStyle { overlay } => Self::ModifyStyle {
+                overlay: Arc::clone(overlay),
+            },
             Self::Compose(patches) => Self::Compose(patches.clone()),
             Self::ModifyAnchor { transform } => Self::ModifyAnchor {
                 transform: Arc::clone(transform),
@@ -129,11 +137,15 @@ impl PartialEq for ElementPatch {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Identity, Self::Identity) => true,
-            (Self::WrapContainer { face: a }, Self::WrapContainer { face: b }) => a == b,
+            (Self::WrapContainer { style: a }, Self::WrapContainer { style: b }) => {
+                a.as_ref() == b.as_ref()
+            }
             (Self::Prepend { element: a }, Self::Prepend { element: b }) => a == b,
             (Self::Append { element: a }, Self::Append { element: b }) => a == b,
             (Self::Replace { element: a }, Self::Replace { element: b }) => a == b,
-            (Self::ModifyFace { overlay: a }, Self::ModifyFace { overlay: b }) => a == b,
+            (Self::ModifyStyle { overlay: a }, Self::ModifyStyle { overlay: b }) => {
+                a.as_ref() == b.as_ref()
+            }
             (Self::Compose(a), Self::Compose(b)) => a == b,
             (
                 Self::When {
@@ -159,9 +171,10 @@ impl std::fmt::Debug for ElementPatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Identity => write!(f, "Identity"),
-            Self::WrapContainer { face } => {
-                f.debug_struct("WrapContainer").field("face", face).finish()
-            }
+            Self::WrapContainer { style } => f
+                .debug_struct("WrapContainer")
+                .field("style", style)
+                .finish(),
             Self::Prepend { element } => {
                 f.debug_struct("Prepend").field("element", element).finish()
             }
@@ -169,8 +182,8 @@ impl std::fmt::Debug for ElementPatch {
             Self::Replace { element } => {
                 f.debug_struct("Replace").field("element", element).finish()
             }
-            Self::ModifyFace { overlay } => f
-                .debug_struct("ModifyFace")
+            Self::ModifyStyle { overlay } => f
+                .debug_struct("ModifyStyle")
                 .field("overlay", overlay)
                 .finish(),
             Self::Compose(patches) => f.debug_tuple("Compose").field(patches).finish(),
@@ -249,7 +262,7 @@ impl ElementPatch {
         match self {
             Self::Identity => subject,
 
-            Self::WrapContainer { face: _ } => {
+            Self::WrapContainer { style: _ } => {
                 // Wrap element in a Flex container.
                 // Face styling is carried in the patch for the rendering pipeline;
                 // structural wrapping is applied here.
@@ -280,8 +293,8 @@ impl ElementPatch {
 
             Self::Replace { element } => subject.map_element(|_| element),
 
-            Self::ModifyFace { overlay } => {
-                subject.map_element(|el| overlay_face_on_element(el, &overlay))
+            Self::ModifyStyle { overlay } => {
+                subject.map_element(|el| overlay_face_on_element(el, &overlay.to_face()))
             }
 
             Self::Compose(patches) => patches
@@ -353,7 +366,7 @@ impl ElementPatch {
             Self::Prepend { .. } => TransformScope::Prepend,
             Self::Append { .. } => TransformScope::Append,
             Self::Replace { .. } => TransformScope::Replacement,
-            Self::ModifyFace { .. } => TransformScope::Attribute,
+            Self::ModifyStyle { .. } => TransformScope::Attribute,
             Self::Compose(patches) => patches
                 .iter()
                 .map(Self::scope)
@@ -453,8 +466,8 @@ mod tests {
     #[test]
     fn modify_face_is_pure() {
         assert!(
-            ElementPatch::ModifyFace {
-                overlay: Face::default()
+            ElementPatch::ModifyStyle {
+                overlay: crate::protocol::default_unresolved_style()
             }
             .is_pure()
         );
@@ -516,7 +529,7 @@ mod tests {
     fn scope_wrap() {
         assert_eq!(
             ElementPatch::WrapContainer {
-                face: Face::default()
+                style: crate::protocol::default_unresolved_style()
             }
             .scope(),
             TransformScope::Wrapper
@@ -579,8 +592,8 @@ mod tests {
         ]);
         let outer = ElementPatch::Compose(vec![
             inner,
-            ElementPatch::ModifyFace {
-                overlay: Face::default(),
+            ElementPatch::ModifyStyle {
+                overlay: crate::protocol::default_unresolved_style(),
             },
         ]);
         let normalized = outer.normalize();
@@ -597,8 +610,8 @@ mod tests {
             ElementPatch::Prepend {
                 element: Element::Empty,
             },
-            ElementPatch::ModifyFace {
-                overlay: Face::default(),
+            ElementPatch::ModifyStyle {
+                overlay: crate::protocol::default_unresolved_style(),
             },
             ElementPatch::Replace {
                 element: sample_element(),
@@ -691,11 +704,11 @@ mod tests {
         use crate::protocol::Atom;
         let atoms = vec![Atom::plain("test")];
         let subject = TransformSubject::Element(Element::StyledLine(atoms));
-        let overlay = Face {
+        let overlay = Arc::new(crate::protocol::UnresolvedStyle::from_face(&Face {
             fg: Color::Named(NamedColor::Red),
             ..Face::default()
-        };
-        let result = ElementPatch::ModifyFace { overlay }.apply(subject);
+        }));
+        let result = ElementPatch::ModifyStyle { overlay }.apply(subject);
         match result.into_element() {
             Element::StyledLine(atoms) => {
                 assert_eq!(atoms[0].face().fg, Color::Named(NamedColor::Red));

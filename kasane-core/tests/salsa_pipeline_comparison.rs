@@ -140,8 +140,8 @@ fn compare_with_inline_menu() {
         ],
         MenuParams {
             anchor: Coord { line: 1, column: 5 },
-            selected_item_face: Face::default().into(),
-            menu_face: Face::default().into(),
+            selected_item_face: kasane_core::protocol::Style::default(),
+            menu_face: kasane_core::protocol::Style::default(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 23,
@@ -164,8 +164,8 @@ fn compare_with_search_menu() {
         vec![vec![make_atom("match1")], vec![make_atom("match2")]],
         MenuParams {
             anchor: Coord { line: 0, column: 0 },
-            selected_item_face: Face::default().into(),
-            menu_face: Face::default().into(),
+            selected_item_face: kasane_core::protocol::Style::default(),
+            menu_face: kasane_core::protocol::Style::default(),
             style: MenuStyle::Search,
             screen_w: 80,
             screen_h: 23,
@@ -575,8 +575,8 @@ fn compare_with_plugins_and_menu() {
         vec![vec![make_atom("item_one")], vec![make_atom("item_two")]],
         MenuParams {
             anchor: Coord { line: 1, column: 5 },
-            selected_item_face: Face::default().into(),
-            menu_face: Face::default().into(),
+            selected_item_face: kasane_core::protocol::Style::default(),
+            menu_face: kasane_core::protocol::Style::default(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 23,
@@ -630,8 +630,8 @@ fn make_menu_state() -> MenuState {
         ],
         MenuParams {
             anchor: Coord { line: 1, column: 5 },
-            selected_item_face: Face::default().into(),
-            menu_face: Face::default().into(),
+            selected_item_face: kasane_core::protocol::Style::default(),
+            menu_face: kasane_core::protocol::Style::default(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 23,

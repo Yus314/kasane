@@ -143,8 +143,8 @@ fn sync_menu_snapshot() {
         vec![vec![make_atom("item1")], vec![make_atom("item2")]],
         MenuParams {
             anchor: Coord { line: 5, column: 0 },
-            selected_item_face: Face::default().into(),
-            menu_face: Face::default().into(),
+            selected_item_face: kasane_core::protocol::Style::default(),
+            menu_face: kasane_core::protocol::Style::default(),
             style: MenuStyle::Inline,
             screen_w: 80,
             screen_h: 23,

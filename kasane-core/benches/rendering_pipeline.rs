@@ -919,7 +919,7 @@ fn bench_detect_cursors_incremental(c: &mut Criterion) {
     };
     state.observed.lines[5] = vec![
         Atom {
-            face: Face::default(),
+            style: crate::protocol::default_unresolved_style(),
             contents: "hel".into(),
         },
         Atom {
@@ -927,7 +927,7 @@ fn bench_detect_cursors_incremental(c: &mut Criterion) {
             contents: "l".into(),
         },
         Atom {
-            face: Face::default(),
+            style: crate::protocol::default_unresolved_style(),
             contents: "o world".into(),
         },
     ];

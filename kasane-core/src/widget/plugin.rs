@@ -174,11 +174,19 @@ impl Plugin for WidgetPlugin {
                         return ElementPatch::Identity;
                     }
                     match &transform.patch {
-                        WidgetPatch::ModifyFace(rules) => ElementPatch::ModifyFace {
-                            overlay: resolve_face_rules(rules, &resolver, app),
+                        WidgetPatch::ModifyFace(rules) => ElementPatch::ModifyStyle {
+                            overlay: std::sync::Arc::new(
+                                crate::protocol::UnresolvedStyle::from_face(&resolve_face_rules(
+                                    rules, &resolver, app,
+                                )),
+                            ),
                         },
                         WidgetPatch::WrapContainer(rules) => ElementPatch::WrapContainer {
-                            face: resolve_face_rules(rules, &resolver, app),
+                            style: std::sync::Arc::new(
+                                crate::protocol::UnresolvedStyle::from_face(&resolve_face_rules(
+                                    rules, &resolver, app,
+                                )),
+                            ),
                         },
                     }
                 });

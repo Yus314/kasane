@@ -49,8 +49,8 @@ fn make_test_menu() -> MenuState {
     MenuState {
         items: vec![make_line("item1"), make_line("item2")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default().into(),
-        menu_face: Face::default().into(),
+        selected_item_face: kasane_core::protocol::Style::default(),
+        menu_face: kasane_core::protocol::Style::default(),
         style: MenuStyle::Inline,
         selected: None,
         first_item: 0,

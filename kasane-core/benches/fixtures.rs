@@ -130,11 +130,11 @@ pub fn typical_state(line_count: usize) -> AppState {
     };
     state.observed.lines = (0..line_count).map(make_colored_line).collect();
     state.inference.status_line = vec![Atom {
-        face: Face::default(),
+        style: crate::protocol::default_unresolved_style(),
         contents: " NORMAL ".into(),
     }];
     state.observed.status_mode_line = vec![Atom {
-        face: Face::default(),
+        style: crate::protocol::default_unresolved_style(),
         contents: "normal".into(),
     }];
     state
@@ -351,7 +351,7 @@ fn string_heavy_line(i: usize) -> Line {
 fn indented_block_line(i: usize) -> Line {
     vec![
         Atom {
-            face: Face::default(),
+            style: crate::protocol::default_unresolved_style(),
             contents: "    ".into(),
         },
         Atom {
@@ -439,11 +439,11 @@ pub fn realistic_state(line_count: usize) -> AppState {
     };
     state.observed.lines = (0..line_count).map(make_realistic_line).collect();
     state.inference.status_line = vec![Atom {
-        face: Face::default(),
+        style: crate::protocol::default_unresolved_style(),
         contents: " NORMAL ".into(),
     }];
     state.observed.status_mode_line = vec![Atom {
-        face: Face::default(),
+        style: crate::protocol::default_unresolved_style(),
         contents: "normal".into(),
     }];
     state
@@ -485,7 +485,7 @@ pub fn state_with_edit(base: &AppState, start_line: usize, n: usize) -> AppState
                 contents: format!("edited_line_{i}").into(),
             },
             Atom {
-                face: Face::default(),
+                style: crate::protocol::default_unresolved_style(),
                 contents: " // modified".into(),
             },
         ];
@@ -500,7 +500,7 @@ pub fn state_with_menu(item_count: usize) -> AppState {
     let items: Vec<Line> = (0..item_count)
         .map(|i| {
             vec![Atom {
-                face: Face::default(),
+                style: crate::protocol::default_unresolved_style(),
                 contents: format!("completion_{i}").into(),
             }]
         })
@@ -610,12 +610,12 @@ pub fn draw_json(line_count: usize) -> Vec<u8> {
 /// JSON-RPC "draw_status" message as raw bytes.
 pub fn draw_status_json() -> Vec<u8> {
     let prompt: Line = vec![Atom {
-        face: Face::default(),
+        style: crate::protocol::default_unresolved_style(),
         contents: " NORMAL ".into(),
     }];
     let content: Line = Vec::new();
     let mode_line: Line = vec![Atom {
-        face: Face::default(),
+        style: crate::protocol::default_unresolved_style(),
         contents: "normal".into(),
     }];
     let default_face = Face {
@@ -641,7 +641,7 @@ pub fn menu_show_json(item_count: usize) -> Vec<u8> {
     let items: Vec<Line> = (0..item_count)
         .map(|i| {
             vec![Atom {
-                face: Face::default(),
+                style: crate::protocol::default_unresolved_style(),
                 contents: format!("completion_{i}").into(),
             }]
         })
