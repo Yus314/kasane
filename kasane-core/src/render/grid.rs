@@ -47,24 +47,13 @@ impl Cell {
         terminal_style_to_face(&self.style)
     }
 
-    /// Apply a [`Face`]-level mutation to the cell. Bridge during the
-    /// design-δ migration: callers that hold a `Face`-keyed merge API
-    /// (decoration overlays, cursor face composition) can still operate
-    /// without knowing about [`TerminalStyle`]. The call projects the
-    /// stored style back to a `Face`, runs the mutation, then projects
-    /// forward again. Retires when Phase B3 removes [`Face`] entirely.
+    /// Apply a [`TerminalStyle`]-level mutation to the cell. The mutation
+    /// runs directly on the stored style, eliminating the
+    /// `TerminalStyle ↔ Face ↔ bitflags` round-trip that the legacy
+    /// `with_face_mut` bridge paid on every decoration / ornament merge.
     #[inline]
-    pub fn with_face_mut<F: FnOnce(&mut Face)>(&mut self, f: F) {
-        let mut face = self.face();
-        f(&mut face);
-        self.style = TerminalStyle::from_face(&face);
-    }
-
-    /// Set the cell's style from a [`Face`]. Bridge equivalent to
-    /// `cell.style = TerminalStyle::from_face(face)`; retires with [`Face`].
-    #[inline]
-    pub fn set_face(&mut self, face: &Face) {
-        self.style = TerminalStyle::from_face(face);
+    pub fn with_style_mut<F: FnOnce(&mut TerminalStyle)>(&mut self, f: F) {
+        f(&mut self.style);
     }
 }
 

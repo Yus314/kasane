@@ -33,7 +33,7 @@ pub fn apply_cell_decorations(
                     display_scroll_offset,
                 ) && let Some(cell) = grid.get_mut(gx, gy)
                 {
-                    cell.with_face_mut(|f| dec.merge.apply(f, &dec.style.to_face()));
+                    cell.with_style_mut(|s| dec.merge.apply_to_terminal(s, &dec.style));
                 }
             }
             DecorationTarget::Range { start, end } => {
@@ -65,7 +65,7 @@ pub fn apply_cell_decorations(
                         for col in col_start..=col_end {
                             let gx = col + buffer_x_offset;
                             if let Some(cell) = grid.get_mut(gx, gy) {
-                                cell.with_face_mut(|f| dec.merge.apply(f, &dec.style.to_face()));
+                                cell.with_style_mut(|s| dec.merge.apply_to_terminal(s, &dec.style));
                             }
                         }
                     }
@@ -76,7 +76,7 @@ pub fn apply_cell_decorations(
                 let gx = *column + buffer_x_offset;
                 for gy in 0..grid.height() {
                     if let Some(cell) = grid.get_mut(gx, gy) {
-                        cell.with_face_mut(|f| dec.merge.apply(f, &dec.style.to_face()));
+                        cell.with_style_mut(|s| dec.merge.apply_to_terminal(s, &dec.style));
                     }
                 }
             }

@@ -150,18 +150,20 @@ pub(crate) fn lower_surface_ornaments_gui(
 }
 
 fn apply_rect_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merge: FaceMerge) {
+    let style = crate::protocol::Style::from_face(face);
     let x_end = rect.x.saturating_add(rect.w).min(grid.width());
     let y_end = rect.y.saturating_add(rect.h).min(grid.height());
     for y in rect.y..y_end {
         for x in rect.x..x_end {
             if let Some(cell) = grid.get_mut(x, y) {
-                cell.with_face_mut(|f| merge.apply(f, face));
+                cell.with_style_mut(|s| merge.apply_to_terminal(s, &style));
             }
         }
     }
 }
 
 fn apply_rect_perimeter_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merge: FaceMerge) {
+    let style = crate::protocol::Style::from_face(face);
     let x_end = rect.x.saturating_add(rect.w).min(grid.width());
     let y_end = rect.y.saturating_add(rect.h).min(grid.height());
     if rect.w == 0 || rect.h == 0 || rect.x >= x_end || rect.y >= y_end {
@@ -171,7 +173,7 @@ fn apply_rect_perimeter_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merg
     // Top row
     for x in rect.x..x_end {
         if let Some(cell) = grid.get_mut(x, rect.y) {
-            cell.with_face_mut(|f| merge.apply(f, face));
+            cell.with_style_mut(|s| merge.apply_to_terminal(s, &style));
         }
     }
     // Bottom row (skip if same as top)
@@ -179,20 +181,20 @@ fn apply_rect_perimeter_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merg
     if bottom != rect.y {
         for x in rect.x..x_end {
             if let Some(cell) = grid.get_mut(x, bottom) {
-                cell.with_face_mut(|f| merge.apply(f, face));
+                cell.with_style_mut(|s| merge.apply_to_terminal(s, &style));
             }
         }
     }
     // Left and right columns (excluding corners already covered)
     for y in (rect.y + 1)..bottom {
         if let Some(cell) = grid.get_mut(rect.x, y) {
-            cell.with_face_mut(|f| merge.apply(f, face));
+            cell.with_style_mut(|s| merge.apply_to_terminal(s, &style));
         }
         let right = x_end - 1;
         if right != rect.x
             && let Some(cell) = grid.get_mut(right, y)
         {
-            cell.with_face_mut(|f| merge.apply(f, face));
+            cell.with_style_mut(|s| merge.apply_to_terminal(s, &style));
         }
     }
 }

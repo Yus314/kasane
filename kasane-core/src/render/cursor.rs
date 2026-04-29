@@ -201,7 +201,7 @@ pub fn neutralize_unfocused_cursors(
             segment_map,
         ) + oy;
         if let Some(cell) = grid.get_mut(cx, cy) {
-            cell.set_face(&state.observed.default_style.to_face());
+            cell.style = crate::render::TerminalStyle::from_style(&state.observed.default_style);
         }
 
         // Secondary cursors
@@ -214,7 +214,8 @@ pub fn neutralize_unfocused_cursors(
                 segment_map,
             ) + oy;
             if let Some(cell) = grid.get_mut(sx, sy) {
-                cell.set_face(&state.observed.default_style.to_face());
+                cell.style =
+                    crate::render::TerminalStyle::from_style(&state.observed.default_style);
             }
         }
     }
@@ -352,7 +353,7 @@ pub fn clear_cursor_face_at(
         CursorMode::Prompt => state.observed.status_default_style.to_face(),
     };
     if let Some(cell) = grid.get_mut(cx, cy) {
-        cell.set_face(&base_face);
+        cell.style = crate::render::TerminalStyle::from_face(&base_face);
     }
 }
 
@@ -449,7 +450,7 @@ pub fn apply_secondary_cursor_faces(
                 &state.observed.default_style.to_face(),
                 state.config.secondary_blend_ratio,
             );
-            cell.set_face(&blended);
+            cell.style = crate::render::TerminalStyle::from_face(&blended);
         }
     }
 }

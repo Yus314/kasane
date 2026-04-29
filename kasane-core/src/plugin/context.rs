@@ -379,6 +379,47 @@ impl FaceMerge {
             }
         }
     }
+
+    /// Apply decoration `overlay` (a post-resolve [`Style`]) directly onto a
+    /// [`TerminalStyle`] target — the cell-grid hot path. Eliminates the
+    /// `TerminalStyle → Face → mutate → TerminalStyle` round-trip that the
+    /// legacy `Cell::with_face_mut` callsite paid per cell.
+    ///
+    /// Mirrors the [`FaceMerge::apply`] semantics; the only conversion is
+    /// `Brush::Default` ↔ `Color::Default` for the brush-shape mismatch.
+    pub fn apply_to_terminal(
+        &self,
+        base: &mut crate::render::TerminalStyle,
+        overlay: &crate::protocol::Style,
+    ) {
+        let ts_overlay = crate::render::TerminalStyle::from_style(overlay);
+        match self {
+            Self::Replace => *base = ts_overlay,
+            Self::Overlay => {
+                if ts_overlay.fg != Color::Default {
+                    base.fg = ts_overlay.fg;
+                }
+                if ts_overlay.bg != Color::Default {
+                    base.bg = ts_overlay.bg;
+                }
+                base.bold |= ts_overlay.bold;
+                base.italic |= ts_overlay.italic;
+                base.dim |= ts_overlay.dim;
+                base.blink |= ts_overlay.blink;
+                base.reverse |= ts_overlay.reverse;
+                base.strikethrough |= ts_overlay.strikethrough;
+                if ts_overlay.underline != crate::render::terminal_style::UnderlineKind::None {
+                    base.underline = ts_overlay.underline;
+                    base.underline_color = ts_overlay.underline_color;
+                }
+            }
+            Self::Background => {
+                if ts_overlay.bg != Color::Default {
+                    base.bg = ts_overlay.bg;
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
