@@ -136,6 +136,30 @@ kasane_plugin_sdk::interactive_id! {
     }
 }
 
+/// Encode `(line_idx, color_idx)` into the `box_id` passed to a
+/// `DisplayDirective::InlineBox`. The host hands the same id back
+/// through `paint_inline_box`, so the encoding must round-trip.
+///
+/// `line_idx` occupies the low 32 bits; `color_idx` the next 8.
+/// A `0xCB` tag in the high byte distinguishes color-preview's
+/// box_ids from any other plugin's, in case a future host shares
+/// box_id space across plugins.
+fn encode_inline_box_id(line_idx: usize, color_idx: usize) -> u64 {
+    let line = line_idx as u64 & 0xFFFF_FFFF;
+    let color = (color_idx as u64 & 0xFF) << 32;
+    let tag = 0xCB_u64 << 56;
+    tag | color | line
+}
+
+fn decode_inline_box_id(id: u64) -> Option<(usize, usize)> {
+    if (id >> 56) != 0xCB {
+        return None;
+    }
+    let line = (id & 0xFFFF_FFFF) as usize;
+    let color = ((id >> 32) & 0xFF) as usize;
+    Some((line, color))
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -303,10 +327,58 @@ kasane_plugin_sdk::define_plugin! {
     },
 
     display() {
-        state.color_lines.iter().map(|(&line_idx, cl)| {
+        // Two presentations of the same data:
+        //
+        // - `gutter_left`: swatches at the start of each line, useful
+        //   when the line has many colors and you want a summary.
+        // - `inline_box`: a swatch reserved next to each color literal
+        //   in the source text. The host calls `paint_inline_box(box_id)`
+        //   below to obtain the actual paint content for each slot.
+        //
+        // The InlineBox path is the Phase 10 exemplar: the directive
+        // declares only a slot's geometry, not its paint content. That
+        // separation lets the host cache layout independently of the
+        // (potentially expensive or stateful) paint, and lets one
+        // plugin's slot be repainted on hover / selection without
+        // re-running every other plugin's `display()` callback.
+        let mut out: Vec<DisplayDirective> = Vec::new();
+        for (&line_idx, cl) in state.color_lines.iter() {
             let swatch = build_swatch(&cl.colors);
-            gutter_left(line_idx as u32, swatch, 0)
-        }).collect()
+            out.push(gutter_left(line_idx as u32, swatch, 0));
+            for (color_idx, entry) in cl.colors.iter().enumerate() {
+                // Place the box at the byte offset right after the
+                // color literal so the swatch sits immediately to the
+                // right of `#abcdef` / `rgb:abcdef`.
+                let after = (entry.byte_offset + entry.original.len()) as u32;
+                out.push(inline_box(
+                    line_idx as u32,
+                    after,
+                    /* width_cells   */ 1.5,
+                    /* height_lines  */ 1.0,
+                    encode_inline_box_id(line_idx, color_idx),
+                    InlineBoxAlignment::Center,
+                ));
+            }
+        }
+        out
+    },
+
+    paint_inline_box(box_id) {
+        // Decode the slot identity, find the still-current color in
+        // state, and paint it as a single solid block.
+        //
+        // Returning `None` is safe: the host treats it as "leave the
+        // reserved slot blank" rather than panicking. That happens
+        // naturally when the buffer changes between the host calling
+        // `display()` and the renderer querying `paint_inline_box` —
+        // e.g. the user just deleted the line that owned the slot.
+        let (line_idx, color_idx) = decode_inline_box_id(box_id)?;
+        let entry = state.color_lines.get(&line_idx)?.colors.get(color_idx)?;
+        let swatch = Atom {
+            style: style_with(rgb(entry.r, entry.g, entry.b), rgb(entry.r, entry.g, entry.b)),
+            contents: "\u{2588}".to_string(),
+        };
+        Some(styled_line(&[swatch]))
     },
 
     overlay(ctx) {
@@ -423,6 +495,29 @@ mod tests {
     #[test]
     fn decode_picker_id_below_base_returns_none() {
         assert!(PickerId::decode(999).is_none());
+    }
+
+    #[test]
+    fn inline_box_id_roundtrips() {
+        // Cover the full u32 line_idx range in steps that hit the
+        // upper byte plus a handful of low / mid / high color_idx.
+        for &line in &[0usize, 1, 23, 99, 32_768, 1_048_575, 0xFFFF_FFFF] {
+            for color in 0..8usize {
+                let id = encode_inline_box_id(line, color);
+                let (l, c) = decode_inline_box_id(id).expect("round trip");
+                assert_eq!(l, line);
+                assert_eq!(c, color);
+            }
+        }
+    }
+
+    #[test]
+    fn inline_box_id_rejects_other_tags() {
+        // A `box_id` minted by an unrelated source must NOT decode as
+        // ours. Without the tag check, color-preview could pick up a
+        // box_id intended for another plugin and try to paint it.
+        let foreign = 0x00_00_00_05_FF_FF_FF_FFu64; // tag = 0x00, not 0xCB
+        assert!(decode_inline_box_id(foreign).is_none());
     }
 
     #[test]

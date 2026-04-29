@@ -656,6 +656,32 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 })
             }
 
+            /// Reserve a non-text inline slot at `(line, byte_offset)` of the
+            /// given cell-grid geometry. The host calls
+            /// [`paint_inline_box`](crate::Plugin::paint_inline_box) on the
+            /// owning plugin with `box_id` to obtain the actual paint
+            /// content. `alignment` controls baseline placement: `Center`
+            /// matches Parley's `push_inline_box` default; `Top` / `Bottom`
+            /// are for plugins that paint glyph-bearing content with
+            /// explicit baseline expectations.
+            pub fn inline_box(
+                line: u32,
+                byte_offset: u32,
+                width_cells: f32,
+                height_lines: f32,
+                box_id: u64,
+                alignment: InlineBoxAlignment,
+            ) -> DisplayDirective {
+                DisplayDirective::InlineBox(InlineBoxDirective {
+                    line,
+                    byte_offset,
+                    width_cells,
+                    height_lines,
+                    box_id,
+                    alignment,
+                })
+            }
+
             /// Build a dynamic hosted surface registration command.
             pub fn register_surface(
                 surface_key: &str,
