@@ -508,6 +508,135 @@ mod tests {
     }
 
     #[test]
+    fn decoration_color_change_does_not_miss() {
+        // Underline colour is paint-time only — it influences the
+        // `SetUnderlineColor` SGR / quad fill but not Parley shape.
+        // `compute_style_hash` (styled_line.rs) hashes only
+        // `decoration_enabled` (bool) for underline, not the full
+        // TextDecoration — so two lines that share enablement but
+        // differ in colour MUST share a layout cache slot.
+        let mut text = ParleyText::new(&FontConfig::default());
+        let mut cache = LayoutCache::new();
+        let red_underline = line_with_style(
+            "hello",
+            &Style {
+                underline: Some(kasane_core::protocol::TextDecoration {
+                    style: kasane_core::protocol::DecorationStyle::Solid,
+                    color: kasane_core::protocol::Brush::Named(NamedColor::Red),
+                    thickness: None,
+                }),
+                ..Style::default()
+            },
+        );
+        let blue_underline = line_with_style(
+            "hello",
+            &Style {
+                underline: Some(kasane_core::protocol::TextDecoration {
+                    style: kasane_core::protocol::DecorationStyle::Solid,
+                    color: kasane_core::protocol::Brush::Named(NamedColor::Blue),
+                    thickness: None,
+                }),
+                ..Style::default()
+            },
+        );
+        let _ = cache.get_or_compute(0, &red_underline, |l| {
+            shape_line_with_default_family(&mut text, l)
+        });
+        let _ = cache.get_or_compute(0, &blue_underline, |l| {
+            shape_line_with_default_family(&mut text, l)
+        });
+        let stats = cache.take_stats();
+        assert_eq!(
+            stats.misses, 1,
+            "underline colour is paint-time; second call must hit"
+        );
+        assert_eq!(stats.hits, 1);
+    }
+
+    #[test]
+    fn decoration_thickness_change_does_not_miss() {
+        // Underline thickness is paint-time — drives the quad geometry
+        // amplitude in `quad_pipeline.rs`, not the shaped run metrics
+        // Parley produces. The cache key must not pin thickness.
+        let mut text = ParleyText::new(&FontConfig::default());
+        let mut cache = LayoutCache::new();
+        let thin = line_with_style(
+            "hello",
+            &Style {
+                underline: Some(kasane_core::protocol::TextDecoration {
+                    style: kasane_core::protocol::DecorationStyle::Solid,
+                    color: kasane_core::protocol::Brush::Default,
+                    thickness: Some(0.5),
+                }),
+                ..Style::default()
+            },
+        );
+        let thick = line_with_style(
+            "hello",
+            &Style {
+                underline: Some(kasane_core::protocol::TextDecoration {
+                    style: kasane_core::protocol::DecorationStyle::Solid,
+                    color: kasane_core::protocol::Brush::Default,
+                    thickness: Some(2.0),
+                }),
+                ..Style::default()
+            },
+        );
+        let _ = cache.get_or_compute(0, &thin, |l| shape_line_with_default_family(&mut text, l));
+        let _ = cache.get_or_compute(0, &thick, |l| shape_line_with_default_family(&mut text, l));
+        let stats = cache.take_stats();
+        assert_eq!(
+            stats.misses, 1,
+            "underline thickness is paint-time; second call must hit"
+        );
+        assert_eq!(stats.hits, 1);
+    }
+
+    #[test]
+    fn strikethrough_color_change_does_not_miss() {
+        // Strikethrough mirror of `decoration_color_change_does_not_miss`.
+        // Pin both decoration kinds so a future change to
+        // `compute_style_hash` that accidentally pulls one but not the
+        // other is caught uniformly.
+        let mut text = ParleyText::new(&FontConfig::default());
+        let mut cache = LayoutCache::new();
+        let red_strike = line_with_style(
+            "hello",
+            &Style {
+                strikethrough: Some(kasane_core::protocol::TextDecoration {
+                    style: kasane_core::protocol::DecorationStyle::Solid,
+                    color: kasane_core::protocol::Brush::Named(NamedColor::Red),
+                    thickness: None,
+                }),
+                ..Style::default()
+            },
+        );
+        let blue_strike = line_with_style(
+            "hello",
+            &Style {
+                strikethrough: Some(kasane_core::protocol::TextDecoration {
+                    style: kasane_core::protocol::DecorationStyle::Solid,
+                    color: kasane_core::protocol::Brush::Named(NamedColor::Blue),
+                    thickness: None,
+                }),
+                ..Style::default()
+            },
+        );
+        let _ = cache.get_or_compute(0, &red_strike, |l| {
+            shape_line_with_default_family(&mut text, l)
+        });
+        let _ = cache.get_or_compute(0, &blue_strike, |l| {
+            shape_line_with_default_family(&mut text, l)
+        });
+        let stats = cache.take_stats();
+        assert_eq!(
+            stats.misses, 1,
+            "strikethrough colour is paint-time; second call must hit"
+        );
+        assert_eq!(stats.hits, 1);
+    }
+
+    #[test]
     fn strikethrough_enablement_change_misses() {
         let mut text = ParleyText::new(&FontConfig::default());
         let mut cache = LayoutCache::new();
