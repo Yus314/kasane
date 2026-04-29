@@ -7,7 +7,9 @@
 
 use std::ops::Range;
 
-use crate::display::{DisplayDirective, GutterSide, InlineInteraction, VirtualTextPosition};
+use crate::display::{
+    DisplayDirective, GutterSide, InlineBoxAlignment, InlineInteraction, VirtualTextPosition,
+};
 use crate::element::Element;
 use crate::protocol::{Atom, Face};
 use crate::state::shadow_cursor::EditableSpan;
@@ -31,6 +33,7 @@ impl SafeDisplayDirective {
         "EditableVirtualText",
         "Fold",
         "Gutter",
+        "InlineBox",
         "InsertAfter",
         "InsertBefore",
         "InsertInline",
@@ -130,6 +133,29 @@ impl SafeDisplayDirective {
             after,
             content,
             editable_spans,
+        })
+    }
+
+    /// Reserve a non-text inline slot at a byte offset within a buffer line.
+    ///
+    /// Mirrors [`DisplayDirective::InlineBox`]; the actual paint content is
+    /// queried via the `paint-inline-box(box-id)` extension point (Phase 10
+    /// Step 2 — pending). See ADR-031 §Phase 10 Wire Shape #2.
+    pub fn inline_box(
+        line: usize,
+        byte_offset: usize,
+        width_cells: f32,
+        height_lines: f32,
+        box_id: u64,
+        alignment: InlineBoxAlignment,
+    ) -> Self {
+        Self(DisplayDirective::InlineBox {
+            line,
+            byte_offset,
+            width_cells,
+            height_lines,
+            box_id,
+            alignment,
         })
     }
 }

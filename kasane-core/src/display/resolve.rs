@@ -40,10 +40,13 @@ impl TaggedDirective {
             DisplayDirective::StyleInline {
                 line, byte_range, ..
             } => (6, *line + byte_range.start),
-            DisplayDirective::StyleLine { line, .. } => (7, *line),
-            DisplayDirective::Gutter { line, .. } => (8, *line),
-            DisplayDirective::VirtualText { line, .. } => (9, *line),
-            DisplayDirective::EditableVirtualText { after, .. } => (10, *after),
+            DisplayDirective::InlineBox {
+                line, byte_offset, ..
+            } => (7, *line + *byte_offset),
+            DisplayDirective::StyleLine { line, .. } => (8, *line),
+            DisplayDirective::Gutter { line, .. } => (9, *line),
+            DisplayDirective::VirtualText { line, .. } => (10, *line),
+            DisplayDirective::EditableVirtualText { after, .. } => (11, *after),
         };
         (self.priority, &self.plugin_id, variant, anchor)
     }
@@ -596,6 +599,7 @@ fn directive_bounding_range(d: &DisplayDirective) -> Range<usize> {
         | DisplayDirective::InsertInline { line, .. }
         | DisplayDirective::HideInline { line, .. }
         | DisplayDirective::StyleInline { line, .. }
+        | DisplayDirective::InlineBox { line, .. }
         | DisplayDirective::StyleLine { line, .. }
         | DisplayDirective::Gutter { line, .. }
         | DisplayDirective::VirtualText { line, .. } => *line..*line + 1,
@@ -673,6 +677,21 @@ fn hash_directive(d: &DisplayDirective, hasher: &mut impl std::hash::Hasher) {
             after.hash(hasher);
             content.len().hash(hasher);
             editable_spans.len().hash(hasher);
+        }
+        DisplayDirective::InlineBox {
+            line,
+            byte_offset,
+            width_cells,
+            height_lines,
+            box_id,
+            alignment,
+        } => {
+            line.hash(hasher);
+            byte_offset.hash(hasher);
+            width_cells.to_bits().hash(hasher);
+            height_lines.to_bits().hash(hasher);
+            box_id.hash(hasher);
+            alignment.hash(hasher);
         }
     }
 }

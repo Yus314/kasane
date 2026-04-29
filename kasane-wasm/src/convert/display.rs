@@ -1,9 +1,10 @@
 use kasane_core::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
 use kasane_core::display::projection::{ProjectionCategory, ProjectionDescriptor, ProjectionId};
 use kasane_core::display::unit::{DisplayUnit, SemanticRole};
-use kasane_core::display::{DisplayDirective, GutterSide, InlineInteraction, VirtualTextPosition};
+use kasane_core::display::{
+    DisplayDirective, GutterSide, InlineBoxAlignment, InlineInteraction, VirtualTextPosition,
+};
 use kasane_core::element::{Element, InteractiveId, PluginTag};
-use kasane_core::protocol::Atom;
 
 use crate::bindings::kasane::plugin::types as wit;
 
@@ -84,39 +85,36 @@ pub(crate) fn wit_display_directive_to_directive_with_resolver(
             priority: d.priority,
         },
 
-        // === InlineBox (ADR-031 Phase 4 paper design — placeholder projection) ===
+        // === InlineBox (ADR-031 Phase 10 Step 1 — native variant) ===
         //
-        // The directive reserves a non-text slot; the actual paint content
-        // will be queried via a `paint-inline-box(box-id)` extension point
-        // landed by the Phase 10 host work. Until then we project the
-        // directive onto a visible `InsertInline` placeholder of
-        // `width_cells` spaces so the slot is observable to the user (and
-        // the plugin author) instead of silently disappearing. This keeps
-        // the line's display-column accounting correct so adjacent atoms
-        // do not snap to the wrong column when the real renderer arrives.
+        // The WIT directive maps directly to the native
+        // `DisplayDirective::InlineBox`. The placeholder spaces projection
+        // (so the slot keeps display-column accounting correct until the
+        // paint extension lands) now lives in
+        // `kasane-core/src/plugin/registry/collection.rs` — see the
+        // `InlineBox` arm of the inline-directive collector. Centralising
+        // the projection in core means the same behaviour applies to
+        // native plugins that emit `DisplayDirective::InlineBox` directly.
         //
-        // A `tracing::warn!` per directive surfaces the placeholder
-        // behaviour without crashing; we accept the noise because plugin
-        // authors testing the directive deserve a visible signal that the
-        // host has not yet wired the paint extension.
-        wit::DisplayDirective::InlineBox(d) => {
-            let width_cells = d.width_cells.max(0.0).round() as usize;
-            tracing::warn!(
-                target: "kasane_wasm::inline_box",
-                box_id = d.box_id,
-                line = d.line,
-                byte_offset = d.byte_offset,
-                width_cells,
-                "InlineBox directive projected to a {width_cells}-cell space placeholder; \
-                 host paint extension (Phase 10) is not yet implemented",
-            );
-            DisplayDirective::InsertInline {
-                line: d.line as usize,
-                byte_offset: d.byte_offset as usize,
-                content: vec![Atom::plain(" ".repeat(width_cells))],
-                interaction: InlineInteraction::None,
-            }
-        }
+        // Step 2 (pending) will replace the placeholder projection with
+        // a real `paint-inline-box(box-id) -> element-handle` callback
+        // dispatched by the host renderer.
+        wit::DisplayDirective::InlineBox(d) => DisplayDirective::InlineBox {
+            line: d.line as usize,
+            byte_offset: d.byte_offset as usize,
+            width_cells: d.width_cells,
+            height_lines: d.height_lines,
+            box_id: d.box_id,
+            alignment: wit_inline_box_alignment_to_alignment(d.alignment),
+        },
+    }
+}
+
+fn wit_inline_box_alignment_to_alignment(a: wit::InlineBoxAlignment) -> InlineBoxAlignment {
+    match a {
+        wit::InlineBoxAlignment::Center => InlineBoxAlignment::Center,
+        wit::InlineBoxAlignment::Top => InlineBoxAlignment::Top,
+        wit::InlineBoxAlignment::Bottom => InlineBoxAlignment::Bottom,
     }
 }
 
@@ -270,7 +268,9 @@ pub(crate) fn display_directive_to_wit(directive: &DisplayDirective) -> wit::Dis
             content: super::atoms_to_wit(content),
             priority: *priority,
         }),
-        DisplayDirective::EditableVirtualText { after, content, .. } => {
+        DisplayDirective::EditableVirtualText {
+            after, content: _, ..
+        } => {
             // EditableVirtualText is not yet exposed via WIT; degrade to InsertAfter.
             wit::DisplayDirective::InsertAfter(wit::InterlineDirective {
                 line: *after as u32,
@@ -278,6 +278,25 @@ pub(crate) fn display_directive_to_wit(directive: &DisplayDirective) -> wit::Dis
                 priority: 0,
             })
         }
+        DisplayDirective::InlineBox {
+            line,
+            byte_offset,
+            width_cells,
+            height_lines,
+            box_id,
+            alignment,
+        } => wit::DisplayDirective::InlineBox(wit::InlineBoxDirective {
+            line: *line as u32,
+            byte_offset: *byte_offset as u32,
+            width_cells: *width_cells,
+            height_lines: *height_lines,
+            box_id: *box_id,
+            alignment: match alignment {
+                InlineBoxAlignment::Center => wit::InlineBoxAlignment::Center,
+                InlineBoxAlignment::Top => wit::InlineBoxAlignment::Top,
+                InlineBoxAlignment::Bottom => wit::InlineBoxAlignment::Bottom,
+            },
+        }),
     }
 }
 

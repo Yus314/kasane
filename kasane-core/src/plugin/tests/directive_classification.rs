@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use crate::display::{
     self, BufferLine, DirectiveCategory, DisplayDirective, DisplayMap, FoldToggleState, GutterSide,
-    InlineInteraction, VirtualTextPosition,
+    InlineBoxAlignment, InlineInteraction, VirtualTextPosition,
 };
 use crate::element::Element;
 use crate::plugin::handler_registry::HandlerRegistry;
@@ -49,6 +49,14 @@ fn make_all_directive_instances() -> Vec<DisplayDirective> {
             byte_offset: 0,
             content: vec![],
             interaction: InlineInteraction::None,
+        },
+        DisplayDirective::InlineBox {
+            line: 0,
+            byte_offset: 0,
+            width_cells: 1.0,
+            height_lines: 1.0,
+            box_id: 0,
+            alignment: InlineBoxAlignment::Center,
         },
         DisplayDirective::StyleInline {
             line: 0,
@@ -227,6 +235,44 @@ fn is_spatial_matches_category() {
             d.variant_name()
         );
     }
+}
+
+// =========================================================================
+// InlineBox classification (ADR-031 Phase 10 Step 1)
+// =========================================================================
+
+#[test]
+fn inline_box_is_inline_category() {
+    let d = DisplayDirective::InlineBox {
+        line: 0,
+        byte_offset: 0,
+        width_cells: 1.0,
+        height_lines: 1.0,
+        box_id: 42,
+        alignment: InlineBoxAlignment::Center,
+    };
+    assert_eq!(d.category(), DirectiveCategory::Inline);
+    assert!(!d.is_destructive(), "InlineBox is not destructive");
+    assert!(!d.is_spatial(), "InlineBox is not spatial");
+}
+
+#[test]
+fn inline_box_is_preserving() {
+    assert!(
+        display::PRESERVING_VARIANTS.contains(&"InlineBox"),
+        "InlineBox must be a preserving variant"
+    );
+    assert!(
+        !display::DESTRUCTIVE_VARIANTS.contains(&"InlineBox"),
+        "InlineBox must not be a destructive variant"
+    );
+}
+
+#[test]
+fn inline_box_is_safe_constructible() {
+    // SafeDisplayDirective must permit InlineBox (it is non-destructive).
+    let _safe = SafeDisplayDirective::inline_box(0, 0, 2.0, 1.0, 42, InlineBoxAlignment::Top);
+    assert!(SafeDisplayDirective::VARIANT_NAMES.contains(&"InlineBox"));
 }
 
 // =========================================================================

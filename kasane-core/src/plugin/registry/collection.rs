@@ -587,6 +587,30 @@ impl<'a> PluginView<'a> {
                             });
                         has_inline = true;
                     }
+                    crate::display::DisplayDirective::InlineBox {
+                        line,
+                        byte_offset,
+                        width_cells,
+                        ..
+                    } if *line < line_count => {
+                        // Phase 10 Step 1 — placeholder projection. The WIT
+                        // contract reserves a non-text inline slot, but the
+                        // host paint extension (`paint-inline-box(box-id)`)
+                        // is not yet wired (Step 2). Project to a
+                        // `width_cells`-space `InsertInline` so adjacent
+                        // atoms keep correct display-column accounting and
+                        // the slot is observable to plugin authors.
+                        let n = width_cells.max(0.0).round() as usize;
+                        if n > 0 {
+                            uni_inline.entry(*line).or_default().push(
+                                crate::render::InlineOp::Insert {
+                                    at: *byte_offset,
+                                    content: vec![crate::protocol::Atom::plain(" ".repeat(n))],
+                                },
+                            );
+                            has_inline = true;
+                        }
+                    }
                     crate::display::DisplayDirective::StyleInline {
                         line,
                         byte_range,

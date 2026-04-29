@@ -80,6 +80,18 @@ pub enum VirtualTextPosition {
     RightAligned,
 }
 
+/// Baseline alignment for an [`DisplayDirective::InlineBox`] slot.
+///
+/// `Center` matches what Parley's `push_inline_box` produces by default;
+/// `Top` and `Bottom` are exposed for plugins that paint glyph-bearing
+/// content (e.g. tall icons) with explicit baseline expectations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InlineBoxAlignment {
+    Center,
+    Top,
+    Bottom,
+}
+
 /// Category of a [`DisplayDirective`] variant.
 ///
 /// Used to partition directives for separate resolution passes.
@@ -151,6 +163,30 @@ pub enum DisplayDirective {
         line: usize,
         byte_range: Range<usize>,
     },
+    /// Reserve a non-text inline slot at a byte offset within a buffer line.
+    ///
+    /// The slot only declares geometry; the actual paint content is
+    /// queried via the `paint-inline-box(box-id) -> element-handle`
+    /// extension point (Phase 10 Step 2 — pending). Until that lands,
+    /// the renderer projects the slot to a `width_cells` placeholder so
+    /// adjacent atoms keep correct display-column accounting.
+    ///
+    /// `box_id` is plugin-supplied and stable across re-runs (canonical
+    /// recipe: hash of `(plugin-id, content-fingerprint)`); the host uses
+    /// it as part of the L2 paint cache key once paint dispatch lands.
+    ///
+    /// Width is in **display columns** (cell units); the host converts
+    /// to physical pixels using current cell metrics. Height is in
+    /// fractional lines (`1.0` = single line; `2.0` = double-tall).
+    /// See ADR-031 §Phase 10 Wire Shape #2 for the wire-shape rationale.
+    InlineBox {
+        line: usize,
+        byte_offset: usize,
+        width_cells: f32,
+        height_lines: f32,
+        box_id: u64,
+        alignment: InlineBoxAlignment,
+    },
     /// Apply face styling to a byte range within a buffer line.
     StyleInline {
         line: usize,
@@ -202,6 +238,7 @@ pub const ALL_VARIANT_NAMES: &[&str] = &[
     "Gutter",
     "Hide",
     "HideInline",
+    "InlineBox",
     "InsertAfter",
     "InsertBefore",
     "InsertInline",
@@ -218,6 +255,7 @@ pub const PRESERVING_VARIANTS: &[&str] = &[
     "EditableVirtualText",
     "Fold",
     "Gutter",
+    "InlineBox",
     "InsertAfter",
     "InsertBefore",
     "InsertInline",
@@ -234,6 +272,7 @@ impl DisplayDirective {
             DisplayDirective::Gutter { .. } => "Gutter",
             DisplayDirective::Hide { .. } => "Hide",
             DisplayDirective::HideInline { .. } => "HideInline",
+            DisplayDirective::InlineBox { .. } => "InlineBox",
             DisplayDirective::InsertAfter { .. } => "InsertAfter",
             DisplayDirective::InsertBefore { .. } => "InsertBefore",
             DisplayDirective::InsertInline { .. } => "InsertInline",
@@ -263,6 +302,7 @@ impl DisplayDirective {
             }
             DisplayDirective::InsertInline { .. }
             | DisplayDirective::HideInline { .. }
+            | DisplayDirective::InlineBox { .. }
             | DisplayDirective::StyleInline { .. } => DirectiveCategory::Inline,
             DisplayDirective::StyleLine { .. }
             | DisplayDirective::Gutter { .. }
