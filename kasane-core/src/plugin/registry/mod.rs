@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use crate::display::{
     CategorizedDirectives, DirectiveSet, DirectiveStabilityMonitor, partition_by_category,
 };
-use crate::element::{InteractiveId, PluginTag};
+use crate::element::{Element, InteractiveId, PluginTag};
 use crate::input::{ChordState, DropEvent, KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
@@ -894,6 +894,30 @@ impl ContributionCache {
 }
 
 impl<'a> PluginView<'a> {
+    /// Dispatch `paint_inline_box(box_id)` to the plugin owning the box.
+    ///
+    /// Returns the `Element` the plugin wants rendered inside the inline
+    /// box, or `None` if the plugin has no handler registered or returned
+    /// `None`. Used by the rendering pipeline to fill `BufferParagraph`'s
+    /// `inline_box_paint_commands` after walk-paint, per ADR-031 Phase 10
+    /// Step 2 (Step A.2b). Returns `None` quickly for plugins that lack
+    /// the `INLINE_BOX_PAINTER` capability bit.
+    pub fn paint_inline_box(
+        &self,
+        owner: &super::PluginId,
+        box_id: u64,
+        app: &AppView<'_>,
+    ) -> Option<Element> {
+        let slot = self.slots.iter().find(|s| s.backend.id() == *owner)?;
+        if !slot
+            .capabilities
+            .contains(super::PluginCapabilities::INLINE_BOX_PAINTER)
+        {
+            return None;
+        }
+        slot.backend.paint_inline_box(box_id, app)
+    }
+
     /// Ensure the unified display cache is populated for the given plugin slot.
     ///
     /// Returns `true` if the plugin uses unified display (cache is valid).

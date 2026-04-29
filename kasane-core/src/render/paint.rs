@@ -121,8 +121,25 @@ pub(crate) enum BufferLineAction<'a> {
         line_idx: usize,
         line: &'a [Atom],
         base_face: Face,
-        /// Pre-computed decorated atoms if inline decorations apply.
+        /// Pre-computed decorated atoms (TUI flavour) if inline decorations
+        /// apply. `InlineOp::InlineBox` ops emit `width_cells` placeholder
+        /// spaces here so cell-grid backends keep correct column accounting.
         decorated: Option<Vec<Atom>>,
+        /// Pre-computed decorated atoms (GPU flavour) — identical to
+        /// `decorated` except `InlineOp::InlineBox` placeholders are
+        /// stripped (Parley reserves the geometry via
+        /// [`StyledLine::with_inline_boxes`] instead).
+        ///
+        /// `Some` only when the decoration contains at least one InlineBox
+        /// op; otherwise `None` and the GPU path falls back to `decorated`.
+        /// ADR-031 Phase 10 Step 2-renderer C.
+        decorated_for_gpu: Option<Vec<Atom>>,
+        /// Inline-box slot metadata for the GPU path. `byte_offset` is in
+        /// the `decorated_for_gpu` (or `line`) coordinate system, ready to
+        /// be passed to Parley's `push_inline_box`. Empty when no
+        /// `InlineOp::InlineBox` ops are present.
+        /// ADR-031 Phase 10 Step 2-renderer C.
+        inline_box_slots: Vec<crate::render::inline_decoration::InlineBoxSlotMeta>,
         /// EOL virtual text atoms to append after buffer content.
         virtual_text: Option<&'a [Atom]>,
     },
@@ -231,11 +248,33 @@ pub(crate) fn analyze_buffer_line<'a>(
         let base_face = line_backgrounds
             .and_then(|bgs| bgs.get(line_idx).copied().flatten())
             .unwrap_or(params.default_face);
-        let decorated = inline_decorations
+        let active_deco = inline_decorations
             .and_then(|ds| ds.get(line_idx))
             .and_then(|d| d.as_ref())
-            .filter(|deco| !deco.is_empty())
-            .map(|deco| crate::render::inline_decoration::apply_inline_ops(line, deco));
+            .filter(|deco| !deco.is_empty());
+        let decorated =
+            active_deco.map(|deco| crate::render::inline_decoration::apply_inline_ops(line, deco));
+        // Compute GPU flavour only when the decoration carries InlineBox
+        // ops — otherwise the TUI flavour is byte-identical and `None`
+        // signals the GPU path to fall back to `decorated`.
+        let (decorated_for_gpu, inline_box_slots) = match active_deco {
+            Some(deco) => {
+                let has_inline_box = deco.ops().iter().any(|op| {
+                    matches!(
+                        op,
+                        crate::render::inline_decoration::InlineOp::InlineBox { .. }
+                    )
+                });
+                if has_inline_box {
+                    let (gpu_atoms, slots) =
+                        crate::render::inline_decoration::apply_inline_ops_for_gpu(line, deco);
+                    (Some(gpu_atoms), slots)
+                } else {
+                    (None, Vec::new())
+                }
+            }
+            None => (None, Vec::new()),
+        };
         let vt = virtual_text
             .and_then(|vts| vts.get(line_idx))
             .and_then(|v| v.as_deref());
@@ -244,6 +283,8 @@ pub(crate) fn analyze_buffer_line<'a>(
             line,
             base_face,
             decorated,
+            decorated_for_gpu,
+            inline_box_slots,
             virtual_text: vt,
         }
     } else {
@@ -1117,6 +1158,55 @@ mod tests {
                     "mismatch at ({x}, {y})"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn analyze_inline_decoration_with_inline_box_populates_gpu_fields() {
+        // ADR-031 Phase 10 Step 2-renderer C: when the InlineDecoration
+        // contains an InlineBox op, analyze_buffer_line populates BOTH
+        // `decorated` (TUI flavour with placeholder spaces) and
+        // `decorated_for_gpu` (no placeholders) plus the translated slot
+        // list.
+        use crate::display::InlineBoxAlignment;
+        use crate::plugin::PluginId;
+        use crate::render::InlineDecoration;
+        use crate::render::inline_decoration::InlineOp;
+        let lines = vec![make_line("hello world")];
+        let params = make_params(&lines, &[]);
+        let deco = InlineDecoration::new(vec![InlineOp::InlineBox {
+            at: 6,
+            width_cells: 3.0,
+            height_lines: 1.0,
+            box_id: 0xABCD,
+            alignment: InlineBoxAlignment::Center,
+            owner: PluginId("color.preview".into()),
+        }]);
+        let decos: Vec<Option<InlineDecoration>> = vec![Some(deco)];
+        match analyze_buffer_line(&params, 0, None, None, Some(&decos), None, false) {
+            BufferLineAction::BufferLine {
+                decorated,
+                decorated_for_gpu,
+                inline_box_slots,
+                ..
+            } => {
+                let tui_atoms = decorated.expect("TUI decorated stream");
+                let tui_text: String = tui_atoms.iter().map(|a| a.contents.as_str()).collect();
+                assert_eq!(
+                    tui_text, "hello    world",
+                    "3 placeholder spaces inserted at byte 6"
+                );
+
+                let gpu_atoms = decorated_for_gpu.expect("GPU decorated stream");
+                let gpu_text: String = gpu_atoms.iter().map(|a| a.contents.as_str()).collect();
+                assert_eq!(gpu_text, "hello world", "GPU stream has no placeholders");
+
+                assert_eq!(inline_box_slots.len(), 1);
+                assert_eq!(inline_box_slots[0].byte_offset, 6);
+                assert_eq!(inline_box_slots[0].box_id, 0xABCD);
+                assert_eq!(inline_box_slots[0].width_cells, 3.0);
+            }
+            other => panic!("expected BufferLine with InlineBox decoration, got {other:?}"),
         }
     }
 }

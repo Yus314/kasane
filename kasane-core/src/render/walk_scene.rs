@@ -146,9 +146,18 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     line,
                     base_face,
                     decorated,
+                    decorated_for_gpu,
+                    inline_box_slots,
                     virtual_text: vt,
                 } => {
-                    let atoms = decorated.as_deref().unwrap_or(line);
+                    // GPU prefers `decorated_for_gpu` (placeholder-stripped)
+                    // when present, falls back to `decorated` (TUI flavour
+                    // — only differs from the GPU flavour when InlineBox
+                    // ops are present), and finally to the raw line.
+                    let atoms = decorated_for_gpu
+                        .as_deref()
+                        .or(decorated.as_deref())
+                        .unwrap_or(line);
                     // Convert the base face to a Style once per buffer line;
                     // resolve_atoms then operates Face-free for every atom.
                     let base_style = crate::protocol::Style::from_face(&base_face);
@@ -189,6 +198,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         }
                     }
 
+                    let slot_count = inline_box_slots.len();
                     self.out.push(DrawCommand::RenderParagraph {
                         pos: PixelPos { x: px, y: py },
                         max_width: row_w,
@@ -196,6 +206,10 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             atoms: resolved,
                             base_face: base_face.into(),
                             annotations,
+                            inline_box_slots,
+                            // Initialised empty; pipeline.rs populates
+                            // post-walk via plugin dispatch.
+                            inline_box_paint_commands: vec![Vec::new(); slot_count],
                         },
                         line_idx: display_line as u32,
                     });

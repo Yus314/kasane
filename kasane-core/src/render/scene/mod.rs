@@ -88,6 +88,21 @@ pub struct BufferParagraph {
     pub base_face: Style,
     /// Semantic annotations (cursors, etc.).
     pub annotations: Vec<ParagraphAnnotation>,
+    /// Inline-box slots reserved within the line — passed to Parley's
+    /// `push_inline_box` so the layout engine accounts for the declared
+    /// geometry. `byte_offset` is in `atoms` (post-decoration) coords.
+    /// ADR-031 Phase 10 Step 2-renderer C.
+    pub inline_box_slots: Vec<crate::render::inline_decoration::InlineBoxSlotMeta>,
+    /// Pre-painted draw commands for each inline-box slot — origin (0,0),
+    /// laid out at the slot's declared cell geometry. The GPU renderer
+    /// translates each command's position by the Parley-reported box rect
+    /// and appends them to the scene at paint time.
+    ///
+    /// Length matches `inline_box_slots`. An empty inner `Vec` indicates
+    /// the owning plugin returned `None` from `paint_inline_box`; the
+    /// renderer falls back to a placeholder fill in that case.
+    /// ADR-031 Phase 10 Step 2-renderer (Step A.2b).
+    pub inline_box_paint_commands: Vec<Vec<DrawCommand>>,
 }
 
 /// GPU draw command produced by `scene_paint`.
@@ -202,6 +217,43 @@ pub enum DrawCommand {
     /// The renderer must flush (bg → border → text) before starting the new
     /// layer so that overlay backgrounds occlude base-layer text.
     BeginOverlay,
+}
+
+/// Translate every position-bearing draw command in `cmds` by `(dx, dy)`.
+///
+/// Used to relocate a sub-tree of pre-painted DrawCommands (e.g. inline-box
+/// content rendered at origin (0, 0)) to its final on-screen position once
+/// the host knows the rect from the layout engine. Commands without a
+/// position field (`PushClip` clips, `PopClip`, `BeginOverlay`) pass
+/// through unchanged.
+///
+/// ADR-031 Phase 10 Step 2-renderer (Step A.2b).
+pub fn translate_draw_commands(cmds: &mut [DrawCommand], dx: f32, dy: f32) {
+    if dx == 0.0 && dy == 0.0 {
+        return;
+    }
+    for cmd in cmds {
+        match cmd {
+            DrawCommand::FillRect { rect, .. }
+            | DrawCommand::DrawBorder { rect, .. }
+            | DrawCommand::DrawBorderTitle { rect, .. }
+            | DrawCommand::DrawShadow { rect, .. }
+            | DrawCommand::DrawImage { rect, .. }
+            | DrawCommand::DrawCanvas { rect, .. }
+            | DrawCommand::PushClip(rect) => {
+                rect.x += dx;
+                rect.y += dy;
+            }
+            DrawCommand::DrawAtoms { pos, .. }
+            | DrawCommand::DrawText { pos, .. }
+            | DrawCommand::DrawPaddingRow { pos, .. }
+            | DrawCommand::RenderParagraph { pos, .. } => {
+                pos.x += dx;
+                pos.y += dy;
+            }
+            DrawCommand::PopClip | DrawCommand::BeginOverlay => {}
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

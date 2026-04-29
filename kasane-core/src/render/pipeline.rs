@@ -519,6 +519,20 @@ pub(crate) fn scene_render_core<'a>(
             cell_size,
             result.cursor_style,
         );
+        // ADR-031 Phase 10 Step 2-renderer (Step A.2b): fill in
+        // `BufferParagraph::inline_box_paint_commands` by dispatching
+        // `paint_inline_box(box_id)` to each slot's owning plugin and
+        // pre-painting the returned Element at origin (0, 0). The GPU
+        // renderer translates these commands to the box's final rect at
+        // emit time.
+        populate_inline_box_paint_commands(
+            &mut cmds,
+            registry,
+            state,
+            theme,
+            cell_size,
+            result.cursor_style,
+        );
         let surface_ornaments = resolve_surface_ornaments(
             &ornaments.surfaces,
             source.surface_registry(),
@@ -553,9 +567,17 @@ pub(crate) fn scene_render_core<'a>(
                     id: idx as u32,
                 });
 
-            let overlay_cmds = walk::walk_paint_scene_section(
+            let mut overlay_cmds = walk::walk_paint_scene_section(
                 &overlay.element,
                 &overlay_layout,
+                state,
+                theme,
+                cell_size,
+                result.cursor_style,
+            );
+            populate_inline_box_paint_commands(
+                &mut overlay_cmds,
+                registry,
                 state,
                 theme,
                 cell_size,
@@ -631,4 +653,216 @@ pub fn render_pipeline_direct(
         super::ImageProtocol::Off,
         None,
     )
+}
+
+/// Populate `BufferParagraph::inline_box_paint_commands` for each
+/// `RenderParagraph` in `cmds` by dispatching `paint_inline_box(box_id)`
+/// to the slot's owning plugin and pre-painting the returned `Element` at
+/// origin (0, 0).
+///
+/// ADR-031 Phase 10 Step 2-renderer (Step A.2b). The GPU renderer
+/// translates each command's position by the Parley-reported box rect at
+/// emit time. Slots whose plugin returns `None` keep an empty inner
+/// `Vec`; the GPU renderer falls back to a placeholder fill.
+fn populate_inline_box_paint_commands(
+    cmds: &mut [DrawCommand],
+    registry: &PluginView<'_>,
+    state: &AppState,
+    theme: &super::theme::Theme,
+    cell_size: scene::CellSize,
+    cursor_style: super::CursorStyle,
+) {
+    let app_view = AppView::new(state);
+    for cmd in cmds.iter_mut() {
+        let DrawCommand::RenderParagraph { paragraph, .. } = cmd else {
+            continue;
+        };
+        if paragraph.inline_box_slots.is_empty() {
+            continue;
+        }
+        for (idx, slot) in paragraph.inline_box_slots.iter().enumerate() {
+            let Some(element) = registry.paint_inline_box(&slot.owner, slot.box_id, &app_view)
+            else {
+                continue;
+            };
+            // Layout the sub-element at the slot's declared cell
+            // geometry. Cell-grid Rect is u16; fractional cells round up
+            // so the sub-element gets at least the declared space.
+            let area = Rect {
+                x: 0,
+                y: 0,
+                w: slot.width_cells.max(0.0).ceil() as u16,
+                h: slot.height_lines.max(0.0).ceil() as u16,
+            };
+            if area.w == 0 || area.h == 0 {
+                continue;
+            }
+            let layout = flex::place(&element, area, state);
+            let sub_cmds = walk::walk_paint_scene_section(
+                &element,
+                &layout,
+                state,
+                theme,
+                cell_size,
+                cursor_style,
+            );
+            paragraph.inline_box_paint_commands[idx] = sub_cmds;
+        }
+    }
+}
+
+#[cfg(test)]
+mod inline_box_dispatch_tests {
+    use super::*;
+    use crate::display::InlineBoxAlignment;
+    use crate::element::Element;
+    use crate::layout::Rect;
+    use crate::plugin::handler_registry::HandlerRegistry;
+    use crate::plugin::state::Plugin;
+    use crate::plugin::{PluginId, PluginRuntime};
+    use crate::protocol::{Color, Face, NamedColor};
+    use crate::render::CursorStyle;
+    use crate::render::inline_decoration::InlineBoxSlotMeta;
+    use crate::render::scene::{
+        BufferParagraph, CellSize, DrawCommand, ParagraphAnnotation, PixelPos,
+    };
+    use crate::render::theme::Theme;
+
+    /// Plugin that paints a 2-cell × 1-line FillRect inside its inline box.
+    struct InlineBoxPainterPlugin;
+
+    impl Plugin for InlineBoxPainterPlugin {
+        type State = ();
+
+        fn id(&self) -> PluginId {
+            PluginId("test.inline-box-painter".into())
+        }
+
+        fn register(&self, r: &mut HandlerRegistry<()>) {
+            r.on_paint_inline_box(|_state, box_id, _app| {
+                // Match the box_id our test will pass through.
+                if box_id == 0xCAFE {
+                    Some(Element::text(
+                        "X",
+                        Face {
+                            bg: Color::Named(NamedColor::Magenta),
+                            ..Face::default()
+                        },
+                    ))
+                } else {
+                    None
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn populate_inline_box_paint_commands_fills_paint_for_dispatched_slot() {
+        // ADR-031 Phase 10 Step 2-renderer (Step A.2b): verify that the
+        // post-walk dispatch helper populates `inline_box_paint_commands`
+        // for slots whose owning plugin returns Some(Element).
+        let owner = PluginId("test.inline-box-painter".into());
+        let mut runtime = PluginRuntime::new();
+        runtime.register(InlineBoxPainterPlugin);
+
+        let mut commands = vec![DrawCommand::RenderParagraph {
+            pos: PixelPos { x: 0.0, y: 0.0 },
+            max_width: 800.0,
+            paragraph: BufferParagraph {
+                atoms: Vec::new(),
+                base_face: crate::protocol::Style::default(),
+                annotations: Vec::<ParagraphAnnotation>::new(),
+                inline_box_slots: vec![InlineBoxSlotMeta {
+                    byte_offset: 0,
+                    width_cells: 2.0,
+                    height_lines: 1.0,
+                    box_id: 0xCAFE,
+                    alignment: InlineBoxAlignment::Center,
+                    owner: owner.clone(),
+                }],
+                inline_box_paint_commands: vec![Vec::new()],
+            },
+            line_idx: 0,
+        }];
+
+        let state = crate::test_support::test_state_80x24();
+        let view = runtime.view();
+        let theme = Theme::default_theme();
+        let cell_size = CellSize {
+            width: 10.0,
+            height: 20.0,
+        };
+
+        populate_inline_box_paint_commands(
+            &mut commands,
+            &view,
+            &state,
+            &theme,
+            cell_size,
+            CursorStyle::Block,
+        );
+
+        let DrawCommand::RenderParagraph { paragraph, .. } = &commands[0] else {
+            panic!("expected RenderParagraph");
+        };
+        assert!(
+            !paragraph.inline_box_paint_commands[0].is_empty(),
+            "expected paint commands populated for matching box_id"
+        );
+    }
+
+    #[test]
+    fn populate_inline_box_paint_commands_leaves_slot_empty_when_plugin_returns_none() {
+        // Plugin returns None for a non-matching box_id; the slot's paint
+        // commands stay empty so the GPU renderer falls back to the
+        // placeholder fill.
+        let owner = PluginId("test.inline-box-painter".into());
+        let mut runtime = PluginRuntime::new();
+        runtime.register(InlineBoxPainterPlugin);
+
+        let mut commands = vec![DrawCommand::RenderParagraph {
+            pos: PixelPos { x: 0.0, y: 0.0 },
+            max_width: 800.0,
+            paragraph: BufferParagraph {
+                atoms: Vec::new(),
+                base_face: crate::protocol::Style::default(),
+                annotations: Vec::new(),
+                inline_box_slots: vec![InlineBoxSlotMeta {
+                    byte_offset: 0,
+                    width_cells: 2.0,
+                    height_lines: 1.0,
+                    box_id: 0xDEAD,
+                    alignment: InlineBoxAlignment::Center,
+                    owner: owner.clone(),
+                }],
+                inline_box_paint_commands: vec![Vec::new()],
+            },
+            line_idx: 0,
+        }];
+
+        let state = crate::test_support::test_state_80x24();
+        let view = runtime.view();
+        let theme = Theme::default_theme();
+        let cell_size = CellSize {
+            width: 10.0,
+            height: 20.0,
+        };
+
+        populate_inline_box_paint_commands(
+            &mut commands,
+            &view,
+            &state,
+            &theme,
+            cell_size,
+            CursorStyle::Block,
+        );
+
+        let DrawCommand::RenderParagraph { paragraph, .. } = &commands[0] else {
+            panic!("expected RenderParagraph");
+        };
+        assert!(
+            paragraph.inline_box_paint_commands[0].is_empty(),
+            "expected paint commands empty when plugin returns None"
+        );
+    }
 }

@@ -140,6 +140,12 @@ impl InlineDecoration {
     /// geometry; the host then dispatches `paint_inline_box(box_id)` to
     /// the slot's owning plugin at paint time.
     ///
+    /// The `byte_offset` returned is in **buffer (pre-decoration) coords**,
+    /// matching the [`InlineOp::InlineBox::at`] field. GPU renderers that
+    /// feed the slots through Parley after applying `Insert`/`Hide` ops
+    /// must use [`Self::inline_box_slots_translated`] instead, which
+    /// reflects the post-decoration coordinate system.
+    ///
     /// The cell-grid (TUI) backend ignores this — [`apply_inline_ops`]
     /// already emits `width_cells` placeholder spaces so column
     /// accounting stays correct.
@@ -166,6 +172,93 @@ impl InlineDecoration {
             })
             .collect()
     }
+
+    /// Extract inline-box slot metadata with `byte_offset` translated into
+    /// the **post-decoration GPU coordinate system** (ADR-031 Phase 10
+    /// Step 2-renderer C).
+    ///
+    /// The GPU pipeline applies decorations via
+    /// [`apply_inline_ops_for_gpu`] which strips InlineBox placeholder
+    /// spaces but emits Insert content and skips Hide ranges. Slot
+    /// `byte_offset` reported here matches the byte index into the
+    /// resulting atom-text concatenation — the value Parley's
+    /// `push_inline_box` expects.
+    ///
+    /// Translation rules (walked in [`InlineOp::sort_key`] order):
+    /// - `Insert { at, content }` shifts subsequent offsets by
+    ///   `+content_byte_len`.
+    /// - `Hide { range }` shifts subsequent offsets by
+    ///   `-(range.end - range.start)`.
+    /// - `InlineBox` does **not** shift its own or subsequent offsets
+    ///   (placeholders are stripped in the GPU output).
+    /// - `Style` does not affect byte counts.
+    ///
+    /// If a slot's translated offset would be negative (e.g. an
+    /// `InlineBox.at` falls inside a prior `Hide` range), the slot is
+    /// clamped to the Hide range's start in the post-decoration stream.
+    pub fn inline_box_slots_translated(&self) -> Vec<InlineBoxSlotMeta> {
+        let mut delta: isize = 0;
+        let mut slots = Vec::new();
+        for op in &self.ops {
+            match op {
+                InlineOp::Insert { at: _, content } => {
+                    let added: isize = content.iter().map(|a| a.contents.len() as isize).sum();
+                    delta += added;
+                }
+                InlineOp::Hide { range } => {
+                    delta -= (range.end - range.start) as isize;
+                }
+                InlineOp::InlineBox {
+                    at,
+                    width_cells,
+                    height_lines,
+                    box_id,
+                    alignment,
+                    owner,
+                } => {
+                    let translated = (*at as isize + delta).max(0) as usize;
+                    slots.push(InlineBoxSlotMeta {
+                        byte_offset: translated,
+                        width_cells: *width_cells,
+                        height_lines: *height_lines,
+                        box_id: *box_id,
+                        alignment: *alignment,
+                        owner: owner.clone(),
+                    });
+                }
+                InlineOp::Style { .. } => {}
+            }
+        }
+        slots
+    }
+}
+
+/// GPU-flavoured `apply_inline_ops`: identical to [`apply_inline_ops`]
+/// except that [`InlineOp::InlineBox`] is treated as a no-op for the atom
+/// stream (no placeholder spaces emitted) and the slot metadata is
+/// returned alongside, with `byte_offset` translated into the resulting
+/// atom-text coordinate system (ADR-031 Phase 10 Step 2-renderer C).
+///
+/// The slot list is exactly what
+/// [`InlineDecoration::inline_box_slots_translated`] would return; the
+/// helper is colocated so callers that already invoke `apply_*` for the
+/// GPU path get both outputs in one sweep.
+pub fn apply_inline_ops_for_gpu(
+    atoms: &[Atom],
+    decoration: &InlineDecoration,
+) -> (Vec<Atom>, Vec<InlineBoxSlotMeta>) {
+    let slots = decoration.inline_box_slots_translated();
+    if decoration.is_empty() {
+        return (atoms.to_vec(), slots);
+    }
+    let filtered_ops: Vec<InlineOp> = decoration
+        .ops()
+        .iter()
+        .filter(|op| !matches!(op, InlineOp::InlineBox { .. }))
+        .cloned()
+        .collect();
+    let filtered = InlineDecoration::new(filtered_ops);
+    (apply_inline_ops(atoms, &filtered), slots)
 }
 
 /// Apply inline operations to a slice of atoms, producing a new atom vector.
@@ -525,6 +618,154 @@ mod tests {
             "only InlineOp::InlineBox surfaces in the slot list"
         );
         assert_eq!(slots[0].box_id, 1);
+    }
+
+    #[test]
+    fn apply_inline_ops_for_gpu_no_inlinebox_returns_same_as_apply() {
+        // ADR-031 Phase 10 Step 2-renderer C: when no InlineBox ops are
+        // present, the GPU helper produces the same atoms as the regular
+        // pipeline (the only difference is empty slot list).
+        let atoms = vec![make_atom("hello world", default_face())];
+        let deco = InlineDecoration::new(vec![
+            InlineOp::Style {
+                range: 0..5,
+                face: red_face(),
+            },
+            InlineOp::Hide { range: 6..11 },
+        ]);
+        let plain = apply_inline_ops(&atoms, &deco);
+        let (gpu_atoms, slots) = apply_inline_ops_for_gpu(&atoms, &deco);
+        assert_eq!(gpu_atoms, plain);
+        assert!(slots.is_empty());
+    }
+
+    #[test]
+    fn apply_inline_ops_for_gpu_strips_inlinebox_placeholders() {
+        // GPU path skips placeholder space emission for InlineBox.
+        let atoms = vec![make_atom("ab", default_face())];
+        let deco = InlineDecoration::new(vec![InlineOp::InlineBox {
+            at: 1,
+            width_cells: 3.0,
+            height_lines: 1.0,
+            box_id: 7,
+            alignment: InlineBoxAlignment::Center,
+            owner: pid("p"),
+        }]);
+        let (gpu_atoms, slots) = apply_inline_ops_for_gpu(&atoms, &deco);
+        let text: String = gpu_atoms.iter().map(|a| a.contents.as_str()).collect();
+        assert_eq!(text, "ab", "no placeholder spaces in GPU stream");
+        assert_eq!(slots.len(), 1);
+        assert_eq!(slots[0].byte_offset, 1);
+        assert_eq!(slots[0].box_id, 7);
+    }
+
+    #[test]
+    fn extract_translated_inline_box_slots_with_prior_insert_shifts_offset() {
+        // Insert{at:3, "XX"} (2 bytes) + InlineBox{at:5}
+        //   → translated offset = 5 + 2 = 7
+        let deco = InlineDecoration::new(vec![
+            InlineOp::Insert {
+                at: 3,
+                content: vec![make_atom("XX", default_face())],
+            },
+            InlineOp::InlineBox {
+                at: 5,
+                width_cells: 2.0,
+                height_lines: 1.0,
+                box_id: 1,
+                alignment: InlineBoxAlignment::Center,
+                owner: pid("p"),
+            },
+        ]);
+        let slots = deco.inline_box_slots_translated();
+        assert_eq!(slots.len(), 1);
+        assert_eq!(slots[0].byte_offset, 7);
+    }
+
+    #[test]
+    fn extract_translated_inline_box_slots_with_prior_hide_shifts_offset() {
+        // Hide{0..3} (3 bytes removed) + InlineBox{at:5}
+        //   → translated offset = 5 - 3 = 2
+        let deco = InlineDecoration::new(vec![
+            InlineOp::Hide { range: 0..3 },
+            InlineOp::InlineBox {
+                at: 5,
+                width_cells: 1.0,
+                height_lines: 1.0,
+                box_id: 2,
+                alignment: InlineBoxAlignment::Center,
+                owner: pid("p"),
+            },
+        ]);
+        let slots = deco.inline_box_slots_translated();
+        assert_eq!(slots.len(), 1);
+        assert_eq!(slots[0].byte_offset, 2);
+    }
+
+    #[test]
+    fn extract_translated_inline_box_slots_multiple_inlineboxes_no_self_shift() {
+        // Two InlineBoxes — neither shifts the other (placeholders are
+        // stripped in the GPU pipeline).
+        let deco = InlineDecoration::new(vec![
+            InlineOp::InlineBox {
+                at: 2,
+                width_cells: 5.0, // would be 5 placeholder bytes in TUI path
+                height_lines: 1.0,
+                box_id: 1,
+                alignment: InlineBoxAlignment::Center,
+                owner: pid("p"),
+            },
+            InlineOp::InlineBox {
+                at: 5,
+                width_cells: 3.0,
+                height_lines: 1.0,
+                box_id: 2,
+                alignment: InlineBoxAlignment::Center,
+                owner: pid("p"),
+            },
+        ]);
+        let slots = deco.inline_box_slots_translated();
+        assert_eq!(slots.len(), 2);
+        assert_eq!(slots[0].byte_offset, 2);
+        assert_eq!(
+            slots[1].byte_offset, 5,
+            "second slot is NOT shifted by first slot's width"
+        );
+    }
+
+    #[test]
+    fn extract_translated_inline_box_slots_mixed_ops() {
+        // Insert{at:0, "AAA"} (+3) → InlineBox{at:2} (translated 5)
+        // → Hide{3..6} (−3, but applies after InlineBox in sort order
+        //   since Hide.start=3 sorts after InlineBox.at=2)
+        // → InlineBox{at:8} (translated 8 + 3 − 3 = 8)
+        let deco = InlineDecoration::new(vec![
+            InlineOp::Insert {
+                at: 0,
+                content: vec![make_atom("AAA", default_face())],
+            },
+            InlineOp::InlineBox {
+                at: 2,
+                width_cells: 1.0,
+                height_lines: 1.0,
+                box_id: 1,
+                alignment: InlineBoxAlignment::Center,
+                owner: pid("p"),
+            },
+            InlineOp::Hide { range: 3..6 },
+            InlineOp::InlineBox {
+                at: 8,
+                width_cells: 1.0,
+                height_lines: 1.0,
+                box_id: 2,
+                alignment: InlineBoxAlignment::Center,
+                owner: pid("p"),
+            },
+        ]);
+        let slots = deco.inline_box_slots_translated();
+        assert_eq!(slots.len(), 2);
+        assert_eq!(slots[0].byte_offset, 5);
+        assert_eq!(slots[1].byte_offset, 8);
     }
 
     #[test]
