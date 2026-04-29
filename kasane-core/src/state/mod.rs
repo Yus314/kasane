@@ -127,14 +127,14 @@ impl AppState {
     pub const FIELD_DIRTY_MAP: &[(&str, &[&str])] = &[
         // observed
         ("lines", &["BUFFER_CONTENT"]),
-        ("default_face", &["BUFFER_CONTENT"]),
-        ("padding_face", &["BUFFER_CONTENT"]),
+        ("default_style", &["BUFFER_CONTENT"]),
+        ("padding_style", &["BUFFER_CONTENT"]),
         ("cursor_pos", &["BUFFER_CURSOR"]),
         ("status_prompt", &["STATUS"]),
         ("status_content", &["STATUS"]),
         ("status_content_cursor_pos", &["STATUS"]),
         ("status_mode_line", &["STATUS"]),
-        ("status_default_face", &["STATUS"]),
+        ("status_default_style", &["STATUS"]),
         ("status_style", &["STATUS"]),
         ("widget_columns", &["BUFFER_CONTENT"]),
         ("menu", &["MENU_STRUCTURE", "MENU_SELECTION"]),
@@ -189,14 +189,14 @@ impl AppState {
     pub const FIELD_EPISTEMIC_MAP: &[(&str, &str)] = &[
         // observed
         ("lines", "observed"),
-        ("default_face", "observed"),
-        ("padding_face", "observed"),
+        ("default_style", "observed"),
+        ("padding_style", "observed"),
         ("cursor_pos", "observed"),
         ("status_prompt", "observed"),
         ("status_content", "observed"),
         ("status_content_cursor_pos", "observed"),
         ("status_mode_line", "observed"),
-        ("status_default_face", "observed"),
+        ("status_default_style", "observed"),
         ("status_style", "observed"),
         ("widget_columns", "observed"),
         ("menu", "observed"),
@@ -258,7 +258,7 @@ impl AppState {
         ("cursor_mode", "content_cursor_pos sign (I-3)"),
         ("status_line", "prompt + content concatenation"),
         ("editor_mode", "cursor_mode + mode_line (I-2)"),
-        ("color_context", "default_face luminance analysis"),
+        ("color_context", "default_style luminance analysis"),
     ];
 
     /// Fields grouped by epistemological category.
@@ -267,14 +267,14 @@ impl AppState {
             "observed",
             &[
                 "lines",
-                "default_face",
-                "padding_face",
+                "default_style",
+                "padding_style",
                 "cursor_pos",
                 "status_prompt",
                 "status_content",
                 "status_content_cursor_pos",
                 "status_mode_line",
-                "status_default_face",
+                "status_default_style",
                 "status_style",
                 "widget_columns",
                 "menu",

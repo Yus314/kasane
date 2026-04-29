@@ -28,7 +28,7 @@ use kasane_core::display::FoldToggleState;
 use kasane_core::layout::HitMap;
 use kasane_core::plugin::PluginId;
 use kasane_core::plugin::setting::SettingValue;
-use kasane_core::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
+use kasane_core::protocol::{Coord, CursorMode, Line, StatusStyle, Style};
 use kasane_core::render::color_context::ColorContext;
 use kasane_core::render::theme::Theme;
 use kasane_core::state::derived::{EditorMode, Selection};
@@ -38,15 +38,15 @@ use proptest::prelude::*;
 #[derive(Debug, Clone, PartialEq)]
 struct TruthSnapshot {
     lines: Vec<Line>,
-    default_face: Face,
-    padding_face: Face,
+    default_style: Style,
+    padding_style: Style,
     widget_columns: u16,
     cursor_pos: Coord,
     status_prompt: Line,
     status_content: Line,
     status_content_cursor_pos: i32,
     status_mode_line: Line,
-    status_default_face: Face,
+    status_default_style: Style,
     status_style: StatusStyle,
     // MenuState / InfoState do not implement PartialEq, so we compare their
     // Debug formatting instead. This is sufficient for the A8 projection
@@ -60,15 +60,15 @@ fn truth_snapshot(s: &AppState) -> TruthSnapshot {
     let t = s.truth();
     TruthSnapshot {
         lines: t.lines().to_vec(),
-        default_face: t.default_face(),
-        padding_face: t.padding_face(),
+        default_style: t.default_style().clone(),
+        padding_style: t.padding_style().clone(),
         widget_columns: t.widget_columns(),
         cursor_pos: t.cursor_pos(),
         status_prompt: t.status_prompt().clone(),
         status_content: t.status_content().clone(),
         status_content_cursor_pos: t.status_content_cursor_pos(),
         status_mode_line: t.status_mode_line().clone(),
-        status_default_face: t.status_default_face(),
+        status_default_style: t.status_default_style().clone(),
         status_style: t.status_style(),
         menu_debug: format!("{:?}", t.menu()),
         infos_debug: format!("{:?}", t.infos()),

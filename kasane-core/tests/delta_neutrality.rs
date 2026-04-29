@@ -18,7 +18,7 @@
 
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseEvent, MouseEventKind};
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Coord, Face, Line, StatusStyle};
+use kasane_core::protocol::{Coord, Line, StatusStyle, Style};
 use kasane_core::state::{AppState, Msg, Truth, update_in_place};
 use kasane_core::test_support::{make_line, test_state_80x24};
 use proptest::prelude::*;
@@ -30,15 +30,15 @@ use proptest::prelude::*;
 #[derive(Debug, Clone, PartialEq)]
 struct ObservedSnapshot {
     lines: Vec<Line>,
-    default_face: Face,
-    padding_face: Face,
+    default_style: Style,
+    padding_style: Style,
     widget_columns: u16,
     cursor_pos: Coord,
     status_prompt: Line,
     status_content: Line,
     status_content_cursor_pos: i32,
     status_mode_line: Line,
-    status_default_face: Face,
+    status_default_style: Style,
     status_style: StatusStyle,
     /// MenuState does not implement PartialEq, so we compare on its `Debug`
     /// representation — sufficient as a structural witness.
@@ -52,15 +52,15 @@ impl ObservedSnapshot {
     fn capture(truth: Truth<'_>) -> Self {
         Self {
             lines: truth.lines().to_vec(),
-            default_face: truth.default_face(),
-            padding_face: truth.padding_face(),
+            default_style: truth.default_style().clone(),
+            padding_style: truth.padding_style().clone(),
             widget_columns: truth.widget_columns(),
             cursor_pos: truth.cursor_pos(),
             status_prompt: truth.status_prompt().clone(),
             status_content: truth.status_content().clone(),
             status_content_cursor_pos: truth.status_content_cursor_pos(),
             status_mode_line: truth.status_mode_line().clone(),
-            status_default_face: truth.status_default_face(),
+            status_default_style: truth.status_default_style().clone(),
             status_style: truth.status_style(),
             menu_debug: format!("{:?}", truth.menu()),
             infos_debug: format!("{:?}", truth.infos()),

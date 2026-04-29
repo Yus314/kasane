@@ -68,10 +68,10 @@ impl PluginBackend for ProjectionStatusPlugin {
         parts.extend(additive_names);
 
         let label = format!(" [{}] ", parts.join(" "));
-        let face = state.status_default_face();
+        let style = state.status_default_style().clone();
 
         Some(Contribution {
-            element: Element::text(&label, face),
+            element: Element::text_with_style(&label, style),
             priority: 900,
             size_hint: ContribSizeHint::Auto,
         })
