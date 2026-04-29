@@ -167,6 +167,11 @@ bitflags! {
     pub struct PluginCapabilities: u32 {
         const OVERLAY            = 1 << 2;
         const MENU_TRANSFORM     = 1 << 5;
+        /// Plugin paints content inside a `DisplayDirective::InlineBox` slot.
+        /// Dispatched via `PluginBackend::paint_inline_box(box_id) -> Option<Element>`
+        /// when the renderer encounters an inline-box reservation matching
+        /// the plugin's `box_id` (ADR-031 Phase 10 Step 2-native).
+        const INLINE_BOX_PAINTER = 1 << 13;
         const INPUT_HANDLER      = 1 << 7;
         /// NOTE: SURFACE_PROVIDER is declarative metadata only. It is not used
         /// for dispatch gating in PluginRuntime — surface lifecycle is managed

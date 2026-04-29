@@ -231,6 +231,16 @@ pub(crate) type ErasedVirtualEditHandler = Box<
         + Sync,
 >;
 
+/// Inline-box paint handler (ADR-031 Phase 10 Step 2-native).
+///
+/// Returns `Some(element)` to paint inside the inline-box slot at
+/// `box_id`, or `None` to leave the slot empty (the renderer falls
+/// back to the placeholder reservation behaviour). The element is
+/// laid out at the slot's geometric position determined by Parley's
+/// `push_inline_box`.
+pub(crate) type ErasedInlineBoxPaintHandler =
+    Box<dyn Fn(&dyn PluginState, u64, &AppView<'_>) -> Option<Element> + Send + Sync>;
+
 // =============================================================================
 // Handler entry types (handler + metadata)
 // =============================================================================
@@ -431,6 +441,9 @@ pub(crate) struct HandlerTable {
     // --- Virtual Edit (BDT) ---
     pub(crate) virtual_edit_handler: Option<ErasedVirtualEditHandler>,
 
+    // --- Inline-box paint (ADR-031 Phase 10) ---
+    pub(crate) inline_box_paint_handler: Option<ErasedInlineBoxPaintHandler>,
+
     // --- Pub/Sub ---
     pub(crate) publishers: Vec<PublishEntry>,
     pub(crate) subscribers: Vec<SubscribeEntry>,
@@ -502,6 +515,7 @@ impl HandlerTable {
             navigation_policy_handler: None,
             navigation_action_handler: None,
             virtual_edit_handler: None,
+            inline_box_paint_handler: None,
             publishers: Vec::new(),
             subscribers: Vec::new(),
             extension_definitions: Vec::new(),
@@ -585,6 +599,9 @@ impl HandlerTable {
         }
         if self.virtual_edit_handler.is_some() {
             caps |= PluginCapabilities::VIRTUAL_EDIT;
+        }
+        if self.inline_box_paint_handler.is_some() {
+            caps |= PluginCapabilities::INLINE_BOX_PAINTER;
         }
         caps
     }

@@ -713,6 +713,10 @@ impl PluginBackend for PluginBridge {
         )
     }
 
+    fn paint_inline_box(&self, box_id: u64, app: &AppView<'_>) -> Option<Element> {
+        dispatch_view_or!(self, inline_box_paint_handler, None, box_id, app)
+    }
+
     fn transform_menu_item(
         &self,
         item: &[crate::protocol::Atom],
@@ -1444,6 +1448,7 @@ mod tests {
             "menu_transform",
             "publish",
             "subscribe",
+            "paint_inline_box",
         ];
 
         let invoked: Arc<Mutex<HashSet<&'static str>>> = Arc::new(Mutex::new(HashSet::new()));
@@ -1608,6 +1613,12 @@ mod tests {
                 });
 
                 let inv = self.invoked.clone();
+                r.on_paint_inline_box(move |_s, _box_id, _app| {
+                    inv.lock().unwrap().insert("paint_inline_box");
+                    None
+                });
+
+                let inv = self.invoked.clone();
                 r.publish::<u32>(TopicId::new("test.topic"), move |_s, _app| {
                     inv.lock().unwrap().insert("publish");
                     42u32
@@ -1726,6 +1737,9 @@ mod tests {
             false,
             &app,
         );
+
+        // Inline-box paint (ADR-031 Phase 10 Step 2-native)
+        bridge.paint_inline_box(0, &app);
 
         // Pub/Sub
         let mut bus = super::super::pubsub::TopicBus::new();

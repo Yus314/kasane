@@ -1211,6 +1211,28 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     // =========================================================================
+    // Inline-box paint handler (ADR-031 Phase 10 Step 2-native)
+    // =========================================================================
+
+    /// Register an inline-box paint handler.
+    ///
+    /// Called by the renderer when a `DisplayDirective::InlineBox` slot
+    /// owned by this plugin needs paint content. The handler receives the
+    /// `box_id` declared in the directive and returns either an Element
+    /// to paint inside the slot, or `None` to leave the slot empty (the
+    /// renderer falls back to the placeholder reservation).
+    ///
+    /// Auto-registers `PluginCapabilities::INLINE_BOX_PAINTER`. Step 2-host
+    /// will wire the renderer to invoke this; until then registration is
+    /// inert.
+    pub fn on_paint_inline_box(
+        &mut self,
+        handler: impl Fn(&S, u64, &AppView<'_>) -> Option<Element> + Send + Sync + 'static,
+    ) {
+        register_view!(self, inline_box_paint_handler, handler, box_id, app);
+    }
+
+    // =========================================================================
     // Pub/Sub handlers
     // =========================================================================
 
@@ -1781,6 +1803,31 @@ mod tests {
             table
                 .capabilities()
                 .contains(PluginCapabilities::RENDER_ORNAMENT)
+        );
+    }
+
+    #[test]
+    fn on_paint_inline_box_sets_capability() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_paint_inline_box(|_state, _box_id, _app| None);
+        let table = registry.into_table();
+        assert!(
+            table
+                .capabilities()
+                .contains(PluginCapabilities::INLINE_BOX_PAINTER)
+        );
+    }
+
+    #[test]
+    fn paint_inline_box_default_is_no_op() {
+        // A registry with no inline-box-paint handler must not advertise
+        // the capability (gating invariant — host can skip dispatch).
+        let registry = HandlerRegistry::<TestState>::new();
+        let table = registry.into_table();
+        assert!(
+            !table
+                .capabilities()
+                .contains(PluginCapabilities::INLINE_BOX_PAINTER)
         );
     }
 

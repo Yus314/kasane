@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::element::{InteractiveId, Overlay, PluginTag};
+use crate::element::{Element, InteractiveId, Overlay, PluginTag};
 use crate::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{self, DirtyFlags};
@@ -284,6 +284,19 @@ pub trait PluginBackend: Any {
         _ctx: &RenderOrnamentContext,
     ) -> OrnamentBatch {
         OrnamentBatch::default()
+    }
+
+    // --- Inline-box paint (ADR-031 Phase 10 Step 2-native) ---
+
+    /// Paint content inside a `DisplayDirective::InlineBox` slot.
+    ///
+    /// Returns `Some(element)` to paint inside the slot at `box_id`, or
+    /// `None` to leave the slot empty. Default no-op so plugins that
+    /// only declare inline-box slots without paint participation are
+    /// unaffected. The renderer falls back to the cell-grid placeholder
+    /// (width_cells spaces) when this returns `None`.
+    fn paint_inline_box(&self, _box_id: u64, _state: &AppView<'_>) -> Option<Element> {
+        None
     }
 
     // --- Menu item transformation ---
