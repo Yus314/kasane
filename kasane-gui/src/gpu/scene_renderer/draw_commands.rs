@@ -4,7 +4,6 @@
 //! and image pipelines, plus text shaping helpers.
 
 use kasane_core::element::BorderLineStyle;
-use kasane_core::protocol::Attributes;
 use kasane_core::render::scene::line_display_width_str;
 use kasane_core::render::{
     CursorStyle, DrawCommand, PixelRect,
@@ -76,14 +75,7 @@ impl SceneRenderer {
                 face,
                 max_width,
             } => {
-                self.process_draw_text(
-                    pos.x,
-                    pos.y,
-                    text,
-                    &face.to_face(),
-                    *max_width,
-                    color_resolver,
-                );
+                self.process_draw_text(pos.x, pos.y, text, face, *max_width, color_resolver);
             }
             DrawCommand::DrawPaddingRow {
                 pos,
@@ -91,7 +83,7 @@ impl SceneRenderer {
                 ch,
                 face,
             } => {
-                self.emit_text(ch, &face.to_face(), pos.x, pos.y, color_resolver);
+                self.emit_text(ch, face, pos.x, pos.y, color_resolver);
             }
             DrawCommand::DrawBorder {
                 rect,
@@ -395,19 +387,30 @@ impl SceneRenderer {
                             ..
                         } => {
                             let fg = color_resolver.resolve_linear(*color, true);
-                            let face = kasane_core::protocol::Face {
-                                fg: *color,
+                            let brush = match *color {
+                                kasane_core::protocol::Color::Default => {
+                                    kasane_core::protocol::Brush::Default
+                                }
+                                kasane_core::protocol::Color::Named(n) => {
+                                    kasane_core::protocol::Brush::Named(n)
+                                }
+                                kasane_core::protocol::Color::Rgb { r, g, b } => {
+                                    kasane_core::protocol::Brush::rgb(r, g, b)
+                                }
+                            };
+                            let style = kasane_core::protocol::Style {
+                                fg: brush,
                                 ..Default::default()
                             };
                             self.process_draw_text(
                                 rect.x + x,
                                 rect.y + y,
                                 text,
-                                &face,
+                                &style,
                                 rect.w,
                                 color_resolver,
                             );
-                            let _ = fg; // text rendering uses face-based color
+                            let _ = fg; // text rendering uses style-based color
                         }
                         kasane_core::plugin::canvas::CanvasDrawOp::Circle {
                             cx,
@@ -517,34 +520,29 @@ impl SceneRenderer {
         }
     }
 
-    /// Emit decoration instances for a face's text attributes.
+    /// Emit decoration instances for a style's `underline` / `strikethrough`
+    /// records. Reads the post-resolve [`Style`] directly — no Face / bitflag
+    /// projection.
     fn emit_decorations(
         &mut self,
         x: f32,
         py: f32,
         w: f32,
-        face: &kasane_core::protocol::Face,
+        style: &kasane_core::protocol::Style,
         fg: [f32; 4],
         color_resolver: &ColorResolver,
     ) {
-        let attrs = face.attributes;
-        if !attrs.intersects(
-            Attributes::UNDERLINE
-                | Attributes::CURLY_UNDERLINE
-                | Attributes::DOUBLE_UNDERLINE
-                | Attributes::DOTTED_UNDERLINE
-                | Attributes::DASHED_UNDERLINE
-                | Attributes::STRIKETHROUGH,
-        ) {
+        use kasane_core::protocol::DecorationStyle;
+        if style.underline.is_none() && style.strikethrough.is_none() {
             return;
         }
 
         let baseline = self.metrics.baseline;
         let cell_h = self.metrics.cell_height;
-        // Prefer the font's own underline geometry when the
-        // metrics layer captured it (Parley path). Falls back to the
-        // historical `cell_h × ratio` heuristic when zero (cosmic path).
-        let ul_thickness = if self.metrics.underline_thickness > 0.0 {
+        // Prefer the font's own underline geometry when the metrics layer
+        // captured it (Parley path). Fall back to the historical
+        // `cell_h × ratio` heuristic when zero.
+        let ul_thickness_default = if self.metrics.underline_thickness > 0.0 {
             self.metrics.underline_thickness
         } else {
             (cell_h * 0.06).max(1.0)
@@ -554,60 +552,77 @@ impl SceneRenderer {
         let ul_top_below_baseline = if self.metrics.underline_offset > 0.0 {
             self.metrics.underline_offset
         } else {
-            ul_thickness
+            ul_thickness_default
         };
-
-        // Underline color: use face.underline if set, otherwise fallback to fg
-        let ul_color = if face.underline != kasane_core::protocol::Color::Default {
-            color_resolver.resolve_linear(face.underline, true)
-        } else {
-            fg
-        };
-
         let ul_y = py + baseline + ul_top_below_baseline;
 
-        if attrs.contains(Attributes::UNDERLINE) {
-            self.quad.push_decoration(
-                x,
-                ul_y,
-                w,
-                ul_thickness,
-                ul_color,
-                quad_pipeline::DECO_SOLID,
-            );
+        if let Some(ref ul) = style.underline {
+            let ul_color = match ul.color {
+                kasane_core::protocol::Brush::Default => fg,
+                _ => color_resolver.resolve_brush(ul.color, true),
+            };
+            let ul_thickness = ul.thickness.unwrap_or(ul_thickness_default);
+            match ul.style {
+                DecorationStyle::Solid => {
+                    self.quad.push_decoration(
+                        x,
+                        ul_y,
+                        w,
+                        ul_thickness,
+                        ul_color,
+                        quad_pipeline::DECO_SOLID,
+                    );
+                }
+                DecorationStyle::Curly => {
+                    // Curly needs more height for the wave amplitude.
+                    let wave_h = (cell_h * 0.2).max(4.0);
+                    let y = ul_y - wave_h * 0.25;
+                    self.quad
+                        .push_decoration(x, y, w, wave_h, ul_color, quad_pipeline::DECO_CURLY);
+                }
+                DecorationStyle::Double => {
+                    let double_h = (cell_h * 0.15).max(4.0);
+                    let y = ul_y - double_h * 0.1;
+                    self.quad.push_decoration(
+                        x,
+                        y,
+                        w,
+                        double_h,
+                        ul_color,
+                        quad_pipeline::DECO_DOUBLE,
+                    );
+                }
+                DecorationStyle::Dotted => {
+                    let dot_h = (cell_h * 0.15).max(4.0);
+                    let y = ul_y - dot_h * 0.1;
+                    self.quad
+                        .push_decoration(x, y, w, dot_h, ul_color, quad_pipeline::DECO_DOTTED);
+                }
+                DecorationStyle::Dashed => {
+                    let dash_h = (cell_h * 0.08).max(2.0);
+                    self.quad.push_decoration(
+                        x,
+                        ul_y,
+                        w,
+                        dash_h,
+                        ul_color,
+                        quad_pipeline::DECO_DASHED,
+                    );
+                }
+            }
         }
-        if attrs.contains(Attributes::CURLY_UNDERLINE) {
-            // Curly needs more height for the wave amplitude. Anchor the
-            // wave's mid-line on the underline's top so the visual
-            // weight stays close to where a solid underline would sit.
-            let wave_h = (cell_h * 0.2).max(4.0);
-            let y = ul_y - wave_h * 0.25;
-            self.quad
-                .push_decoration(x, y, w, wave_h, ul_color, quad_pipeline::DECO_CURLY);
-        }
-        if attrs.contains(Attributes::DOUBLE_UNDERLINE) {
-            let double_h = (cell_h * 0.15).max(4.0);
-            let y = ul_y - double_h * 0.1;
-            self.quad
-                .push_decoration(x, y, w, double_h, ul_color, quad_pipeline::DECO_DOUBLE);
-        }
-        if attrs.contains(Attributes::DOTTED_UNDERLINE) {
-            let dot_h = (cell_h * 0.15).max(4.0);
-            let y = ul_y - dot_h * 0.1;
-            self.quad
-                .push_decoration(x, y, w, dot_h, ul_color, quad_pipeline::DECO_DOTTED);
-        }
-        if attrs.contains(Attributes::DASHED_UNDERLINE) {
-            let dash_h = (cell_h * 0.08).max(2.0);
-            self.quad
-                .push_decoration(x, ul_y, w, dash_h, ul_color, quad_pipeline::DECO_DASHED);
-        }
-        if attrs.contains(Attributes::STRIKETHROUGH) {
-            let st_thickness = if self.metrics.strikethrough_thickness > 0.0 {
+
+        if let Some(ref st) = style.strikethrough {
+            let st_color = match st.color {
+                kasane_core::protocol::Brush::Default => fg,
+                _ => color_resolver.resolve_brush(st.color, true),
+            };
+            let st_thickness_default = if self.metrics.strikethrough_thickness > 0.0 {
                 self.metrics.strikethrough_thickness
             } else {
-                ul_thickness
+                ul_thickness_default
             };
+            let st_thickness = st.thickness.unwrap_or(st_thickness_default);
             // Parley strikethrough_offset is positive *above* the
             // baseline (font convention). The historical fallback uses
             // ~55% of the baseline height as a stand-in.
@@ -618,7 +633,7 @@ impl SceneRenderer {
             };
             let y = py + baseline - st_top_above_baseline;
             self.quad
-                .push_decoration(x, y, w, st_thickness, fg, quad_pipeline::DECO_SOLID);
+                .push_decoration(x, y, w, st_thickness, st_color, quad_pipeline::DECO_SOLID);
         }
     }
 
@@ -680,10 +695,7 @@ impl SceneRenderer {
                 self.quad.push_solid(x, py, actual_w, cell_h, visual_bg);
             }
             if actual_w > 0.0 {
-                // emit_decorations consumes Face for its bitflags-based
-                // attribute checks (UNDERLINE / CURLY / DOTTED / etc.);
-                // the projection is local and lossless here.
-                self.emit_decorations(x, py, actual_w, &atom.face(), visual_fg, color_resolver);
+                self.emit_decorations(x, py, actual_w, &atom.style, visual_fg, color_resolver);
             }
             x += actual_w;
         }
@@ -894,7 +906,7 @@ impl SceneRenderer {
             if needs_bg && !self.should_skip_default_bg(&visual_bg, color_resolver) {
                 self.quad.push_solid(x, py, w, cell_h, visual_bg);
             }
-            self.emit_decorations(x, py, w, &style.to_face(), visual_fg, color_resolver);
+            self.emit_decorations(x, py, w, style, visual_fg, color_resolver);
         }
 
         // 6. Cursors via parley hit_test. byte_to_advance returns the
@@ -1076,13 +1088,13 @@ impl SceneRenderer {
         self.process_render_paragraph_parley(px, py, max_width, para, line_idx, color_resolver);
     }
 
-    /// Process DrawText: simple single-face text.
+    /// Process DrawText: simple single-style text.
     fn process_draw_text(
         &mut self,
         px: f32,
         py: f32,
         text: &str,
-        face: &kasane_core::protocol::Face,
+        style: &kasane_core::protocol::Style,
         max_width: f32,
         color_resolver: &ColorResolver,
     ) {
@@ -1092,7 +1104,7 @@ impl SceneRenderer {
 
         let text_w = line_display_width_str(text) as f32 * self.metrics.cell_width;
         let actual_w = text_w.min(max_width);
-        let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_face_colors_linear(face);
+        let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_style_colors_linear(style);
 
         // Background — skip when not needed (parent bg shows through)
         if actual_w > 0.0 && needs_bg && !self.should_skip_default_bg(&visual_bg, color_resolver) {
@@ -1102,10 +1114,10 @@ impl SceneRenderer {
 
         // Text decorations
         if actual_w > 0.0 {
-            self.emit_decorations(px, py, actual_w, face, visual_fg, color_resolver);
+            self.emit_decorations(px, py, actual_w, style, visual_fg, color_resolver);
         }
 
-        self.emit_text(text, face, px, py, color_resolver);
+        self.emit_text(text, style, px, py, color_resolver);
     }
 }
 

@@ -274,7 +274,7 @@ impl SceneRenderer {
         for atom in atoms {
             let atom_w = line_display_width_str(&atom.contents) as f32 * cell_w;
             if !atom.contents.is_empty() {
-                self.emit_text(&atom.contents, &atom.face(), x, py, color_resolver);
+                self.emit_text(&atom.contents, &atom.style, x, py, color_resolver);
             }
             x += atom_w;
         }
@@ -283,7 +283,7 @@ impl SceneRenderer {
     pub(crate) fn emit_text(
         &mut self,
         text: &str,
-        face: &kasane_core::protocol::Face,
+        style: &kasane_core::protocol::Style,
         px: f32,
         py: f32,
         color_resolver: &ColorResolver,
@@ -299,7 +299,7 @@ impl SceneRenderer {
             return;
         }
 
-        let atoms = vec![Atom::with_style(text, Style::from_face(face))];
+        let atoms = vec![Atom::with_style(text, style.clone())];
         let line = StyledLine::from_atoms(
             &atoms,
             &Style::default(),
@@ -309,7 +309,7 @@ impl SceneRenderer {
         );
         let parley_layout = self.text.shape(&line);
 
-        let (visual_fg, _bg, _needs_bg) = color_resolver.resolve_face_colors_linear(face);
+        let (visual_fg, _bg, _needs_bg) = color_resolver.resolve_style_colors_linear(style);
         let brush = PBrush::rgba(
             (visual_fg[0].clamp(0.0, 1.0) * 255.0).round() as u8,
             (visual_fg[1].clamp(0.0, 1.0) * 255.0).round() as u8,
