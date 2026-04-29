@@ -116,10 +116,10 @@ pub(in crate::plugin) mod tests {
             r.on_annotate_background(|state, line, _app, _ctx| {
                 if line as i32 == state.active_line {
                     Some(BackgroundLayer {
-                        face: Face {
+                        style: crate::protocol::Style::from_face(&Face {
                             bg: Color::Named(NamedColor::Blue),
                             ..Face::default()
-                        },
+                        }),
                         z_order: 0,
                         blend: BlendMode::Opaque,
                     })
@@ -171,10 +171,10 @@ pub(in crate::plugin) mod tests {
             r.on_annotate_background(|state, line, _app, _ctx| {
                 if state.color_lines.contains_key(&line) {
                     Some(BackgroundLayer {
-                        face: Face {
+                        style: crate::protocol::Style::from_face(&Face {
                             bg: Color::Named(NamedColor::Green),
                             ..Face::default()
-                        },
+                        }),
                         z_order: 0,
                         blend: BlendMode::Opaque,
                     })

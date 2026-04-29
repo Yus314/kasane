@@ -36,10 +36,10 @@ mod highlight {
     ) -> Option<BackgroundLayer> {
         if line == state.active_line {
             Some(BackgroundLayer {
-                face: Face {
+                style: kasane_core::protocol::Style::from_face(&Face {
                     bg: Color::Named(NamedColor::Blue),
                     ..Face::default()
-                },
+                }),
                 z_order: 0,
                 blend: BlendMode::Opaque,
             })

@@ -242,7 +242,10 @@ pub struct AnnotateContext {
 /// A background layer with z-ordering and blend mode.
 #[derive(Debug, Clone)]
 pub struct BackgroundLayer {
-    pub face: Face,
+    /// Inline style applied to the background. ADR-031 Phase B3 commit 4b
+    /// migrated from `Face` to the post-resolve [`Style`]: decoration is
+    /// already past the inheritance pass and `final_*` flags do not apply.
+    pub style: crate::protocol::Style,
     pub z_order: i16,
     pub blend: BlendMode,
 }

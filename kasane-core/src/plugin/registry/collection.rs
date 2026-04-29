@@ -515,7 +515,7 @@ impl<'a> PluginView<'a> {
                     } if *line < line_count => {
                         uni_bg.entry(*line).or_default().push((
                             BackgroundLayer {
-                                face: *face,
+                                style: crate::protocol::Style::from_face(face),
                                 z_order: *z_order,
                                 blend: crate::plugin::context::BlendMode::Opaque,
                             },
@@ -771,7 +771,7 @@ impl<'a> PluginView<'a> {
 
             if !bg_layers.is_empty() {
                 bg_layers.sort_by_key(|(l, id)| (l.z_order, id.clone()));
-                backgrounds[line] = Some(bg_layers.last().unwrap().0.face);
+                backgrounds[line] = Some(bg_layers.last().unwrap().0.style.to_face());
                 has_bg = true;
             }
 

@@ -403,10 +403,10 @@ impl PluginBackend for LineHighlightPlugin {
                 left_gutter: None,
                 right_gutter: None,
                 background: Some(BackgroundLayer {
-                    face: Face {
+                    style: kasane_core::protocol::Style::from_face(&Face {
                         bg: Color::Named(NamedColor::Blue),
                         ..Face::default()
-                    },
+                    }),
                     z_order: 0,
                     blend: BlendMode::Opaque,
                 }),

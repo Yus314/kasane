@@ -869,10 +869,10 @@ impl Plugin for DecomposedAnnotatorPlugin {
         r.on_annotate_background(|_state, line, _app, _ctx| {
             if line == 0 {
                 Some(BackgroundLayer {
-                    face: Face {
+                    style: crate::protocol::Style::from_face(&Face {
                         bg: crate::protocol::Color::Named(crate::protocol::NamedColor::Blue),
                         ..Face::default()
-                    },
+                    }),
                     z_order: 0,
                     blend: BlendMode::Opaque,
                 })

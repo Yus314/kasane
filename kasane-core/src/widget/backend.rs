@@ -410,7 +410,9 @@ mod legacy {
                             let cursor_line = state.cursor_line();
                             if cursor_line >= 0 && line == cursor_line as usize {
                                 return Some(BackgroundLayer {
-                                    face: resolve_face(&bg.face, state),
+                                    style: crate::protocol::Style::from_face(&resolve_face(
+                                        &bg.face, state,
+                                    )),
                                     z_order: widget.priority(),
                                     blend: BlendMode::Opaque,
                                 });
@@ -422,7 +424,9 @@ mod legacy {
                                 let hi = sel.anchor.line.max(sel.cursor.line) as usize;
                                 if line >= lo && line <= hi {
                                     return Some(BackgroundLayer {
-                                        face: resolve_face(&bg.face, state),
+                                        style: crate::protocol::Style::from_face(&resolve_face(
+                                            &bg.face, state,
+                                        )),
                                         z_order: widget.priority(),
                                         blend: BlendMode::Opaque,
                                     });

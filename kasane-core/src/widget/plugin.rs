@@ -134,7 +134,9 @@ impl Plugin for WidgetPlugin {
                             let cursor_line = app.cursor_line();
                             if cursor_line >= 0 && line == cursor_line as usize {
                                 return Some(BackgroundLayer {
-                                    face: resolve_face(&bg.face, app),
+                                    style: crate::protocol::Style::from_face(&resolve_face(
+                                        &bg.face, app,
+                                    )),
                                     z_order: priority,
                                     blend: BlendMode::Opaque,
                                 });
@@ -146,7 +148,9 @@ impl Plugin for WidgetPlugin {
                                 let hi = sel.anchor.line.max(sel.cursor.line) as usize;
                                 if line >= lo && line <= hi {
                                     return Some(BackgroundLayer {
-                                        face: resolve_face(&bg.face, app),
+                                        style: crate::protocol::Style::from_face(&resolve_face(
+                                            &bg.face, app,
+                                        )),
                                         z_order: priority,
                                         blend: BlendMode::Opaque,
                                     });
