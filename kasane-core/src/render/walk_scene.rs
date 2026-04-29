@@ -119,10 +119,10 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
             ) {
                 BufferLineAction::Skip => continue,
                 BufferLineAction::Synthetic { atoms } => {
-                    let fill_face = atoms
+                    let fill_style = atoms
                         .first()
-                        .map(|a| a.face())
-                        .unwrap_or(params.default_face);
+                        .map(|a| a.unresolved_style().style.clone())
+                        .unwrap_or_else(|| params.default_style.clone());
                     self.out.push(DrawCommand::FillRect {
                         rect: PixelRect {
                             x: px,
@@ -130,7 +130,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             w: row_w,
                             h: cs.height,
                         },
-                        face: fill_face.into(),
+                        face: fill_style,
                         elevated: false,
                     });
                     let resolved = resolve_atoms(atoms, None);
@@ -144,7 +144,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                 BufferLineAction::BufferLine {
                     line_idx,
                     line,
-                    base_face,
+                    base_style,
                     decorated,
                     decorated_for_gpu,
                     inline_box_slots,
@@ -158,9 +158,6 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         .as_deref()
                         .or(decorated.as_deref())
                         .unwrap_or(line);
-                    // Convert the base face to a Style once per buffer line;
-                    // resolve_atoms then operates Face-free for every atom.
-                    let base_style = crate::protocol::Style::from_face(&base_face);
                     let mut resolved = resolve_atoms(atoms, Some(&base_style));
 
                     // EOL virtual text: append after buffer content
@@ -204,7 +201,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         max_width: row_w,
                         paragraph: BufferParagraph {
                             atoms: resolved,
-                            base_face: base_face.into(),
+                            base_face: base_style,
                             annotations,
                             inline_box_slots,
                             // Initialised empty; pipeline.rs populates
@@ -214,7 +211,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         line_idx: display_line as u32,
                     });
                 }
-                BufferLineAction::Padding { face, char_face } => {
+                BufferLineAction::Padding { style, char_style } => {
                     self.out.push(DrawCommand::FillRect {
                         rect: PixelRect {
                             x: px,
@@ -222,22 +219,22 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             w: row_w,
                             h: cs.height,
                         },
-                        face: face.into(),
+                        face: style,
                         elevated: false,
                     });
                     self.out.push(DrawCommand::DrawPaddingRow {
                         pos: PixelPos { x: px, y: py },
                         width: row_w,
                         ch: params.padding_char.to_string(),
-                        face: char_face.into(),
+                        face: char_style,
                     });
                 }
                 BufferLineAction::EditableSynthetic { atoms, .. } => {
                     // Render identically to Synthetic in GPU path
-                    let fill_face = atoms
+                    let fill_style = atoms
                         .first()
-                        .map(|a| a.face())
-                        .unwrap_or(params.default_face);
+                        .map(|a| a.unresolved_style().style.clone())
+                        .unwrap_or_else(|| params.default_style.clone());
                     self.out.push(DrawCommand::FillRect {
                         rect: PixelRect {
                             x: px,
@@ -245,7 +242,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             w: row_w,
                             h: cs.height,
                         },
-                        face: fill_face.into(),
+                        face: fill_style,
                         elevated: false,
                     });
                     let resolved = resolve_atoms(atoms, None);

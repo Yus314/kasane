@@ -56,6 +56,47 @@ impl Brush {
     pub fn is_inherit(self) -> bool {
         matches!(self, Brush::Default)
     }
+
+    /// Concretise this brush to an opaque RGB triple, using `fallback`
+    /// when the variant carries no fixed colour (`Default`) or when
+    /// resolving a `Named` colour.
+    ///
+    /// `Named` colours are looked up via the renderer's palette in normal
+    /// rendering, but for blending operations we accept a caller-provided
+    /// fallback so the function stays pure / palette-free. Named-colour
+    /// callers should pre-resolve via the palette and pass the resulting
+    /// RGB as `fallback`.
+    #[inline]
+    pub fn to_rgb_or(self, fallback: (u8, u8, u8)) -> (u8, u8, u8) {
+        match self {
+            Brush::Solid([r, g, b, _]) => (r, g, b),
+            Brush::Default | Brush::Named(_) => fallback,
+        }
+    }
+
+    /// Linearly interpolate between two brushes in sRGB space.
+    ///
+    /// `ratio` is the weight applied to `a` (1.0 = pure `a`, 0.0 = pure `b`).
+    /// Both brushes are concretised via [`Self::to_rgb_or`] using the
+    /// provided fallbacks, then mixed component-wise. Returned brush is
+    /// always opaque `Brush::Solid` since intermediate alpha is ill-defined
+    /// for the `Named` / `Default` variants.
+    pub fn linear_blend(
+        a: Brush,
+        b: Brush,
+        ratio: f32,
+        fallback_a: (u8, u8, u8),
+        fallback_b: (u8, u8, u8),
+    ) -> Brush {
+        let (ar, ag, ab) = a.to_rgb_or(fallback_a);
+        let (br, bg, bb) = b.to_rgb_or(fallback_b);
+        let mix = |x: u8, y: u8| -> u8 {
+            (x as f32 * ratio + y as f32 * (1.0 - ratio))
+                .round()
+                .clamp(0.0, 255.0) as u8
+        };
+        Brush::Solid([mix(ar, br), mix(ag, bg), mix(ab, bb), 0xff])
+    }
 }
 
 // ---------------------------------------------------------------------------

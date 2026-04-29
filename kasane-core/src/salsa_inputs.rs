@@ -9,17 +9,12 @@ use crate::protocol::{Coord, CursorMode, Line, StatusStyle, Style};
 use crate::state::snapshot::{InfoSnapshot, MenuSnapshot};
 
 /// Buffer content from `KakouneRequest::Draw`.
-///
-/// ADR-031 Phase A.3: `default_face` / `padding_face` carry [`Style`] now;
-/// the field names are preserved to keep the Salsa accessor names stable
-/// while consumers migrate. A.3.5 will rename to `default_style` /
-/// `padding_style`.
 #[salsa::input]
 pub struct BufferInput {
     #[returns(ref)]
     pub lines: Vec<Line>,
-    pub default_face: Style,
-    pub padding_face: Style,
+    pub default_style: Style,
+    pub padding_style: Style,
     pub cursor_pos: Coord,
     pub widget_columns: u16,
 }
@@ -53,7 +48,7 @@ pub struct StatusInput {
     pub status_line: Line,
     #[returns(ref)]
     pub status_mode_line: Line,
-    pub status_default_face: Style,
+    pub status_default_style: Style,
     pub status_style: StatusStyle,
 }
 

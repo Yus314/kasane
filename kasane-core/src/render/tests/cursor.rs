@@ -253,99 +253,72 @@ fn test_clear_cursor_face_at_out_of_bounds() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 100, 100);
 }
 
-// --- make_secondary_cursor_face tests ---
+// --- make_secondary_cursor_style tests ---
 
-fn cursor_face_white_on_black() -> Face {
-    Face {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        underline: Color::Default,
-        attributes: Attributes::FINAL_FG | Attributes::REVERSE,
+use crate::protocol::{Brush, Style};
+
+fn cursor_style_white_on_black() -> Style {
+    Style {
+        fg: Brush::rgb(255, 255, 255),
+        bg: Brush::rgb(0, 0, 0),
+        reverse: true,
+        ..Style::default()
     }
 }
 
 #[test]
-fn test_secondary_face_removes_reverse() {
-    let cursor = cursor_face_white_on_black();
-    let default = Face {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+fn test_secondary_style_removes_reverse() {
+    let cursor = cursor_style_white_on_black();
+    let default = Style {
+        fg: Brush::rgb(255, 255, 255),
+        bg: Brush::rgb(0, 0, 0),
+        ..Style::default()
     };
-    let secondary = make_secondary_cursor_face(&cursor, &default, 0.4);
+    let secondary = make_secondary_cursor_style(&cursor, &default, 0.4);
     assert!(
-        !secondary.attributes.contains(Attributes::REVERSE),
-        "REVERSE should be removed from secondary cursor face"
-    );
-    assert!(
-        secondary.attributes.contains(Attributes::FINAL_FG),
-        "FINAL_FG should be preserved"
+        !secondary.reverse,
+        "reverse should be removed from secondary cursor style"
     );
 }
 
 #[test]
-fn test_secondary_face_has_blended_bg() {
-    let cursor = Face {
-        fg: Color::Rgb {
-            r: 255,
-            g: 255,
-            b: 255,
-        },
-        bg: Color::Rgb { r: 0, g: 0, b: 0 },
-        underline: Color::Default,
-        attributes: Attributes::FINAL_FG | Attributes::REVERSE,
+fn test_secondary_style_has_blended_bg() {
+    let cursor = Style {
+        fg: Brush::rgb(255, 255, 255),
+        bg: Brush::rgb(0, 0, 0),
+        reverse: true,
+        ..Style::default()
     };
-    let default = Face {
-        fg: Color::Rgb {
-            r: 255,
-            g: 255,
-            b: 255,
-        },
-        bg: Color::Rgb { r: 0, g: 0, b: 0 },
-        ..Face::default()
+    let default = Style {
+        fg: Brush::rgb(255, 255, 255),
+        bg: Brush::rgb(0, 0, 0),
+        ..Style::default()
     };
-    let secondary = make_secondary_cursor_face(&cursor, &default, 0.4);
+    let secondary = make_secondary_cursor_style(&cursor, &default, 0.4);
 
-    // Cursor color (fg) = white (255,255,255), bg = black (0,0,0)
-    // linear_blend((255,255,255), (0,0,0), 0.4) = srgb(1.0*0.6 + 0.0*0.4) = srgb(0.6) ≈ 203
+    // Cursor highlight (fg) = white (255), bg = black (0)
+    // linear_blend white→black with ratio 0.4 = round(255*0.4 + 0*0.6) = 102
     match secondary.bg {
-        Color::Rgb { r, g, b } => {
-            assert_eq!(r, 203);
-            assert_eq!(g, 203);
-            assert_eq!(b, 203);
+        Brush::Solid([r, g, b, a]) => {
+            assert_eq!((r, g, b, a), (102, 102, 102, 0xff));
         }
-        _ => panic!("expected RGB bg, got {:?}", secondary.bg),
+        other => panic!("expected Solid bg, got {other:?}"),
     }
 }
 
 #[test]
-fn test_secondary_face_preserves_text_color() {
-    let cursor = Face {
-        fg: Color::Rgb {
-            r: 200,
-            g: 200,
-            b: 200,
-        },
-        bg: Color::Rgb {
-            r: 50,
-            g: 50,
-            b: 50,
-        },
-        underline: Color::Default,
-        attributes: Attributes::FINAL_FG | Attributes::REVERSE,
+fn test_secondary_style_preserves_text_color() {
+    let cursor = Style {
+        fg: Brush::rgb(200, 200, 200),
+        bg: Brush::rgb(50, 50, 50),
+        reverse: true,
+        ..Style::default()
     };
-    let default = Face::default();
-    let secondary = make_secondary_cursor_face(&cursor, &default, 0.4);
+    let default = Style::default();
+    let secondary = make_secondary_cursor_style(&cursor, &default, 0.4);
 
     // fg should be the original bg (the text shown under REVERSE)
-    assert_eq!(
-        secondary.fg,
-        Color::Rgb {
-            r: 50,
-            g: 50,
-            b: 50
-        }
-    );
+    assert_eq!(secondary.fg, Brush::rgb(50, 50, 50));
 }
 
 #[test]

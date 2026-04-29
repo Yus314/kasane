@@ -453,8 +453,8 @@ impl FlexChild {
 pub struct BufferRefState {
     pub lines: Vec<Vec<crate::protocol::Atom>>,
     pub lines_dirty: Vec<bool>,
-    pub default_face: Face,
-    pub padding_face: Face,
+    pub default_style: crate::protocol::Style,
+    pub padding_style: crate::protocol::Style,
     pub padding_char: String,
 }
 

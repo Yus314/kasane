@@ -123,11 +123,11 @@ pub fn sync_inputs_from_state(
     inputs.buffer.set_lines(db).to(state.observed.lines.clone());
     inputs
         .buffer
-        .set_default_face(db)
+        .set_default_style(db)
         .to(state.observed.default_style.clone());
     inputs
         .buffer
-        .set_padding_face(db)
+        .set_padding_style(db)
         .to(state.observed.padding_style.clone());
     inputs
         .buffer
@@ -175,7 +175,7 @@ pub fn sync_inputs_from_state(
         .to(state.observed.status_mode_line.clone());
     inputs
         .status
-        .set_status_default_face(db)
+        .set_status_default_style(db)
         .to(state.observed.status_default_style.clone());
     inputs
         .status
