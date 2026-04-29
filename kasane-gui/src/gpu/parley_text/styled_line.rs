@@ -181,15 +181,59 @@ impl StyledLine {
         }
         Some(self.atom_boundaries[atom_idx]..self.atom_boundaries[atom_idx + 1])
     }
+
+    /// Attach inline-box slots to a styled line built from atoms.
+    ///
+    /// ADR-031 Phase 10 Step 2-renderer: `DisplayDirective::InlineBox`
+    /// declarations propagate to the GUI renderer through this builder.
+    /// The shaper (`shaper.rs::shape_line`) calls Parley's
+    /// `push_inline_box` for each slot so the layout engine reserves the
+    /// declared geometry; the host then queries
+    /// `PluginBackend::paint_inline_box(box_id)` per slot at render time
+    /// to obtain the paint Element.
+    ///
+    /// `box_id` and slot geometry are part of the L1 LayoutCache content
+    /// hash — changing any slot field invalidates the cache, since slot
+    /// geometry shapes the surrounding text flow.
+    pub fn with_inline_boxes(mut self, slots: Vec<InlineBoxSlot>) -> Self {
+        self.inline_boxes = slots;
+        // Re-hash with the new slots folded into the content hash.
+        self.content_hash =
+            compute_content_hash_with_boxes(&self.text, &self.atom_boundaries, &self.inline_boxes);
+        self
+    }
 }
 
 /// Hash the textual content of a styled line. Two lines with identical
 /// `text` and atom boundaries share the same content hash regardless of
-/// styling.
+/// styling. Inline-box-free fast path; `from_atoms` calls this directly
+/// because it always constructs lines without slots.
 fn compute_content_hash(text: &str, atom_boundaries: &[u32]) -> u64 {
     let mut h = FxHasher::default();
     text.hash(&mut h);
     atom_boundaries.hash(&mut h);
+    h.finish()
+}
+
+/// Hash the textual content **including** inline-box slots. Used by
+/// `with_inline_boxes` to invalidate L1 LayoutCache entries when slot
+/// geometry changes — Parley's layout depends on slot id, byte index,
+/// width, and height, so any of these crossing a frame boundary must
+/// trigger a re-shape.
+fn compute_content_hash_with_boxes(
+    text: &str,
+    atom_boundaries: &[u32],
+    boxes: &[InlineBoxSlot],
+) -> u64 {
+    let mut h = FxHasher::default();
+    text.hash(&mut h);
+    atom_boundaries.hash(&mut h);
+    for slot in boxes {
+        slot.id.hash(&mut h);
+        slot.byte_offset.hash(&mut h);
+        slot.width.to_bits().hash(&mut h);
+        slot.height.to_bits().hash(&mut h);
+    }
     h.finish()
 }
 
@@ -347,6 +391,69 @@ mod tests {
         assert_eq!(line.runs[0].resolved.weight, 700.0);
         // (0, 205, 205) = cyan
         assert_eq!(line.runs[0].resolved.fg, Brush::opaque(0, 205, 205));
+    }
+
+    #[test]
+    fn with_inline_boxes_replaces_slots_and_rehashes() {
+        let atoms = vec![atom("hello", red_face())];
+        let line = StyledLine::from_atoms(
+            &atoms,
+            &Style::default(),
+            Brush::opaque(255, 255, 255),
+            14.0,
+            None,
+        );
+        let hash_before = line.content_hash;
+        assert!(line.inline_boxes.is_empty());
+
+        let with_box = line.clone().with_inline_boxes(vec![InlineBoxSlot {
+            id: 0xDEAD_BEEF,
+            byte_offset: 2,
+            width: 24.0,
+            height: 14.0,
+        }]);
+        assert_eq!(with_box.inline_boxes.len(), 1);
+        assert_ne!(
+            hash_before, with_box.content_hash,
+            "adding an inline box must change the content hash so the L1 \
+             LayoutCache treats the new line as a miss"
+        );
+
+        // Same atoms + same slot geometry → same hash (deterministic).
+        let with_box_again = line.with_inline_boxes(vec![InlineBoxSlot {
+            id: 0xDEAD_BEEF,
+            byte_offset: 2,
+            width: 24.0,
+            height: 14.0,
+        }]);
+        assert_eq!(with_box.content_hash, with_box_again.content_hash);
+    }
+
+    #[test]
+    fn with_inline_boxes_distinguishes_geometry() {
+        // Two slots with the same id but different geometry must produce
+        // distinct content hashes — Parley's layout depends on width/height.
+        let atoms = vec![atom("hi", red_face())];
+        let base = StyledLine::from_atoms(
+            &atoms,
+            &Style::default(),
+            Brush::opaque(255, 255, 255),
+            14.0,
+            None,
+        );
+        let small = base.clone().with_inline_boxes(vec![InlineBoxSlot {
+            id: 1,
+            byte_offset: 1,
+            width: 12.0,
+            height: 14.0,
+        }]);
+        let wide = base.with_inline_boxes(vec![InlineBoxSlot {
+            id: 1,
+            byte_offset: 1,
+            width: 24.0,
+            height: 14.0,
+        }]);
+        assert_ne!(small.content_hash, wide.content_hash);
     }
 
     #[test]

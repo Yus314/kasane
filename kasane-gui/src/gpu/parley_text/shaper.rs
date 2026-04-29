@@ -13,7 +13,7 @@
 //! [`super::layout_cache::LayoutCache`] amortises this by caching the
 //! `Arc<ParleyLayout>` across frames.
 
-use parley::{FontFamily, FontStyle as PFontStyle, StyleProperty};
+use parley::{FontFamily, FontStyle as PFontStyle, InlineBox, InlineBoxKind, StyleProperty};
 
 use super::ParleyText;
 use super::layout::ParleyLayout;
@@ -94,6 +94,22 @@ pub fn shape_line(
         ) {
             builder.push(StyleProperty::Strikethrough(true), range.clone());
         }
+    }
+
+    // ADR-031 Phase 10 Step 2-renderer: reserve inline-box slots in the
+    // layout. Each slot in `StyledLine::inline_boxes` becomes a Parley
+    // `InlineBox` so the layout engine flows surrounding text around the
+    // declared geometry. The actual paint content is queried via the
+    // host's `paint_inline_box(box_id)` callback at render time; the
+    // layout only knows the slot's id, byte offset, width, and height.
+    for slot in &line.inline_boxes {
+        builder.push_inline_box(InlineBox {
+            id: slot.id,
+            kind: InlineBoxKind::InFlow,
+            index: slot.byte_offset as usize,
+            width: slot.width,
+            height: slot.height,
+        });
     }
 
     let mut layout = builder.build(&line.text);
@@ -202,6 +218,49 @@ mod tests {
         // single visual line.
         assert_eq!(parley_layout.line_count, 1);
         assert!(parley_layout.width > 0.0);
+    }
+
+    #[test]
+    fn inline_box_widens_layout() {
+        // ADR-031 Phase 10 Step 2-renderer: an inline-box slot reserved
+        // via push_inline_box must add to the laid-out line width, since
+        // the layout engine flows surrounding text around the slot.
+        use super::super::styled_line::InlineBoxSlot;
+
+        let mut text = ParleyText::new(&FontConfig::default());
+        let atoms = ascii_atoms("hi");
+        let plain = StyledLine::from_atoms(
+            &atoms,
+            &Style::default(),
+            Brush::opaque(255, 255, 255),
+            14.0,
+            None,
+        );
+        let plain_layout = shape_line_with_default_family(&mut text, &plain);
+
+        let with_box = StyledLine::from_atoms(
+            &atoms,
+            &Style::default(),
+            Brush::opaque(255, 255, 255),
+            14.0,
+            None,
+        )
+        .with_inline_boxes(vec![InlineBoxSlot {
+            id: 1,
+            byte_offset: 1,
+            width: 30.0,
+            height: 14.0,
+        }]);
+        let with_box_layout = shape_line_with_default_family(&mut text, &with_box);
+
+        assert_eq!(with_box_layout.line_count, 1);
+        assert!(
+            with_box_layout.width > plain_layout.width + 20.0,
+            "inline box of width 30 must add to layout width: \
+             plain={} with_box={}",
+            plain_layout.width,
+            with_box_layout.width
+        );
     }
 
     #[test]
