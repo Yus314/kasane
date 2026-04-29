@@ -106,22 +106,22 @@ fn kill_active_processes(fzf_state: &FzfState, fzf_job_gen: u64) -> Vec<Command>
 // Overlay UI
 // ---------------------------------------------------------------------------
 
-fn highlight_face() -> Face {
-    theme_face_or(
+fn highlight_face() -> Style {
+    theme_style_or(
         "fuzzy_finder.highlight",
-        face(named(NamedColor::White), rgb(4, 57, 94)),
+        style_with(named(NamedColor::White), rgb(4, 57, 94)),
     )
 }
 
-fn dim_face() -> Face {
-    theme_face_or(
+fn dim_face() -> Style {
+    theme_style_or(
         "fuzzy_finder.dim",
-        face_fg(named(NamedColor::BrightBlack)),
+        style_fg(named(NamedColor::BrightBlack)),
     )
 }
 
-fn error_face() -> Face {
-    face_fg(named(NamedColor::Red))
+fn error_face() -> Style {
+    style_fg(named(NamedColor::Red))
 }
 
 fn build_fzf_overlay(
@@ -145,7 +145,7 @@ fn build_fzf_overlay(
 
     // Query input line: "> query_"
     let query_display = format!("> {query}_");
-    children.push(text(&query_display, default_face()));
+    children.push(text(&query_display, default_style()));
 
     // Separator
     let sep = "\u{2500}".repeat(anchor.w.saturating_sub(2) as usize);
@@ -183,7 +183,7 @@ fn build_fzf_overlay(
                     let f = if i == selected {
                         highlight_face()
                     } else {
-                        default_face()
+                        default_style()
                     };
                     let prefix = if i == selected { "> " } else { "  " };
                     let label = format!("{prefix}{}", &items[i]);

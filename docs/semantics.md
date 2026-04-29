@@ -667,7 +667,7 @@ Decorations from multiple plugins are collected, sorted by `priority` (ascending
 
 **Cursor style** (`OrnamentBatch.cursor_style`) allows a plugin to override the cursor shape. When multiple plugins provide a value, resolution uses `OrnamentModality` rank (Must > Approximate > May), then `priority` (lower wins) as tiebreaker.
 
-Render ornaments are available to both native plugins (via `HandlerRegistry::on_render_ornaments()`) and WASM plugins (`render-ornaments()` in WIT v0.25.0). See `plugin/render_ornament.rs` for type definitions.
+Render ornaments are available to both native plugins (via `HandlerRegistry::on_render_ornaments()`) and WASM plugins (`render-ornaments()` in WIT v1.0.0). See `plugin/render_ornament.rs` for type definitions.
 
 ### 9.4 Overlay
 

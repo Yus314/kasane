@@ -2,7 +2,7 @@ use crate::cli::PluginTemplate;
 
 const SDK_VERSION: &str = "0.3.0";
 const WIT_BINDGEN_VERSION: &str = "0.53";
-const HOST_ABI_VERSION: &str = "0.25.0";
+const HOST_ABI_VERSION: &str = "1.0.0";
 
 /// Convert a kebab-case plugin name to a snake_case plugin ID.
 ///
@@ -157,7 +157,7 @@ fn contribution_template(_id: &str) -> String {
     slots {{
         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {{
             (state.cursor_count > 1).then(|| {{
-                auto_contribution(text(&format!(" {{}} sel ", state.cursor_count), default_face()))
+                auto_contribution(text(&format!(" {{}} sel ", state.cursor_count), default_style()))
             }})
         }},
     }},
@@ -181,7 +181,7 @@ fn annotation_template(_id: &str) -> String {
         if state.active_line < 0 {{
             return vec![];
         }}
-        vec![style_line(state.active_line as u32, face_bg(rgb(40, 40, 50)))]
+        vec![style_line(state.active_line as u32, style_bg(rgb(40, 40, 50)))]
     }},
 }}
 "#
@@ -211,7 +211,7 @@ fn transform_template(_id: &str) -> String {
             TransformSubject::ElementS(element) => {{
                 TransformSubject::ElementS(
                     container(element)
-                        .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
+                        .style(style_with(named(NamedColor::Black), named(NamedColor::Yellow)))
                         .build(),
                 )
             }}
@@ -267,12 +267,12 @@ fn overlay_template(_id: &str) -> String {
         }}
 
         let items = ["Item 1", "Item 2", "Item 3"];
-        let highlight = face(named(NamedColor::White), rgb(4, 57, 94));
+        let highlight = style_with(named(NamedColor::White), rgb(4, 57, 94));
         let anchor = centered_overlay(ctx.screen_cols, ctx.screen_rows, 40, 30, 20, 8);
         let mut children: Vec<ElementHandle> = Vec::new();
 
         for (i, item) in items.iter().enumerate() {{
-            let f = if i == state.selected {{ highlight.clone() }} else {{ default_face() }};
+            let f = if i == state.selected {{ highlight.clone() }} else {{ default_style() }};
             let prefix = if i == state.selected {{ "> " }} else {{ "  " }};
             let label = format!("{{prefix}}{{item}}");
             children.push(text(&label, f));
@@ -362,7 +362,7 @@ fn process_template(_id: &str) -> String {
             return None;
         }}
 
-        let dim = face_fg(named(NamedColor::BrightBlack));
+        let dim = style_fg(named(NamedColor::BrightBlack));
         let anchor = centered_overlay(ctx.screen_cols, ctx.screen_rows, 50, 40, 30, 8);
         let mut children: Vec<ElementHandle> = Vec::new();
 
@@ -370,7 +370,7 @@ fn process_template(_id: &str) -> String {
             children.push(text("Running...", dim));
         }} else {{
             for line in &state.output {{
-                children.push(text(line, default_face()));
+                children.push(text(line, default_style()));
             }}
         }}
 

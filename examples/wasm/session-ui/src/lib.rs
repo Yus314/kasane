@@ -2,17 +2,17 @@
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn highlight_face() -> Face {
-    theme_face_or(
+fn highlight_face() -> Style {
+    theme_style_or(
         "session_ui.highlight",
-        face(named(NamedColor::White), rgb(4, 57, 94)),
+        style_with(named(NamedColor::White), rgb(4, 57, 94)),
     )
 }
 
-fn active_face() -> Face {
-    theme_face_or(
+fn active_face() -> Style {
+    theme_style_or(
         "session_ui.active",
-        face_fg(named(NamedColor::Green)),
+        style_fg(named(NamedColor::Green)),
     )
 }
 
@@ -60,7 +60,7 @@ fn build_switcher_overlay(
             } else if is_active {
                 active_face()
             } else {
-                default_face()
+                default_style()
             };
             children.push(text(&label, f));
         }

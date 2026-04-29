@@ -161,7 +161,7 @@ fn build_swatch(colors: &[ColorEntry]) -> ElementHandle {
         .iter()
         .take(4)
         .map(|e| Atom {
-            face: face(rgb(e.r, e.g, e.b), rgb(e.r, e.g, e.b)),
+            style: style_with(rgb(e.r, e.g, e.b), rgb(e.r, e.g, e.b)),
             contents: "\u{2588}".to_string(), // █
         })
         .collect();
@@ -186,21 +186,21 @@ fn build_color_grid(entry: &ColorEntry, color_idx: u8) -> ElementHandle {
     children.push(element_builder::create_empty());
     for ch in 0..3u8 {
         let id = PickerId::Picker { color_idx, channel: ch, down: false }.encode();
-        children.push(interactive(text(" \u{25b2}", default_face()), id)); // ▲
+        children.push(interactive(text(" \u{25b2}", default_style()), id)); // ▲
     }
 
     // Row 1: swatch + hex display
     let swatch_atom = Atom {
-        face: face(
+        style: style_with(
             rgb(entry.r, entry.g, entry.b),
             rgb(entry.r, entry.g, entry.b),
         ),
         contents: "\u{2588} ".to_string(), // "█ "
     };
     children.push(styled_line(&[swatch_atom]));
-    children.push(text("#", default_face()));
+    children.push(text("#", default_style()));
     for ch_val in channels {
-        children.push(text(&format!("{ch_val:02x}"), default_face()));
+        children.push(text(&format!("{ch_val:02x}"), default_style()));
     }
 
     // Row 2: arrows down
@@ -208,7 +208,7 @@ fn build_color_grid(entry: &ColorEntry, color_idx: u8) -> ElementHandle {
     children.push(element_builder::create_empty());
     for ch in 0..3u8 {
         let id = PickerId::Picker { color_idx, channel: ch, down: true }.encode();
-        children.push(interactive(text(" \u{25bc}", default_face()), id)); // ▼
+        children.push(interactive(text(" \u{25bc}", default_style()), id)); // ▼
     }
 
     element_builder::create_grid(&columns, &children, 0, 0)

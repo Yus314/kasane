@@ -116,101 +116,101 @@ fn format_delta(before: u32, after: u32) -> String {
 // Face helpers (use SDK-generated functions via glob import)
 // ---------------------------------------------------------------------------
 
-fn match_face_for_mode(mode: PromptMode) -> Face {
+fn match_face_for_mode(mode: PromptMode) -> Style {
     let dark = is_dark_background();
     match mode {
         PromptMode::SearchForward | PromptMode::SearchBackward => {
             let fb = if dark {
-                face_bg(rgb(80, 80, 20))
+                style_bg(rgb(80, 80, 20))
             } else {
-                face_bg(rgb(255, 255, 180))
+                style_bg(rgb(255, 255, 180))
             };
-            theme_face_or("vsa.search", fb)
+            theme_style_or("vsa.search", fb)
         }
         PromptMode::Select => {
             let fb = if dark {
-                face_bg(rgb(20, 60, 20))
+                style_bg(rgb(20, 60, 20))
             } else {
-                face_bg(rgb(200, 255, 200))
+                style_bg(rgb(200, 255, 200))
             };
-            theme_face_or("vsa.select", fb)
+            theme_style_or("vsa.select", fb)
         }
         PromptMode::Split => {
             let fb = if dark {
-                face_bg(rgb(20, 30, 60))
+                style_bg(rgb(20, 30, 60))
             } else {
-                face_bg(rgb(200, 220, 255))
+                style_bg(rgb(200, 220, 255))
             };
-            theme_face_or("vsa.split", fb)
+            theme_style_or("vsa.split", fb)
         }
         PromptMode::Keep => {
             let fb = if dark {
-                face_bg(rgb(20, 60, 20))
+                style_bg(rgb(20, 60, 20))
             } else {
-                face_bg(rgb(200, 255, 200))
+                style_bg(rgb(200, 255, 200))
             };
-            theme_face_or("vsa.keep", fb)
+            theme_style_or("vsa.keep", fb)
         }
         PromptMode::Remove => {
             let fb = if dark {
-                face_bg(rgb(60, 20, 20))
+                style_bg(rgb(60, 20, 20))
             } else {
-                face_bg(rgb(255, 200, 200))
+                style_bg(rgb(255, 200, 200))
             };
-            theme_face_or("vsa.remove", fb)
+            theme_style_or("vsa.remove", fb)
         }
-        PromptMode::Inactive => default_face(),
+        PromptMode::Inactive => default_style(),
     }
 }
 
-fn verdict_face(mode: PromptMode, matches: bool) -> Face {
+fn verdict_face(mode: PromptMode, matches: bool) -> Style {
     let will_keep = match mode {
         PromptMode::Keep => matches,
         PromptMode::Remove => !matches,
-        _ => return default_face(),
+        _ => return default_style(),
     };
     let dark = is_dark_background();
     if will_keep {
         let fb = if dark {
-            face_bg(rgb(20, 80, 20))
+            style_bg(rgb(20, 80, 20))
         } else {
-            face_bg(rgb(180, 255, 180))
+            style_bg(rgb(180, 255, 180))
         };
-        theme_face_or("vsa.verdict.keep", fb)
+        theme_style_or("vsa.verdict.keep", fb)
     } else {
         let fb = if dark {
-            face_bg(rgb(80, 20, 20))
+            style_bg(rgb(80, 20, 20))
         } else {
-            face_bg(rgb(255, 180, 180))
+            style_bg(rgb(255, 180, 180))
         };
-        theme_face_or("vsa.verdict.remove", fb)
+        theme_style_or("vsa.verdict.remove", fb)
     }
 }
 
-fn diff_added_face() -> Face {
+fn diff_added_face() -> Style {
     let dark = is_dark_background();
     let fb = if dark {
-        face_bg(rgb(20, 80, 20))
+        style_bg(rgb(20, 80, 20))
     } else {
-        face_bg(rgb(180, 255, 180))
+        style_bg(rgb(180, 255, 180))
     };
-    theme_face_or("vsa.diff.added", fb)
+    theme_style_or("vsa.diff.added", fb)
 }
 
-fn diff_removed_face() -> Face {
+fn diff_removed_face() -> Style {
     let dark = is_dark_background();
     let fb = if dark {
-        face_bg(rgb(80, 20, 20))
+        style_bg(rgb(80, 20, 20))
     } else {
-        face_bg(rgb(255, 180, 180))
+        style_bg(rgb(255, 180, 180))
     };
-    theme_face_or("vsa.diff.removed", fb)
+    theme_style_or("vsa.diff.removed", fb)
 }
 
-fn panel_highlight_face() -> Face {
-    theme_face_or(
+fn panel_highlight_face() -> Style {
+    theme_style_or(
         "vsa.panel.highlight",
-        face(named(NamedColor::White), rgb(4, 57, 94)),
+        style_with(named(NamedColor::White), rgb(4, 57, 94)),
     )
 }
 
@@ -242,7 +242,7 @@ fn build_history_panel(
         let f = if is_selected {
             panel_highlight_face()
         } else {
-            default_face()
+            default_style()
         };
         children.push(text(&line, f));
     }
@@ -853,7 +853,7 @@ kasane_plugin_sdk::define_plugin! {
             let f = match_face_for_mode(mode);
             for (&line, matches) in &state.match_lines {
                 for &(start, end) in matches {
-                    directives.push(style_inline(line, start, end, f));
+                    directives.push(style_inline(line, start, end, f.clone()));
                 }
             }
 
@@ -896,9 +896,9 @@ kasane_plugin_sdk::define_plugin! {
                 // Active mode: show match count or error
                 if !state.regex_ok {
                     if !state.regex_text.is_empty() {
-                        let f = theme_face_or(
+                        let f = theme_style_or(
                             "vsa.error",
-                            face_fg(named(NamedColor::Red)),
+                            style_fg(named(NamedColor::Red)),
                         );
                         return Some(auto_contribution(text(" \u{26a0} ", f)));
                     }
@@ -907,9 +907,9 @@ kasane_plugin_sdk::define_plugin! {
                 let count = state.match_count;
                 if count > 0 {
                     let label = format!(" {} matches ", count);
-                    Some(auto_contribution(text(&label, default_face())))
+                    Some(auto_contribution(text(&label, default_style())))
                 } else if !state.regex_text.is_empty() {
-                    let f = face_fg(named(NamedColor::BrightBlack));
+                    let f = style_fg(named(NamedColor::BrightBlack));
                     Some(auto_contribution(text(" 0 matches ", f)))
                 } else {
                     None
@@ -923,7 +923,7 @@ kasane_plugin_sdk::define_plugin! {
                     " {}{} {}\u{2192}{} {} ",
                     label, re_disp, last.count_before, last.count_after, delta,
                 );
-                let f = face_fg(named(NamedColor::BrightBlack));
+                let f = style_fg(named(NamedColor::BrightBlack));
                 Some(auto_contribution(text(&summary, f)))
             } else {
                 None

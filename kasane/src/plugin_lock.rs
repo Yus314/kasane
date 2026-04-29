@@ -384,7 +384,7 @@ mod tests {
                 artifact_digest: "sha256:artifact".to_string(),
                 code_digest: Some("sha256:code".to_string()),
                 source_kind: "filesystem".to_string(),
-                abi_version: Some("0.25.0".to_string()),
+                abi_version: Some("1.0.0".to_string()),
             },
         );
 
@@ -405,7 +405,7 @@ mod tests {
                 artifact_digest: digest.to_string(),
                 code_digest: Some(format!("{digest}-code")),
                 source_kind: "filesystem".to_string(),
-                abi_version: Some("0.25.0".to_string()),
+                abi_version: Some("1.0.0".to_string()),
             },
         );
         lock
@@ -495,7 +495,7 @@ version = "0.1.0"
 artifact_digest = "sha256:artifact"
 code_digest = "sha256:code"
 source_kind = "filesystem"
-abi_version = "0.25.0"
+abi_version = "1.0.0"
 "#;
         fs::write(&path, contents).unwrap();
         let lock = PluginsLock::load_from_path(&path).unwrap();

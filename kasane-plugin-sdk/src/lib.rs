@@ -68,7 +68,7 @@
 //!
 //!     kasane_plugin_sdk::slots! {
 //!         BUFFER_LEFT(dirty::BUFFER) => |_ctx| {
-//!             Some(auto_contribution(text("★", default_face())))
+//!             Some(auto_contribution(text("★", default_style())))
 //!         },
 //!     }
 //! }
@@ -78,7 +78,7 @@
 //!
 //! `generate!()` emits WIT bindings and auto-imports common types (`Guest`,
 //! `host_state`, `element_builder`, `types::*`) plus helper functions
-//! (`default_face()`, `rgb()`, `face_bg()`, `plain()`, `colored()`,
+//! (`default_style()`, `rgb()`, `style_bg()`, `plain()`, `colored()`,
 //! `flex_row()`, `flex_column()`, `grid()`, `scrollable()`, `flex_entry()`,
 //! `empty()`, etc.).
 //!
@@ -317,10 +317,11 @@ pub mod keys {
     }
 }
 
-/// Attribute bitflags matching `kasane_core::protocol::color::Attributes`.
-///
-/// These are the user-facing text attributes (underline, bold, italic, etc.).
-/// Use in the `attributes` field of a WIT `Face` struct.
+/// Legacy attribute bitflags. The post-resolve `Style` record exposes these
+/// as separate fields (`font_weight`, `font_slant`, `underline`,
+/// `strikethrough`, `blink`, `reverse`, `dim`); use the bitset only with
+/// the SDK-provided `style_full(fg, bg, underline_color, attrs)` helper for
+/// migration ergonomics.
 pub mod attributes {
     pub const UNDERLINE: u16 = 1 << 0;
     pub const CURLY_UNDERLINE: u16 = 1 << 1;
@@ -342,13 +343,13 @@ pub mod editor_mode {
     pub const UNKNOWN: u8 = 255;
 }
 
-/// `FaceMerge` mode constants for `CellDecoration`.
-pub mod face_merge {
-    /// Completely replace the existing cell face.
+/// `StyleMerge` mode constants for `CellDecoration`.
+pub mod style_merge {
+    /// Completely replace the existing cell style.
     pub const REPLACE: u8 = 0;
-    /// Overlay non-default fields onto the existing face.
+    /// Overlay non-default fields onto the existing style.
     pub const OVERLAY: u8 = 1;
-    /// Only apply the background color from the decoration face.
+    /// Only apply the background brush from the decoration style.
     pub const BACKGROUND: u8 = 2;
 }
 
@@ -370,7 +371,7 @@ pub const WIT: &str = include_str!("../wit/plugin.wit");
 /// - `exports::kasane::plugin::plugin_api::Guest` — trait to implement
 /// - `kasane::plugin::host_state` — host state query functions
 /// - `kasane::plugin::element_builder` — element construction functions
-/// - `kasane::plugin::types::*` — shared types (Face, Color, etc.)
+/// - `kasane::plugin::types::*` — shared types (Style, Brush, etc.)
 ///
 /// Note: Guest crates must also depend on `wit-bindgen` directly, since
 /// `wit_bindgen::generate!` generates code referencing `wit_bindgen` runtime types.
@@ -1179,7 +1180,7 @@ pub mod process {
 /// impl Guest for MyPlugin {
 ///     kasane_plugin_sdk::slots! {
 ///         STATUS_RIGHT => |_ctx| {
-///             Some(auto_contribution(text("hello", default_face())))
+///             Some(auto_contribution(text("hello", default_style())))
 ///         },
 ///         named("my.slot") => |ctx| {
 ///             None

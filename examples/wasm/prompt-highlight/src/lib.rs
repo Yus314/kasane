@@ -29,7 +29,7 @@ kasane_plugin_sdk::define_plugin! {
             TransformSubject::ElementS(element) => {
                 TransformSubject::ElementS(
                     container(element)
-                        .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
+                        .style(style_with(named(NamedColor::Black), named(NamedColor::Yellow)))
                         .build(),
                 )
             }

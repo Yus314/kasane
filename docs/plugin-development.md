@@ -137,7 +137,7 @@ Every plugin project ships with a `kasane-plugin.toml` manifest file. The build 
 ```toml
 [plugin]
 id = "fuzzy_finder"
-abi_version = "0.25.0"
+abi_version = "1.0.0"
 
 [capabilities]
 wasi = ["process"]
@@ -230,21 +230,34 @@ WASM plugin ABI note: current Kasane releases expect
 `kasane:plugin@1.0.0`. Rebuild and reinstall any plugin that was built
 against an older version; older binaries will not load.
 
-### Migrating to ABI 0.25.0
+### Migrating to ABI 1.0.0
 
-If you are upgrading a plugin from the previous ABI, the required changes are:
+If you are upgrading a plugin from `0.25.0`, the required changes are:
 
 1. Update the SDK crate to `kasane-plugin-sdk = "0.5"` and set
-   `abi_version = "0.25.0"` in `kasane-plugin.toml`.
-2. Rename clipboard-paste commands from `Command::Paste` to
-   `Command::PasteClipboard`. If you use SDK helpers, prefer
-   `paste_clipboard()` instead of constructing the command directly.
-3. Rebuild and reinstall the `.wasm`. Existing artifacts built against
-   the previous ABI will be rejected by current Kasane releases.
+   `abi_version = "1.0.0"` in `kasane-plugin.toml`.
+2. Rename `face`/`Face` to `style`/`Style` (struct fields, helper names,
+   types). The SDK ships a `style_full(fg, bg, underline_color, attrs)`
+   helper that decomposes the legacy `attributes::*` bitset into the new
+   `Style` fields (`font_weight`, `font_slant`, `underline`, etc.). Direct
+   `Face { … }` literals must be rewritten as `Style { … }` with all 12
+   fields (or use `default_style()` as a base).
+3. Rename `Color`/`color` to `Brush`/`brush`: `Color::DefaultColor` →
+   `Brush::DefaultColor`, `Color::Named(...)` → `Brush::Named(...)`,
+   `Color::Rgb(...)` → `Brush::Rgb(...)`. The variant names are unchanged.
+4. Rename helper functions: `default_face` → `default_style`, `face_fg` →
+   `style_fg`, `face_bg` → `style_bg`, `face(fg, bg)` → `style_with(fg, bg)`,
+   `theme_face_or` → `theme_style_or`, `get_theme_face` → `get_theme_style`,
+   `face_merge::*` → `style_merge::*`.
+5. Rebuild and reinstall the `.wasm`. Existing artifacts built against
+   `0.25.0` are rejected at load time by `kasane:plugin@1.0.0` hosts.
 
-No code change is required for committed text input or bracketed paste
-payloads. Those go through the text-input pipeline and do not use
-`Command::PasteClipboard`.
+The `style` record exposes `font_weight: u16`, `font_slant`,
+`font_features`, `font_variations`, `letter_spacing`, `underline` /
+`strikethrough` of `text-decoration`, plus `blink`, `reverse`, `dim`.
+Plugins receive style in post-resolve form — Kakoune's `final_*`
+resolution flags are a host-internal concern and do not appear in the
+plugin-facing record.
 
 To see installed plugins or diagnose environment issues:
 

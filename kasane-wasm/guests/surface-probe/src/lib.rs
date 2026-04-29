@@ -52,7 +52,7 @@ impl Guest for SurfaceProbePlugin {
             } else {
                 format!("surface-probe:{}x{}", ctx.rect.w, ctx.rect.h)
             };
-            let title = element_builder::create_text(&label, host_state::get_default_face());
+            let title = element_builder::create_text(&label, &host_state::get_default_face());
             let slot = element_builder::create_slot_placeholder(
                 &SlotId::Named("surface_probe.sidebar.top".to_string()),
                 LayoutDirection::Column,
@@ -62,7 +62,7 @@ impl Guest for SurfaceProbePlugin {
             if let Some(summary) = workspace_summary() {
                 children.push(element_builder::create_text(
                     &summary,
-                    host_state::get_default_face(),
+                    &host_state::get_default_face(),
                 ));
             }
             return Some(element_builder::create_column(&children));
@@ -79,7 +79,7 @@ impl Guest for SurfaceProbePlugin {
             };
             return Some(element_builder::create_text(
                 &label,
-                host_state::get_default_face(),
+                &host_state::get_default_face(),
             ));
         }
 
@@ -179,7 +179,7 @@ impl Guest for SurfaceProbePlugin {
                 range_start: 1,
                 range_end: 3,
                 summary: vec![Atom {
-                    face: host_state::get_default_face(),
+                    style: host_state::get_default_face(),
                     contents: "surface-probe-fold".to_string(),
                 }],
             })],

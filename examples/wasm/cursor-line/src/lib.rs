@@ -10,12 +10,12 @@ kasane_plugin_sdk::define_plugin! {
         if state.active_line < 0 {
             return vec![];
         }
-        let bg = theme_face_or(
+        let bg = theme_style_or(
             "cursor.line.bg",
             if is_dark_background() {
-                face_bg(rgb(40, 40, 50))
+                style_bg(rgb(40, 40, 50))
             } else {
-                face_bg(rgb(220, 220, 235))
+                style_bg(rgb(220, 220, 235))
             },
         );
         vec![style_line(state.active_line as u32, bg)]

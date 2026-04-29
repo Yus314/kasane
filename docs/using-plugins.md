@@ -104,9 +104,11 @@ kasane plugin rollback --list
 Current Kasane releases expect WASM plugins built against
 `kasane:plugin@1.0.0`. If you are upgrading from an older build,
 rebuild and reinstall those plugins before startup; older artifacts
-will not load. Plugin authors upgrading from ABI 0.24.0 should also
-update `Command::Paste` to `Command::PasteClipboard`; see
-[plugin-development.md §Migrating to ABI 0.25.0](./plugin-development.md#migrating-to-abi-0250).
+will not load. The 1.0.0 ABI replaces the legacy `face` record with the
+post-resolve `style` record (12 fields covering colour, weight, slant,
+font features and variations, letter-spacing, decorations, plus blink /
+reverse / dim) and renames `color` → `brush`; see
+[plugin-development.md §Migrating to ABI 1.0.0](./plugin-development.md#migrating-to-abi-100).
 
 For example, `prompt_highlight` is not embedded in the binary. Build and install
 the WASM from [`examples/wasm/prompt-highlight/`](../examples/wasm/prompt-highlight/)

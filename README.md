@@ -82,7 +82,7 @@ kasane_plugin_sdk::define_plugin! {
     slots {
         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
             (state.cursor_count > 1).then(|| {
-                auto_contribution(text(&format!(" {} sel ", state.cursor_count), default_face()))
+                auto_contribution(text(&format!(" {} sel ", state.cursor_count), default_style()))
             })
         },
     },

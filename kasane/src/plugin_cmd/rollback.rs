@@ -148,7 +148,7 @@ mod tests {
                 artifact_digest: digest.to_string(),
                 code_digest: Some(format!("{digest}-code")),
                 source_kind: "filesystem".to_string(),
-                abi_version: Some("0.25.0".to_string()),
+                abi_version: Some("1.0.0".to_string()),
             },
         );
         lock
@@ -174,7 +174,7 @@ mod tests {
                 artifact_digest: "sha256:cursor".to_string(),
                 code_digest: Some("sha256:cursor-code".to_string()),
                 source_kind: "bundled".to_string(),
-                abi_version: Some("0.25.0".to_string()),
+                abi_version: Some("1.0.0".to_string()),
             },
         );
 

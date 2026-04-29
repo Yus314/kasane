@@ -9,7 +9,7 @@ const SDK_DIRTY_ALL: u16 = 0x37F;
 /// Implementation of the `kasane_generate` proc macro.
 ///
 /// Generates Kasane WIT bindings with embedded WIT content plus SDK helper
-/// functions (face/color helpers, element builders, etc.).
+/// functions (style/brush helpers, element builders, etc.).
 pub(crate) fn kasane_generate_impl(input: TokenStream) -> TokenStream {
     let wit_bindings = if input.is_empty() {
         let wit_content = include_str!("../wit/plugin.wit");
@@ -41,7 +41,7 @@ pub(crate) fn kasane_generate_impl(input: TokenStream) -> TokenStream {
 /// Generate SDK helper code emitted alongside WIT bindings.
 ///
 /// This code lives in the user's crate so it can reference WIT-generated types
-/// (Face, Color, RgbColor, etc.) which are not accessible from the SDK crate.
+/// (Style, Brush, RgbColor, etc.) which are not accessible from the SDK crate.
 pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
     let sdk_dirty_all = SDK_DIRTY_ALL;
     quote! {
@@ -115,71 +115,110 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 }
             }
 
-            /// Create a default face (all colors default, no attributes).
-            pub fn default_face() -> Face {
-                Face {
-                    fg: Color::DefaultColor,
-                    bg: Color::DefaultColor,
-                    underline: Color::DefaultColor,
-                    attributes: 0,
+            /// Create a default style (all brushes default, normal weight, no decorations).
+            pub fn default_style() -> Style {
+                Style {
+                    fg: Brush::DefaultColor,
+                    bg: Brush::DefaultColor,
+                    font_weight: 400,
+                    font_slant: FontSlant::Normal,
+                    font_features: 0,
+                    font_variations: vec![],
+                    letter_spacing: 0.0,
+                    underline: None,
+                    strikethrough: None,
+                    blink: false,
+                    reverse: false,
+                    dim: false,
                 }
             }
 
-            /// Create a face with only the foreground color set.
-            pub fn face_fg(color: Color) -> Face {
-                Face {
-                    fg: color,
-                    bg: Color::DefaultColor,
-                    underline: Color::DefaultColor,
-                    attributes: 0,
-                }
+            /// Create a style with only the foreground brush set.
+            pub fn style_fg(brush: Brush) -> Style {
+                let mut s = default_style();
+                s.fg = brush;
+                s
             }
 
-            /// Create a face with only the background color set.
-            pub fn face_bg(color: Color) -> Face {
-                Face {
-                    fg: Color::DefaultColor,
-                    bg: color,
-                    underline: Color::DefaultColor,
-                    attributes: 0,
-                }
+            /// Create a style with only the background brush set.
+            pub fn style_bg(brush: Brush) -> Style {
+                let mut s = default_style();
+                s.bg = brush;
+                s
             }
 
-            /// Create a face with foreground and background colors.
-            pub fn face(fg: Color, bg: Color) -> Face {
-                Face {
+            /// Create a style with foreground and background brushes.
+            pub fn style_with(fg: Brush, bg: Brush) -> Style {
+                let mut s = default_style();
+                s.fg = fg;
+                s.bg = bg;
+                s
+            }
+
+            /// Create a style from `(fg, bg, underline_color, attrs_bits)`. The
+            /// `attrs` parameter takes the legacy `attributes::*` bitset and
+            /// decomposes it into the post-resolve `Style` fields. Plugin
+            /// authors writing new code should construct `Style` directly or
+            /// use the granular helpers.
+            pub fn style_full(fg: Brush, bg: Brush, underline_color: Brush, attrs: u16) -> Style {
+                const UNDERLINE: u16 = 1 << 0;
+                const CURLY_UNDERLINE: u16 = 1 << 1;
+                const DOUBLE_UNDERLINE: u16 = 1 << 2;
+                const REVERSE: u16 = 1 << 3;
+                const BLINK: u16 = 1 << 4;
+                const BOLD: u16 = 1 << 5;
+                const DIM: u16 = 1 << 6;
+                const ITALIC: u16 = 1 << 7;
+                const STRIKETHROUGH: u16 = 1 << 8;
+
+                let underline = if attrs & (UNDERLINE | CURLY_UNDERLINE | DOUBLE_UNDERLINE) != 0 {
+                    let dec_style = if attrs & CURLY_UNDERLINE != 0 {
+                        DecorationStyle::Curly
+                    } else if attrs & DOUBLE_UNDERLINE != 0 {
+                        DecorationStyle::Double
+                    } else {
+                        DecorationStyle::Solid
+                    };
+                    Some(TextDecoration { style: dec_style, color: underline_color, thickness: None })
+                } else {
+                    None
+                };
+                let strikethrough = if attrs & STRIKETHROUGH != 0 {
+                    Some(TextDecoration { style: DecorationStyle::Solid, color: Brush::DefaultColor, thickness: None })
+                } else {
+                    None
+                };
+                Style {
                     fg,
                     bg,
-                    underline: Color::DefaultColor,
-                    attributes: 0,
-                }
-            }
-
-            /// Create a face with all fields specified.
-            pub fn face_full(fg: Color, bg: Color, underline: Color, attrs: u16) -> Face {
-                Face {
-                    fg,
-                    bg,
+                    font_weight: if attrs & BOLD != 0 { 700 } else { 400 },
+                    font_slant: if attrs & ITALIC != 0 { FontSlant::Italic } else { FontSlant::Normal },
+                    font_features: 0,
+                    font_variations: vec![],
+                    letter_spacing: 0.0,
                     underline,
-                    attributes: attrs,
+                    strikethrough,
+                    blink: attrs & BLINK != 0,
+                    reverse: attrs & REVERSE != 0,
+                    dim: attrs & DIM != 0,
                 }
             }
 
-            /// Create an RGB color.
-            pub fn rgb(r: u8, g: u8, b: u8) -> Color {
-                Color::Rgb(RgbColor { r, g, b })
+            /// Create an RGB brush.
+            pub fn rgb(r: u8, g: u8, b: u8) -> Brush {
+                Brush::Rgb(RgbColor { r, g, b })
             }
 
-            /// Create a named color.
-            pub fn named(n: NamedColor) -> Color {
-                Color::Named(n)
+            /// Create a named brush.
+            pub fn named(n: NamedColor) -> Brush {
+                Brush::Named(n)
             }
 
             // ----- Element builder shorthand wrappers -----
 
             /// Create a text element.
-            pub fn text(content: &str, f: Face) -> ElementHandle {
-                super::kasane::plugin::element_builder::create_text(content, f)
+            pub fn text(content: &str, s: Style) -> ElementHandle {
+                super::kasane::plugin::element_builder::create_text(content, &s)
             }
 
             /// Create a styled-line element from atoms.
@@ -338,12 +377,12 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             // ----- LineAnnotation shortcuts -----
 
             /// Create a background-only line annotation.
-            pub fn bg_annotation(f: Face) -> LineAnnotation {
+            pub fn bg_annotation(s: Style) -> LineAnnotation {
                 LineAnnotation {
                     left_gutter: None,
                     right_gutter: None,
                     background: Some(BackgroundLayer {
-                        face: f,
+                        style: s,
                         z_order: 0,
                         blend_opaque: true,
                     }),
@@ -390,14 +429,14 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 
             // ----- Convenience shortcuts -----
 
-            /// Create a text element with the default face.
+            /// Create a text element with the default style.
             pub fn plain(s: &str) -> ElementHandle {
-                text(s, default_face())
+                text(s, default_style())
             }
 
-            /// Create a text element with a foreground color.
-            pub fn colored(s: &str, fg: Color) -> ElementHandle {
-                text(s, face_fg(fg))
+            /// Create a text element with a foreground brush.
+            pub fn colored(s: &str, fg: Brush) -> ElementHandle {
+                text(s, style_fg(fg))
             }
 
             /// Check if a key event is Ctrl+key (no Alt/Shift).
@@ -443,32 +482,32 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 condition.then(|| auto_contribution(plain(label)))
             }
 
-            /// Parse a hex color string (`"#rrggbb"` or `"#rgb"`) into a `Color`.
-            /// Returns `Color::DefaultColor` on invalid input.
-            pub fn hex(s: &str) -> Color {
+            /// Parse a hex color string (`"#rrggbb"` or `"#rgb"`) into a `Brush`.
+            /// Returns `Brush::DefaultColor` on invalid input.
+            pub fn hex(s: &str) -> Brush {
                 let s = s.strip_prefix('#').unwrap_or(s);
                 match s.len() {
                     6 => {
-                        let Ok(r) = u8::from_str_radix(&s[0..2], 16) else { return Color::DefaultColor };
-                        let Ok(g) = u8::from_str_radix(&s[2..4], 16) else { return Color::DefaultColor };
-                        let Ok(b) = u8::from_str_radix(&s[4..6], 16) else { return Color::DefaultColor };
-                        Color::Rgb(RgbColor { r, g, b })
+                        let Ok(r) = u8::from_str_radix(&s[0..2], 16) else { return Brush::DefaultColor };
+                        let Ok(g) = u8::from_str_radix(&s[2..4], 16) else { return Brush::DefaultColor };
+                        let Ok(b) = u8::from_str_radix(&s[4..6], 16) else { return Brush::DefaultColor };
+                        Brush::Rgb(RgbColor { r, g, b })
                     }
                     3 => {
-                        let Ok(r) = u8::from_str_radix(&s[0..1], 16) else { return Color::DefaultColor };
-                        let Ok(g) = u8::from_str_radix(&s[1..2], 16) else { return Color::DefaultColor };
-                        let Ok(b) = u8::from_str_radix(&s[2..3], 16) else { return Color::DefaultColor };
-                        Color::Rgb(RgbColor { r: r * 17, g: g * 17, b: b * 17 })
+                        let Ok(r) = u8::from_str_radix(&s[0..1], 16) else { return Brush::DefaultColor };
+                        let Ok(g) = u8::from_str_radix(&s[1..2], 16) else { return Brush::DefaultColor };
+                        let Ok(b) = u8::from_str_radix(&s[2..3], 16) else { return Brush::DefaultColor };
+                        Brush::Rgb(RgbColor { r: r * 17, g: g * 17, b: b * 17 })
                     }
-                    _ => Color::DefaultColor,
+                    _ => Brush::DefaultColor,
                 }
             }
 
             // ----- Theme helpers -----
 
-            /// Query the host theme for a face associated with a token name.
+            /// Query the host theme for a style associated with a token name.
             /// Returns `None` if the token is not in the theme.
-            pub fn get_theme_face(token: &str) -> Option<Face> {
+            pub fn get_theme_style(token: &str) -> Option<Style> {
                 super::kasane::plugin::host_state::get_theme_face(token)
             }
 
@@ -477,9 +516,9 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 super::kasane::plugin::host_state::is_dark_background()
             }
 
-            /// Query the host theme for a face, falling back to `fallback` if not found.
-            pub fn theme_face_or(token: &str, fallback: Face) -> Face {
-                get_theme_face(token).unwrap_or(fallback)
+            /// Query the host theme for a style, falling back to `fallback` if not found.
+            pub fn theme_style_or(token: &str, fallback: Style) -> Style {
+                get_theme_style(token).unwrap_or(fallback)
             }
 
             // ----- Command shortcuts -----
@@ -508,27 +547,27 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             }
 
             /// Build a single-atom Fold display directive.
-            pub fn plain_fold(range_start: u32, range_end: u32, text: &str, face: Face) -> DisplayDirective {
+            pub fn plain_fold(range_start: u32, range_end: u32, text: &str, style: Style) -> DisplayDirective {
                 DisplayDirective::Fold(FoldDirective {
                     range_start,
                     range_end,
-                    summary: vec![Atom { face, contents: text.to_string() }],
+                    summary: vec![Atom { style, contents: text.to_string() }],
                 })
             }
 
             // ----- Unified display directive helpers -----
 
-            /// Style an entire line with a background face.
-            pub fn style_line(line: u32, face: Face) -> DisplayDirective {
+            /// Style an entire line with a background style.
+            pub fn style_line(line: u32, style: Style) -> DisplayDirective {
                 DisplayDirective::StyleLine(StyleLineDirective {
-                    line, face, z_order: 0,
+                    line, style, z_order: 0,
                 })
             }
 
             /// Style a line with a specific z-order for layering.
-            pub fn style_line_z(line: u32, face: Face, z_order: i16) -> DisplayDirective {
+            pub fn style_line_z(line: u32, style: Style, z_order: i16) -> DisplayDirective {
                 DisplayDirective::StyleLine(StyleLineDirective {
-                    line, face, z_order,
+                    line, style, z_order,
                 })
             }
 
@@ -568,9 +607,9 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             }
 
             /// Style an inline byte range on a line.
-            pub fn style_inline(line: u32, byte_start: u32, byte_end: u32, face: Face) -> DisplayDirective {
+            pub fn style_inline(line: u32, byte_start: u32, byte_end: u32, style: Style) -> DisplayDirective {
                 DisplayDirective::StyleInline(StyleInlineDirective {
-                    line, byte_start, byte_end, face,
+                    line, byte_start, byte_end, style,
                 })
             }
 
@@ -628,7 +667,7 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 border: Option<BorderLineStyle>,
                 shadow: bool,
                 padding: Edges,
-                style: Face,
+                style: Style,
                 title: Option<Vec<Atom>>,
             }
 
@@ -639,12 +678,7 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                         border: None,
                         shadow: false,
                         padding: Edges { top: 0, right: 0, bottom: 0, left: 0 },
-                        style: Face {
-                            fg: Color::DefaultColor,
-                            bg: Color::DefaultColor,
-                            underline: Color::DefaultColor,
-                            attributes: 0,
-                        },
+                        style: default_style(),
                         title: None,
                     }
                 }
@@ -664,19 +698,14 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                     self
                 }
 
-                pub fn style(mut self, face: Face) -> Self {
-                    self.style = face;
+                pub fn style(mut self, style: Style) -> Self {
+                    self.style = style;
                     self
                 }
 
                 pub fn title_text(mut self, text: &str) -> Self {
                     self.title = Some(vec![Atom {
-                        face: Face {
-                            fg: Color::DefaultColor,
-                            bg: Color::DefaultColor,
-                            underline: Color::DefaultColor,
-                            attributes: 0,
-                        },
+                        style: default_style(),
                         contents: text.to_string(),
                     }]);
                     self
@@ -693,7 +722,7 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                         self.border,
                         self.shadow,
                         self.padding,
-                        self.style,
+                        &self.style,
                         self.title.as_deref(),
                     )
                 }

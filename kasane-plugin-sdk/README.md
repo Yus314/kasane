@@ -38,19 +38,25 @@ See the [Plugin Development Guide](https://github.com/Yus314/kasane/blob/master/
 
 | SDK version | Minimum host version | WIT ABI |
 |---|---|---|
+| 0.5.x | kasane >= 0.5.0 | `kasane:plugin@1.0.0` |
 | 0.4.x | kasane >= 0.3.0 | `kasane:plugin@0.25.0` |
 | 0.3.x | kasane >= 0.3.0 | `kasane:plugin@0.24.0` |
 | 0.2.x | kasane >= 0.2.0 | `kasane:plugin@0.14.0` |
 
-Plugins built with SDK 0.4.x are not compatible with kasane 0.2.x due to WIT
-interface breaking changes.
+Plugins built with SDK 0.5.x are not compatible with earlier kasane versions
+due to the WIT 1.0.0 brush/style/inline-box redesign.
 
-Upgrading from SDK 0.3.x to 0.4.x requires:
+Upgrading from SDK 0.4.x to 0.5.x requires:
 
-1. Updating `kasane-plugin.toml` to `abi_version = "0.25.0"`.
-2. Renaming `Command::Paste` to `Command::PasteClipboard`, or using the
-   `paste_clipboard()` helper.
-3. Rebuilding and reinstalling the generated `.wasm`.
+1. Updating `kasane-plugin.toml` to `abi_version = "1.0.0"`.
+2. Replacing `face`/`Face` with `style`/`Style` (struct fields and helper
+   names: `default_face` → `default_style`, `face_fg` → `style_fg`,
+   `face_bg` → `style_bg`, `face(fg, bg)` → `style_with(fg, bg)`,
+   `theme_face_or` → `theme_style_or`, `get_theme_face` → `get_theme_style`,
+   `face_merge::*` → `style_merge::*`).
+3. Replacing `Color` with `Brush` (`Color::DefaultColor` → `Brush::DefaultColor`,
+   `Color::Named(...)` → `Brush::Named(...)`, `Color::Rgb(...)` → `Brush::Rgb(...)`).
+4. Rebuilding and reinstalling the generated `.wasm`.
 
 ## MSRV
 

@@ -189,7 +189,7 @@ kasane_plugin_sdk::define_plugin! {
             .unwrap_or(path);
         let title_el = text(
             &format!(" {title} "),
-            face(named(NamedColor::Black), named(NamedColor::Cyan)),
+            style_with(named(NamedColor::Black), named(NamedColor::Cyan)),
         );
 
         let inner = column(&[title_el, image]);

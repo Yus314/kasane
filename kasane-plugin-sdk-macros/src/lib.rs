@@ -60,7 +60,7 @@ pub fn kasane_wasm_plugin(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// In addition to the WIT bindings, this macro emits:
 /// - Auto `use` statements for common WIT types (`Guest`, `types::*`, etc.)
-/// - Face/Color helper functions (`default_face()`, `face_bg()`, `rgb()`, etc.)
+/// - Style/Brush helper functions (`default_style()`, `style_bg()`, `rgb()`, etc.)
 /// - Element builder helpers (`text()`, `column()`, `row()`, `flex_row()`,
 ///   `flex_column()`, `grid()`, `scrollable()`, `container()`, `empty()`, etc.)
 /// - Overlay positioning helpers (`centered_overlay()`)
