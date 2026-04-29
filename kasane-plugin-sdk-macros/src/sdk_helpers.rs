@@ -204,6 +204,35 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 }
             }
 
+            // ----- Variable-font axis helpers -----
+            //
+            // OpenType axis tags are 4-byte ASCII encoded as a big-endian
+            // u32 in the WIT contract (`plugin.wit:66-69`). The raw integer
+            // form (`0x77676874` for `wght`) is hostile to read; these
+            // helpers let plugins write `FONT_AXIS_WGHT` or
+            // `font_tag(*b"wght")` instead.
+
+            /// Encode a 4-byte OpenType axis tag as a big-endian `u32`.
+            pub const fn font_tag(c: [u8; 4]) -> u32 {
+                u32::from_be_bytes(c)
+            }
+
+            /// Weight axis (`wght`). Value range: typically 100..=900.
+            pub const FONT_AXIS_WGHT: u32 = font_tag(*b"wght");
+            /// Width axis (`wdth`). Value range: typically 50..=200 (% of normal).
+            pub const FONT_AXIS_WDTH: u32 = font_tag(*b"wdth");
+            /// Slant axis (`slnt`). Value range: typically -90..=90 degrees.
+            pub const FONT_AXIS_SLNT: u32 = font_tag(*b"slnt");
+            /// Italic axis (`ital`). Value range: 0..=1 (0 = upright, 1 = italic).
+            pub const FONT_AXIS_ITAL: u32 = font_tag(*b"ital");
+            /// Optical size axis (`opsz`). Value range: typically 6..=144 (pt).
+            pub const FONT_AXIS_OPSZ: u32 = font_tag(*b"opsz");
+
+            /// Construct a [`FontVariation`] for an axis at a given value.
+            pub fn font_variation(tag: u32, value: f32) -> FontVariation {
+                FontVariation { tag, value }
+            }
+
             /// Create an RGB brush.
             pub fn rgb(r: u8, g: u8, b: u8) -> Brush {
                 Brush::Rgb(RgbColor { r, g, b })
