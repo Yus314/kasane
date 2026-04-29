@@ -29,11 +29,22 @@ pub struct Atom {
 }
 
 impl Atom {
-    /// Construct an atom from a legacy [`Face`], allocating a fresh `Arc`
-    /// for its style. Bridge constructor for the ADR-031 migration; sites
-    /// that build many atoms from the same `Face` should use
-    /// [`crate::protocol::parse`]'s frame-local intern path instead so
-    /// allocations are shared.
+    /// **Wire-format-aware** atom constructor. Allocates a fresh `Arc`
+    /// wrapping an [`UnresolvedStyle`] that **preserves the Kakoune
+    /// `final_*` resolution flags** carried by the input `Face`.
+    ///
+    /// Use this only for code that mirrors the wire-format shape: the
+    /// protocol parser itself, fixtures that simulate Kakoune's `draw_*`
+    /// JSON output, and the `detect_cursors` test harness (which keys on
+    /// `FINAL_FG | REVERSE` to identify the cursor atom). New host /
+    /// plugin / rendering code that holds a [`Style`] should use
+    /// [`Atom::with_style`] instead — it bypasses the wire-format
+    /// representation entirely and skips the `Style → Face → Style`
+    /// round-trip.
+    ///
+    /// Sites that build many atoms from the same `Face` should reach for
+    /// [`crate::protocol::parse`]'s frame-local intern path so the `Arc`
+    /// allocation is shared.
     pub fn from_face(face: Face, contents: impl Into<CompactString>) -> Self {
         Self {
             contents: contents.into(),
@@ -41,10 +52,15 @@ impl Atom {
         }
     }
 
-    /// Construct an atom from a post-resolve [`Style`], allocating a fresh
-    /// `Arc` for the wrapping `UnresolvedStyle` (with all `final_*` flags
-    /// false). This is the Phase B3 successor to [`Atom::from_face`] for
-    /// authoring sites that already hold a `Style` value.
+    /// **Post-resolve** atom constructor. Allocates a fresh `Arc` wrapping
+    /// the input [`Style`] in an [`UnresolvedStyle`] envelope with all
+    /// `final_*` flags **set to `false`** (i.e. fully resolved already; no
+    /// further deferral against a base style is expected).
+    ///
+    /// This is the canonical constructor for new host, plugin, and
+    /// rendering code that already holds a `Style`. It does **not**
+    /// preserve Kakoune `final_*` resolution semantics — for that, see
+    /// [`Atom::from_face`].
     #[inline]
     pub fn with_style(contents: impl Into<CompactString>, style: Style) -> Self {
         Self {
@@ -67,11 +83,21 @@ impl Atom {
         }
     }
 
-    /// Project this atom's style back to a [`Face`]. Bridge for sites
-    /// that still consume the legacy representation. Lock-free direct
-    /// read; preserves the Kakoune `final_*` flags. Hot paths that read
-    /// multiple fields should bind `let s = &*atom.style;` once instead
-    /// of calling `face()` repeatedly.
+    /// Project this atom's style back to a wire-format [`Face`].
+    ///
+    /// Preserves the Kakoune `final_*` resolution flags and the discrete
+    /// attribute bitset. Used by sites that either need the wire-format
+    /// shape (e.g. the protocol re-emitter, theme face-lookup paths that
+    /// pre-date ADR-031, [`detect_cursors`](crate::state::derived) which
+    /// reads `Attributes::FINAL_FG` to identify cursor atoms) or that
+    /// haven't yet been migrated.
+    ///
+    /// New code should prefer reading the structured representation
+    /// directly: `&*atom.style` for the unresolved form (with the
+    /// `final_*` flags surfaced as bool fields), or
+    /// [`atom.style_resolved_default`](Self::style_resolved_default) for
+    /// the post-resolve [`Style`] form. Hot paths that read multiple
+    /// fields should bind `let s = &*atom.style;` once.
     #[inline]
     pub fn face(&self) -> Face {
         self.style.to_face()

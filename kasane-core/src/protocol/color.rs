@@ -33,6 +33,13 @@ pub enum NamedColor {
     BrightWhite,
 }
 
+/// Kakoune wire-format colour. Three variants: `Default` (use the resolved
+/// base / theme value), `Named` (16-colour palette index), and `Rgb` (24-bit
+/// truecolour). New code should prefer [`Brush`](super::style::Brush), which
+/// adds an explicit `Default` zero-state and survives the post-resolve
+/// pipeline. `Color` is kept for the wire parser and a few legacy bridges
+/// (ADR-031 Phase B3 Block F).
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Color {
     #[default]
@@ -198,6 +205,18 @@ fn parse_color(s: &str) -> Option<Color> {
 // ---------------------------------------------------------------------------
 
 bitflags! {
+    /// Kakoune wire-format attribute bitset for [`Face`].
+    ///
+    /// Wire-format-only (ADR-031 Phase B3 Block F). New code uses the
+    /// structured equivalents on [`Style`](super::style::Style):
+    /// `font_weight` for `BOLD`, `font_slant` for `ITALIC`,
+    /// `underline: Option<TextDecoration>` for the underline family,
+    /// `strikethrough` for `STRIKETHROUGH`, and the `reverse` / `dim` /
+    /// `blink` booleans for the matching SGR flags. The `FINAL_*`
+    /// resolution flags have no `Style` equivalent — they are exclusively a
+    /// wire-format concern (Kakoune's resolved-or-deferred status), consumed
+    /// by `detect_cursors` and the protocol parser.
+    #[doc(hidden)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     pub struct Attributes: u16 {
         const UNDERLINE        = 1 << 0;
@@ -307,6 +326,23 @@ impl Serialize for Attributes {
 // Face
 // ---------------------------------------------------------------------------
 
+/// Kakoune wire-format face record.
+///
+/// **Wire-format-only type (ADR-031 Phase B3 Block F)**. This type matches the
+/// shape of Kakoune's `face` JSON-RPC record and exists to deserialise wire
+/// input into a structured value. Once parsed, atoms carry an
+/// [`Arc<UnresolvedStyle>`](super::style::UnresolvedStyle) directly; downstream
+/// code (rendering, plugins, theme resolution) operates on
+/// [`Style`](super::style::Style) or `UnresolvedStyle`, never on `Face`.
+///
+/// New code should not construct or read `Face` outside the protocol parser
+/// and a small number of legacy bridges (kept under doc-hidden visibility
+/// until Block F's hard visibility downgrade lands). The only field that
+/// callers outside `protocol` legitimately need is the `attributes`
+/// [`FINAL_FG`](Attributes::FINAL_FG) / [`FINAL_BG`](Attributes::FINAL_BG)
+/// pair, which is consumed by `detect_cursors` to identify the Kakoune
+/// cursor atom; that is one of the few wire-format-aware code paths.
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Face {
     pub fg: Color,
