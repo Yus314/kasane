@@ -1,4 +1,4 @@
-package kasane:plugin@1.0.0;
+package kasane:plugin@1.1.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -1688,6 +1688,20 @@ interface plugin-api {
     /// The host uses this to skip WASM boundary crossings for unimplemented
     /// methods. Return 0xFFFFFFFF (all bits set) if unknown (conservative).
     register-capabilities: func() -> u32;
+
+    // --- v1.1.0: InlineBox paint (ADR-031 Phase 10 Step 2) ---
+
+    /// Paint content inside a `display-directive::inline-box` slot owned by
+    /// this plugin. The host calls this when rendering an inline-box whose
+    /// `box-id` matches one declared by an `inline-box-directive` previously
+    /// returned from `display`.
+    ///
+    /// Returns `Some(handle)` to paint inside the slot, or `None` to leave
+    /// the slot empty (the renderer falls back to the cell-grid placeholder
+    /// reservation). Returning a handle from a different plugin's element
+    /// arena is undefined behaviour; use the `element-builder` import to
+    /// construct the handle.
+    paint-inline-box: func(box-id: u64) -> option<element-handle>;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 [plugin]
 id = "fuzzy_finder"
-abi_version = "1.0.0"
+abi_version = "1.1.0"
 
 [capabilities]
 wasi = ["process"]

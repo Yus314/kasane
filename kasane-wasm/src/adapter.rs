@@ -894,6 +894,23 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
+    fn paint_inline_box(
+        &self,
+        box_id: u64,
+        state: &AppView<'_>,
+    ) -> Option<kasane_core::element::Element> {
+        // call_synced returns R::default() on error; for Option<Element> that
+        // is None, which matches "no paint" — the renderer falls back to the
+        // placeholder slot reservation.
+        self.shared
+            .call_synced(state, "paint_inline_box", |rt| -> anyhow::Result<_> {
+                rt.store.data_mut().elements.clear();
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let handle = api.call_paint_inline_box(&mut rt.store, box_id)?;
+                Ok(handle.map(|h| rt.store.data_mut().take_root_element(h)))
+            })
+    }
+
     fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
         let shared = Arc::clone(&self.shared);
         self.shared.with_runtime(|runtime| {

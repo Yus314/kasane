@@ -118,6 +118,7 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "evaluate_extension",
         "persist_state",
         "restore_state",
+        "paint_inline_box",
     ]
     .into_iter()
     .collect()
@@ -554,6 +555,17 @@ pub(crate) fn generate_defaults(
         }
     );
 
+    // --- InlineBox paint (ADR-031 Phase 10 Step 2) ---
+
+    add_default!(
+        "paint_inline_box",
+        quote! {
+            fn paint_inline_box(_box_id: u64) -> Option<ElementHandle> {
+                None
+            }
+        }
+    );
+
     // --- Inter-plugin messaging ---
 
     add_default!(
@@ -706,6 +718,10 @@ pub(crate) fn generate_defaults(
         // RENDER_ORNAMENT = 1 << 24
         if existing.contains("render_ornaments") {
             caps |= 1 << 24;
+        }
+        // INLINE_BOX_PAINTER = 1 << 13 (ADR-031 Phase 10 Step 2)
+        if existing.contains("paint_inline_box") {
+            caps |= 1 << 13;
         }
         // CONTENT_ANNOTATOR = 1 << 25
         if existing.contains("display") {
