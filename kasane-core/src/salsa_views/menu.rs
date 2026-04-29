@@ -2,7 +2,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::element::{Element, ElementStyle, FlexChild, Overlay, OverlayAnchor};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
-use crate::protocol::{Atom, MenuStyle, Style};
+use crate::protocol::{Atom, MenuStyle};
 use crate::render::builders::{
     MAX_DROPDOWN_HEIGHT, PREFIX_WIDTH, SCROLLBAR_WIDTH, SUFFIX_RESERVE, build_scrollbar,
     truncate_atoms,
@@ -64,17 +64,17 @@ pub fn pure_menu_overlay(
 /// Pure menu item element (no plugin transform_menu_item).
 fn build_menu_item_element_pure(menu: &MenuSnapshot, item_idx: usize, width: u16) -> Element {
     let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
-    let face = if selected {
-        menu.selected_item_face.to_face()
+    let style = if selected {
+        menu.selected_item_face.clone()
     } else {
-        menu.menu_face.to_face()
+        menu.menu_face.clone()
     };
     let item = if item_idx < menu.items.len() {
-        build_styled_line_with_base(&menu.items[item_idx], &face, width)
+        build_styled_line_with_base(&menu.items[item_idx], &style, width)
     } else {
-        Element::text("", face)
+        Element::text_with_style("", style.clone())
     };
-    Element::container(item, ElementStyle::from(face))
+    Element::container(item, ElementStyle::from(style))
 }
 
 /// Pure split (two-column) menu item element (no plugin transform_menu_item).
@@ -86,14 +86,17 @@ fn build_split_item_element_pure(
     _content_w: u16,
 ) -> Element {
     let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
-    let face = if selected {
-        menu.selected_item_face.to_face()
+    let style = if selected {
+        menu.selected_item_face.clone()
     } else {
-        menu.menu_face.to_face()
+        menu.menu_face.clone()
     };
 
     if item_idx >= menu.items.len() {
-        return Element::container(Element::text("", face), ElementStyle::from(face));
+        return Element::container(
+            Element::text_with_style("", style.clone()),
+            ElementStyle::from(style),
+        );
     }
 
     let item = &menu.items[item_idx];
@@ -103,7 +106,7 @@ fn build_split_item_element_pure(
 
     // 1. Candidate portion
     let cand_atoms = &item[..split.candidate_end];
-    let mut cand_resolved = truncate_atoms(cand_atoms, candidate_col_w, &face, "\u{2026}");
+    let mut cand_resolved = truncate_atoms(cand_atoms, candidate_col_w, &style, "\u{2026}");
     let cand_w: usize = cand_resolved
         .iter()
         .map(|a| {
@@ -115,22 +118,22 @@ fn build_split_item_element_pure(
         .sum();
     if (cand_w as u16) < candidate_col_w {
         let pad = candidate_col_w as usize - cand_w;
-        cand_resolved.push(Atom::with_style(" ".repeat(pad), Style::from_face(&face)));
+        cand_resolved.push(Atom::with_style(" ".repeat(pad), style.clone()));
     }
     atoms.extend(cand_resolved);
 
     // 2. Gap
-    atoms.push(Atom::with_style(" ", Style::from_face(&face)));
+    atoms.push(Atom::with_style(" ", style.clone()));
 
     // 3. Docstring portion
     for atom in &item[split.docstring_start..] {
         atoms.push(Atom::with_style(
             atom.contents.clone(),
-            Style::from_face(&crate::protocol::resolve_face(&atom.face(), &face)),
+            crate::protocol::resolve_style(&atom.style, &style),
         ));
     }
 
-    Element::container(Element::StyledLine(atoms), ElementStyle::from(face))
+    Element::container(Element::StyledLine(atoms), ElementStyle::from(style))
 }
 
 fn build_menu_inline_pure(
@@ -175,13 +178,12 @@ fn build_menu_inline_pure(
         })
         .collect();
 
-    let menu_face = menu.menu_face.to_face();
     let scrollbar = build_scrollbar(
         win.height,
         menu.items.len(),
         menu.columns,
         menu.first_item,
-        &menu_face,
+        &menu.menu_face,
         scrollbar_thumb,
         scrollbar_track,
     );
@@ -225,13 +227,12 @@ fn build_menu_prompt_pure(
     }
 
     let grid_columns = vec![crate::element::GridColumn::flex(1.0); columns];
-    let menu_face = menu.menu_face.to_face();
     let scrollbar = build_scrollbar(
         wh,
         menu.items.len(),
         menu.columns,
         menu.first_item,
-        &menu_face,
+        &menu.menu_face,
         scrollbar_thumb,
         scrollbar_track,
     );
@@ -242,7 +243,7 @@ fn build_menu_prompt_pure(
     ]);
 
     Some(Overlay {
-        element: Element::container(row, ElementStyle::from(menu.menu_face.to_face())),
+        element: Element::container(row, ElementStyle::from(menu.menu_face.clone())),
         anchor: OverlayAnchor::Absolute {
             x: 0,
             y: start_y,
@@ -257,13 +258,13 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
     let screen_w = cols as usize;
     let first = menu.first_item;
     let has_prefix = first > 0;
-    let menu_face = menu.menu_face.to_face();
-    let selected_face = menu.selected_item_face.to_face();
+    let menu_style = menu.menu_face.clone();
+    let selected_style = menu.selected_item_face.clone();
 
     let mut atoms: Vec<Atom> = Vec::new();
 
     if has_prefix {
-        atoms.push(Atom::with_style("< ", Style::from_face(&menu_face)));
+        atoms.push(Atom::with_style("< ", menu_style.clone()));
     }
 
     let mut x = if has_prefix { PREFIX_WIDTH } else { 0 };
@@ -276,37 +277,31 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
             if has_more {
                 let pad_len = screen_w.saturating_sub(x + 1);
                 if pad_len > 0 {
-                    atoms.push(Atom::with_style(
-                        " ".repeat(pad_len),
-                        Style::from_face(&menu_face),
-                    ));
+                    atoms.push(Atom::with_style(" ".repeat(pad_len), menu_style.clone()));
                 }
-                atoms.push(Atom::with_style(">", Style::from_face(&menu_face)));
+                atoms.push(Atom::with_style(">", menu_style.clone()));
             }
             break;
         }
 
-        let face = if Some(idx) == menu.selected {
-            selected_face
+        let item_style = if Some(idx) == menu.selected {
+            selected_style.clone()
         } else {
-            menu_face
+            menu_style.clone()
         };
 
         for atom in &menu.items[idx] {
-            atoms.push(Atom::with_style(
-                atom.contents.clone(),
-                Style::from_face(&face),
-            ));
+            atoms.push(Atom::with_style(atom.contents.clone(), item_style.clone()));
         }
         x += item_w;
 
         if x < screen_w {
-            atoms.push(Atom::with_style(" ", Style::from_face(&menu_face)));
+            atoms.push(Atom::with_style(" ", menu_style.clone()));
             x += 1;
         }
     }
 
-    let element = Element::container(Element::StyledLine(atoms), ElementStyle::from(menu_face));
+    let element = Element::container(Element::StyledLine(atoms), ElementStyle::from(menu_style));
 
     Some(Overlay {
         element,
@@ -339,13 +334,12 @@ fn build_menu_search_dropdown_pure(
         })
         .collect();
 
-    let menu_face = menu.menu_face.to_face();
     let scrollbar = build_scrollbar(
         win_h,
         menu.items.len(),
         menu.columns,
         menu.first_item,
-        &menu_face,
+        &menu.menu_face,
         scrollbar_thumb,
         scrollbar_track,
     );

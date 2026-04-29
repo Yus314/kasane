@@ -3,17 +3,16 @@ use crate::element::{
     StyleToken,
 };
 use crate::layout::{self, ASSISTANT_CLIPPY, ASSISTANT_WIDTH, layout_info, line_display_width};
-use crate::protocol::{Face, InfoStyle};
+use crate::protocol::{InfoStyle, Style};
 use crate::render::builders::{build_content_column, wrap_content_lines};
 use crate::state::{AppState, InfoState};
 
-/// Resolve info face: theme override takes precedence, protocol face as fallback.
-fn resolve_info_face(info: &InfoState, state: &AppState) -> Face {
+/// Resolve info style: theme override takes precedence, protocol style as fallback.
+fn resolve_info_style(info: &InfoState, state: &AppState) -> Style {
     state
         .config
         .theme
         .resolve_with_protocol_fallback(&StyleToken::INFO_TEXT, info.face.clone())
-        .to_face()
 }
 
 /// Compute the floating window for an info popup, returning `None` if zero-size.
@@ -82,7 +81,7 @@ fn build_info_prompt(
         return None;
     }
 
-    let face = resolve_info_face(info, state);
+    let style = resolve_info_style(info, state);
 
     let total_h = win.height as usize;
     let cw = win.width.saturating_sub(ASSISTANT_WIDTH + 4);
@@ -117,14 +116,17 @@ fn build_info_prompt(
             Some(custom) => &custom[idx],
             None => ASSISTANT_CLIPPY[idx],
         };
-        asst_rows.push(FlexChild::fixed(Element::text(line_str, face)));
+        asst_rows.push(FlexChild::fixed(Element::text_with_style(
+            line_str,
+            style.clone(),
+        )));
     }
     let assistant_col = Element::column(asst_rows);
 
     // Build content lines with word wrapping
     // Frame height is determined by content, not the full popup height
     let frame_content_h = total_h.saturating_sub(2) as u16;
-    let wrapped_lines = wrap_content_lines(trimmed, cw, frame_content_h, &face);
+    let wrapped_lines = wrap_content_lines(trimmed, cw, frame_content_h, &style);
     let frame_h = (wrapped_lines.len() as u16 + 2).min(total_h as u16);
 
     // Build framed content area
@@ -145,7 +147,7 @@ fn build_info_prompt(
             bottom: 0,
             left: 1,
         },
-        style: ElementStyle::from(face),
+        style: ElementStyle::from(style.clone()),
         title: if info.title.is_empty() {
             None
         } else {
@@ -157,10 +159,10 @@ fn build_info_prompt(
     let frame_w = win.width.saturating_sub(ASSISTANT_WIDTH);
     let base = Element::row(vec![
         FlexChild::fixed(assistant_col),
-        FlexChild::flexible(Element::text("", face), 1.0),
+        FlexChild::flexible(Element::text_with_style("", style.clone()), 1.0),
     ]);
     let container = Element::stack(
-        Element::container(base, ElementStyle::from(face)),
+        Element::container(base, ElementStyle::from(style)),
         vec![Overlay {
             element: framed_content,
             anchor: OverlayAnchor::Absolute {
@@ -181,11 +183,11 @@ fn build_info_framed(
     shadow: bool,
     state: &AppState,
 ) -> Option<Element> {
-    let face = resolve_info_face(info, state);
+    let style = resolve_info_style(info, state);
     let inner_w = win.width.saturating_sub(4).max(1);
     let inner_h = win.height.saturating_sub(2);
 
-    let content_col = build_content_column(&info.content, inner_w, inner_h, &face);
+    let content_col = build_content_column(&info.content, inner_w, inner_h, &style);
 
     let framed = Element::Container {
         child: Box::new(content_col),
@@ -197,7 +199,7 @@ fn build_info_framed(
             bottom: 0,
             left: 1,
         },
-        style: ElementStyle::from(face),
+        style: ElementStyle::from(style.clone()),
         title: if info.title.is_empty() {
             None
         } else {
@@ -213,10 +215,10 @@ fn build_info_nonframed(
     win: &layout::FloatingWindow,
     state: &AppState,
 ) -> Option<Element> {
-    let face = resolve_info_face(info, state);
-    let content_col = build_content_column(&info.content, win.width, win.height, &face);
+    let style = resolve_info_style(info, state);
+    let content_col = build_content_column(&info.content, win.width, win.height, &style);
 
-    Some(Element::container(content_col, ElementStyle::from(face)))
+    Some(Element::container(content_col, ElementStyle::from(style)))
 }
 
 // ---------------------------------------------------------------------------

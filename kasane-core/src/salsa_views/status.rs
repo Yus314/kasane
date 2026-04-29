@@ -9,10 +9,10 @@ use crate::salsa_inputs::*;
 pub fn pure_status_element(db: &dyn KasaneDb, status: StatusInput) -> Element {
     let status_line = status.status_line(db);
     let mode_line = status.status_mode_line(db);
-    let default_face = status.status_default_face(db).to_face();
+    let default_style = status.status_default_face(db);
 
-    let status_el = build_styled_line_with_base(status_line, &default_face, 0);
-    let mode_el = build_styled_line_with_base(mode_line, &default_face, 0);
+    let status_el = build_styled_line_with_base(status_line, &default_style, 0);
+    let mode_el = build_styled_line_with_base(mode_line, &default_style, 0);
     let mode_width = line_display_width(mode_line) as u16;
 
     let mut children = Vec::new();
