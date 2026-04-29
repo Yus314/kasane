@@ -55,8 +55,8 @@ fn test_view_with_menu() {
     state.apply(crate::protocol::KakouneRequest::MenuShow {
         items: vec![make_line("item1"), make_line("item2")],
         anchor: Coord { line: 1, column: 0 },
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_style: crate::protocol::default_unresolved_style(),
+        menu_style: crate::protocol::default_unresolved_style(),
         style: MenuStyle::Inline,
     });
 
@@ -82,7 +82,7 @@ fn test_view_with_info() {
         title: make_line("Help"),
         content: vec![make_line("some info")],
         anchor: Coord { line: 0, column: 0 },
-        face: Face::default(),
+        info_style: crate::protocol::default_unresolved_style(),
         style: InfoStyle::Modal,
     });
 
@@ -274,7 +274,7 @@ fn test_info_framed_shadow_disabled() {
         title: make_line("Help"),
         content: vec![make_line("content")],
         anchor: Coord { line: 0, column: 0 },
-        face: Face::default(),
+        info_style: crate::protocol::default_unresolved_style(),
         style: InfoStyle::Modal,
     });
 

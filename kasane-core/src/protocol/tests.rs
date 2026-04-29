@@ -68,10 +68,12 @@ fn test_parse_draw_with_rgb_faces() {
     match req {
         KakouneRequest::Draw {
             lines,
-            default_face,
-            padding_face,
+            default_style,
+            padding_style,
             ..
         } => {
+            let default_face = default_style.to_face();
+            let padding_face = padding_style.to_face();
             assert_eq!(lines.len(), 1);
             assert_eq!(lines[0][0].contents, "hello");
             assert_eq!(
@@ -216,9 +218,10 @@ fn test_parse_draw_real_kakoune() {
     match req {
         KakouneRequest::Draw {
             lines,
-            padding_face,
+            padding_style,
             ..
         } => {
+            let padding_face = padding_style.to_face();
             assert_eq!(lines.len(), 1);
             assert!(lines[0][0].contents.contains("test"));
             assert_eq!(padding_face.fg, Color::Named(NamedColor::Blue));

@@ -68,7 +68,7 @@ fn make_test_info() -> InfoState {
         title: vec![],
         content: vec![make_line("info content")],
         anchor: Coord { line: 0, column: 0 },
-        face: Face::default().into(),
+        face: kasane_core::protocol::Style::default(),
         style: InfoStyle::Prompt,
         identity: InfoIdentity {
             style: InfoStyle::Prompt,

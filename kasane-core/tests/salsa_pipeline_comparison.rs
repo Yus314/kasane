@@ -194,7 +194,7 @@ fn compare_with_info_modal() {
             line: 5,
             column: 10,
         },
-        face: Face::default().into(),
+        face: kasane_core::protocol::Style::default(),
         style: InfoStyle::Modal,
         identity: InfoIdentity {
             style: InfoStyle::Modal,
@@ -218,7 +218,7 @@ fn compare_with_multiple_infos() {
         title: vec![make_atom("Info A")],
         content: vec![vec![make_atom("Content A")]],
         anchor: Coord { line: 3, column: 0 },
-        face: Face::default().into(),
+        face: kasane_core::protocol::Style::default(),
         style: InfoStyle::Inline,
         identity: InfoIdentity {
             style: InfoStyle::Inline,
@@ -233,7 +233,7 @@ fn compare_with_multiple_infos() {
             line: 8,
             column: 20,
         },
-        face: Face::default().into(),
+        face: kasane_core::protocol::Style::default(),
         style: InfoStyle::Inline,
         identity: InfoIdentity {
             style: InfoStyle::Inline,
@@ -611,7 +611,7 @@ fn make_info_state(anchor_line: i32, anchor_col: i32, style: InfoStyle) -> InfoS
             line: anchor_line,
             column: anchor_col,
         },
-        face: Face::default().into(),
+        face: kasane_core::protocol::Style::default(),
         style,
         identity: InfoIdentity {
             style,

@@ -99,8 +99,8 @@ proptest! {
         let flags = state.apply(KakouneRequest::Draw {
             lines,
             cursor_pos,
-            default_face,
-            padding_face,
+            default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&default_face)),
+            padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&padding_face)),
             widget_columns,
         });
         // Draw always touches lines (BUFFER_CONTENT) and cursor_pos (BUFFER_CURSOR)
@@ -129,7 +129,7 @@ proptest! {
             content,
             content_cursor_pos,
             mode_line,
-            default_face,
+            default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&default_face)),
             style,
         });
         prop_assert!(flags.contains(DirtyFlags::STATUS));
@@ -153,8 +153,8 @@ proptest! {
         let flags = state.apply(KakouneRequest::MenuShow {
             items,
             anchor,
-            selected_item_face: selected_face,
-            menu_face,
+            selected_item_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&selected_face)),
+            menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&menu_face)),
             style: MenuStyle::Inline,
         });
         prop_assert!(flags.contains(DirtyFlags::MENU_STRUCTURE));
@@ -173,8 +173,8 @@ proptest! {
         state.apply(KakouneRequest::MenuShow {
             items,
             anchor: Coord::default(),
-            selected_item_face: Face::default().into(),
-            menu_face: Face::default().into(),
+            selected_item_style: kasane_core::protocol::default_unresolved_style(),
+            menu_style: kasane_core::protocol::default_unresolved_style(),
             style: MenuStyle::Inline,
         });
         let flags = state.apply(KakouneRequest::MenuSelect { selected });
@@ -194,7 +194,7 @@ proptest! {
             title,
             content,
             anchor,
-            face,
+            info_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&face)),
             style: kasane_core::protocol::InfoStyle::Prompt,
         });
         prop_assert!(flags.contains(DirtyFlags::INFO));
@@ -214,8 +214,8 @@ fn menu_hide_returns_menu_and_buffer() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![vec![make_atom("x")]],
         anchor: Coord::default(),
-        selected_item_face: Face::default().into(),
-        menu_face: Face::default().into(),
+        selected_item_style: kasane_core::protocol::default_unresolved_style(),
+        menu_style: kasane_core::protocol::default_unresolved_style(),
         style: MenuStyle::Inline,
     });
     let flags = state.apply(KakouneRequest::MenuHide);
@@ -231,7 +231,7 @@ fn info_hide_returns_info_and_buffer() {
         title: vec![make_atom("t")],
         content: vec![vec![make_atom("c")]],
         anchor: Coord::default(),
-        face: Face::default().into(),
+        info_style: kasane_core::protocol::default_unresolved_style(),
         style: kasane_core::protocol::InfoStyle::Prompt,
     });
     let flags = state.apply(KakouneRequest::InfoHide);

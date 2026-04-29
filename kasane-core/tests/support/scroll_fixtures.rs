@@ -28,7 +28,7 @@ pub fn make_info_state(anchor_line: u32, anchor_column: u32, lines: &[&str]) -> 
             line: anchor_line as i32,
             column: anchor_column as i32,
         },
-        face: Face::default().into(),
+        face: kasane_core::protocol::Style::default(),
         style: InfoStyle::Prompt,
         identity: InfoIdentity {
             style: InfoStyle::Prompt,

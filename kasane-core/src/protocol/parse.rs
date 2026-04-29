@@ -114,25 +114,29 @@ fn parse_method(
                 let (wire_lines, cursor_pos, default_face, padding_face, widget_columns): (
                     Vec<WireLine>,
                     _,
-                    _,
-                    _,
+                    Face,
+                    Face,
                     _,
                 ) = de_params(method, params)?;
                 Ok(KakouneRequest::Draw {
                     lines: intern_lines(&mut intern, wire_lines),
                     cursor_pos,
-                    default_face,
-                    padding_face,
+                    default_style: intern_face(&mut intern, &default_face),
+                    padding_style: intern_face(&mut intern, &padding_face),
                     widget_columns,
                 })
             } else {
-                let (wire_lines, cursor_pos, default_face, padding_face): (Vec<WireLine>, _, _, _) =
-                    de_params(method, params)?;
+                let (wire_lines, cursor_pos, default_face, padding_face): (
+                    Vec<WireLine>,
+                    _,
+                    Face,
+                    Face,
+                ) = de_params(method, params)?;
                 Ok(KakouneRequest::Draw {
                     lines: intern_lines(&mut intern, wire_lines),
                     cursor_pos,
-                    default_face,
-                    padding_face,
+                    default_style: intern_face(&mut intern, &default_face),
+                    padding_style: intern_face(&mut intern, &padding_face),
                     widget_columns: 0,
                 })
             }
@@ -150,13 +154,13 @@ fn parse_method(
                     wire_mode_line,
                     default_face,
                     style,
-                ): (WireLine, WireLine, _, WireLine, _, _) = de_params(method, params)?;
+                ): (WireLine, WireLine, _, WireLine, Face, _) = de_params(method, params)?;
                 Ok(KakouneRequest::DrawStatus {
                     prompt: intern_line(&mut intern, wire_prompt),
                     content: intern_line(&mut intern, wire_content),
                     content_cursor_pos,
                     mode_line: intern_line(&mut intern, wire_mode_line),
-                    default_face,
+                    default_style: intern_face(&mut intern, &default_face),
                     style,
                 })
             } else {
@@ -165,14 +169,14 @@ fn parse_method(
                     WireLine,
                     _,
                     WireLine,
-                    _,
+                    Face,
                 ) = de_params(method, params)?;
                 Ok(KakouneRequest::DrawStatus {
                     prompt: intern_line(&mut intern, wire_prompt),
                     content: intern_line(&mut intern, wire_content),
                     content_cursor_pos,
                     mode_line: intern_line(&mut intern, wire_mode_line),
-                    default_face,
+                    default_style: intern_face(&mut intern, &default_face),
                     style: StatusStyle::default(),
                 })
             }
@@ -181,15 +185,15 @@ fn parse_method(
             let (wire_items, anchor, selected_item_face, menu_face, style): (
                 Vec<WireLine>,
                 _,
-                _,
-                _,
+                Face,
+                Face,
                 _,
             ) = de_params(method, params)?;
             Ok(KakouneRequest::MenuShow {
                 items: intern_lines(&mut intern, wire_items),
                 anchor,
-                selected_item_face,
-                menu_face,
+                selected_item_style: intern_face(&mut intern, &selected_item_face),
+                menu_style: intern_face(&mut intern, &menu_face),
                 style,
             })
         }
@@ -203,14 +207,14 @@ fn parse_method(
                 WireLine,
                 Vec<WireLine>,
                 _,
-                _,
+                Face,
                 _,
             ) = de_params(method, params)?;
             Ok(KakouneRequest::InfoShow {
                 title: intern_line(&mut intern, wire_title),
                 content: intern_lines(&mut intern, wire_content),
                 anchor,
-                face,
+                info_style: intern_face(&mut intern, &face),
                 style,
             })
         }

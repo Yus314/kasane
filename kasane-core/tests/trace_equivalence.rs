@@ -96,16 +96,20 @@ fn apply_mutation(state: &mut AppState, mutation: &Mutation) -> DirtyFlags {
         Mutation::ShowMenu => state.apply(KakouneRequest::MenuShow {
             items: vec![make_line("alpha"), make_line("beta"), make_line("gamma")],
             anchor: Coord { line: 1, column: 4 },
-            selected_item_face: Face {
-                fg: Color::Named(NamedColor::Black),
-                bg: Color::Named(NamedColor::Cyan),
-                ..Face::default()
-            },
-            menu_face: Face {
-                fg: Color::Named(NamedColor::White),
-                bg: Color::Named(NamedColor::Blue),
-                ..Face::default()
-            },
+            selected_item_style: std::sync::Arc::new(
+                kasane_core::protocol::UnresolvedStyle::from_face(&Face {
+                    fg: Color::Named(NamedColor::Black),
+                    bg: Color::Named(NamedColor::Cyan),
+                    ..Face::default()
+                }),
+            ),
+            menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+                &Face {
+                    fg: Color::Named(NamedColor::White),
+                    bg: Color::Named(NamedColor::Blue),
+                    ..Face::default()
+                },
+            )),
             style: MenuStyle::Inline,
         }),
         Mutation::HideMenu => state.apply(KakouneRequest::MenuHide),
@@ -120,7 +124,7 @@ fn apply_mutation(state: &mut AppState, mutation: &Mutation) -> DirtyFlags {
             title: make_line("Test"),
             content: vec![make_line("test info content")],
             anchor: Coord { line: 0, column: 0 },
-            face: Face::default().into(),
+            info_style: kasane_core::protocol::default_unresolved_style(),
             style: InfoStyle::Modal,
         }),
         Mutation::HideInfo => {
@@ -163,16 +167,18 @@ fn rich_state() -> AppState {
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("foo"), make_line("bar"), make_line("baz")],
         anchor: Coord { line: 1, column: 4 },
-        selected_item_face: Face {
-            fg: Color::Named(NamedColor::Black),
-            bg: Color::Named(NamedColor::Cyan),
-            ..Face::default()
-        },
-        menu_face: Face {
+        selected_item_style: std::sync::Arc::new(
+            kasane_core::protocol::UnresolvedStyle::from_face(&Face {
+                fg: Color::Named(NamedColor::Black),
+                bg: Color::Named(NamedColor::Cyan),
+                ..Face::default()
+            }),
+        ),
+        menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&Face {
             fg: Color::Named(NamedColor::White),
             bg: Color::Named(NamedColor::Blue),
             ..Face::default()
-        },
+        })),
         style: MenuStyle::Inline,
     });
     state.apply(KakouneRequest::MenuSelect { selected: 0 });
@@ -184,7 +190,7 @@ fn rich_state() -> AppState {
             line: 0,
             column: 20,
         },
-        face: Face::default().into(),
+        info_style: kasane_core::protocol::default_unresolved_style(),
         style: InfoStyle::Inline,
     });
 
@@ -208,7 +214,7 @@ fn prompt_state() -> AppState {
         content: make_line("write"),
         content_cursor_pos: 5,
         mode_line: make_line("prompt"),
-        default_face: Face::default().into(),
+        default_style: kasane_core::protocol::default_unresolved_style(),
         style: StatusStyle::Command,
     });
     state
@@ -232,7 +238,7 @@ fn multi_info_state() -> AppState {
         title: make_line("Doc"),
         content: vec![make_line("documentation"), make_line("second line")],
         anchor: Coord { line: 2, column: 0 },
-        face: Face::default().into(),
+        info_style: kasane_core::protocol::default_unresolved_style(),
         style: InfoStyle::Modal,
     });
     state

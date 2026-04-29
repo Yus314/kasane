@@ -87,8 +87,8 @@ fn test_update_kakoune_draw() {
         Msg::Kakoune(KakouneRequest::Draw {
             lines: vec![make_line("hello")],
             cursor_pos: Coord::default(),
-            default_face: Face::default(),
-            padding_face: Face::default(),
+            default_style: crate::protocol::default_unresolved_style(),
+            padding_style: crate::protocol::default_unresolved_style(),
             widget_columns: 0,
         }),
         &mut registry,
@@ -569,8 +569,8 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
         Msg::Kakoune(KakouneRequest::Draw {
             lines: vec![make_line("hello")],
             cursor_pos: Coord::default(),
-            default_face: Face::default(),
-            padding_face: Face::default(),
+            default_style: crate::protocol::default_unresolved_style(),
+            padding_style: crate::protocol::default_unresolved_style(),
             widget_columns: 0,
         }),
         &mut registry,
@@ -618,8 +618,8 @@ fn test_on_state_changed_effects_return_scroll_plans() {
         Msg::Kakoune(KakouneRequest::Draw {
             lines: vec![make_line("hello")],
             cursor_pos: Coord::default(),
-            default_face: Face::default(),
-            padding_face: Face::default(),
+            default_style: crate::protocol::default_unresolved_style(),
+            padding_style: crate::protocol::default_unresolved_style(),
             widget_columns: 0,
         }),
         &mut registry,
@@ -856,8 +856,8 @@ fn fold_toggle_cleared_on_draw() {
     state.apply(KakouneRequest::Draw {
         lines: vec![make_line("hello")],
         cursor_pos: Coord::default(),
-        default_face: Face::default(),
-        padding_face: Face::default(),
+        default_style: crate::protocol::default_unresolved_style(),
+        padding_style: crate::protocol::default_unresolved_style(),
         widget_columns: 0,
     });
 

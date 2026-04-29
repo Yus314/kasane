@@ -5,7 +5,12 @@ use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
 use super::color::Face;
-use super::style::{Style, UnresolvedStyle, default_unresolved_style};
+use super::style::{Style, UnresolvedStyle};
+
+// `Face` is still used by `Atom::from_face`/`Atom::face` bridges and by
+// internal call sites that have not yet migrated. Phase B3 progressively
+// removes these bridges; the `KakouneRequest` enum has already migrated
+// to `Arc<UnresolvedStyle>` for its style-typed fields below.
 
 // ---------------------------------------------------------------------------
 // Atom / Line / Coord
@@ -80,7 +85,7 @@ impl Atom {
     pub fn plain(contents: impl Into<CompactString>) -> Self {
         Self {
             contents: contents.into(),
-            style: default_unresolved_style(),
+            style: super::style::default_unresolved_style(),
         }
     }
 }
@@ -160,8 +165,12 @@ pub enum KakouneRequest {
     Draw {
         lines: Vec<Line>,
         cursor_pos: Coord,
-        default_face: Face,
-        padding_face: Face,
+        /// Default style for buffer rendering (formerly `default_face: Face`).
+        /// `Arc<UnresolvedStyle>` lets the parser share the allocation across
+        /// frames when Kakoune sends the same style repeatedly (interner-backed).
+        default_style: Arc<UnresolvedStyle>,
+        /// Padding style (formerly `padding_face: Face`).
+        padding_style: Arc<UnresolvedStyle>,
         widget_columns: u16,
     },
     DrawStatus {
@@ -169,14 +178,17 @@ pub enum KakouneRequest {
         content: Line,
         content_cursor_pos: i32,
         mode_line: Line,
-        default_face: Face,
+        /// Status default style (formerly `default_face: Face`).
+        default_style: Arc<UnresolvedStyle>,
         style: StatusStyle,
     },
     MenuShow {
         items: Vec<Line>,
         anchor: Coord,
-        selected_item_face: Face,
-        menu_face: Face,
+        /// Selected menu item style (formerly `selected_item_face: Face`).
+        selected_item_style: Arc<UnresolvedStyle>,
+        /// Menu base style (formerly `menu_face: Face`).
+        menu_style: Arc<UnresolvedStyle>,
         style: MenuStyle,
     },
     MenuSelect {
@@ -187,7 +199,8 @@ pub enum KakouneRequest {
         title: Line,
         content: Vec<Line>,
         anchor: Coord,
-        face: Face,
+        /// Info popup style (formerly `face: Face`).
+        info_style: Arc<UnresolvedStyle>,
         style: InfoStyle,
     },
     InfoHide,

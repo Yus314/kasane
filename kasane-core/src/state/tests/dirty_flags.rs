@@ -13,8 +13,8 @@ fn test_menu_show_returns_menu_structure() {
     let flags = state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("a")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default().into(),
-        menu_face: Face::default().into(),
+        selected_item_style: crate::protocol::default_unresolved_style(),
+        menu_style: crate::protocol::default_unresolved_style(),
         style: MenuStyle::Inline,
     });
     assert!(flags.contains(DirtyFlags::MENU_STRUCTURE));
@@ -27,8 +27,8 @@ fn test_menu_select_returns_menu_selection() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("a"), make_line("b")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default().into(),
-        menu_face: Face::default().into(),
+        selected_item_style: crate::protocol::default_unresolved_style(),
+        menu_style: crate::protocol::default_unresolved_style(),
         style: MenuStyle::Inline,
     });
     let flags = state.apply(KakouneRequest::MenuSelect { selected: 0 });
@@ -42,8 +42,8 @@ fn test_menu_hide_returns_both_menu_flags() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("a")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default().into(),
-        menu_face: Face::default().into(),
+        selected_item_style: crate::protocol::default_unresolved_style(),
+        menu_style: crate::protocol::default_unresolved_style(),
         style: MenuStyle::Inline,
     });
     let flags = state.apply(KakouneRequest::MenuHide);
@@ -106,8 +106,8 @@ fn test_apply_draw_lines_dirty_single_change() {
     state.apply(KakouneRequest::Draw {
         lines: vec![make_line("aaa"), make_line("bbb"), make_line("ccc")],
         cursor_pos: Coord::default(),
-        default_face: Face::default(),
-        padding_face: Face::default(),
+        default_style: crate::protocol::default_unresolved_style(),
+        padding_style: crate::protocol::default_unresolved_style(),
         widget_columns: 0,
     });
 
@@ -115,8 +115,8 @@ fn test_apply_draw_lines_dirty_single_change() {
     state.apply(KakouneRequest::Draw {
         lines: vec![make_line("aaa"), make_line("BBB"), make_line("ccc")],
         cursor_pos: Coord::default(),
-        default_face: Face::default(),
-        padding_face: Face::default(),
+        default_style: crate::protocol::default_unresolved_style(),
+        padding_style: crate::protocol::default_unresolved_style(),
         widget_columns: 0,
     });
     assert_eq!(state.inference.lines_dirty, vec![false, true, false]);
@@ -128,8 +128,8 @@ fn test_apply_draw_lines_dirty_face_change() {
     state.apply(KakouneRequest::Draw {
         lines: vec![make_line("aaa"), make_line("bbb")],
         cursor_pos: Coord::default(),
-        default_face: Face::default(),
-        padding_face: Face::default(),
+        default_style: crate::protocol::default_unresolved_style(),
+        padding_style: crate::protocol::default_unresolved_style(),
         widget_columns: 0,
     });
 
@@ -141,8 +141,8 @@ fn test_apply_draw_lines_dirty_face_change() {
     state.apply(KakouneRequest::Draw {
         lines: vec![make_line("aaa"), make_line("bbb")],
         cursor_pos: Coord::default(),
-        default_face: new_face,
-        padding_face: Face::default(),
+        default_style: std::sync::Arc::new(crate::protocol::UnresolvedStyle::from_face(&new_face)),
+        padding_style: crate::protocol::default_unresolved_style(),
         widget_columns: 0,
     });
     assert_eq!(state.inference.lines_dirty, vec![true, true]);
@@ -154,8 +154,8 @@ fn test_apply_draw_lines_dirty_length_change() {
     state.apply(KakouneRequest::Draw {
         lines: vec![make_line("aaa"), make_line("bbb")],
         cursor_pos: Coord::default(),
-        default_face: Face::default(),
-        padding_face: Face::default(),
+        default_style: crate::protocol::default_unresolved_style(),
+        padding_style: crate::protocol::default_unresolved_style(),
         widget_columns: 0,
     });
 
@@ -163,8 +163,8 @@ fn test_apply_draw_lines_dirty_length_change() {
     state.apply(KakouneRequest::Draw {
         lines: vec![make_line("aaa"), make_line("bbb"), make_line("ccc")],
         cursor_pos: Coord::default(),
-        default_face: Face::default(),
-        padding_face: Face::default(),
+        default_style: crate::protocol::default_unresolved_style(),
+        padding_style: crate::protocol::default_unresolved_style(),
         widget_columns: 0,
     });
     assert_eq!(state.inference.lines_dirty, vec![true, true, true]);
@@ -176,8 +176,8 @@ fn test_apply_draw_lines_dirty_no_change() {
     state.apply(KakouneRequest::Draw {
         lines: vec![make_line("aaa"), make_line("bbb")],
         cursor_pos: Coord::default(),
-        default_face: Face::default(),
-        padding_face: Face::default(),
+        default_style: crate::protocol::default_unresolved_style(),
+        padding_style: crate::protocol::default_unresolved_style(),
         widget_columns: 0,
     });
 
@@ -185,8 +185,8 @@ fn test_apply_draw_lines_dirty_no_change() {
     state.apply(KakouneRequest::Draw {
         lines: vec![make_line("aaa"), make_line("bbb")],
         cursor_pos: Coord::default(),
-        default_face: Face::default(),
-        padding_face: Face::default(),
+        default_style: crate::protocol::default_unresolved_style(),
+        padding_style: crate::protocol::default_unresolved_style(),
         widget_columns: 0,
     });
     assert_eq!(state.inference.lines_dirty, vec![false, false]);
@@ -199,8 +199,8 @@ fn test_apply_draw_lines_dirty_first_draw() {
     state.apply(KakouneRequest::Draw {
         lines: vec![make_line("aaa"), make_line("bbb")],
         cursor_pos: Coord::default(),
-        default_face: Face::default(),
-        padding_face: Face::default(),
+        default_style: crate::protocol::default_unresolved_style(),
+        padding_style: crate::protocol::default_unresolved_style(),
         widget_columns: 0,
     });
     assert_eq!(state.inference.lines_dirty, vec![true, true]);
@@ -215,8 +215,8 @@ fn test_menu_select_no_scroll_returns_selection_only() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("a"), make_line("b"), make_line("c")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default().into(),
-        menu_face: Face::default().into(),
+        selected_item_style: crate::protocol::default_unresolved_style(),
+        menu_style: crate::protocol::default_unresolved_style(),
         style: MenuStyle::Inline,
     });
     state.apply(KakouneRequest::MenuSelect { selected: 0 });
@@ -237,8 +237,8 @@ fn test_menu_select_with_scroll_returns_structure() {
     state.apply(KakouneRequest::MenuShow {
         items,
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default().into(),
-        menu_face: Face::default().into(),
+        selected_item_style: crate::protocol::default_unresolved_style(),
+        menu_style: crate::protocol::default_unresolved_style(),
         style: MenuStyle::Inline,
     });
     state.apply(KakouneRequest::MenuSelect { selected: 0 });

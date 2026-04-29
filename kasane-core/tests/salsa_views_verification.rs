@@ -254,7 +254,7 @@ fn pure_info_overlays_single_modal() {
             line: 5,
             column: 10,
         },
-        face: Face::default().into(),
+        face: kasane_core::protocol::Style::default(),
         style: InfoStyle::Modal,
         identity: InfoIdentity {
             style: InfoStyle::Modal,
@@ -300,7 +300,7 @@ fn pure_info_overlays_multiple() {
                 line: (i * 5) as i32,
                 column: 0,
             },
-            face: Face::default().into(),
+            face: kasane_core::protocol::Style::default(),
             style: InfoStyle::Inline,
             identity: InfoIdentity {
                 style: InfoStyle::Inline,
@@ -338,7 +338,7 @@ fn pure_info_overlays_prompt_style() {
             line: 10,
             column: 0,
         },
-        face: Face::default().into(),
+        face: kasane_core::protocol::Style::default(),
         style: InfoStyle::Prompt,
         identity: InfoIdentity {
             style: InfoStyle::Prompt,

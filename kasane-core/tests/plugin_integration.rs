@@ -203,16 +203,18 @@ fn menu_transform_adds_prefix() {
     state.apply(KakouneRequest::MenuShow {
         items,
         anchor: Coord { line: 0, column: 3 },
-        selected_item_face: Face {
-            fg: Color::Named(NamedColor::Black),
-            bg: Color::Named(NamedColor::Cyan),
-            ..Face::default()
-        },
-        menu_face: Face {
+        selected_item_style: std::sync::Arc::new(
+            kasane_core::protocol::UnresolvedStyle::from_face(&Face {
+                fg: Color::Named(NamedColor::Black),
+                bg: Color::Named(NamedColor::Cyan),
+                ..Face::default()
+            }),
+        ),
+        menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&Face {
             fg: Color::Named(NamedColor::White),
             bg: Color::Named(NamedColor::Blue),
             ..Face::default()
-        },
+        })),
         style: MenuStyle::Inline,
     });
 

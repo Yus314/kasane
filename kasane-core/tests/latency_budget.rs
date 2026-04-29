@@ -180,16 +180,20 @@ fn state_apply_under_200us() {
             .map(|i| vec![Atom::from_face(Face::default(), format!("line {i}"))])
             .collect(),
         cursor_pos: kasane_core::protocol::Coord::default(),
-        default_face: Face {
-            fg: Color::Named(NamedColor::White),
-            bg: Color::Named(NamedColor::Black),
-            ..Face::default()
-        },
-        padding_face: Face {
-            fg: Color::Named(NamedColor::White),
-            bg: Color::Named(NamedColor::Black),
-            ..Face::default()
-        },
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &Face {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                ..Face::default()
+            },
+        )),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &Face {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                ..Face::default()
+            },
+        )),
         widget_columns: 0,
     };
     let base = typical_state(23);

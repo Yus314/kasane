@@ -50,7 +50,7 @@ fn test_has_info() {
         content: vec![],
         anchor: Coord::default(),
         style: InfoStyle::Prompt,
-        face: Face::default().into(),
+        face: crate::protocol::Style::default(),
         identity: InfoIdentity {
             style: InfoStyle::Prompt,
             anchor_line: 0,

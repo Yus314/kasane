@@ -506,8 +506,8 @@ mod tests {
             items,
             MenuParams {
                 anchor: Coord { line: 5, column: 0 },
-                selected_item_face: Face::default().into(),
-                menu_face: Face::default().into(),
+                selected_item_face: crate::protocol::Style::default(),
+                menu_face: crate::protocol::Style::default(),
                 style: MenuStyle::Inline,
                 screen_w: 80,
                 screen_h: 24,
@@ -555,8 +555,8 @@ mod tests {
         state.apply(crate::protocol::KakouneRequest::MenuShow {
             items,
             anchor: Coord { line: 5, column: 0 },
-            selected_item_face: Face::default().into(),
-            menu_face: Face::default().into(),
+            selected_item_style: crate::protocol::default_unresolved_style(),
+            menu_style: crate::protocol::default_unresolved_style(),
             style: MenuStyle::Inline,
         });
 

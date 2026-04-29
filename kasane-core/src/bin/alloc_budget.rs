@@ -53,10 +53,10 @@ static ALLOC: alloc_counter::CountingAllocator = alloc_counter::CountingAllocato
 
 #[cfg(feature = "bench-alloc")]
 fn main() {
+    use crate::protocol::{Atom, Color, Coord, Face, NamedColor, parse_request};
     use kasane_core::layout::Rect;
     use kasane_core::layout::flex;
     use kasane_core::plugin::PluginRuntime;
-    use kasane_core::protocol::{Atom, Color, Coord, Face, NamedColor, parse_request};
     use kasane_core::render::CellGrid;
     use kasane_core::render::paint;
     use kasane_core::render::view;
@@ -163,7 +163,7 @@ fn main() {
     let (swap_count, swap_bytes) = alloc_counter::snapshot();
 
     // parse_request (100-line draw)
-    let draw_lines: Vec<kasane_core::protocol::Line> = (0..100)
+    let draw_lines: Vec<crate::protocol::Line> = (0..100)
         .map(|i| vec![Atom::from_face(Face::default(), format!("line {i}"))])
         .collect();
     let default_face = Face {

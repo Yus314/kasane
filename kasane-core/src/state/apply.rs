@@ -40,8 +40,8 @@ pub(crate) fn apply_protocol(
         KakouneRequest::Draw {
             lines,
             cursor_pos,
-            default_face,
-            padding_face,
+            default_style,
+            padding_style,
             widget_columns,
         } => {
             observed.cursor_pos = cursor_pos;
@@ -50,6 +50,10 @@ pub(crate) fn apply_protocol(
             // so incremental cursor detection can use dirty flags)
             let observed_default_face = observed.default_style.to_face();
             let observed_padding_face = observed.padding_style.to_face();
+            // Bridge to Face for `compute_lines_dirty` and `detect_selections`
+            // until those functions migrate (Phase B3 follow-up).
+            let default_face = default_style.to_face();
+            let padding_face = padding_style.to_face();
             inference.lines_dirty = derived::compute_lines_dirty(
                 &observed.lines,
                 &lines,
@@ -127,8 +131,8 @@ pub(crate) fn apply_protocol(
             observed.widget_columns = widget_columns;
 
             observed.lines = lines;
-            observed.default_style = default_face.into();
-            observed.padding_style = padding_face.into();
+            observed.default_style = default_style.style.clone();
+            observed.padding_style = padding_style.style.clone();
 
             // Signal config reactions (applied by caller)
             reactions.clear_fold_toggle = true;
@@ -146,7 +150,7 @@ pub(crate) fn apply_protocol(
             content,
             content_cursor_pos,
             mode_line,
-            default_face,
+            default_style,
             style,
         } => {
             observed.status_prompt = prompt.clone();
@@ -162,7 +166,7 @@ pub(crate) fn apply_protocol(
             inference.status_line = derived::build_status_line(&prompt, &content);
 
             observed.status_mode_line = mode_line;
-            observed.status_default_style = default_face.into();
+            observed.status_default_style = default_style.style.clone();
             observed.status_style = style;
 
             // Derive editor mode from cursor_mode + mode_line
@@ -178,8 +182,8 @@ pub(crate) fn apply_protocol(
         KakouneRequest::MenuShow {
             items,
             anchor,
-            selected_item_face,
-            menu_face,
+            selected_item_style,
+            menu_style,
             style,
         } => {
             let screen_h = runtime.rows.saturating_sub(1);
@@ -187,8 +191,8 @@ pub(crate) fn apply_protocol(
                 items,
                 MenuParams {
                     anchor,
-                    selected_item_face: selected_item_face.into(),
-                    menu_face: menu_face.into(),
+                    selected_item_face: selected_item_style.style.clone(),
+                    menu_face: menu_style.style.clone(),
                     style,
                     screen_w: runtime.cols,
                     screen_h,
@@ -226,7 +230,7 @@ pub(crate) fn apply_protocol(
             title,
             content,
             anchor,
-            face,
+            info_style,
             style,
         } => {
             let identity = InfoIdentity {
@@ -237,7 +241,7 @@ pub(crate) fn apply_protocol(
                 title,
                 content,
                 anchor,
-                face: face.into(),
+                face: info_style.style.clone(),
                 style,
                 identity: identity.clone(),
                 scroll_offset: 0,

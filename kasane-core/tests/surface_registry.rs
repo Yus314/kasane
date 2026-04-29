@@ -1002,7 +1002,7 @@ fn make_test_info() -> kasane_core::state::InfoState {
         title: vec![],
         content: vec![],
         anchor: Coord { line: 0, column: 0 },
-        face: Face::default().into(),
+        face: kasane_core::protocol::Style::default(),
         style: InfoStyle::Prompt,
         identity: kasane_core::state::InfoIdentity {
             style: InfoStyle::Prompt,

@@ -152,16 +152,18 @@ fn menu_show_and_select() {
     state.apply(KakouneRequest::MenuShow {
         items,
         anchor: Coord { line: 0, column: 3 },
-        selected_item_face: Face {
-            fg: Color::Named(NamedColor::Black),
-            bg: Color::Named(NamedColor::Cyan),
-            ..Face::default()
-        },
-        menu_face: Face {
+        selected_item_style: std::sync::Arc::new(
+            kasane_core::protocol::UnresolvedStyle::from_face(&Face {
+                fg: Color::Named(NamedColor::Black),
+                bg: Color::Named(NamedColor::Cyan),
+                ..Face::default()
+            }),
+        ),
+        menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&Face {
             fg: Color::Named(NamedColor::White),
             bg: Color::Named(NamedColor::Blue),
             ..Face::default()
-        },
+        })),
         style: MenuStyle::Inline,
     });
     assert!(state.observed.menu.is_some());
@@ -193,8 +195,8 @@ fn menu_hide() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("item1"), make_line("item2")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default().into(),
-        menu_face: Face::default().into(),
+        selected_item_style: kasane_core::protocol::default_unresolved_style(),
+        menu_style: kasane_core::protocol::default_unresolved_style(),
         style: MenuStyle::Inline,
     });
     assert!(state.observed.menu.is_some());
@@ -210,8 +212,8 @@ fn prompt_menu_multi_column() {
     state.apply(KakouneRequest::MenuShow {
         items,
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default().into(),
-        menu_face: Face::default().into(),
+        selected_item_style: kasane_core::protocol::default_unresolved_style(),
+        menu_style: kasane_core::protocol::default_unresolved_style(),
         style: MenuStyle::Prompt,
     });
     assert!(state.observed.menu.is_some());
@@ -235,7 +237,7 @@ fn info_show_and_hide() {
         title: make_line("Help"),
         content: vec![make_line("This is help text")],
         anchor: Coord { line: 0, column: 0 },
-        face: Face::default().into(),
+        info_style: kasane_core::protocol::default_unresolved_style(),
         style: InfoStyle::Inline,
     });
     assert!(flags.contains(DirtyFlags::INFO));
@@ -266,7 +268,7 @@ fn multiple_infos_coexist() {
         title: make_line("Lint"),
         content: vec![make_line("error: unused var")],
         anchor: Coord { line: 0, column: 0 },
-        face: Face::default().into(),
+        info_style: kasane_core::protocol::default_unresolved_style(),
         style: InfoStyle::Inline,
     });
     state.apply(KakouneRequest::InfoShow {
@@ -276,7 +278,7 @@ fn multiple_infos_coexist() {
             line: 0,
             column: 10,
         },
-        face: Face::default().into(),
+        info_style: kasane_core::protocol::default_unresolved_style(),
         style: InfoStyle::Modal,
     });
     assert_eq!(state.observed.infos.len(), 2);
@@ -441,8 +443,8 @@ fn update_kakoune_draw_message() {
     let req = KakouneRequest::Draw {
         lines: vec![make_line("updated content")],
         cursor_pos: Coord::default(),
-        default_face: Face::default().into(),
-        padding_face: Face::default().into(),
+        default_style: kasane_core::protocol::default_unresolved_style(),
+        padding_style: kasane_core::protocol::default_unresolved_style(),
         widget_columns: 0,
     };
     let result = update_in_place(&mut state, Msg::Kakoune(req), &mut registry, 3);
@@ -546,8 +548,12 @@ fn test_line_dirty_single_edit_diff() {
             make_line("line 2"),
         ],
         cursor_pos: Coord::default(),
-        default_face: state.observed.default_style.to_face(),
-        padding_face: state.observed.padding_style.to_face(),
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &state.observed.default_style.to_face(),
+        )),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &state.observed.padding_style.to_face(),
+        )),
         widget_columns: 0,
     });
     assert_eq!(state.inference.lines_dirty, vec![false, true, false]);
@@ -581,8 +587,12 @@ fn test_line_dirty_consecutive_edits() {
     state.apply(KakouneRequest::Draw {
         lines,
         cursor_pos: Coord::default(),
-        default_face: state.observed.default_style.to_face(),
-        padding_face: state.observed.padding_style.to_face(),
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &state.observed.default_style.to_face(),
+        )),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &state.observed.padding_style.to_face(),
+        )),
         widget_columns: 0,
     });
     render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);
@@ -599,8 +609,12 @@ fn test_line_dirty_consecutive_edits() {
     state.apply(KakouneRequest::Draw {
         lines,
         cursor_pos: Coord::default(),
-        default_face: state.observed.default_style.to_face(),
-        padding_face: state.observed.padding_style.to_face(),
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &state.observed.default_style.to_face(),
+        )),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &state.observed.padding_style.to_face(),
+        )),
         widget_columns: 0,
     });
     render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);
@@ -622,8 +636,8 @@ fn test_line_dirty_full_repaint_on_overlay() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("item")],
         anchor: Coord { line: 0, column: 0 },
-        selected_item_face: Face::default().into(),
-        menu_face: Face::default().into(),
+        selected_item_style: kasane_core::protocol::default_unresolved_style(),
+        menu_style: kasane_core::protocol::default_unresolved_style(),
         style: MenuStyle::Inline,
     });
     render_with_dirty(&state, DirtyFlags::ALL, &mut grid);
@@ -728,8 +742,8 @@ fn test_salsa_pipeline_equivalence_with_menu() {
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("item1"), make_line("item2"), make_line("item3")],
         anchor: Coord { line: 1, column: 0 },
-        selected_item_face: Face::default().into(),
-        menu_face: Face::default().into(),
+        selected_item_style: kasane_core::protocol::default_unresolved_style(),
+        menu_style: kasane_core::protocol::default_unresolved_style(),
         style: MenuStyle::Inline,
     });
 

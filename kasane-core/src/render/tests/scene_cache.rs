@@ -188,8 +188,8 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
     state.apply(crate::protocol::KakouneRequest::MenuShow {
         items: vec![make_line("item1"), make_line("item2")],
         anchor: Coord { line: 1, column: 0 },
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
+        selected_item_style: crate::protocol::default_unresolved_style(),
+        menu_style: crate::protocol::default_unresolved_style(),
         style: MenuStyle::Inline,
     });
 
@@ -197,7 +197,7 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
         title: make_line("Info Title"),
         content: vec![make_line("info content")],
         anchor: Coord { line: 0, column: 0 },
-        face: Face::default(),
+        info_style: crate::protocol::default_unresolved_style(),
         style: crate::protocol::InfoStyle::Prompt,
     });
 

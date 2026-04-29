@@ -279,18 +279,22 @@ fn ascii_80x24_smoke() {
     let _ = state.apply(KakouneRequest::Draw {
         lines: buffer_scene(),
         cursor_pos: Coord { line: 0, column: 0 },
-        default_face: Face {
-            fg: Color::Named(NamedColor::White),
-            bg: Color::Named(NamedColor::Black),
-            underline: Color::Default,
-            attributes: Attributes::empty(),
-        },
-        padding_face: Face {
-            fg: Color::Named(NamedColor::White),
-            bg: Color::Named(NamedColor::Black),
-            underline: Color::Default,
-            attributes: Attributes::empty(),
-        },
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &Face {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &Face {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
         widget_columns: 0,
     });
     let _ = state.apply(KakouneRequest::DrawStatus {
@@ -298,7 +302,7 @@ fn ascii_80x24_smoke() {
         content: vec![Atom::from_face(Face::default(), " main.rs ")],
         content_cursor_pos: -1,
         mode_line: vec![Atom::from_face(Face::default(), "normal")],
-        default_face: Face::default(),
+        default_style: kasane_core::protocol::default_unresolved_style(),
         style: StatusStyle::Status,
     });
 

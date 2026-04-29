@@ -174,7 +174,7 @@ fn sync_info_snapshots() {
             line: 3,
             column: 10,
         },
-        face: Face::default().into(),
+        face: kasane_core::protocol::Style::default(),
         style: InfoStyle::Prompt,
         identity: InfoIdentity {
             style: InfoStyle::Prompt,
