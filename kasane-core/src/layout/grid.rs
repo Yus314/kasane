@@ -274,10 +274,7 @@ mod tests {
         let state = default_state();
         let el = Element::grid(
             vec![GridColumn::fixed(5), GridColumn::fixed(10)],
-            vec![
-                Element::text("a", Face::default()),
-                Element::text("b", Face::default()),
-            ],
+            vec![Element::plain_text("a"), Element::plain_text("b")],
         );
         let size = measure(&el, Constraints::loose(80, 24), &state);
         assert_eq!(size.width, 15); // 5 + 10
@@ -290,10 +287,10 @@ mod tests {
         let el = Element::grid(
             vec![GridColumn::auto(), GridColumn::auto()],
             vec![
-                Element::text("hello", Face::default()), // w=5
-                Element::text("ab", Face::default()),    // w=2
-                Element::text("x", Face::default()),     // w=1
-                Element::text("world", Face::default()), // w=5
+                Element::plain_text("hello"), // w=5
+                Element::plain_text("ab"),    // w=2
+                Element::plain_text("x"),     // w=1
+                Element::plain_text("world"), // w=5
             ],
         );
         let size = measure(&el, Constraints::loose(80, 24), &state);
@@ -307,10 +304,7 @@ mod tests {
         let state = default_state();
         let el = Element::Grid {
             columns: vec![GridColumn::fixed(10), GridColumn::flex(1.0)],
-            children: vec![
-                Element::text("a", Face::default()),
-                Element::text("b", Face::default()),
-            ],
+            children: vec![Element::plain_text("a"), Element::plain_text("b")],
             col_gap: 0,
             row_gap: 0,
             align: Align::Start,
@@ -332,9 +326,9 @@ mod tests {
                 GridColumn::flex(1.0),
             ],
             children: vec![
-                Element::text("a", Face::default()),
-                Element::text("hello", Face::default()), // auto → 5
-                Element::text("c", Face::default()),
+                Element::plain_text("a"),
+                Element::plain_text("hello"), // auto → 5
+                Element::plain_text("c"),
             ],
             col_gap: 0,
             row_gap: 0,
@@ -352,10 +346,10 @@ mod tests {
         let el = Element::grid(
             vec![GridColumn::fixed(5), GridColumn::fixed(10)],
             vec![
-                Element::text("a", Face::default()),
-                Element::text("b", Face::default()),
-                Element::text("c", Face::default()),
-                Element::text("d", Face::default()),
+                Element::plain_text("a"),
+                Element::plain_text("b"),
+                Element::plain_text("c"),
+                Element::plain_text("d"),
             ],
         );
         let result = crate::layout::flex::place(&el, root_area(80, 24), &state);
@@ -405,10 +399,7 @@ mod tests {
         let state = default_state();
         let el = Element::Grid {
             columns: vec![GridColumn::fixed(5), GridColumn::fixed(5)],
-            children: vec![
-                Element::text("a", Face::default()),
-                Element::text("b", Face::default()),
-            ],
+            children: vec![Element::plain_text("a"), Element::plain_text("b")],
             col_gap: 2,
             row_gap: 0,
             align: Align::Start,
@@ -424,10 +415,7 @@ mod tests {
         let state = default_state();
         let el = Element::Grid {
             columns: vec![GridColumn::fixed(5)],
-            children: vec![
-                Element::text("a", Face::default()),
-                Element::text("b", Face::default()),
-            ],
+            children: vec![Element::plain_text("a"), Element::plain_text("b")],
             col_gap: 0,
             row_gap: 3,
             align: Align::Start,
@@ -443,10 +431,7 @@ mod tests {
         let state = default_state();
         let el = Element::Grid {
             columns: vec![GridColumn::fixed(5), GridColumn::fixed(5)],
-            children: vec![
-                Element::text("a", Face::default()),
-                Element::text("b", Face::default()),
-            ],
+            children: vec![Element::plain_text("a"), Element::plain_text("b")],
             col_gap: 0,
             row_gap: 0,
             align: Align::Center,
@@ -463,10 +448,7 @@ mod tests {
         let state = default_state();
         let el = Element::Grid {
             columns: vec![GridColumn::fixed(5)],
-            children: vec![
-                Element::text("a", Face::default()),
-                Element::text("b", Face::default()),
-            ],
+            children: vec![Element::plain_text("a"), Element::plain_text("b")],
             col_gap: 0,
             row_gap: 0,
             align: Align::Start,
@@ -489,13 +471,13 @@ mod tests {
                 GridColumn::fixed(5),
             ],
             vec![
-                Element::text("1", Face::default()),
-                Element::text("2", Face::default()),
-                Element::text("3", Face::default()),
-                Element::text("4", Face::default()),
-                Element::text("5", Face::default()),
-                Element::text("6", Face::default()),
-                Element::text("7", Face::default()),
+                Element::plain_text("1"),
+                Element::plain_text("2"),
+                Element::plain_text("3"),
+                Element::plain_text("4"),
+                Element::plain_text("5"),
+                Element::plain_text("6"),
+                Element::plain_text("7"),
             ],
         );
         let result = crate::layout::flex::place(&el, root_area(80, 24), &state);
@@ -519,9 +501,9 @@ mod tests {
         let el = Element::grid(
             vec![GridColumn::fixed(10)],
             vec![
-                Element::text("a", Face::default()),
-                Element::text("b", Face::default()),
-                Element::text("c", Face::default()),
+                Element::plain_text("a"),
+                Element::plain_text("b"),
+                Element::plain_text("c"),
             ],
         );
         let result = crate::layout::flex::place(&el, root_area(80, 24), &state);

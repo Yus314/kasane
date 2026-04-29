@@ -108,8 +108,8 @@ fn test_status_bar_resolves_default_face() {
     }
     .into();
     // Atoms with Color::Default — should be resolved to status_default_face colors
-    state.inference.status_line = vec![Atom::from_face(Face::default(), "file.rs")];
-    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "normal")];
+    state.inference.status_line = vec![Atom::plain("file.rs")];
+    state.observed.status_mode_line = vec![Atom::plain("normal")];
 
     let status_bar = build_status_core(&state);
 
@@ -187,7 +187,7 @@ fn test_status_left_slot_in_status_bar() {
         ) -> Option<Contribution> {
             if *region == SlotId::STATUS_LEFT {
                 Some(Contribution {
-                    element: Element::text("[L]", Face::default()),
+                    element: Element::plain_text("[L]"),
                     priority: 0,
                     size_hint: ContribSizeHint::Auto,
                 })
@@ -513,8 +513,8 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
         ) -> Option<LineAnnotation> {
             if line == 0 {
                 Some(LineAnnotation {
-                    left_gutter: Some(Element::text("L", Face::default())),
-                    right_gutter: Some(Element::text("R", Face::default())),
+                    left_gutter: Some(Element::plain_text("L")),
+                    right_gutter: Some(Element::plain_text("R")),
                     background: None,
                     priority: 0,
                     inline: None,

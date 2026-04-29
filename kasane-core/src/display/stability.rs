@@ -177,7 +177,7 @@ mod tests {
     fn fold(start: usize, end: usize) -> DisplayDirective {
         DisplayDirective::Fold {
             range: start..end,
-            summary: vec![Atom::from_face(Face::default(), "...")],
+            summary: vec![Atom::plain("...")],
         }
     }
 

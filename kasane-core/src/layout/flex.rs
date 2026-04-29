@@ -588,7 +588,7 @@ mod tests {
     #[test]
     fn test_measure_text() {
         let state = default_state();
-        let el = Element::text("hello", Face::default());
+        let el = Element::plain_text("hello");
         let size = measure(&el, Constraints::loose(80, 24), &state);
         assert_eq!(size.width, 5);
         assert_eq!(size.height, 1);
@@ -598,9 +598,9 @@ mod tests {
     fn test_measure_flex_column() {
         let state = default_state();
         let el = Element::column(vec![
-            FlexChild::fixed(Element::text("aaa", Face::default())),
-            FlexChild::fixed(Element::text("bb", Face::default())),
-            FlexChild::fixed(Element::text("c", Face::default())),
+            FlexChild::fixed(Element::plain_text("aaa")),
+            FlexChild::fixed(Element::plain_text("bb")),
+            FlexChild::fixed(Element::plain_text("c")),
         ]);
         let size = measure(&el, Constraints::loose(80, 24), &state);
         assert_eq!(size.height, 3); // 1 + 1 + 1
@@ -611,7 +611,7 @@ mod tests {
     fn test_measure_flex_row_with_flex() {
         let state = default_state();
         let el = Element::row(vec![
-            FlexChild::fixed(Element::text("abc", Face::default())),
+            FlexChild::fixed(Element::plain_text("abc")),
             FlexChild::flexible(Element::Empty, 1.0),
         ]);
         let size = measure(&el, Constraints::loose(80, 24), &state);
@@ -623,9 +623,9 @@ mod tests {
     fn test_place_flex_column() {
         let state = default_state();
         let el = Element::column(vec![
-            FlexChild::fixed(Element::text("a", Face::default())),
-            FlexChild::fixed(Element::text("b", Face::default())),
-            FlexChild::fixed(Element::text("c", Face::default())),
+            FlexChild::fixed(Element::plain_text("a")),
+            FlexChild::fixed(Element::plain_text("b")),
+            FlexChild::fixed(Element::plain_text("c")),
         ]);
         let result = place(&el, root_area(80, 24), &state);
         assert_eq!(result.children.len(), 3);
@@ -640,8 +640,8 @@ mod tests {
         let el = Element::Flex {
             direction: Direction::Row,
             children: vec![
-                FlexChild::fixed(Element::text("aa", Face::default())),
-                FlexChild::fixed(Element::text("bb", Face::default())),
+                FlexChild::fixed(Element::plain_text("aa")),
+                FlexChild::fixed(Element::plain_text("bb")),
             ],
             gap: 1,
             align: Align::Start,
@@ -660,7 +660,7 @@ mod tests {
     fn test_measure_container_with_border() {
         let state = default_state();
         let el = Element::Container {
-            child: Box::new(Element::text("hi", Face::default())),
+            child: Box::new(Element::plain_text("hi")),
             border: Some(crate::element::BorderConfig::from(
                 crate::element::BorderLineStyle::Rounded,
             )),
@@ -691,7 +691,7 @@ mod tests {
         let el = Element::stack(
             Element::Empty,
             vec![crate::element::Overlay {
-                element: Element::text("popup", Face::default()),
+                element: Element::plain_text("popup"),
                 anchor: crate::element::OverlayAnchor::Absolute {
                     x: 10,
                     y: 5,
@@ -711,9 +711,9 @@ mod tests {
     fn test_place_flex_column_with_flex_children() {
         let state = default_state();
         let el = Element::column(vec![
-            FlexChild::fixed(Element::text("top", Face::default())),
+            FlexChild::fixed(Element::plain_text("top")),
             FlexChild::flexible(Element::buffer_ref(0..20), 1.0),
-            FlexChild::fixed(Element::text("bottom", Face::default())),
+            FlexChild::fixed(Element::plain_text("bottom")),
         ]);
         let result = place(&el, root_area(80, 24), &state);
         assert_eq!(result.children.len(), 3);
@@ -729,8 +729,8 @@ mod tests {
     fn test_overlay_uses_anchor_size_not_measure() {
         let state = default_state();
         let overlay_el = Element::row(vec![
-            FlexChild::flexible(Element::text("ab", Face::default()), 1.0),
-            FlexChild::fixed(Element::text("x", Face::default())),
+            FlexChild::flexible(Element::plain_text("ab"), 1.0),
+            FlexChild::fixed(Element::plain_text("x")),
         ]);
         let el = Element::stack(
             Element::Empty,
@@ -753,7 +753,7 @@ mod tests {
     #[test]
     fn test_measure_text_unicode_width() {
         let state = default_state();
-        let el = Element::text("█", Face::default());
+        let el = Element::plain_text("█");
         let size = measure(&el, Constraints::loose(80, 24), &state);
         assert_eq!(size.width, 1); // display width 1, not byte length 3
     }
@@ -764,8 +764,8 @@ mod tests {
         // height based on children's intrinsic size (e.g. 1 for text).
         let state = default_state();
         let el = Element::row(vec![
-            FlexChild::flexible(Element::text("a", Face::default()), 1.0),
-            FlexChild::flexible(Element::text("b", Face::default()), 1.0),
+            FlexChild::flexible(Element::plain_text("a"), 1.0),
+            FlexChild::flexible(Element::plain_text("b"), 1.0),
         ]);
         let size = measure(&el, Constraints::loose(80, 24), &state);
         assert_eq!(size.height, 1);
@@ -779,7 +779,7 @@ mod tests {
         let rows: Vec<FlexChild> = (0..3)
             .map(|_| {
                 FlexChild::fixed(Element::row(vec![FlexChild::flexible(
-                    Element::text("x", Face::default()),
+                    Element::plain_text("x"),
                     1.0,
                 )]))
             })
@@ -800,8 +800,8 @@ mod tests {
         let el = Element::Flex {
             direction: Direction::Column,
             children: vec![
-                FlexChild::fixed(Element::text("a", Face::default())),
-                FlexChild::fixed(Element::text("b", Face::default())),
+                FlexChild::fixed(Element::plain_text("a")),
+                FlexChild::fixed(Element::plain_text("b")),
             ],
             gap: 0,
             align: Align::Center,
@@ -819,7 +819,7 @@ mod tests {
         // Row with 1 fixed child (w=3) in w=20 area → 17 leftover
         let el = Element::Flex {
             direction: Direction::Row,
-            children: vec![FlexChild::fixed(Element::text("abc", Face::default()))],
+            children: vec![FlexChild::fixed(Element::plain_text("abc"))],
             gap: 0,
             align: Align::End,
             cross_align: Align::Start,
@@ -833,7 +833,7 @@ mod tests {
         let state = default_state();
         let el = Element::Flex {
             direction: Direction::Row,
-            children: vec![FlexChild::fixed(Element::text("abc", Face::default()))],
+            children: vec![FlexChild::fixed(Element::plain_text("abc"))],
             gap: 0,
             align: Align::Start,
             cross_align: Align::Start,
@@ -848,7 +848,7 @@ mod tests {
         // Row with a text child (h=1) in h=10 area → cross center offset = (10-1)/2 = 4
         let el = Element::Flex {
             direction: Direction::Row,
-            children: vec![FlexChild::fixed(Element::text("abc", Face::default()))],
+            children: vec![FlexChild::fixed(Element::plain_text("abc"))],
             gap: 0,
             align: Align::Start,
             cross_align: Align::Center,
@@ -864,7 +864,7 @@ mod tests {
         // Column with a text child (w=3) in w=20 area → cross end offset = 20-3 = 17
         let el = Element::Flex {
             direction: Direction::Column,
-            children: vec![FlexChild::fixed(Element::text("abc", Face::default()))],
+            children: vec![FlexChild::fixed(Element::plain_text("abc"))],
             gap: 0,
             align: Align::Start,
             cross_align: Align::End,
@@ -881,7 +881,7 @@ mod tests {
         let el = Element::Flex {
             direction: Direction::Row,
             children: vec![
-                FlexChild::fixed(Element::text("ab", Face::default())),
+                FlexChild::fixed(Element::plain_text("ab")),
                 FlexChild::flexible(Element::Empty, 1.0),
             ],
             gap: 0,

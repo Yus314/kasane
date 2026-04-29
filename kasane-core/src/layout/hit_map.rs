@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn test_hit_map_empty() {
         let state = default_state();
-        let el = Element::text("plain", Face::default());
+        let el = Element::plain_text("plain");
         let area = root_area(10, 1);
         let layout = place(&el, area, &state);
         let map = build_hit_map(&el, &layout);
@@ -179,7 +179,7 @@ mod tests {
     fn test_hit_map_interactive() {
         let state = default_state();
         let el = Element::Interactive {
-            child: Box::new(Element::text("click", Face::default())),
+            child: Box::new(Element::plain_text("click")),
             id: InteractiveId::framework(42),
         };
         let area = Rect {
@@ -204,12 +204,12 @@ mod tests {
         let state = default_state();
         let el = Element::stack(
             Element::Interactive {
-                child: Box::new(Element::text("base", Face::default())),
+                child: Box::new(Element::plain_text("base")),
                 id: InteractiveId::framework(1),
             },
             vec![Overlay {
                 element: Element::Interactive {
-                    child: Box::new(Element::text("pop", Face::default())),
+                    child: Box::new(Element::plain_text("pop")),
                     id: InteractiveId::framework(2),
                 },
                 anchor: OverlayAnchor::Absolute {
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn test_cell_hit_entry_basic() {
         let state = default_state();
-        let el = Element::text("plain text", Face::default());
+        let el = Element::plain_text("plain text");
         let area = root_area(20, 5);
         let layout = place(&el, area, &state);
         let mut map = build_hit_map(&el, &layout);
@@ -258,7 +258,7 @@ mod tests {
         let state = default_state();
         // Create an interactive element covering the entire area
         let el = Element::Interactive {
-            child: Box::new(Element::text("click", Face::default())),
+            child: Box::new(Element::plain_text("click")),
             id: InteractiveId::framework(1),
         };
         let area = root_area(20, 5);
@@ -282,7 +282,7 @@ mod tests {
     fn test_hit_map_nested() {
         let state = default_state();
         let inner = Element::Interactive {
-            child: Box::new(Element::text("inner", Face::default())),
+            child: Box::new(Element::plain_text("inner")),
             id: InteractiveId::framework(10),
         };
         let outer = Element::Interactive {

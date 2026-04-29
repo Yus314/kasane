@@ -23,7 +23,7 @@ fn passthrough_in_buffer_mode() {
     let state = AppState::default(); // cursor_mode = Buffer
     apply_prompt_state_change(&mut plugin, &state, DirtyFlags::STATUS);
 
-    let element = Element::text("status content", Face::default());
+    let element = Element::plain_text("status content");
     let ctx = TransformContext {
         is_default: true,
         chain_position: 0,
@@ -53,7 +53,7 @@ fn wraps_in_prompt_mode() {
     state.inference.cursor_mode = kasane_core::protocol::CursorMode::Prompt;
     apply_prompt_state_change(&mut plugin, &state, DirtyFlags::STATUS);
 
-    let element = Element::text("prompt content", Face::default());
+    let element = Element::plain_text("prompt content");
     let ctx = TransformContext {
         is_default: true,
         chain_position: 0,
@@ -94,7 +94,7 @@ fn ignores_non_status_targets() {
     state.inference.cursor_mode = kasane_core::protocol::CursorMode::Prompt;
     apply_prompt_state_change(&mut plugin, &state, DirtyFlags::STATUS);
 
-    let element = Element::text("buffer content", Face::default());
+    let element = Element::plain_text("buffer content");
     let ctx = TransformContext {
         is_default: true,
         chain_position: 0,

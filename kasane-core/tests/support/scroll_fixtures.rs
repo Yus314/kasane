@@ -42,7 +42,7 @@ pub fn install_hit_region(state: &mut AppState, id: InteractiveId, area: Rect) {
     let line = "x".repeat(area.w.max(1) as usize);
     let child = Element::column(
         (0..area.h.max(1))
-            .map(|_| FlexChild::fixed(Element::text(line.clone(), Face::default())))
+            .map(|_| FlexChild::fixed(Element::plain_text(line.clone())))
             .collect(),
     );
     let interactive = Element::Interactive {

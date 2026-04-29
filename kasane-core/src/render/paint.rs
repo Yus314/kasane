@@ -519,7 +519,7 @@ mod tests {
     fn test_paint_text() {
         let state = default_state();
         let mut grid = CellGrid::new(20, 5);
-        let el = Element::text("hello", Face::default());
+        let el = Element::plain_text("hello");
         let area = root_area(20, 5);
         let layout = place(&el, area, &state);
         paint(&el, &layout, &mut grid, &state);
@@ -555,8 +555,8 @@ mod tests {
         let state = default_state();
         let mut grid = CellGrid::new(20, 5);
         let el = Element::column(vec![
-            FlexChild::fixed(Element::text("aaa", Face::default())),
-            FlexChild::fixed(Element::text("bbb", Face::default())),
+            FlexChild::fixed(Element::plain_text("aaa")),
+            FlexChild::fixed(Element::plain_text("bbb")),
         ]);
         let area = root_area(20, 5);
         let layout = place(&el, area, &state);
@@ -571,7 +571,7 @@ mod tests {
         let state = default_state();
         let mut grid = CellGrid::new(20, 10);
         let el = Element::Container {
-            child: Box::new(Element::text("hi", Face::default())),
+            child: Box::new(Element::plain_text("hi")),
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
@@ -625,7 +625,7 @@ mod tests {
         let state = default_state();
         let mut grid = CellGrid::new(20, 10);
         let el = Element::Container {
-            child: Box::new(Element::text("content", Face::default())),
+            child: Box::new(Element::plain_text("content")),
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
@@ -666,10 +666,7 @@ mod tests {
                 crate::element::GridColumn::fixed(5),
                 crate::element::GridColumn::fixed(5),
             ],
-            children: vec![
-                Element::text("hello", Face::default()),
-                Element::text("world", Face::default()),
-            ],
+            children: vec![Element::plain_text("hello"), Element::plain_text("world")],
             col_gap: 0,
             row_gap: 0,
             align: crate::element::Align::Start,
@@ -698,7 +695,7 @@ mod tests {
         grid.put_char(1, 1, "あ", &wide_face);
 
         let el = Element::Container {
-            child: Box::new(Element::text("hi", Face::default())),
+            child: Box::new(Element::plain_text("hi")),
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
@@ -729,9 +726,9 @@ mod tests {
         let state = default_state();
         let mut grid = CellGrid::new(20, 10);
         let el = Element::stack(
-            Element::text("base_text", Face::default()),
+            Element::plain_text("base_text"),
             vec![Overlay {
-                element: Element::text("pop", Face::default()),
+                element: Element::plain_text("pop"),
                 anchor: OverlayAnchor::Absolute {
                     x: 5,
                     y: 3,
@@ -947,8 +944,7 @@ mod tests {
         let lines = vec![make_line("hello"), make_line("world")];
         let params = make_params(&lines, &[]);
         // Only line 0 has VT, line 1 has None
-        let vt: Vec<Option<Vec<Atom>>> =
-            vec![Some(vec![Atom::from_face(Face::default(), " hint")]), None];
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::plain(" hint")]), None];
         match analyze_buffer_line(&params, 1, None, None, None, Some(&vt), false) {
             BufferLineAction::BufferLine { virtual_text, .. } => {
                 assert!(virtual_text.is_none(), "line 1 should have no virtual text");
@@ -966,13 +962,13 @@ mod tests {
             3,
             &[DisplayDirective::Fold {
                 range: 0..2,
-                summary: vec![Atom::from_face(Face::default(), "folded")],
+                summary: vec![Atom::plain("folded")],
             }],
         );
         // VT for buffer lines
         let vt: Vec<Option<Vec<Atom>>> = vec![
-            Some(vec![Atom::from_face(Face::default(), " vt0")]),
-            Some(vec![Atom::from_face(Face::default(), " vt1")]),
+            Some(vec![Atom::plain(" vt0")]),
+            Some(vec![Atom::plain(" vt1")]),
             None,
         ];
         // Display line 0 = fold summary → Synthetic, no virtual text
@@ -1032,8 +1028,7 @@ mod tests {
         state.runtime.cols = 5;
         state.runtime.rows = 1;
 
-        let vt: Vec<Option<Vec<Atom>>> =
-            vec![Some(vec![Atom::from_face(Face::default(), "  err")])];
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::plain("  err")])];
 
         let mut grid = CellGrid::new(5, 1);
         let area = Rect {

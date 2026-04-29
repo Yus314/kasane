@@ -145,7 +145,7 @@ proptest! {
         menu_face in arb_face(),
     ) {
         let items: Vec<_> = (0..item_count)
-            .map(|i| vec![Atom::from_face(Face::default(), format!("item{i}"))])
+            .map(|i| vec![Atom::plain(format!("item{i}"))])
             .collect();
         let mut state = AppState::default();
         state.runtime.rows = 24;
@@ -168,7 +168,7 @@ proptest! {
         state.runtime.cols = 80;
         // First show a menu
         let items: Vec<_> = (0..10)
-            .map(|i| vec![Atom::from_face(Face::default(), format!("item{i}"))])
+            .map(|i| vec![Atom::plain(format!("item{i}"))])
             .collect();
         state.apply(KakouneRequest::MenuShow {
             items,
@@ -202,7 +202,7 @@ proptest! {
 }
 
 fn make_atom(s: &str) -> Atom {
-    Atom::from_face(Face::default(), s)
+    Atom::plain(s)
 }
 
 /// MenuHide returns MENU | BUFFER_CONTENT.

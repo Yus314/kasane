@@ -841,7 +841,7 @@ mod tests {
             slot_name: "kasane.buffer.left".into(),
             instance_id: ResolvedSlotInstanceId(1),
             direction: Direction::Row,
-            children: vec![FlexChild::fixed(Element::text("ok", Face::default()))],
+            children: vec![FlexChild::fixed(Element::plain_text("ok"))],
             gap: 0,
         };
         let tree = ResolvedTree::new(root, vec![]).unwrap();
@@ -855,7 +855,7 @@ mod tests {
             slot_name: "kasane.buffer.left".into(),
             instance_id: ResolvedSlotInstanceId(7),
             direction: Direction::Row,
-            children: vec![FlexChild::fixed(Element::text("ok", Face::default()))],
+            children: vec![FlexChild::fixed(Element::plain_text("ok"))],
             gap: 0,
         };
         let area = Rect {
@@ -910,7 +910,7 @@ mod tests {
             if region.as_str() == "test.surface.slot" {
                 self.seen.borrow_mut().push(ctx.clone());
                 Some(Contribution {
-                    element: Element::text("x", Face::default()),
+                    element: Element::plain_text("x"),
                     priority: 0,
                     size_hint: ContribSizeHint::Auto,
                 })
@@ -1013,7 +1013,7 @@ mod tests {
         let state = AppState::default();
 
         let root = Element::row(vec![
-            FlexChild::fixed(Element::text("abc", Face::default())),
+            FlexChild::fixed(Element::plain_text("abc")),
             FlexChild::flexible(
                 Element::slot_placeholder("test.surface.slot", Direction::Row),
                 1.0,
@@ -1057,7 +1057,7 @@ mod tests {
         let state = AppState::default();
 
         let root = Element::stack(
-            Element::text("base", Face::default()),
+            Element::plain_text("base"),
             vec![crate::element::Overlay {
                 element: Element::slot_placeholder("test.surface.slot", Direction::Column),
                 anchor: crate::element::OverlayAnchor::Fill,

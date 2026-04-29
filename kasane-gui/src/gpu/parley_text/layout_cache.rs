@@ -163,7 +163,7 @@ mod tests {
     use super::super::{Brush, ParleyText};
 
     fn ascii_atoms(s: &str) -> Vec<Atom> {
-        vec![Atom::from_face(Face::default(), s)]
+        vec![Atom::plain(s)]
     }
 
     fn default_line(s: &str) -> StyledLine {

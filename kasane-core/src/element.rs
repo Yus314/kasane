@@ -539,6 +539,27 @@ impl Element {
         Element::Text(s.into(), ElementStyle::from(face))
     }
 
+    /// Construct a plain text element with the default style.
+    ///
+    /// Equivalent to `Element::plain_text(s)` without the explicit
+    /// face argument. Phase B3 callers should prefer this constructor at the
+    /// many test / authoring sites that previously wrote
+    /// `Element::plain_text(s)`.
+    #[inline]
+    pub fn plain_text(s: impl Into<CompactString>) -> Self {
+        Element::Text(s.into(), ElementStyle::Direct(Face::default()))
+    }
+
+    /// Construct a styled text element from an [`ElementStyle`].
+    ///
+    /// Use when the style is already an `ElementStyle` (typically from a
+    /// theme token or pre-resolved face), avoiding the implicit
+    /// `ElementStyle::from(face)` round-trip.
+    #[inline]
+    pub fn styled_text(s: impl Into<CompactString>, style: ElementStyle) -> Self {
+        Element::Text(s.into(), style)
+    }
+
     pub fn styled_line(line: Line) -> Self {
         Element::StyledLine(line)
     }
@@ -638,7 +659,7 @@ mod tests {
 
     #[test]
     fn test_element_text() {
-        let el = Element::text("hello", Face::default());
+        let el = Element::plain_text("hello");
         match el {
             Element::Text(s, _) => assert_eq!(s, "hello"),
             _ => panic!("expected Text"),
@@ -648,8 +669,8 @@ mod tests {
     #[test]
     fn test_element_column() {
         let el = Element::column(vec![
-            FlexChild::fixed(Element::text("a", Face::default())),
-            FlexChild::flexible(Element::text("b", Face::default()), 1.0),
+            FlexChild::fixed(Element::plain_text("a")),
+            FlexChild::flexible(Element::plain_text("b"), 1.0),
         ]);
         match el {
             Element::Flex {
@@ -784,10 +805,7 @@ mod tests {
     fn test_element_grid() {
         let el = Element::grid(
             vec![GridColumn::fixed(5), GridColumn::flex(1.0)],
-            vec![
-                Element::text("a", Face::default()),
-                Element::text("b", Face::default()),
-            ],
+            vec![Element::plain_text("a"), Element::plain_text("b")],
         );
         match el {
             Element::Grid {

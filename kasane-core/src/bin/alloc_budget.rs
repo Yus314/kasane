@@ -92,7 +92,7 @@ fn main() {
                     },
                     contents: "let".into(),
                 },
-                Atom::from_face(Face::default(), " "),
+                Atom::plain(" "),
                 Atom {
                     face: Face {
                         fg: Color::Rgb {
@@ -105,7 +105,7 @@ fn main() {
                     },
                     contents: format!("var_{i}").into(),
                 },
-                Atom::from_face(Face::default(), " = "),
+                Atom::plain(" = "),
                 Atom {
                     face: Face {
                         fg: Color::Rgb {
@@ -118,12 +118,12 @@ fn main() {
                     },
                     contents: format!("\"{i}_value\"").into(),
                 },
-                Atom::from_face(Face::default(), ";"),
+                Atom::plain(";"),
             ]
         })
         .collect();
-    state.status_line = vec![Atom::from_face(Face::default(), " NORMAL ")];
-    state.status_mode_line = vec![Atom::from_face(Face::default(), "normal")];
+    state.status_line = vec![Atom::plain(" NORMAL ")];
+    state.status_mode_line = vec![Atom::plain("normal")];
 
     let registry = PluginRuntime::new();
     let area = Rect {
@@ -164,7 +164,7 @@ fn main() {
 
     // parse_request (100-line draw)
     let draw_lines: Vec<crate::protocol::Line> = (0..100)
-        .map(|i| vec![Atom::from_face(Face::default(), format!("line {i}"))])
+        .map(|i| vec![Atom::plain(format!("line {i}"))])
         .collect();
     let default_face = Face {
         fg: Color::Named(NamedColor::White),

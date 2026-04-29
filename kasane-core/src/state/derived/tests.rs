@@ -3,7 +3,7 @@ use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedCol
 use crate::render::CursorStyle;
 
 fn make_atom(text: &str) -> Atom {
-    Atom::from_face(Face::default(), text)
+    Atom::plain(text)
 }
 
 fn make_cursor_atom(text: &str) -> Atom {

@@ -309,7 +309,7 @@ fn test_update_mouse_routes_to_plugin() {
 
     // Build a HitMap with an interactive region at (5,3)-(12,3)
     let el = crate::element::Element::Interactive {
-        child: Box::new(crate::element::Element::text("click me", Face::default())),
+        child: Box::new(crate::element::Element::plain_text("click me")),
         id: InteractiveId::framework(42),
     };
     let area = Rect {
@@ -696,7 +696,7 @@ fn mouse_press_on_fold_summary_suppressed() {
     // Build a non-identity display map with a fold at lines 2..5
     let directives = vec![DisplayDirective::Fold {
         range: 2..5,
-        summary: vec![crate::protocol::Atom::from_face(Face::default(), "folded")],
+        summary: vec![crate::protocol::Atom::plain("folded")],
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);
@@ -742,7 +742,7 @@ fn mouse_press_on_normal_line_forwards_to_kakoune() {
 
     let directives = vec![DisplayDirective::Fold {
         range: 2..5,
-        summary: vec![crate::protocol::Atom::from_face(Face::default(), "folded")],
+        summary: vec![crate::protocol::Atom::plain("folded")],
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);
@@ -782,7 +782,7 @@ fn mouse_click_fold_summary_toggles_fold_state() {
 
     let directives = vec![DisplayDirective::Fold {
         range: 3..7,
-        summary: vec![crate::protocol::Atom::from_face(Face::default(), "...")],
+        summary: vec![crate::protocol::Atom::plain("...")],
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);
@@ -819,7 +819,7 @@ fn mouse_move_on_fold_summary_suppressed_without_toggle() {
 
     let directives = vec![DisplayDirective::Fold {
         range: 2..5,
-        summary: vec![crate::protocol::Atom::from_face(Face::default(), "folded")],
+        summary: vec![crate::protocol::Atom::plain("folded")],
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);
@@ -882,7 +882,7 @@ fn fold_summary_click_dispatches_through_builtin_fold_plugin() {
 
     let directives = vec![DisplayDirective::Fold {
         range: 2..5,
-        summary: vec![crate::protocol::Atom::from_face(Face::default(), "folded")],
+        summary: vec![crate::protocol::Atom::plain("folded")],
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);
@@ -913,7 +913,7 @@ fn fold_summary_click_recording_effects_dispatches_action() {
 
     let directives = vec![DisplayDirective::Fold {
         range: 2..5,
-        summary: vec![crate::protocol::Atom::from_face(Face::default(), "folded")],
+        summary: vec![crate::protocol::Atom::plain("folded")],
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);

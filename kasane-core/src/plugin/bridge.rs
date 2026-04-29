@@ -1250,7 +1250,7 @@ mod tests {
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
                 r.on_transform(0, |_state, _target, _app, _ctx| ElementPatch::Append {
-                    element: Element::text("appended", Face::default()),
+                    element: Element::plain_text("appended"),
                 });
             }
         }
@@ -1305,7 +1305,7 @@ mod tests {
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
                 r.on_transform(10, |_state, _target, _app, _ctx| ElementPatch::Prepend {
-                    element: Element::text("before", Face::default()),
+                    element: Element::plain_text("before"),
                 });
             }
         }
@@ -1318,7 +1318,7 @@ mod tests {
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
                 r.on_transform(0, |_state, _target, _app, _ctx| ElementPatch::Append {
-                    element: Element::text("after", Face::default()),
+                    element: Element::plain_text("after"),
                 });
             }
         }
@@ -1328,7 +1328,7 @@ mod tests {
         runtime.register(AppendPlugin);
 
         let app = AppState::default();
-        let subject = TransformSubject::Element(Element::text("base", Face::default()));
+        let subject = TransformSubject::Element(Element::plain_text("base"));
         let result = runtime.view().apply_transform_chain(
             TransformTarget::BUFFER,
             subject,
@@ -1376,7 +1376,7 @@ mod tests {
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
                 r.on_transform(0, |_state, _target, _app, _ctx| ElementPatch::Replace {
-                    element: Element::text("replaced", Face::default()),
+                    element: Element::plain_text("replaced"),
                 });
             }
         }
@@ -1386,7 +1386,7 @@ mod tests {
         runtime.register(ReplacePlugin);
 
         let app = AppState::default();
-        let subject = TransformSubject::Element(Element::text("original", Face::default()));
+        let subject = TransformSubject::Element(Element::plain_text("original"));
         let result = runtime.view().apply_transform_chain(
             TransformTarget::BUFFER,
             subject,
@@ -1394,10 +1394,7 @@ mod tests {
         );
 
         // Replace (prio 0) absorbs ModifyFace (prio 10) during normalization
-        assert_eq!(
-            result.into_element(),
-            Element::text("replaced", Face::default())
-        );
+        assert_eq!(result.into_element(), Element::plain_text("replaced"));
     }
 
     // ---- Exhaustive handler dispatch coverage ----
@@ -1731,12 +1728,7 @@ mod tests {
         bridge.annotate_virtual_text(0, &app, &annotate_ctx);
         bridge.contribute_overlay_with_ctx(&app, &overlay_ctx);
         bridge.display_directives(&app);
-        bridge.transform_menu_item(
-            &[crate::protocol::Atom::from_face(Face::default(), "item")],
-            0,
-            false,
-            &app,
-        );
+        bridge.transform_menu_item(&[crate::protocol::Atom::plain("item")], 0, false, &app);
 
         // Inline-box paint (ADR-031 Phase 10 Step 2-native)
         bridge.paint_inline_box(0, &app);

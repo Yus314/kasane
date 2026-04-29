@@ -13,7 +13,7 @@ use kasane_core::salsa_views;
 use kasane_core::state::{AppState, InfoIdentity, InfoState, MenuParams, MenuState};
 
 fn make_atom(text: &str) -> Atom {
-    Atom::from_face(Face::default(), text)
+    Atom::plain(text)
 }
 
 // ---------------------------------------------------------------------------

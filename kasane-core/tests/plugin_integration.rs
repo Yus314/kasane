@@ -185,7 +185,7 @@ mod prefix_plugin {
         _selected: bool,
         _core: &AppView<'_>,
     ) -> Option<Vec<Atom>> {
-        let mut result = vec![Atom::from_face(Face::default(), ">> ")];
+        let mut result = vec![Atom::plain(">> ")];
         result.extend(item.iter().cloned());
         Some(result)
     }
@@ -283,7 +283,7 @@ mod buffer_banner {
     ) -> TransformSubject {
         subject.map_element(|element| {
             Element::column(vec![
-                FlexChild::fixed(Element::text("[buffer transformed]", Face::default())),
+                FlexChild::fixed(Element::plain_text("[buffer transformed]")),
                 FlexChild::flexible(element, 1.0),
             ])
         })
@@ -353,7 +353,7 @@ impl PluginBackend for VerticalBandsPlugin {
         };
 
         Some(Contribution {
-            element: Element::text(label, Face::default()),
+            element: Element::plain_text(label),
             priority: 0,
             size_hint: ContribSizeHint::Auto,
         })

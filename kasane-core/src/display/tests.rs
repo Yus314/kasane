@@ -44,7 +44,7 @@ fn fold_reduces_line_count() {
     // 10 buffer lines, fold lines 3..6 (3 lines → 1 summary)
     let directives = vec![DisplayDirective::Fold {
         range: 3..6,
-        summary: vec![Atom::from_face(Face::default(), "... 3 lines ...")],
+        summary: vec![Atom::plain("... 3 lines ...")],
     }];
     let dm = DisplayMap::build(10, &directives);
 
@@ -57,7 +57,7 @@ fn fold_reduces_line_count() {
 fn fold_mapping_correctness() {
     let directives = vec![DisplayDirective::Fold {
         range: 2..5,
-        summary: vec![Atom::from_face(Face::default(), "folded")],
+        summary: vec![Atom::plain("folded")],
     }];
     let dm = DisplayMap::build(8, &directives);
     // Display: [0, 1, fold(2..5), 5, 6, 7] = 6 lines
@@ -149,7 +149,7 @@ fn dirty_identity() {
 fn dirty_fold_any_dirty() {
     let directives = vec![DisplayDirective::Fold {
         range: 1..4,
-        summary: vec![Atom::from_face(Face::default(), "folded")],
+        summary: vec![Atom::plain("folded")],
     }];
     let dm = DisplayMap::build(5, &directives);
     // Display: [0, fold(1..4), 4] = 3 lines
@@ -192,7 +192,7 @@ fn build_rejects_fold_hide_overlap() {
     let directives = vec![
         DisplayDirective::Fold {
             range: 2..5,
-            summary: vec![Atom::from_face(Face::default(), "fold")],
+            summary: vec![Atom::plain("fold")],
         },
         DisplayDirective::Hide { range: 3..6 },
     ];
@@ -205,7 +205,7 @@ fn build_rejects_fold_hide_overlap() {
 fn build_rejects_empty_fold_range() {
     let directives = vec![DisplayDirective::Fold {
         range: 3..3,
-        summary: vec![Atom::from_face(Face::default(), "empty")],
+        summary: vec![Atom::plain("empty")],
     }];
     let _ = DisplayMap::build(10, &directives);
 }
@@ -227,7 +227,7 @@ fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirect
         (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
             DisplayDirective::Fold {
                 range: s..(s + len).min(m),
-                summary: vec![Atom::from_face(Face::default(), "...")],
+                summary: vec![Atom::plain("...")],
             }
         }),
         (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {

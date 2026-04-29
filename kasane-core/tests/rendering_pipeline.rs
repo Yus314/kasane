@@ -89,7 +89,7 @@ fn buffer_with_colored_atoms() {
             },
             "red",
         ),
-        Atom::from_face(Face::default(), " plain"),
+        Atom::plain(" plain"),
     ];
     let state = setup_state(vec![line]);
     let grid = render(&state);

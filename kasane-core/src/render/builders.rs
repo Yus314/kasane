@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn test_truncate_atoms_combining_character() {
-        let atoms = vec![Atom::from_face(Face::default(), "e\u{0301}xyz")];
+        let atoms = vec![Atom::plain("e\u{0301}xyz")];
         let base_face = Face::default();
         // width 3 limit → "éx" (2 cols) + "…" (1 col) = 3
         let result = truncate_atoms(&atoms, 3, &base_face, "\u{2026}");

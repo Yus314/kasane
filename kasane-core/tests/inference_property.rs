@@ -53,10 +53,7 @@ fn arb_lines() -> impl Strategy<Value = Vec<Vec<Atom>>> {
 /// at a known position. Returns (line, cursor_column).
 fn arb_line_with_cursor() -> impl Strategy<Value = (Vec<Atom>, u32)> {
     // prefix: 0-5 ASCII atoms, then one cursor atom, then 0-3 suffix atoms
-    let prefix = prop::collection::vec(
-        "[a-z]{1,5}".prop_map(|s: String| Atom::from_face(Face::default(), s)),
-        0..5,
-    );
+    let prefix = prop::collection::vec("[a-z]{1,5}".prop_map(|s: String| Atom::plain(s)), 0..5);
     let cursor_text = "[a-z]{1,3}".prop_map(|s: String| {
         Atom::from_face(
             Face {
@@ -66,10 +63,7 @@ fn arb_line_with_cursor() -> impl Strategy<Value = (Vec<Atom>, u32)> {
             s,
         )
     });
-    let suffix = prop::collection::vec(
-        "[a-z]{1,5}".prop_map(|s: String| Atom::from_face(Face::default(), s)),
-        0..3,
-    );
+    let suffix = prop::collection::vec("[a-z]{1,5}".prop_map(|s: String| Atom::plain(s)), 0..3);
     (prefix, cursor_text, suffix).prop_map(|(mut pre, cursor, suf)| {
         // Compute cursor column = sum of prefix atom display widths
         let col: u32 = pre

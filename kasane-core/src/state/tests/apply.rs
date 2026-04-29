@@ -398,7 +398,7 @@ fn cursor_atom(s: &str) -> Atom {
 
 /// Helper: create a normal (non-cursor) atom.
 fn normal_atom(s: &str) -> Atom {
-    Atom::from_face(Face::default(), s)
+    Atom::plain(s)
 }
 
 #[test]

@@ -137,7 +137,7 @@ fn additive_projection_active_applies_directives() {
             "error-lens".into(),
             vec![DisplayDirective::Fold {
                 range: 1..3,
-                summary: vec![Atom::from_face(Face::default(), "error: unused variable")],
+                summary: vec![Atom::plain("error: unused variable")],
             }],
         )],
     }));
@@ -171,7 +171,7 @@ fn structural_and_additive_compose() {
                 "error-lens".into(),
                 vec![DisplayDirective::Fold {
                     range: 0..2,
-                    summary: vec![Atom::from_face(Face::default(), "folded")],
+                    summary: vec![Atom::plain("folded")],
                 }],
             ),
         ],

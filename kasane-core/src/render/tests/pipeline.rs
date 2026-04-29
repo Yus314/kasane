@@ -44,7 +44,7 @@ fn test_treesitter_rgb_colors_preserved() {
     };
     let ts_line = vec![
         Atom::from_face(keyword_face, "fn"),
-        Atom::from_face(Face::default(), " "),
+        Atom::plain(" "),
         Atom::from_face(string_face, "main"),
     ];
     state.observed.lines = vec![ts_line];

@@ -425,7 +425,7 @@ mod tests {
     use crate::protocol::{Color, Face, NamedColor};
 
     fn sample_element() -> Element {
-        Element::text("hello", Face::default())
+        Element::plain_text("hello")
     }
 
     fn sample_subject() -> TransformSubject {
@@ -647,7 +647,7 @@ mod tests {
 
     #[test]
     fn apply_replace() {
-        let replacement = Element::text("replaced", Face::default());
+        let replacement = Element::plain_text("replaced");
         let result = ElementPatch::Replace {
             element: replacement.clone(),
         }
@@ -658,13 +658,10 @@ mod tests {
     #[test]
     fn apply_custom() {
         let result = ElementPatch::Custom(Arc::new(|s| {
-            s.map_element(|_| Element::text("custom", Face::default()))
+            s.map_element(|_| Element::plain_text("custom"))
         }))
         .apply(sample_subject());
-        assert_eq!(
-            result.into_element(),
-            Element::text("custom", Face::default())
-        );
+        assert_eq!(result.into_element(), Element::plain_text("custom"));
     }
 
     #[test]
@@ -672,10 +669,10 @@ mod tests {
         // Replace then Append
         let patch = ElementPatch::Compose(vec![
             ElementPatch::Replace {
-                element: Element::text("base", Face::default()),
+                element: Element::plain_text("base"),
             },
             ElementPatch::Append {
-                element: Element::text("after", Face::default()),
+                element: Element::plain_text("after"),
             },
         ]);
         let result = patch.apply(sample_subject());
@@ -691,7 +688,7 @@ mod tests {
     #[test]
     fn apply_modify_face_on_styled_line() {
         use crate::protocol::Atom;
-        let atoms = vec![Atom::from_face(Face::default(), "test")];
+        let atoms = vec![Atom::plain("test")];
         let subject = TransformSubject::Element(Element::StyledLine(atoms));
         let overlay = Face {
             fg: Color::Named(NamedColor::Red),
@@ -710,7 +707,7 @@ mod tests {
     fn apply_modify_anchor_on_overlay() {
         use crate::element::Overlay;
         let overlay = Overlay {
-            element: Element::text("menu", Face::default()),
+            element: Element::plain_text("menu"),
             anchor: OverlayAnchor::Absolute {
                 x: 1,
                 y: 2,
@@ -854,13 +851,13 @@ mod tests {
     fn composable_associativity() {
         use super::super::compose::Composable;
         let a = ElementPatch::Replace {
-            element: Element::text("a", Face::default()),
+            element: Element::plain_text("a"),
         };
         let b = ElementPatch::Append {
-            element: Element::text("b", Face::default()),
+            element: Element::plain_text("b"),
         };
         let c = ElementPatch::Append {
-            element: Element::text("c", Face::default()),
+            element: Element::plain_text("c"),
         };
 
         let subject = sample_subject();

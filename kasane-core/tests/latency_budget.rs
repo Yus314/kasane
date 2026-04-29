@@ -64,16 +64,16 @@ fn typical_state(line_count: usize) -> AppState {
         .map(|i| {
             vec![
                 Atom::from_face(keyword_face, "let"),
-                Atom::from_face(Face::default(), " "),
+                Atom::plain(" "),
                 Atom::from_face(ident_face, format!("var_{i}")),
-                Atom::from_face(Face::default(), " = "),
+                Atom::plain(" = "),
                 Atom::from_face(literal_face, format!("\"{i}_value\"")),
-                Atom::from_face(Face::default(), ";"),
+                Atom::plain(";"),
             ]
         })
         .collect();
-    state.inference.status_line = vec![Atom::from_face(Face::default(), " NORMAL ")];
-    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "normal")];
+    state.inference.status_line = vec![Atom::plain(" NORMAL ")];
+    state.observed.status_mode_line = vec![Atom::plain("normal")];
     state
 }
 
@@ -177,7 +177,7 @@ fn parse_request_under_500us() {
 fn state_apply_under_200us() {
     let draw = KakouneRequest::Draw {
         lines: (0..23)
-            .map(|i| vec![Atom::from_face(Face::default(), format!("line {i}"))])
+            .map(|i| vec![Atom::plain(format!("line {i}"))])
             .collect(),
         cursor_pos: kasane_core::protocol::Coord::default(),
         default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(

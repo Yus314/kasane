@@ -13,7 +13,7 @@ use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
 use kasane_core::state::AppState;
 
 fn make_atom(text: &str) -> Atom {
-    Atom::from_face(Face::default(), text)
+    Atom::plain(text)
 }
 
 // ---------------------------------------------------------------------------

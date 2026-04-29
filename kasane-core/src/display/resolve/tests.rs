@@ -55,7 +55,7 @@ fn resolve_folds_disjoint_both_kept() {
     set.push(
         DisplayDirective::Fold {
             range: 1..3,
-            summary: vec![Atom::from_face(Face::default(), "fold-a")],
+            summary: vec![Atom::plain("fold-a")],
         },
         0,
         pid("a"),
@@ -63,7 +63,7 @@ fn resolve_folds_disjoint_both_kept() {
     set.push(
         DisplayDirective::Fold {
             range: 5..7,
-            summary: vec![Atom::from_face(Face::default(), "fold-b")],
+            summary: vec![Atom::plain("fold-b")],
         },
         0,
         pid("b"),
@@ -82,7 +82,7 @@ fn resolve_folds_overlap_higher_priority_wins() {
     set.push(
         DisplayDirective::Fold {
             range: 2..6,
-            summary: vec![Atom::from_face(Face::default(), "low")],
+            summary: vec![Atom::plain("low")],
         },
         0,
         pid("low"),
@@ -90,7 +90,7 @@ fn resolve_folds_overlap_higher_priority_wins() {
     set.push(
         DisplayDirective::Fold {
             range: 3..8,
-            summary: vec![Atom::from_face(Face::default(), "high")],
+            summary: vec![Atom::plain("high")],
         },
         10,
         pid("high"),
@@ -113,7 +113,7 @@ fn resolve_folds_overlap_same_priority_plugin_id_tiebreak() {
     set.push(
         DisplayDirective::Fold {
             range: 1..5,
-            summary: vec![Atom::from_face(Face::default(), "alpha")],
+            summary: vec![Atom::plain("alpha")],
         },
         0,
         pid("alpha"),
@@ -121,7 +121,7 @@ fn resolve_folds_overlap_same_priority_plugin_id_tiebreak() {
     set.push(
         DisplayDirective::Fold {
             range: 3..7,
-            summary: vec![Atom::from_face(Face::default(), "beta")],
+            summary: vec![Atom::plain("beta")],
         },
         0,
         pid("beta"),
@@ -144,7 +144,7 @@ fn resolve_fold_hide_partial_overlap_fold_removed() {
     set.push(
         DisplayDirective::Fold {
             range: 2..6,
-            summary: vec![Atom::from_face(Face::default(), "fold")],
+            summary: vec![Atom::plain("fold")],
         },
         0,
         pid("a"),
@@ -172,7 +172,7 @@ fn resolve_fold_hide_full_cover_fold_removed() {
     set.push(
         DisplayDirective::Fold {
             range: 2..5,
-            summary: vec![Atom::from_face(Face::default(), "fold")],
+            summary: vec![Atom::plain("fold")],
         },
         0,
         pid("a"),
@@ -193,7 +193,7 @@ fn resolve_fold_hide_disjoint_both_kept() {
     set.push(
         DisplayDirective::Fold {
             range: 1..3,
-            summary: vec![Atom::from_face(Face::default(), "fold")],
+            summary: vec![Atom::plain("fold")],
         },
         0,
         pid("a"),
@@ -367,7 +367,7 @@ fn resolve_inline_insert_ordering() {
             directive: DisplayDirective::InsertInline {
                 line: 0,
                 byte_offset: 5,
-                content: vec![Atom::from_face(Face::default(), "Y")],
+                content: vec![Atom::plain("Y")],
                 interaction: crate::display::InlineInteraction::None,
             },
             priority: 10,
@@ -424,7 +424,7 @@ fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirect
         (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
             DisplayDirective::Fold {
                 range: s..(s + len).min(m),
-                summary: vec![Atom::from_face(Face::default(), "...")],
+                summary: vec![Atom::plain("...")],
             }
         }),
         (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {

@@ -90,7 +90,7 @@ mod tests {
         let mut directives = vec![
             DisplayDirective::Fold {
                 range: 2..5,
-                summary: vec![Atom::from_face(Face::default(), "fold")],
+                summary: vec![Atom::plain("fold")],
             },
             DisplayDirective::Hide { range: 6..8 },
         ];
@@ -107,7 +107,7 @@ mod tests {
 
         let mut directives = vec![DisplayDirective::Fold {
             range: 2..5,
-            summary: vec![Atom::from_face(Face::default(), "fold")],
+            summary: vec![Atom::plain("fold")],
         }];
         state.filter_directives(&mut directives);
 

@@ -68,7 +68,7 @@ mod tests {
         use kasane_core::protocol::{Atom, Face, Style};
 
         let mut text = ParleyText::new(&FontConfig::default());
-        let atoms = vec![Atom::from_face(Face::default(), "M")];
+        let atoms = vec![Atom::plain("M")];
         let line = StyledLine::from_atoms(
             &atoms,
             &Style::default(),

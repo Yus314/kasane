@@ -287,8 +287,8 @@ mod tests {
     /// Helper: build a 3-atom completion item: candidate + padding + colored docstring.
     fn make_completion_item(candidate: &str, padding: &str, docstring: &str) -> Line {
         vec![
-            Atom::from_face(Face::default(), candidate),
-            Atom::from_face(Face::default(), padding),
+            Atom::plain(candidate),
+            Atom::plain(padding),
             Atom::from_face(
                 Face {
                     fg: Color::Named(crate::protocol::NamedColor::Cyan),
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_split_no_docstring() {
-        let item = vec![Atom::from_face(Face::default(), "hello_world")];
+        let item = vec![Atom::plain("hello_world")];
         let split = split_single_item(&item);
         assert_eq!(split.candidate_end, 1);
         assert_eq!(split.docstring_start, 1);
@@ -323,7 +323,7 @@ mod tests {
     fn test_split_no_padding() {
         // Two atoms but no whitespace-only padding between them → no split.
         let item = vec![
-            Atom::from_face(Face::default(), "foo"),
+            Atom::plain("foo"),
             Atom::from_face(
                 Face {
                     fg: Color::Named(crate::protocol::NamedColor::Cyan),
@@ -341,10 +341,7 @@ mod tests {
 
     #[test]
     fn test_split_columns_none_when_no_docstrings() {
-        let items = vec![
-            vec![Atom::from_face(Face::default(), "abc")],
-            vec![Atom::from_face(Face::default(), "defgh")],
-        ];
+        let items = vec![vec![Atom::plain("abc")], vec![Atom::plain("defgh")]];
         assert!(split_item_columns(&items).is_none());
     }
 
@@ -363,7 +360,7 @@ mod tests {
     #[test]
     fn test_effective_content_width_single_column() {
         let menu = MenuState::new(
-            vec![vec![Atom::from_face(Face::default(), "hello")]],
+            vec![vec![Atom::plain("hello")]],
             MenuParams {
                 anchor: Coord { line: 5, column: 0 },
                 selected_item_face: Face::default().into(),

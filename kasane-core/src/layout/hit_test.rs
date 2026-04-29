@@ -105,7 +105,7 @@ mod tests {
     fn test_hit_interactive_inside() {
         let state = default_state();
         let el = Element::Interactive {
-            child: Box::new(Element::text("click me", Face::default())),
+            child: Box::new(Element::plain_text("click me")),
             id: InteractiveId::framework(42),
         };
         let area = Rect {
@@ -129,7 +129,7 @@ mod tests {
     fn test_hit_interactive_outside() {
         let state = default_state();
         let el = Element::Interactive {
-            child: Box::new(Element::text("click me", Face::default())),
+            child: Box::new(Element::plain_text("click me")),
             id: InteractiveId::framework(42),
         };
         let area = Rect {
@@ -149,12 +149,12 @@ mod tests {
         let state = default_state();
         let el = Element::stack(
             Element::Interactive {
-                child: Box::new(Element::text("base", Face::default())),
+                child: Box::new(Element::plain_text("base")),
                 id: InteractiveId::framework(1),
             },
             vec![Overlay {
                 element: Element::Interactive {
-                    child: Box::new(Element::text("pop", Face::default())),
+                    child: Box::new(Element::plain_text("pop")),
                     id: InteractiveId::framework(2),
                 },
                 anchor: OverlayAnchor::Absolute {
@@ -188,7 +188,7 @@ mod tests {
     fn test_hit_nested_interactive() {
         let state = default_state();
         let inner = Element::Interactive {
-            child: Box::new(Element::text("inner", Face::default())),
+            child: Box::new(Element::plain_text("inner")),
             id: InteractiveId::framework(10),
         };
         let outer = Element::Interactive {
@@ -218,9 +218,9 @@ mod tests {
                 crate::element::GridColumn::fixed(5),
             ],
             children: vec![
-                Element::text("plain", Face::default()),
+                Element::plain_text("plain"),
                 Element::Interactive {
-                    child: Box::new(Element::text("click", Face::default())),
+                    child: Box::new(Element::plain_text("click")),
                     id: InteractiveId::framework(99),
                 },
             ],
@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn test_hit_no_interactive() {
         let state = default_state();
-        let el = Element::text("plain text", Face::default());
+        let el = Element::plain_text("plain text");
         let area = Rect {
             x: 0,
             y: 0,

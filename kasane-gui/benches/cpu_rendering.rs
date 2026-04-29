@@ -62,16 +62,16 @@ fn setup_grid() -> (CellGrid, ColorResolver) {
         .map(|i| {
             vec![
                 Atom::from_face(kw_face, "let"),
-                Atom::from_face(Face::default(), " "),
+                Atom::plain(" "),
                 Atom::from_face(var_face, format!("var_{i}")),
-                Atom::from_face(Face::default(), " = "),
+                Atom::plain(" = "),
                 Atom::from_face(str_face, format!("\"{i}_value\"")),
-                Atom::from_face(Face::default(), ";"),
+                Atom::plain(";"),
             ]
         })
         .collect();
-    state.inference.status_line = vec![Atom::from_face(Face::default(), " NORMAL ")];
-    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "normal")];
+    state.inference.status_line = vec![Atom::plain(" NORMAL ")];
+    state.observed.status_mode_line = vec![Atom::plain("normal")];
 
     let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);

@@ -209,10 +209,10 @@ fn buffer_cursor_with_widget_columns() {
 fn prompt_cursor_basic() {
     let mut state = buffer_state(40, 5);
     state.inference.cursor_mode = CursorMode::Prompt;
-    state.observed.status_prompt = vec![Atom::from_face(Face::default(), ":")];
+    state.observed.status_prompt = vec![Atom::plain(":")];
     state.observed.status_content_cursor_pos = 3;
     // Need a status line for rendering
-    state.inference.status_line = vec![Atom::from_face(Face::default(), ":cmd")];
+    state.inference.status_line = vec![Atom::plain(":cmd")];
 
     let (_grid, result, _) = render_full(&state);
 
@@ -229,9 +229,9 @@ fn prompt_cursor_basic() {
 fn prompt_cursor_cjk_prefix() {
     let mut state = buffer_state(40, 5);
     state.inference.cursor_mode = CursorMode::Prompt;
-    state.observed.status_prompt = vec![Atom::from_face(Face::default(), "検索:")];
+    state.observed.status_prompt = vec![Atom::plain("検索:")];
     state.observed.status_content_cursor_pos = 0;
-    state.inference.status_line = vec![Atom::from_face(Face::default(), "検索:")];
+    state.inference.status_line = vec![Atom::plain("検索:")];
 
     let (_, result, _) = render_full(&state);
 
@@ -249,7 +249,7 @@ fn prompt_cursor_cjk_prefix() {
 fn prompt_cursor_with_status_left_offset() {
     let mut state = buffer_state(40, 5);
     state.inference.cursor_mode = CursorMode::Prompt;
-    state.observed.status_prompt = vec![Atom::from_face(Face::default(), ":")];
+    state.observed.status_prompt = vec![Atom::plain(":")];
     state.observed.status_content_cursor_pos = 3;
 
     let grid = CellGrid::new(40, 5);
@@ -280,9 +280,9 @@ fn extract_cursor_color_ascii() {
         attributes: Attributes::REVERSE | Attributes::FINAL_FG | Attributes::FINAL_BG,
     };
     state.observed.lines = vec![vec![
-        Atom::from_face(Face::default(), "hello"),
+        Atom::plain("hello"),
         Atom::from_face(cf, "w"),
-        Atom::from_face(Face::default(), "orld\n"),
+        Atom::plain("orld\n"),
     ]];
 
     let (_, result, _) = render_full(&state);
@@ -312,9 +312,9 @@ fn extract_cursor_color_after_cjk() {
         attributes: Attributes::REVERSE | Attributes::FINAL_FG | Attributes::FINAL_BG,
     };
     state.observed.lines = vec![vec![
-        Atom::from_face(Face::default(), "hi世"),
+        Atom::plain("hi世"),
         Atom::from_face(cf, "w"),
-        Atom::from_face(Face::default(), "orld\n"),
+        Atom::plain("orld\n"),
     ]];
 
     let (_, result, _) = render_full(&state);

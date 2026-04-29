@@ -57,7 +57,7 @@ fn arb_display_directive() -> impl Strategy<Value = DisplayDirective> {
         (0usize..100, 1usize..50).prop_map(|(s, len)| DisplayDirective::Hide { range: s..s + len }),
         (0usize..100, 1usize..50).prop_map(|(s, len)| DisplayDirective::Fold {
             range: s..s + len,
-            summary: vec![Atom::from_face(Face::default(), "")],
+            summary: vec![Atom::plain("")],
         }),
     ]
 }
@@ -308,7 +308,7 @@ fn directive_set_commutativity_same_plugin_same_priority() {
         directives: vec![TaggedDirective {
             directive: DisplayDirective::Fold {
                 range: 3..6,
-                summary: vec![Atom::from_face(Face::default(), "")],
+                summary: vec![Atom::plain("")],
             },
             priority: 0,
             plugin_id: pid.clone(),

@@ -11,7 +11,7 @@ fn test_render_buffer_resolves_default_face() {
         ..Face::default()
     };
     // Atom has Color::Default fg/bg — should inherit from default_face
-    let line = vec![Atom::from_face(Face::default(), "x")];
+    let line = vec![Atom::plain("x")];
 
     let mut state = AppState::default();
     state.observed.lines = vec![line];
@@ -33,8 +33,8 @@ fn test_render_status_resolves_default_face() {
         bg: Color::Named(NamedColor::Magenta),
         ..Face::default()
     };
-    let status_line = vec![Atom::from_face(Face::default(), "s")];
-    let mode_line = vec![Atom::from_face(Face::default(), "m")];
+    let status_line = vec![Atom::plain("s")];
+    let mode_line = vec![Atom::plain("m")];
 
     let mut state = AppState::default();
     state.inference.status_line = status_line;
@@ -87,14 +87,14 @@ fn test_cursor_style_prompt_mode() {
 #[test]
 fn test_cursor_style_insert_mode_line() {
     let mut state = AppState::default();
-    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "insert")];
+    state.observed.status_mode_line = vec![Atom::plain("insert")];
     assert_eq!(cursor_style_default(&state), CursorStyle::Bar);
 }
 
 #[test]
 fn test_cursor_style_replace_mode_line() {
     let mut state = AppState::default();
-    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "replace")];
+    state.observed.status_mode_line = vec![Atom::plain("replace")];
     assert_eq!(cursor_style_default(&state), CursorStyle::Underline);
 }
 
@@ -129,7 +129,7 @@ fn test_cursor_style_ui_option_overrides_mode_line() {
         .observed
         .ui_options
         .insert("kasane_cursor_style".into(), "block".into());
-    state.observed.status_mode_line = vec![Atom::from_face(Face::default(), "insert")];
+    state.observed.status_mode_line = vec![Atom::plain("insert")];
     assert_eq!(cursor_style_default(&state), CursorStyle::Block);
 }
 

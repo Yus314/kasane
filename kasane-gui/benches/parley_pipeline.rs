@@ -72,9 +72,9 @@ fn realistic_atoms(line_no: usize) -> Vec<Atom> {
     };
     vec![
         Atom::from_face(kw_face, "let"),
-        Atom::from_face(Face::default(), " "),
+        Atom::plain(" "),
         Atom::from_face(var_face, format!("var_{line_no}")),
-        Atom::from_face(Face::default(), " = "),
+        Atom::plain(" = "),
         Atom::from_face(str_face, format!("\"{line_no}_value\"")),
         Atom::from_face(semi_face, ";"),
     ]
@@ -277,7 +277,7 @@ fn bench_frame_one_line_changed_24(c: &mut Criterion) {
             let mut atoms = realistic_atoms(i);
             // Mutate line 12 only.
             if i == 12 {
-                atoms.push(Atom::from_face(Face::default(), " // edited"));
+                atoms.push(Atom::plain(" // edited"));
             }
             StyledLine::from_atoms(
                 &atoms,

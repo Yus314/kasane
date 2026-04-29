@@ -373,7 +373,7 @@ mod tests {
     fn cross_validate_grid_text() {
         let state = default_state();
         let theme = Theme::default_theme();
-        let el = Element::text("hello", Face::default());
+        let el = Element::plain_text("hello");
         let area = root_area(20, 5);
         let layout = place(&el, area, &state);
 
@@ -435,8 +435,8 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let el = Element::column(vec![
-            FlexChild::fixed(Element::text("aaa", Face::default())),
-            FlexChild::fixed(Element::text("bbb", Face::default())),
+            FlexChild::fixed(Element::plain_text("aaa")),
+            FlexChild::fixed(Element::plain_text("bbb")),
         ]);
         let area = root_area(20, 5);
         let layout = place(&el, area, &state);
@@ -464,7 +464,7 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let el = Element::Container {
-            child: Box::new(Element::text("hi", Face::default())),
+            child: Box::new(Element::plain_text("hi")),
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
@@ -502,7 +502,7 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let el = Element::Container {
-            child: Box::new(Element::text("content", Face::default())),
+            child: Box::new(Element::plain_text("content")),
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: true,
             padding: Edges::ZERO,
@@ -540,9 +540,9 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let el = Element::stack(
-            Element::text("base_text", Face::default()),
+            Element::plain_text("base_text"),
             vec![Overlay {
-                element: Element::text("pop", Face::default()),
+                element: Element::plain_text("pop"),
                 anchor: OverlayAnchor::Absolute {
                     x: 5,
                     y: 3,
@@ -581,10 +581,7 @@ mod tests {
                 crate::element::GridColumn::fixed(5),
                 crate::element::GridColumn::fixed(5),
             ],
-            children: vec![
-                Element::text("hello", Face::default()),
-                Element::text("world", Face::default()),
-            ],
+            children: vec![Element::plain_text("hello"), Element::plain_text("world")],
             col_gap: 0,
             row_gap: 0,
             align: crate::element::Align::Start,
@@ -616,7 +613,7 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let el = Element::Scrollable {
-            child: Box::new(Element::text("content", Face::default())),
+            child: Box::new(Element::plain_text("content")),
             offset: 0,
             direction: Direction::Column,
         };
@@ -713,7 +710,7 @@ mod tests {
         let theme = Theme::default_theme();
         let cs = default_cell_size();
         let el = Element::Container {
-            child: Box::new(Element::text("hi", Face::default())),
+            child: Box::new(Element::plain_text("hi")),
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: true,
             padding: Edges::ZERO,
@@ -740,7 +737,7 @@ mod tests {
         let theme = Theme::default_theme();
         let cs = default_cell_size();
         let el = Element::Scrollable {
-            child: Box::new(Element::text("content", Face::default())),
+            child: Box::new(Element::plain_text("content")),
             offset: 0,
             direction: Direction::Column,
         };
@@ -764,9 +761,9 @@ mod tests {
         let theme = Theme::default_theme();
         let cs = default_cell_size();
         let el = Element::stack(
-            Element::text("base_text", Face::default()),
+            Element::plain_text("base_text"),
             vec![Overlay {
-                element: Element::text("pop", Face::default()),
+                element: Element::plain_text("pop"),
                 anchor: OverlayAnchor::Absolute {
                     x: 5,
                     y: 3,
@@ -1228,9 +1225,9 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let lines: Vec<Vec<Atom>> = vec![
-            vec![Atom::from_face(Face::default(), "hello")],
-            vec![Atom::from_face(Face::default(), "world")],
-            vec![Atom::from_face(Face::default(), "third")],
+            vec![Atom::plain("hello")],
+            vec![Atom::plain("world")],
+            vec![Atom::plain("third")],
         ];
         let el = Element::text_panel(lines);
         let area = root_area(20, 3);
@@ -1262,10 +1259,10 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let lines: Vec<Vec<Atom>> = vec![
-            vec![Atom::from_face(Face::default(), "line0")],
-            vec![Atom::from_face(Face::default(), "line1")],
-            vec![Atom::from_face(Face::default(), "line2")],
-            vec![Atom::from_face(Face::default(), "line3")],
+            vec![Atom::plain("line0")],
+            vec![Atom::plain("line1")],
+            vec![Atom::plain("line2")],
+            vec![Atom::plain("line3")],
         ];
         let el = Element::TextPanel {
             lines,
@@ -1300,10 +1297,7 @@ mod tests {
     fn text_panel_with_line_numbers() {
         let state = default_state();
         let theme = Theme::default_theme();
-        let lines: Vec<Vec<Atom>> = vec![
-            vec![Atom::from_face(Face::default(), "abc")],
-            vec![Atom::from_face(Face::default(), "def")],
-        ];
+        let lines: Vec<Vec<Atom>> = vec![vec![Atom::plain("abc")], vec![Atom::plain("def")]];
         let el = Element::TextPanel {
             lines,
             scroll_offset: 0,
@@ -1341,10 +1335,7 @@ mod tests {
         let state = default_state();
         let theme = Theme::default_theme();
         let cs = default_cell_size();
-        let lines: Vec<Vec<Atom>> = vec![
-            vec![Atom::from_face(Face::default(), "hello")],
-            vec![Atom::from_face(Face::default(), "world")],
-        ];
+        let lines: Vec<Vec<Atom>> = vec![vec![Atom::plain("hello")], vec![Atom::plain("world")]];
         let el = Element::text_panel(lines);
         let area = root_area(20, 2);
         let layout = place(&el, area, &state);

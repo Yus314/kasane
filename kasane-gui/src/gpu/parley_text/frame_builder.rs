@@ -239,7 +239,7 @@ mod tests {
     use kasane_core::protocol::{Atom, Face, Style};
 
     fn line(text: &str) -> StyledLine {
-        let atoms = vec![Atom::from_face(Face::default(), text)];
+        let atoms = vec![Atom::plain(text)];
         StyledLine::from_atoms(
             &atoms,
             &Style::default(),

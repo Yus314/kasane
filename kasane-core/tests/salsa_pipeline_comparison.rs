@@ -28,7 +28,7 @@ fn registry_with_builtins() -> PluginRuntime {
 }
 
 fn make_atom(text: &str) -> Atom {
-    Atom::from_face(Face::default(), text)
+    Atom::plain(text)
 }
 
 /// Render with legacy pipeline and return the grid.
@@ -305,7 +305,7 @@ impl PluginBackend for BufferLeftPlugin {
     ) -> Option<Contribution> {
         if region == &SlotId::BUFFER_LEFT {
             Some(Contribution {
-                element: Element::text("LN", Face::default()),
+                element: Element::plain_text("LN"),
                 priority: 0,
                 size_hint: ContribSizeHint::Auto,
             })
@@ -335,7 +335,7 @@ impl PluginBackend for StatusRightPlugin {
     ) -> Option<Contribution> {
         if region == &SlotId::STATUS_RIGHT {
             Some(Contribution {
-                element: Element::text("[RS]", Face::default()),
+                element: Element::plain_text("[RS]"),
                 priority: 0,
                 size_hint: ContribSizeHint::Auto,
             })
@@ -440,7 +440,7 @@ impl PluginBackend for GutterPlugin {
     ) -> Option<LineAnnotation> {
         let num = format!("{:>3}", line + 1);
         Some(LineAnnotation {
-            left_gutter: Some(Element::text(&num, Face::default())),
+            left_gutter: Some(Element::plain_text(&num)),
             right_gutter: None,
             background: None,
             priority: 0,

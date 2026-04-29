@@ -251,18 +251,15 @@ fn buffer_scene() -> Vec<Vec<Atom>> {
     let kw = red_bold();
     let macro_face = cyan_underline();
     vec![
-        vec![
-            Atom::from_face(kw, "fn"),
-            Atom::from_face(Face::default(), " main() {"),
-        ],
-        vec![Atom::from_face(Face::default(), "    let x = 42;")],
+        vec![Atom::from_face(kw, "fn"), Atom::plain(" main() {")],
+        vec![Atom::plain("    let x = 42;")],
         vec![],
         vec![
-            Atom::from_face(Face::default(), "    "),
+            Atom::plain("    "),
             Atom::from_face(macro_face, "println!"),
-            Atom::from_face(Face::default(), "(\"hello\");"),
+            Atom::plain("(\"hello\");"),
         ],
-        vec![Atom::from_face(Face::default(), "}")],
+        vec![Atom::plain("}")],
     ]
 }
 
@@ -299,9 +296,9 @@ fn ascii_80x24_smoke() {
     });
     let _ = state.apply(KakouneRequest::DrawStatus {
         prompt: vec![],
-        content: vec![Atom::from_face(Face::default(), " main.rs ")],
+        content: vec![Atom::plain(" main.rs ")],
         content_cursor_pos: -1,
-        mode_line: vec![Atom::from_face(Face::default(), "normal")],
+        mode_line: vec![Atom::plain("normal")],
         default_style: kasane_core::protocol::default_unresolved_style(),
         style: StatusStyle::Status,
     });

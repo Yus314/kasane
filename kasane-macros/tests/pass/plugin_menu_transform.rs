@@ -16,7 +16,7 @@ mod icon_plugin {
         _selected: bool,
         _core: &AppView<'_>,
     ) -> Option<Vec<Atom>> {
-        let mut result = vec![Atom::from_face(Face::default(), "★ ")];
+        let mut result = vec![Atom::plain("★ ")];
         result.extend(item.iter().cloned());
         Some(result)
     }
@@ -29,7 +29,7 @@ fn main() {
 
     let plugin = IconPluginPlugin::new();
     let state = AppState::default();
-    let item = vec![Atom::from_face(Face::default(), "test")];
+    let item = vec![Atom::plain("test")];
     let result = plugin.transform_menu_item(&item, 0, false, &AppView::new(&state));
     assert!(result.is_some());
     let result = result.unwrap();

@@ -6,10 +6,7 @@ type Line = Vec<Atom>;
 
 fn make_host_with_lines(lines: &[&str]) -> HostState {
     let mut host = HostState::default();
-    host.lines = lines
-        .iter()
-        .map(|s| vec![Atom::from_face(Face::default(), *s)])
-        .collect();
+    host.lines = lines.iter().map(|s| vec![Atom::plain(*s)]).collect();
     host.line_count = lines.len() as u32;
     host
 }
@@ -74,10 +71,7 @@ fn get_lines_text_empty_buffer() {
 
 #[test]
 fn get_lines_text_multi_atom_concatenation() {
-    let lines = vec![vec![
-        Atom::from_face(Face::default(), "hel"),
-        Atom::from_face(Face::default(), "lo"),
-    ]];
+    let lines = vec![vec![Atom::plain("hel"), Atom::plain("lo")]];
     let mut host = make_host_with_raw_lines(lines);
     let result = host.get_lines_text(0, 1);
     assert_eq!(result, vec!["hello"]);

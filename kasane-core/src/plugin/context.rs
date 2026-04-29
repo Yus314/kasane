@@ -380,12 +380,12 @@ mod tests {
     use crate::protocol::Face;
 
     fn sample_element() -> Element {
-        Element::text("hello", Face::default())
+        Element::plain_text("hello")
     }
 
     fn sample_overlay() -> Overlay {
         Overlay {
-            element: Element::text("menu", Face::default()),
+            element: Element::plain_text("menu"),
             anchor: OverlayAnchor::Absolute {
                 x: 1,
                 y: 2,

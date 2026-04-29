@@ -453,8 +453,8 @@ mod tests {
 
     fn make_completion_item(candidate: &str, padding: &str, docstring: &str) -> Vec<Atom> {
         vec![
-            Atom::from_face(Face::default(), candidate),
-            Atom::from_face(Face::default(), padding),
+            Atom::plain(candidate),
+            Atom::plain(padding),
             Atom::from_face(
                 Face {
                     fg: Color::Named(NamedColor::Cyan),
@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn test_truncate_atoms_no_op() {
-        let atoms = vec![Atom::from_face(Face::default(), "hello")];
+        let atoms = vec![Atom::plain("hello")];
         let result = truncate_atoms(&atoms, 10, &Face::default(), "\u{2026}");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].contents.as_str(), "hello");
@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn test_truncate_atoms_with_ellipsis() {
-        let atoms = vec![Atom::from_face(Face::default(), "hello_world_long")];
+        let atoms = vec![Atom::plain("hello_world_long")];
         let result = truncate_atoms(&atoms, 8, &Face::default(), "\u{2026}");
         // Should be truncated to 7 chars + "…"
         let last = result.last().unwrap();
@@ -490,7 +490,7 @@ mod tests {
     #[test]
     fn test_truncate_atoms_cjk() {
         // "あいう" = 3 CJK chars, each width 2 → total 6
-        let atoms = vec![Atom::from_face(Face::default(), "あいう")];
+        let atoms = vec![Atom::plain("あいう")];
         let result = truncate_atoms(&atoms, 5, &Face::default(), "\u{2026}");
         // Can fit "あい" (4) + "…" (1) = 5
         let total_w: usize = result

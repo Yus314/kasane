@@ -372,7 +372,7 @@ fn test_collect_display_directives_composes_multi_plugin() {
         id: "second",
         directives: vec![DisplayDirective::Fold {
             range: 3..5,
-            summary: vec![Atom::from_face(Face::default(), "folded")],
+            summary: vec![Atom::plain("folded")],
         }],
         priority: 0,
     }));
@@ -436,7 +436,7 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
         id: "low",
         directives: vec![DisplayDirective::Fold {
             range: 1..4,
-            summary: vec![Atom::from_face(Face::default(), "low-fold")],
+            summary: vec![Atom::plain("low-fold")],
         }],
         priority: 0,
     }));
@@ -444,7 +444,7 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
         id: "high",
         directives: vec![DisplayDirective::Fold {
             range: 2..5,
-            summary: vec![Atom::from_face(Face::default(), "high-fold")],
+            summary: vec![Atom::plain("high-fold")],
         }],
         priority: 10,
     }));
@@ -717,7 +717,7 @@ impl PluginBackend for ContributorPlugin {
     ) -> Option<Contribution> {
         if *region == SlotId::STATUS_LEFT {
             Some(Contribution {
-                element: crate::element::Element::text("contrib", Face::default()),
+                element: crate::element::Element::plain_text("contrib"),
                 priority: 0,
                 size_hint: crate::plugin::ContribSizeHint::Auto,
             })
@@ -1503,20 +1503,20 @@ impl Plugin for UnifiedDisplayPlugin {
                 DisplayDirective::Gutter {
                     line: 1,
                     side: crate::display::GutterSide::Left,
-                    content: crate::element::Element::text("G", Face::default()),
+                    content: crate::element::Element::plain_text("G"),
                     priority: 5,
                 },
                 // Decoration: virtual text
                 DisplayDirective::VirtualText {
                     line: 0,
                     position: crate::display::VirtualTextPosition::EndOfLine,
-                    content: vec![Atom::from_face(Face::default(), "hint")],
+                    content: vec![Atom::plain("hint")],
                     priority: 0,
                 },
                 // InterLine: insert after
                 DisplayDirective::InsertAfter {
                     line: 0,
-                    content: crate::element::Element::text("inserted", Face::default()),
+                    content: crate::element::Element::plain_text("inserted"),
                     priority: 0,
                 },
                 // Inline: style

@@ -443,7 +443,7 @@ mod tests {
 
         let state = default_state();
         let el = Element::Container {
-            child: Box::new(Element::text("hi", Face::default())),
+            child: Box::new(Element::plain_text("hi")),
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
@@ -561,7 +561,7 @@ mod tests {
 
         let state = default_state();
         let el = Element::Scrollable {
-            child: Box::new(Element::text("content", Face::default())),
+            child: Box::new(Element::plain_text("content")),
             offset: 0,
             direction: Direction::Column,
         };
@@ -615,7 +615,7 @@ mod tests {
 
     #[test]
     fn test_resolve_atoms_no_base() {
-        let atoms = vec![Atom::from_face(Face::default(), "hello")];
+        let atoms = vec![Atom::plain("hello")];
         let resolved = resolve_atoms(&atoms, None);
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].contents, "hello");

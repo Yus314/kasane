@@ -259,7 +259,7 @@ fn convert_runtime_effects_from_wit() {
 fn convert_display_directive_fold_roundtrip() {
     let directive = kasane_core::display::DisplayDirective::Fold {
         range: 2..5,
-        summary: vec![Atom::from_face(Face::default(), "folded")],
+        summary: vec![Atom::plain("folded")],
     };
 
     let wit = display_directive_to_wit(&directive);
@@ -792,7 +792,7 @@ fn convert_face_roundtrip() {
 
 #[test]
 fn convert_atom_roundtrip() {
-    let native = Atom::from_face(Face::default(), "hello");
+    let native = Atom::plain("hello");
     let wit_a = atom_to_wit(&native);
     let back = wit_atom_to_atom(&wit_a);
     assert_eq!(native.contents.as_str(), back.contents.as_str());

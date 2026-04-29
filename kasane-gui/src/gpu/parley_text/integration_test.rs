@@ -150,7 +150,7 @@ impl Pipeline {
 }
 
 fn line(text: &str) -> StyledLine {
-    let atoms = vec![Atom::from_face(Face::default(), text)];
+    let atoms = vec![Atom::plain(text)];
     StyledLine::from_atoms(
         &atoms,
         &Style::default(),
@@ -233,14 +233,14 @@ fn cjk_pipeline_completes() {
 fn font_size_change_evicts_l1_via_key_mismatch() {
     let mut pipe = Pipeline::new();
     let small = StyledLine::from_atoms(
-        &[Atom::from_face(Face::default(), "A")],
+        &[Atom::plain("A")],
         &Style::default(),
         Brush::opaque(255, 255, 255),
         12.0,
         None,
     );
     let large = StyledLine::from_atoms(
-        &[Atom::from_face(Face::default(), "A")],
+        &[Atom::plain("A")],
         &Style::default(),
         Brush::opaque(255, 255, 255),
         24.0,
