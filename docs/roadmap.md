@@ -50,12 +50,13 @@ GPU swap.
 | 10 — Rich underlines (font metrics) | ✅ | `RunMetrics::underline_offset/size` drives quad geometry |
 | 10 — RTL hit_test, InlineBox host paint, Variable font | Pending | Glyph-accurate hit_test already in code (`hit_test.rs`); RTL/combining-mark/ZWJ test coverage missing. InlineBox WIT directive currently projects to a no-op zero-width `HideInline`; host paint extension point is the remaining work |
 | 11 — cosmic-text removal | ✅ | ~1900 LOC dropped; deps gone |
-| 11 — perf tune | Pending | Re-baseline pending — `frame_one_line_changed_24_lines` was measured at 83.3 µs (+19% over target) before the B-wide mutex elimination (`98592a47`); a fresh measurement on master is owed before deciding what to optimise |
+| 11 — perf tune | Pending | Re-baseline 2026-04-29: `frame_warm_24_lines` 66.4 µs ✓; `frame_one_line_changed_24_lines` 84.5 µs (+20.7% — gap unchanged from 83.3 µs pre-B-wide). The mutex-on-`StyleStore` hypothesis is refuted; the next investigation needs an alloc / instruction profile of the typing pattern, not another structural rewrite |
 | 12 — Docs + golden image tests | In progress | ADR / CHANGELOG updated; CellGrid `golden_grid` 80×24 ASCII baseline pinned (`a2ca6834`); CJK / cursor / selection golden coverage pending |
 
-Parley pipeline benchmarks (last captured pre-B-wide, 2026-04-26):
-- `frame_warm_24_lines`: 63.8 µs (within ≤ 70 µs target)
-- `frame_one_line_changed_24_lines`: 83.3 µs (typing pattern; +19% over target — perf-tune candidate; **expected to drop after B-wide but unmeasured**)
+Parley pipeline benchmarks (re-measured post-B-wide, 2026-04-29):
+- `frame_warm_24_lines`: 66.4 µs (+1.9% vs 2026-04-26 — still within ≤ 70 µs target)
+- `frame_one_line_changed_24_lines`: 84.5 µs (typing pattern; +20.7% over target — **gap is unchanged after B-wide**, mutex-elimination hypothesis refuted; see [performance.md §Parley-only baseline](./performance.md))
+- `shape_warm`: 13.58 µs (unchanged)
 - Core `salsa_scaling/full_frame/80x24`: 49.2 µs (backend-agnostic; unchanged)
 
 Open follow-up debts surfaced during the Phase 5 landing (2026-04-29) but not addressed in this round:

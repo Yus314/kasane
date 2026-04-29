@@ -2043,13 +2043,18 @@ glyph-accurate hit_test via Parley `Cluster::from_point`), and 11
 **Pending:** Phase 3 (TUI `TerminalStyle`; `kasane-tui/src/sgr.rs:14`
 still consumes `Face`, paying a redundant `Style → Face` round-trip per
 visible cell). Phase 10 host-side InlineBox paint extension (the WIT
-directive currently projects to a no-op zero-width `HideInline` in
-`kasane-wasm/src/convert/display.rs:96`). Phase 10 RTL / combining-mark
-/ ZWJ / trailing-position hit_test test coverage. Phase 11 perf-tune
-re-baseline (last `frame_one_line_changed_24_lines = 83.3 µs` was
-captured 2026-04-26, before the B-wide mutex elimination; the +19 %
-gap may have closed but is unmeasured). Phase 12 golden image coverage
-beyond the 80×24 ASCII baseline pinned at `a2ca6834`.
+directive currently projects to a `width_cells`-space placeholder in
+`kasane-wasm/src/convert/display.rs:102` with a `tracing::warn!` —
+visible to plugin authors but not yet a real inline-box). Phase 10 RTL
+/ combining-mark / ZWJ / trailing-position hit_test test coverage.
+Phase 11 perf-tune scoping (re-baseline 2026-04-29 measured
+`frame_one_line_changed_24_lines = 84.5 µs`, +20.7 % over the 70 µs
+target — the +19 % gap from 2026-04-26 is **not** closed by the
+B-wide mutex elimination, so the originally hypothesised cause is
+refuted; the next investigation needs an allocation/instruction
+profile of the typing pattern, not another structural rewrite). Phase
+12 golden image coverage beyond the 80×24 ASCII baseline pinned at
+`a2ca6834`.
 
 **Supersedes (text stack only):** [ADR-014](#adr-014-gui-technology-stack--winit--wgpu--glyphon) §14-1's selection of glyphon (cosmic-text + swash + etagere). Window management (winit) and GPU API (wgpu) are unchanged. The atlas allocator (etagere) and the swash rasterizer are retained — only cosmic-text's layout/buffer abstraction and the glyphon-derived text pipeline are replaced.
 
