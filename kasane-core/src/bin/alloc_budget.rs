@@ -53,10 +53,10 @@ static ALLOC: alloc_counter::CountingAllocator = alloc_counter::CountingAllocato
 
 #[cfg(feature = "bench-alloc")]
 fn main() {
-    use crate::protocol::{Atom, Color, Coord, Face, NamedColor, parse_request};
     use kasane_core::layout::Rect;
     use kasane_core::layout::flex;
     use kasane_core::plugin::PluginRuntime;
+    use kasane_core::protocol::{Atom, Color, Coord, Face, NamedColor, parse_request};
     use kasane_core::render::CellGrid;
     use kasane_core::render::paint;
     use kasane_core::render::view;
@@ -64,24 +64,26 @@ fn main() {
 
     // Build test state (outside measurement)
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.padding_face = state.default_face;
-    state.status_default_face = Face {
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.lines = (0..23)
+    }
+    .into();
+    state.observed.lines = (0..23)
         .map(|i| {
             vec![
-                Atom {
-                    face: Face {
+                Atom::from_wire(
+                    Face {
                         fg: Color::Rgb {
                             r: 255,
                             g: 100,
@@ -90,11 +92,11 @@ fn main() {
                         bg: Color::Default,
                         ..Face::default()
                     },
-                    contents: "let".into(),
-                },
+                    "let",
+                ),
                 Atom::plain(" "),
-                Atom {
-                    face: Face {
+                Atom::from_wire(
+                    Face {
                         fg: Color::Rgb {
                             r: 0,
                             g: 200,
@@ -103,11 +105,11 @@ fn main() {
                         bg: Color::Default,
                         ..Face::default()
                     },
-                    contents: format!("var_{i}").into(),
-                },
+                    format!("var_{i}"),
+                ),
                 Atom::plain(" = "),
-                Atom {
-                    face: Face {
+                Atom::from_wire(
+                    Face {
                         fg: Color::Rgb {
                             r: 100,
                             g: 100,
@@ -116,23 +118,23 @@ fn main() {
                         bg: Color::Default,
                         ..Face::default()
                     },
-                    contents: format!("\"{i}_value\"").into(),
-                },
+                    format!("\"{i}_value\""),
+                ),
                 Atom::plain(";"),
             ]
         })
         .collect();
-    state.status_line = vec![Atom::plain(" NORMAL ")];
-    state.status_mode_line = vec![Atom::plain("normal")];
+    state.inference.status_line = vec![Atom::plain(" NORMAL ")];
+    state.observed.status_mode_line = vec![Atom::plain("normal")];
 
     let registry = PluginRuntime::new();
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // --- Measure per-phase allocations ---
 
@@ -148,7 +150,9 @@ fn main() {
 
     // clear + paint
     alloc_counter::reset();
-    grid.clear(&state.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     let (paint_count, paint_bytes) = alloc_counter::snapshot();
 
@@ -163,8 +167,24 @@ fn main() {
     let (swap_count, swap_bytes) = alloc_counter::snapshot();
 
     // parse_request (100-line draw)
-    let draw_lines: Vec<crate::protocol::Line> = (0..100)
-        .map(|i| vec![Atom::plain(format!("line {i}"))])
+    // The wire format expects `Atom { face, contents }`-shaped JSON; the
+    // post-closure `Atom` is opaque to the wire format (carries
+    // `Arc<UnresolvedStyle>`), so build a local wire shape for the JSON.
+    #[derive(serde::Serialize)]
+    struct WireAtomBudget<'a> {
+        face: Face,
+        contents: &'a str,
+    }
+    let plain_face = Face::default();
+    let line_strings: Vec<String> = (0..100).map(|i| format!("line {i}")).collect();
+    let draw_lines: Vec<Vec<WireAtomBudget<'_>>> = line_strings
+        .iter()
+        .map(|s| {
+            vec![WireAtomBudget {
+                face: plain_face,
+                contents: s.as_str(),
+            }]
+        })
         .collect();
     let default_face = Face {
         fg: Color::Named(NamedColor::White),
