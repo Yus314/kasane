@@ -581,7 +581,7 @@ fn test_parse_old_protocol_set_cursor() {
     let err = parse_request(&mut buf).unwrap_err();
     assert!(matches!(err, ProtocolError::OldProtocol(_)));
     let msg = err.to_string();
-    assert!(msg.contains("Kakoune 2024.12.09"));
+    assert!(msg.contains("Kakoune v2026.04.12"));
     assert!(msg.contains("older protocol"));
 }
 
