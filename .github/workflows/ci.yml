@@ -15,6 +15,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Install system fonts so fontconfig (used by Parley / fontique in
+      # kasane-gui's L1/L2 cache integration tests) has a stable fallback
+      # chain. Without this, `fontconfig: No writable cache directories`
+      # plus an empty FONT_PATH makes warm-frame shape hashes diverge
+      # from cold-frame hashes, causing L1/L2 cache hit assertions to
+      # fail in tests like
+      # `gpu::text::frame_builder::tests::build_frame_warm_l1_l2_path_drops_to_zero_misses`.
+      - name: Install system fonts (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y fonts-dejavu-core fonts-noto-core
+
       - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixpkgs-unstable
