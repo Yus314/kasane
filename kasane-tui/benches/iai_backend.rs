@@ -12,8 +12,8 @@ use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{Atom, Color, Face, NamedColor};
 use kasane_core::render::paint;
 use kasane_core::render::view;
-use kasane_core::render::{Cell, CellGrid, CursorStyle, RenderResult};
-use kasane_tui::sgr::emit_sgr_diff;
+use kasane_core::render::{Cell, CellGrid, CursorStyle, RenderResult, TerminalStyle};
+use kasane_tui::sgr::emit_sgr_diff_style;
 
 // ---------------------------------------------------------------------------
 // MockBackend — mirrors TuiBackend's diff+escape logic, writes to Vec<u8>
@@ -40,7 +40,7 @@ impl MockBackend {
         let w = grid.width() as usize;
         let full_redraw = self.previous.is_empty();
 
-        let mut last_face: Option<Face> = None;
+        let mut last_style: Option<TerminalStyle> = None;
         let mut last_x: u16 = u16::MAX;
         let mut last_y: u16 = u16::MAX;
 
@@ -67,10 +67,10 @@ impl MockBackend {
                     queue!(self.buf, cursor::MoveTo(x, y)).unwrap();
                 }
 
-                let face = &cell.face;
-                if last_face.as_ref() != Some(face) {
-                    emit_sgr_diff(&mut self.buf, last_face.as_ref(), face).unwrap();
-                    last_face = Some(*face);
+                let style = &cell.style;
+                if last_style.as_ref() != Some(style) {
+                    emit_sgr_diff_style(&mut self.buf, last_style.as_ref(), style).unwrap();
+                    last_style = Some(*style);
                 }
 
                 let s = if cell.grapheme.is_empty() {
@@ -172,30 +172,12 @@ fn make_colored_line(i: usize) -> Vec<Atom> {
     let plain_face = Face::default();
 
     vec![
-        Atom {
-            face: keyword_face,
-            contents: "let".into(),
-        },
-        Atom {
-            face: plain_face,
-            contents: " ".into(),
-        },
-        Atom {
-            face: ident_face,
-            contents: format!("var_{i}").into(),
-        },
-        Atom {
-            face: plain_face,
-            contents: " = ".into(),
-        },
-        Atom {
-            face: literal_face,
-            contents: format!("\"{i}_value\"").into(),
-        },
-        Atom {
-            face: plain_face,
-            contents: ";".into(),
-        },
+        Atom::from_wire(keyword_face, "let"),
+        Atom::from_wire(plain_face, " "),
+        Atom::from_wire(ident_face, format!("var_{i}")),
+        Atom::from_wire(plain_face, " = "),
+        Atom::from_wire(literal_face, format!("\"{i}_value\"")),
+        Atom::from_wire(plain_face, ";"),
     ]
 }
 
@@ -203,26 +185,22 @@ fn typical_state(line_count: usize) -> kasane_core::state::AppState {
     let mut state = kasane_core::state::AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = Face {
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
     state.observed.lines = (0..line_count).map(make_colored_line).collect();
-    state.inference.status_line = vec![Atom {
-        face: Face::default(),
-        contents: " NORMAL ".into(),
-    }];
-    state.observed.status_mode_line = vec![Atom {
-        face: Face::default(),
-        contents: "normal".into(),
-    }];
+    state.inference.status_line = vec![Atom::from_wire(Face::default(), " NORMAL ")];
+    state.observed.status_mode_line = vec![Atom::from_wire(Face::default(), "normal")];
     state
 }
 
@@ -240,7 +218,9 @@ fn generate_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid {
     let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
     let mut grid = CellGrid::new(cols, rows);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     grid
 }
@@ -260,30 +240,31 @@ fn generate_incremental_grid() -> CellGrid {
     // "before" frame
     let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     grid.swap();
 
     // "after": modify 1 line
     let mut edited = state.clone();
     edited.observed.lines[10] = vec![
-        Atom {
-            face: Face {
+        Atom::from_wire(
+            Face {
                 fg: Color::Rgb { r: 255, g: 0, b: 0 },
                 bg: Color::Default,
                 ..Face::default()
             },
-            contents: "edited_line_10".into(),
-        },
-        Atom {
-            face: Face::default(),
-            contents: " // modified".into(),
-        },
+            "edited_line_10",
+        ),
+        Atom::from_wire(Face::default(), " // modified"),
     ];
 
     let element = view::view(&edited, &registry.view());
     let layout = flex::place(&element, area, &edited);
-    grid.clear(&edited.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &edited.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &edited);
     grid
 }
