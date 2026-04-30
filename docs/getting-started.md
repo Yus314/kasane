@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- [Kakoune](https://kakoune.org/) 2024.12.09 or later (AUR package installs this automatically)
+- [Kakoune](https://kakoune.org/) v2026.04.12 or later (AUR package installs this automatically)
 
 ## Installation
 
