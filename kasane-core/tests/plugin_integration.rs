@@ -11,7 +11,7 @@ use kasane_core::plugin::{
     AppView, Command, ContribSizeHint, ContributeContext, Contribution, PluginBackend,
     PluginCapabilities, PluginId, PluginRuntime, SlotId,
 };
-use kasane_core::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
+use kasane_core::protocol::{Color, Coord, Line, MenuStyle, NamedColor, WireFace};
 use kasane_core::render::{CursorStyle, cursor_style_default};
 use kasane_core::state::{AppState, DirtyFlags, Msg, update_in_place};
 use kasane_core::test_support::{make_line, render_with_registry, row_text};
@@ -204,17 +204,19 @@ fn menu_transform_adds_prefix() {
         items,
         anchor: Coord { line: 0, column: 3 },
         selected_item_style: std::sync::Arc::new(
-            kasane_core::protocol::UnresolvedStyle::from_face(&Face {
+            kasane_core::protocol::UnresolvedStyle::from_face(&WireFace {
                 fg: Color::Named(NamedColor::Black),
                 bg: Color::Named(NamedColor::Cyan),
-                ..Face::default()
+                ..WireFace::default()
             }),
         ),
-        menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&Face {
-            fg: Color::Named(NamedColor::White),
-            bg: Color::Named(NamedColor::Blue),
-            ..Face::default()
-        })),
+        menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Blue),
+                ..WireFace::default()
+            },
+        )),
         style: MenuStyle::Inline,
     });
 

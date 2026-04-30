@@ -116,7 +116,7 @@ pub struct SlotContributionsInput {
 #[salsa::input]
 pub struct AnnotationResultInput {
     #[returns(ref)]
-    pub line_backgrounds: Option<Vec<Option<crate::protocol::Face>>>,
+    pub line_backgrounds: Option<Vec<Option<crate::protocol::WireFace>>>,
     #[returns(ref)]
     pub left_gutter: Option<crate::element::Element>,
     #[returns(ref)]

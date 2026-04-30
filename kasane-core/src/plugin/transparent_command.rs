@@ -10,7 +10,7 @@ use std::any::Any;
 use std::time::Duration;
 
 use crate::input::{InputEvent, KeyEvent};
-use crate::protocol::Face;
+use crate::protocol::WireFace;
 use crate::session::{SessionCommand, SessionId};
 use crate::state::DirtyFlags;
 use crate::surface::{Surface, SurfaceId, SurfacePlacementRequest};
@@ -139,7 +139,7 @@ impl TransparentCommand {
         Self(Command::UnregisterSurfaceKey { surface_key })
     }
 
-    pub fn register_theme_tokens(tokens: Vec<(String, Face)>) -> Self {
+    pub fn register_theme_tokens(tokens: Vec<(String, WireFace)>) -> Self {
         Self(Command::RegisterThemeTokens(tokens))
     }
 

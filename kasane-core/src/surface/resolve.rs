@@ -822,7 +822,7 @@ mod tests {
     use crate::element::{Edges, ElementStyle};
     use crate::layout::flex;
     use crate::plugin::{AppView, PluginBackend, PluginCapabilities, PluginId, PluginRuntime};
-    use crate::protocol::Face;
+    use crate::protocol::WireFace;
     use crate::state::AppState;
     use crate::surface::{SlotDeclaration, SlotKind, SurfaceId, SurfaceRegistry};
     use crate::test_support::TestSurfaceBuilder;
@@ -972,7 +972,7 @@ mod tests {
                 bottom: 2,
                 left: 2,
             },
-            style: ElementStyle::from(Face::default()),
+            style: ElementStyle::from(WireFace::default()),
             title: None,
         };
 

@@ -9,7 +9,7 @@ use iai_callgrind::{
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Atom, Color, Face, NamedColor};
+use kasane_core::protocol::{Atom, Color, NamedColor, WireFace};
 use kasane_core::render::paint;
 use kasane_core::render::view;
 use kasane_core::render::{Cell, CellGrid, CursorStyle, RenderResult, TerminalStyle};
@@ -142,34 +142,34 @@ fn default_result() -> RenderResult {
 // ---------------------------------------------------------------------------
 
 fn make_colored_line(i: usize) -> Vec<Atom> {
-    let keyword_face = Face {
+    let keyword_face = WireFace {
         fg: Color::Rgb {
             r: 255,
             g: 100,
             b: 0,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let ident_face = Face {
+    let ident_face = WireFace {
         fg: Color::Rgb {
             r: 0,
             g: 200,
             b: 100,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let literal_face = Face {
+    let literal_face = WireFace {
         fg: Color::Rgb {
             r: 100,
             g: 100,
             b: 255,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let plain_face = Face::default();
+    let plain_face = WireFace::default();
 
     vec![
         Atom::from_wire(keyword_face, "let"),
@@ -185,22 +185,22 @@ fn typical_state(line_count: usize) -> kasane_core::state::AppState {
     let mut state = kasane_core::state::AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = Face {
+    state.observed.status_default_style = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.lines = (0..line_count).map(make_colored_line).collect();
-    state.inference.status_line = vec![Atom::from_wire(Face::default(), " NORMAL ")];
-    state.observed.status_mode_line = vec![Atom::from_wire(Face::default(), "normal")];
+    state.inference.status_line = vec![Atom::from_wire(WireFace::default(), " NORMAL ")];
+    state.observed.status_mode_line = vec![Atom::from_wire(WireFace::default(), "normal")];
     state
 }
 
@@ -250,14 +250,14 @@ fn generate_incremental_grid() -> CellGrid {
     let mut edited = state.clone();
     edited.observed.lines[10] = vec![
         Atom::from_wire(
-            Face {
+            WireFace {
                 fg: Color::Rgb { r: 255, g: 0, b: 0 },
                 bg: Color::Default,
-                ..Face::default()
+                ..WireFace::default()
             },
             "edited_line_10",
         ),
-        Atom::from_wire(Face::default(), " // modified"),
+        Atom::from_wire(WireFace::default(), " // modified"),
     ];
 
     let element = view::view(&edited, &registry.view());

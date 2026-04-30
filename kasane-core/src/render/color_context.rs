@@ -1,4 +1,4 @@
-use crate::protocol::{Color, Face};
+use crate::protocol::{Color, WireFace};
 
 /// Color context derived from Kakoune's default_face.
 ///
@@ -45,7 +45,7 @@ impl Default for ColorContext {
 
 impl ColorContext {
     /// Derive color context from Kakoune's default_face.
-    pub fn derive(default_face: &Face) -> Self {
+    pub fn derive(default_face: &WireFace) -> Self {
         let fg_rgb = default_face.fg.to_rgb();
         let bg_rgb = default_face.bg.to_rgb();
 
@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn derive_k3_dark_bg() {
-        let face = Face {
+        let face = WireFace {
             fg: Color::Rgb {
                 r: 200,
                 g: 200,
@@ -143,7 +143,7 @@ mod tests {
                 g: 30,
                 b: 30,
             },
-            ..Face::default()
+            ..WireFace::default()
         };
         let ctx = ColorContext::derive(&face);
         assert_eq!(ctx.knowledge, ColorKnowledge::K3);
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn derive_k3_light_bg() {
-        let face = Face {
+        let face = WireFace {
             fg: Color::Rgb {
                 r: 30,
                 g: 30,
@@ -164,7 +164,7 @@ mod tests {
                 g: 240,
                 b: 240,
             },
-            ..Face::default()
+            ..WireFace::default()
         };
         let ctx = ColorContext::derive(&face);
         assert_eq!(ctx.knowledge, ColorKnowledge::K3);
@@ -174,10 +174,10 @@ mod tests {
 
     #[test]
     fn derive_k2_named_colors() {
-        let face = Face {
+        let face = WireFace {
             fg: Color::Named(NamedColor::White),
             bg: Color::Named(NamedColor::Black),
-            ..Face::default()
+            ..WireFace::default()
         };
         let ctx = ColorContext::derive(&face);
         assert_eq!(ctx.knowledge, ColorKnowledge::K2);
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn derive_k1_default_colors() {
-        let face = Face::default();
+        let face = WireFace::default();
         let ctx = ColorContext::derive(&face);
         assert_eq!(ctx.knowledge, ColorKnowledge::K1);
         assert!(ctx.is_dark);

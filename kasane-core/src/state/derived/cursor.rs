@@ -19,7 +19,7 @@ use super::atom_metrics::{atom_display_width, face_at_coord};
 /// Uses two strategies:
 /// 1. **Attribute heuristic**: scan for `FINAL_FG + REVERSE` (Kakoune's default
 ///    PrimaryCursor face uses `+rfg`).
-/// 2. **Face-matching fallback**: if (1) finds nothing, identify the face at
+/// 2. **WireFace-matching fallback**: if (1) finds nothing, identify the face at
 ///    `primary_cursor_pos` and scan for atoms with the same foreground color
 ///    (covers third-party themes that omit `+rfg` from cursor faces).
 pub fn detect_cursors(lines: &[Line], primary_cursor_pos: Coord) -> (usize, Vec<Coord>) {

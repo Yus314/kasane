@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::protocol::{Coord, Face, KakouneRequest, MenuStyle};
+use crate::protocol::{Coord, KakouneRequest, MenuStyle, WireFace};
 use crate::state::{AppState, DirtyFlags};
 use crate::test_utils::make_line;
 
@@ -133,9 +133,9 @@ fn test_apply_draw_lines_dirty_face_change() {
     });
 
     // Same lines but different default_style → all dirty
-    let new_face = Face {
+    let new_face = WireFace {
         fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Red),
-        ..Face::default()
+        ..WireFace::default()
     };
     state.apply(KakouneRequest::Draw {
         lines: vec![make_line("aaa"), make_line("bbb")],
@@ -352,7 +352,7 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     assert!(state.observed.lines.is_empty());
     assert_eq!(state.inference.cursor_count, 0);
     assert_eq!(state.observed.cursor_pos, Coord::default());
-    assert_eq!(state.observed.default_style, Face::default().into());
+    assert_eq!(state.observed.default_style, WireFace::default().into());
     assert!(state.observed.menu.is_none());
     assert!(state.observed.infos.is_empty());
     assert!(state.observed.ui_options.is_empty());

@@ -7,12 +7,12 @@
 use proptest::prelude::*;
 
 use kasane_core::protocol::{
-    Atom, Color, Coord, Face, KakouneRequest, MenuStyle, NamedColor, StatusStyle, Style,
+    Atom, Color, Coord, KakouneRequest, MenuStyle, NamedColor, StatusStyle, Style, WireFace,
 };
 use kasane_core::state::{AppState, DirtyFlags};
 
-/// Generate a random Face.
-fn arb_face() -> impl Strategy<Value = Face> {
+/// Generate a random WireFace.
+fn arb_face() -> impl Strategy<Value = WireFace> {
     (0u8..5, 0u8..5).prop_map(|(fg_idx, bg_idx)| {
         let fg = match fg_idx {
             0 => Color::Default,
@@ -27,10 +27,10 @@ fn arb_face() -> impl Strategy<Value = Face> {
             2 => Color::Named(NamedColor::Green),
             _ => Color::Default,
         };
-        Face {
+        WireFace {
             fg,
             bg,
-            ..Face::default()
+            ..WireFace::default()
         }
     })
 }

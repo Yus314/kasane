@@ -5,7 +5,7 @@ use kasane_core::state::DirtyFlags;
 #[kasane_plugin(v2)]
 mod highlight {
     use kasane_core::plugin::{AppView, BackgroundLayer, BlendMode, Effects};
-    use kasane_core::protocol::{Color, Face, NamedColor};
+    use kasane_core::protocol::{Color, WireFace, NamedColor};
     use kasane_core::state::DirtyFlags;
 
     #[state]
@@ -36,9 +36,9 @@ mod highlight {
     ) -> Option<BackgroundLayer> {
         if line == state.active_line {
             Some(BackgroundLayer {
-                style: kasane_core::protocol::Style::from_face(&Face {
+                style: kasane_core::protocol::Style::from_face(&WireFace {
                     bg: Color::Named(NamedColor::Blue),
-                    ..Face::default()
+                    ..WireFace::default()
                 }),
                 z_order: 0,
                 blend: BlendMode::Opaque,

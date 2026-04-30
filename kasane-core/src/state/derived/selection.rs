@@ -1,6 +1,6 @@
 //! Selection range detection from buffer atoms.
 
-use crate::protocol::{Color, Coord, Face, Line};
+use crate::protocol::{Color, Coord, Line, WireFace};
 
 use super::atom_metrics::atom_display_width;
 
@@ -30,7 +30,7 @@ pub fn detect_selections(
     lines: &[Line],
     primary_cursor_pos: Coord,
     secondary_cursors: &[Coord],
-    default_face: &Face,
+    default_face: &WireFace,
 ) -> Vec<Selection> {
     let mut all_cursors = vec![primary_cursor_pos];
     all_cursors.extend_from_slice(secondary_cursors);
@@ -58,7 +58,7 @@ pub fn detect_selections(
 fn detect_single_selection(
     lines: &[Line],
     cursor_pos: Coord,
-    default_face: &Face,
+    default_face: &WireFace,
     is_primary: bool,
 ) -> Option<Selection> {
     let line_idx = cursor_pos.line as usize;
@@ -66,7 +66,7 @@ fn detect_single_selection(
     let cursor_col = cursor_pos.column as u32;
 
     // Build a column map: (start_col, end_col, face) for each atom
-    let mut segments: Vec<(u32, u32, Face)> = Vec::new();
+    let mut segments: Vec<(u32, u32, WireFace)> = Vec::new();
     let mut col: u32 = 0;
     for atom in line.iter() {
         let width = atom_display_width(atom);
@@ -135,10 +135,10 @@ fn detect_single_selection(
 /// Find the background color used for selection highlighting by examining
 /// atoms adjacent to the cursor.
 fn find_selection_bg(
-    segments: &[(u32, u32, Face)],
+    segments: &[(u32, u32, WireFace)],
     cursor_idx: usize,
-    cursor_face: &Face,
-    default_face: &Face,
+    cursor_face: &WireFace,
+    default_face: &WireFace,
 ) -> Option<Color> {
     // Check immediate neighbors for a non-default, non-cursor bg
     let neighbors = [

@@ -19,7 +19,7 @@ use crate::element::{
 };
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, WireFace};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -35,9 +35,9 @@ pub(crate) struct ContainerPaintInfo<'a> {
     pub border: &'a Option<BorderConfig>,
     pub shadow: bool,
     /// Resolved container face.
-    pub face: Face,
+    pub face: WireFace,
     /// Resolved border face (if border is present).
-    pub border_face: Option<Face>,
+    pub border_face: Option<WireFace>,
     /// Optional border title atoms.
     pub title: Option<&'a [Atom]>,
     /// Whether this container is a split divider (fill with box-drawing chars).
@@ -53,7 +53,7 @@ pub(crate) struct ContainerPaintInfo<'a> {
 /// `walk_paint`.
 pub(crate) trait PaintVisitor {
     /// Render a Text element (plain string with resolved face).
-    fn visit_text(&mut self, text: &str, face: &Face, area: Rect);
+    fn visit_text(&mut self, text: &str, face: &WireFace, area: Rect);
 
     /// Render a StyledLine element (Kakoune atom spans).
     fn visit_styled_line(&mut self, atoms: &[Atom], area: Rect);
@@ -66,7 +66,7 @@ pub(crate) trait PaintVisitor {
         line_range: Range<usize>,
         state: &AppState,
         buffer_state: Option<&BufferRefState>,
-        line_backgrounds: Option<&[Option<Face>]>,
+        line_backgrounds: Option<&[Option<WireFace>]>,
         display_map: Option<&DisplayMap>,
         inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
         virtual_text: Option<&[Option<Vec<Atom>>]>,
@@ -330,7 +330,7 @@ mod tests {
     };
     use crate::layout::flex::place;
     use crate::plugin::PluginRuntime;
-    use crate::protocol::Face;
+    use crate::protocol::WireFace;
     use crate::render::paint;
     use crate::render::scene;
     use crate::render::view;
@@ -471,7 +471,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: ElementStyle::from(Face::default()),
+            style: ElementStyle::from(WireFace::default()),
             title: None,
         };
         let area = Rect {
@@ -509,7 +509,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: true,
             padding: Edges::ZERO,
-            style: ElementStyle::from(Face::default()),
+            style: ElementStyle::from(WireFace::default()),
             title: Some(make_line("Title")),
         };
         let area = Rect {
@@ -717,7 +717,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: true,
             padding: Edges::ZERO,
-            style: ElementStyle::from(Face::default()),
+            style: ElementStyle::from(WireFace::default()),
             title: Some(make_line("Title")),
         };
         let area = Rect {

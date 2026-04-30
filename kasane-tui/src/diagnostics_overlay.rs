@@ -10,7 +10,7 @@ mod tests {
     use kasane_core::plugin::{
         PluginDiagnostic, PluginDiagnosticOverlayState, ProviderArtifactStage,
     };
-    use kasane_core::protocol::Face;
+    use kasane_core::protocol::WireFace;
     use kasane_core::render::{CellGrid, TerminalStyle};
 
     fn paint_diagnostic_overlay(state: &PluginDiagnosticOverlayState, grid: &mut CellGrid) {
@@ -25,14 +25,14 @@ mod tests {
     }
 
     impl PluginDiagnosticOverlayPainter for CellGridOverlayPainter<'_> {
-        fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, face: Face) {
+        fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, face: WireFace) {
             let style = TerminalStyle::from_face(&face);
             for row in 0..height {
                 self.grid.fill_region(y + row, x, width, &style);
             }
         }
 
-        fn draw_border(&mut self, x: u16, y: u16, width: u16, height: u16, face: Face) {
+        fn draw_border(&mut self, x: u16, y: u16, width: u16, height: u16, face: WireFace) {
             draw_text(self.grid, x, y, "┌", &face, 1);
             draw_text(self.grid, x + width.saturating_sub(1), y, "┐", &face, 1);
             for dx in 1..width.saturating_sub(1) {
@@ -73,7 +73,7 @@ mod tests {
         }
     }
 
-    fn draw_text(grid: &mut CellGrid, x: u16, y: u16, text: &str, face: &Face, max_width: u16) {
+    fn draw_text(grid: &mut CellGrid, x: u16, y: u16, text: &str, face: &WireFace, max_width: u16) {
         use kasane_core::protocol::{Atom, Style};
         grid.put_line_with_base(
             y,

@@ -1,7 +1,7 @@
 use crate::element::BorderLineStyle;
 use crate::layout::Rect;
 use crate::plugin::{FaceMerge, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind};
-use crate::protocol::Face;
+use crate::protocol::WireFace;
 use crate::render::grid::CellGrid;
 use crate::render::scene::{CellSize, DrawCommand, to_pixel_rect};
 use crate::surface::{SurfaceId, SurfaceRegistry};
@@ -11,7 +11,7 @@ pub(crate) struct ResolvedSurfaceOrn {
     pub surface_id: Option<SurfaceId>,
     pub rect: Rect,
     pub kind: SurfaceOrnKind,
-    pub face: Face,
+    pub face: WireFace,
 }
 
 #[derive(Debug, Clone)]
@@ -149,7 +149,7 @@ pub(crate) fn lower_surface_ornaments_gui(
     commands
 }
 
-fn apply_rect_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merge: FaceMerge) {
+fn apply_rect_face(grid: &mut CellGrid, rect: &Rect, face: &WireFace, merge: FaceMerge) {
     let style = crate::protocol::Style::from_face(face);
     let x_end = rect.x.saturating_add(rect.w).min(grid.width());
     let y_end = rect.y.saturating_add(rect.h).min(grid.height());
@@ -162,7 +162,7 @@ fn apply_rect_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merge: FaceMer
     }
 }
 
-fn apply_rect_perimeter_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merge: FaceMerge) {
+fn apply_rect_perimeter_face(grid: &mut CellGrid, rect: &Rect, face: &WireFace, merge: FaceMerge) {
     let style = crate::protocol::Style::from_face(face);
     let x_end = rect.x.saturating_add(rect.w).min(grid.width());
     let y_end = rect.y.saturating_add(rect.h).min(grid.height());
@@ -210,10 +210,10 @@ mod tests {
     use crate::surface::status::StatusBarSurface;
     use crate::test_support::TestSurfaceBuilder;
 
-    fn face(bg: NamedColor) -> Face {
-        Face {
+    fn face(bg: NamedColor) -> WireFace {
+        WireFace {
             bg: Color::Named(bg),
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
@@ -343,9 +343,9 @@ mod tests {
     #[test]
     fn apply_surface_ornaments_tui_tints_interior_and_frames_perimeter() {
         let mut grid = CellGrid::new(6, 4);
-        let default_face = Face {
+        let default_face = WireFace {
             bg: Color::Named(NamedColor::Black),
-            ..Face::default()
+            ..WireFace::default()
         };
         grid.clear(&crate::render::TerminalStyle::from_face(&default_face));
 

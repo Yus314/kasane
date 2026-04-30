@@ -888,7 +888,7 @@ mod tests {
     use super::*;
     use crate::layout::Rect;
     use crate::plugin::{AnnotateContext, PluginCapabilities, PluginRuntime};
-    use crate::protocol::{Color, Face, NamedColor};
+    use crate::protocol::{Color, NamedColor, WireFace};
     use crate::scroll::{ResolvedScroll, ScrollPolicyResult};
     use crate::state::AppState;
 
@@ -1362,9 +1362,9 @@ mod tests {
                 r.on_transform(10, |_state, _target, _app, _ctx| {
                     ElementPatch::ModifyStyle {
                         overlay: std::sync::Arc::new(crate::protocol::UnresolvedStyle::from_face(
-                            &Face {
+                            &WireFace {
                                 fg: Color::Named(NamedColor::Red),
-                                ..Face::default()
+                                ..WireFace::default()
                             },
                         )),
                     }
@@ -1766,7 +1766,7 @@ mod tests {
     fn inject_owner_replaces_unassigned() {
         let tag = PluginTag(5);
         let mut el = Element::Interactive {
-            child: Box::new(Element::text("test", crate::protocol::Face::default())),
+            child: Box::new(Element::text("test", crate::protocol::WireFace::default())),
             id: InteractiveId::unassigned(42),
         };
         inject_owner(&mut el, tag);
@@ -1784,7 +1784,7 @@ mod tests {
         let existing_tag = PluginTag(3);
         let injection_tag = PluginTag(5);
         let mut el = Element::Interactive {
-            child: Box::new(Element::text("test", crate::protocol::Face::default())),
+            child: Box::new(Element::text("test", crate::protocol::WireFace::default())),
             id: InteractiveId::new(42, existing_tag),
         };
         inject_owner(&mut el, injection_tag);

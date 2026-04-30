@@ -1,4 +1,4 @@
-//! Terminal-friendly projection of `Style` / `Face` (ADR-031 Phase 3, design δ).
+//! Terminal-friendly projection of `Style` / `WireFace` (ADR-031 Phase 3, design δ).
 //!
 //! `TerminalStyle` is the SGR-emit-ready, [`Copy`]-able compact projection
 //! of a styled atom. It is the canonical representation stored on
@@ -13,15 +13,15 @@
 //!
 //! Two construction paths:
 //!
-//! - [`TerminalStyle::from_face`] — bridge from the legacy [`Face`]
-//!   representation. Used while [`Face`] is still the upstream protocol
-//!   shape; retires when Phase B3 removes [`Face`] entirely.
+//! - [`TerminalStyle::from_face`] — bridge from the legacy [`WireFace`]
+//!   representation. Used while [`WireFace`] is still the upstream protocol
+//!   shape; retires when Phase B3 removes [`WireFace`] entirely.
 //! - [`TerminalStyle::from_style`] — direct projection from the post-resolve
 //!   [`Style`]. Used by call sites that already hold a [`Style`] (atom
 //!   conversion, plugin output).
 
 use crate::protocol::{
-    Attributes, Brush, Color, DecorationStyle, Face, FontSlant, FontWeight, Style,
+    Attributes, Brush, Color, DecorationStyle, FontSlant, FontWeight, Style, WireFace,
 };
 
 /// Discrete underline kind that terminals can render.
@@ -41,7 +41,7 @@ pub enum UnderlineKind {
     Double,
 }
 
-/// Render-ready projection of `Style` / `Face` for terminal SGR emission.
+/// Render-ready projection of `Style` / `WireFace` for terminal SGR emission.
 ///
 /// All fields map 1:1 to crossterm calls:
 ///
@@ -74,16 +74,16 @@ pub struct TerminalStyle {
 
 impl TerminalStyle {
     /// **Wire-format conversion only.** Build from a Kakoune wire-format
-    /// [`Face`]. Splits the [`Attributes`] bitflag into individual
+    /// [`WireFace`]. Splits the [`Attributes`] bitflag into individual
     /// booleans and maps the underline-style flag (UNDERLINE /
     /// CURLY_UNDERLINE / etc.) to the [`UnderlineKind`] enum. `final_*`
     /// resolution flags are dropped — they are Kakoune-internal and
     /// have no terminal meaning. Production paint code uses
     /// [`Self::from_style`]; this constructor exists for the protocol
-    /// parser bridge and test fixtures that declare style in `Face`
+    /// parser bridge and test fixtures that declare style in `WireFace`
     /// shape.
     #[doc(hidden)]
-    pub fn from_face(face: &Face) -> Self {
+    pub fn from_face(face: &WireFace) -> Self {
         let attrs = face.attributes;
         let underline = if attrs.contains(Attributes::CURLY_UNDERLINE) {
             UnderlineKind::Curly
@@ -161,20 +161,20 @@ fn brush_to_color(brush: Brush) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Attributes, Color, Face, NamedColor, TextDecoration};
+    use crate::protocol::{Attributes, Color, NamedColor, TextDecoration, WireFace};
 
     #[test]
     fn from_face_default_is_default() {
-        let ts = TerminalStyle::from_face(&Face::default());
+        let ts = TerminalStyle::from_face(&WireFace::default());
         assert_eq!(ts, TerminalStyle::default());
     }
 
     #[test]
     fn from_face_splits_attribute_bitflag() {
-        let face = Face {
+        let face = WireFace {
             fg: Color::Named(NamedColor::Red),
             attributes: Attributes::BOLD | Attributes::ITALIC | Attributes::REVERSE,
-            ..Face::default()
+            ..WireFace::default()
         };
         let ts = TerminalStyle::from_face(&face);
         assert!(ts.bold);
@@ -187,9 +187,9 @@ mod tests {
 
     #[test]
     fn from_face_underline_style_priority() {
-        let face = Face {
+        let face = WireFace {
             attributes: Attributes::UNDERLINE | Attributes::CURLY_UNDERLINE,
-            ..Face::default()
+            ..WireFace::default()
         };
         let ts = TerminalStyle::from_face(&face);
         assert_eq!(ts.underline, UnderlineKind::Curly);
@@ -197,9 +197,9 @@ mod tests {
 
     #[test]
     fn from_face_double_underline() {
-        let face = Face {
+        let face = WireFace {
             attributes: Attributes::DOUBLE_UNDERLINE,
-            ..Face::default()
+            ..WireFace::default()
         };
         let ts = TerminalStyle::from_face(&face);
         assert_eq!(ts.underline, UnderlineKind::Double);
@@ -207,15 +207,15 @@ mod tests {
 
     #[test]
     fn from_face_no_underline() {
-        let ts = TerminalStyle::from_face(&Face::default());
+        let ts = TerminalStyle::from_face(&WireFace::default());
         assert_eq!(ts.underline, UnderlineKind::None);
     }
 
     #[test]
     fn from_face_drops_final_attrs() {
-        let face = Face {
+        let face = WireFace {
             attributes: Attributes::FINAL_FG | Attributes::FINAL_BG | Attributes::FINAL_ATTR,
-            ..Face::default()
+            ..WireFace::default()
         };
         let ts = TerminalStyle::from_face(&face);
         assert!(!ts.bold && !ts.italic && !ts.dim && !ts.blink && !ts.reverse && !ts.strikethrough);
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn from_face_and_from_style_agree_via_to_face() {
         // Invariant: for any `Style`, projecting via the legacy
-        // Cell.face: Face path (Style → Face → TerminalStyle) yields the
+        // Cell.face: WireFace path (Style → WireFace → TerminalStyle) yields the
         // same TerminalStyle as the direct path (Style → TerminalStyle).
         // Pinning this lets the design-δ migration be a behavioural no-op.
         let cases = vec![

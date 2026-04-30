@@ -2,7 +2,7 @@
 
 use crate::display::InlineBoxAlignment;
 use crate::plugin::PluginId;
-use crate::protocol::{Atom, Face, Style};
+use crate::protocol::{Atom, Style, WireFace};
 
 /// Metadata for an inline-box slot reserved within a line.
 ///
@@ -40,7 +40,7 @@ pub enum InlineOp {
     /// Override the face for the given byte range.
     Style {
         range: std::ops::Range<usize>,
-        face: Face,
+        face: WireFace,
     },
     /// Hide the given byte range (omit from output).
     Hide { range: std::ops::Range<usize> },
@@ -379,7 +379,7 @@ struct InlineOpContext<'a> {
     atom_end: usize,
     contents: &'a str,
     atom_start: usize,
-    atom_face: Face,
+    atom_face: WireFace,
     result: &'a mut Vec<Atom>,
 }
 
@@ -415,7 +415,7 @@ fn advance_hide(range: &std::ops::Range<usize>, cx: &mut InlineOpContext<'_>) ->
 /// Returns `true` when the caller's `while` loop should `continue`.
 fn advance_style(
     range: &std::ops::Range<usize>,
-    op_face: &Face,
+    op_face: &WireFace,
     cx: &mut InlineOpContext<'_>,
 ) -> bool {
     if range.end <= *cx.pos {
@@ -487,7 +487,7 @@ fn emit_sub_atom(
     contents: &str,
     local_start: usize,
     local_end: usize,
-    face: Face,
+    face: WireFace,
     result: &mut Vec<Atom>,
 ) {
     let start = clamp_to_char_boundary(contents, local_start);
@@ -524,27 +524,27 @@ fn clamp_to_char_boundary(s: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Color, Face, NamedColor};
+    use crate::protocol::{Color, NamedColor, WireFace};
 
-    fn default_face() -> Face {
-        Face::default()
+    fn default_face() -> WireFace {
+        WireFace::default()
     }
 
-    fn red_face() -> Face {
-        Face {
+    fn red_face() -> WireFace {
+        WireFace {
             fg: Color::Named(NamedColor::Red),
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
-    fn blue_face() -> Face {
-        Face {
+    fn blue_face() -> WireFace {
+        WireFace {
             fg: Color::Named(NamedColor::Blue),
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
-    fn make_atom(text: &str, face: Face) -> Atom {
+    fn make_atom(text: &str, face: WireFace) -> Atom {
         Atom::with_style(text, Style::from_face(&face))
     }
 

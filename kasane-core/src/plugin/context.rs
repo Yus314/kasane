@@ -6,7 +6,7 @@ use crate::display::DisplayMapRef;
 use crate::element::{Element, Overlay, OverlayAnchor};
 use crate::layout::Rect;
 use crate::layout::flex::Constraints;
-use crate::protocol::{Atom, Color, Coord, Face};
+use crate::protocol::{Atom, Color, Coord, WireFace};
 use crate::render::InlineDecoration;
 use crate::surface::SurfaceId;
 
@@ -243,7 +243,7 @@ pub struct AnnotateContext {
 #[derive(Debug, Clone)]
 pub struct BackgroundLayer {
     /// Inline style applied to the background. ADR-031 Phase B3 commit 4b
-    /// migrated from `Face` to the post-resolve [`Style`]: decoration is
+    /// migrated from `WireFace` to the post-resolve [`Style`]: decoration is
     /// already past the inheritance pass and `final_*` flags do not apply.
     pub style: crate::protocol::Style,
     pub z_order: i16,
@@ -311,7 +311,7 @@ pub struct OverlayContribution {
 pub struct AnnotationResult {
     pub left_gutter: Option<Element>,
     pub right_gutter: Option<Element>,
-    pub line_backgrounds: Option<Vec<Option<Face>>>,
+    pub line_backgrounds: Option<Vec<Option<WireFace>>>,
     /// Per-line inline decorations (indexed by visible line).
     pub inline_decorations: Option<Vec<Option<InlineDecoration>>>,
     /// Per-line merged virtual text atoms (indexed by buffer line).
@@ -325,8 +325,8 @@ pub struct AnnotationResult {
 pub struct CellDecoration {
     pub target: DecorationTarget,
     /// Inline style applied to the targeted cell(s). ADR-031 Phase B3 commit
-    /// 4c migrated from `Face` to the post-resolve [`Style`]. The `merge`
-    /// mode still operates on the legacy `Face` projection internally; that
+    /// 4c migrated from `WireFace` to the post-resolve [`Style`]. The `merge`
+    /// mode still operates on the legacy `WireFace` projection internally; that
     /// retires when `StyleMerge` lands as part of the Cell hot-path
     /// migration (Block D).
     pub style: crate::protocol::Style,
@@ -358,7 +358,7 @@ pub enum FaceMerge {
 
 impl FaceMerge {
     /// Apply decoration `overlay` onto `base` according to this merge mode.
-    pub fn apply(&self, base: &mut Face, overlay: &Face) {
+    pub fn apply(&self, base: &mut WireFace, overlay: &WireFace) {
         match self {
             Self::Replace => *base = *overlay,
             Self::Overlay => {
@@ -382,7 +382,7 @@ impl FaceMerge {
 
     /// Apply decoration `overlay` (a post-resolve [`Style`]) directly onto a
     /// [`TerminalStyle`] target — the cell-grid hot path. Eliminates the
-    /// `TerminalStyle → Face → mutate → TerminalStyle` round-trip that the
+    /// `TerminalStyle → WireFace → mutate → TerminalStyle` round-trip that the
     /// legacy `Cell::with_face_mut` callsite paid per cell.
     ///
     /// Mirrors the [`FaceMerge::apply`] semantics; the only conversion is

@@ -1,14 +1,14 @@
 use super::super::test_helpers::{render_buffer, render_status};
 use super::super::*;
-use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor};
+use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, NamedColor, WireFace};
 use crate::state::AppState;
 
 #[test]
 fn test_render_buffer_resolves_default_face() {
-    let default_face = Face {
+    let default_face = WireFace {
         fg: Color::Named(NamedColor::Yellow),
         bg: Color::Named(NamedColor::Blue),
-        ..Face::default()
+        ..WireFace::default()
     };
     // Atom has Color::Default fg/bg — should inherit from default_face
     let line = vec![Atom::plain("x")];
@@ -28,10 +28,10 @@ fn test_render_buffer_resolves_default_face() {
 
 #[test]
 fn test_render_status_resolves_default_face() {
-    let status_face = Face {
+    let status_face = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Magenta),
-        ..Face::default()
+        ..WireFace::default()
     };
     let status_line = vec![Atom::plain("s")];
     let mode_line = vec![Atom::plain("m")];
@@ -138,18 +138,18 @@ fn test_cursor_style_ui_option_overrides_mode_line() {
 #[test]
 fn test_clear_cursor_face_at_bar() {
     let mut state = AppState::default();
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
 
     let mut grid = CellGrid::new(10, 5);
-    let cursor_face = Face {
+    let cursor_face = WireFace {
         fg: Color::Named(NamedColor::Black),
         bg: Color::Named(NamedColor::White),
-        ..Face::default()
+        ..WireFace::default()
     };
     grid.put_char(
         2,
@@ -170,18 +170,18 @@ fn test_clear_cursor_face_at_bar() {
 #[test]
 fn test_clear_cursor_face_at_underline() {
     let mut state = AppState::default();
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::Yellow),
         bg: Color::Named(NamedColor::Blue),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
 
     let mut grid = CellGrid::new(10, 5);
-    let cursor_face = Face {
+    let cursor_face = WireFace {
         fg: Color::Named(NamedColor::Black),
         bg: Color::Named(NamedColor::White),
-        ..Face::default()
+        ..WireFace::default()
     };
     grid.put_char(
         3,
@@ -202,10 +202,10 @@ fn test_clear_cursor_face_at_underline() {
 #[test]
 fn test_clear_cursor_face_at_block_noop() {
     let mut grid = CellGrid::new(10, 5);
-    let cursor_face = Face {
+    let cursor_face = WireFace {
         fg: Color::Named(NamedColor::Black),
         bg: Color::Named(NamedColor::White),
-        ..Face::default()
+        ..WireFace::default()
     };
     grid.put_char(
         0,
@@ -228,18 +228,18 @@ fn test_clear_cursor_face_at_block_noop() {
 fn test_clear_cursor_face_at_prompt() {
     let mut state = AppState::default();
     state.inference.cursor_mode = crate::protocol::CursorMode::Prompt;
-    state.observed.status_default_style = Face {
+    state.observed.status_default_style = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Magenta),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
 
     let mut grid = CellGrid::new(10, 5);
-    let cursor_face = Face {
+    let cursor_face = WireFace {
         fg: Color::Named(NamedColor::Black),
         bg: Color::Named(NamedColor::White),
-        ..Face::default()
+        ..WireFace::default()
     };
     grid.put_char(
         4,
@@ -336,15 +336,15 @@ fn test_secondary_style_preserves_text_color() {
 #[test]
 fn test_apply_secondary_cursor_faces_on_grid() {
     let mut state = AppState::default();
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.inference.secondary_cursors = vec![Coord { line: 0, column: 3 }];
 
-    let cursor_face = Face {
+    let cursor_face = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         underline: Color::Default,
@@ -371,16 +371,16 @@ fn test_apply_secondary_cursor_faces_on_grid() {
 #[test]
 fn test_apply_secondary_cursor_faces_with_offset() {
     let mut state = AppState::default();
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     // column=2 in Kakoune coordinates, buffer starts at grid x=3
     state.inference.secondary_cursors = vec![Coord { line: 1, column: 2 }];
 
-    let cursor_face = Face {
+    let cursor_face = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         underline: Color::Default,

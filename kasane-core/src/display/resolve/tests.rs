@@ -2,7 +2,7 @@ use proptest::prelude::*;
 
 use super::*;
 use crate::display::{BufferLine, assert_display_map_invariants};
-use crate::protocol::{Atom, Face, Style};
+use crate::protocol::{Atom, Style, WireFace};
 
 fn pid(name: &str) -> PluginId {
     PluginId(name.to_string())
@@ -223,9 +223,9 @@ fn resolve_inline_empty() {
 #[test]
 fn resolve_inline_single_style() {
     use crate::protocol::Color;
-    let face = Face {
+    let face = WireFace {
         fg: Color::Named(crate::protocol::NamedColor::Red),
-        ..Face::default()
+        ..WireFace::default()
     };
     let td = TaggedDirective {
         directive: DisplayDirective::StyleInline {
@@ -252,13 +252,13 @@ fn resolve_inline_single_style() {
 #[test]
 fn resolve_inline_overlapping_styles_split() {
     use crate::protocol::Color;
-    let red_face = Face {
+    let red_face = WireFace {
         fg: Color::Named(crate::protocol::NamedColor::Red),
-        ..Face::default()
+        ..WireFace::default()
     };
-    let blue_face = Face {
+    let blue_face = WireFace {
         bg: Color::Named(crate::protocol::NamedColor::Blue),
-        ..Face::default()
+        ..WireFace::default()
     };
     // Plugin "a" styles 2..8, plugin "b" styles 5..12. Overlap at 5..8.
     let tds = vec![
@@ -304,9 +304,9 @@ fn resolve_inline_overlapping_styles_split() {
 #[test]
 fn resolve_inline_hide_suppresses_style() {
     use crate::protocol::Color;
-    let face = Face {
+    let face = WireFace {
         fg: Color::Named(crate::protocol::NamedColor::Red),
-        ..Face::default()
+        ..WireFace::default()
     };
     // Style 2..10, Hide 4..7 — style should be split around the hidden region
     let tds = vec![
@@ -348,9 +348,9 @@ fn resolve_inline_hide_suppresses_style() {
 #[test]
 fn resolve_inline_insert_ordering() {
     use crate::protocol::Color;
-    let red_face = Face {
+    let red_face = WireFace {
         fg: Color::Named(crate::protocol::NamedColor::Red),
-        ..Face::default()
+        ..WireFace::default()
     };
     let tds = vec![
         TaggedDirective {
@@ -389,7 +389,7 @@ fn resolve_inline_insert_ordering() {
 
 #[test]
 fn resolve_inline_multi_line() {
-    let face = Face::default();
+    let face = WireFace::default();
     let tds = vec![
         TaggedDirective {
             directive: DisplayDirective::StyleInline {

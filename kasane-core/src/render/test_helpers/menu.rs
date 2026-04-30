@@ -28,7 +28,7 @@ fn draw_scrollbar(
     y_start: u16,
     win_height: u16,
     menu: &MenuState,
-    face: &crate::protocol::Face,
+    face: &crate::protocol::WireFace,
 ) {
     let wh = win_height as usize;
     let item_count = menu.items.len();
@@ -325,7 +325,7 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
 mod tests {
     use super::*;
     use crate::layout::get_menu_rect;
-    use crate::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
+    use crate::protocol::{Color, Coord, Line, MenuStyle, NamedColor, WireFace};
     use crate::test_utils::make_line;
 
     fn make_menu_state(
@@ -374,15 +374,15 @@ mod tests {
     fn test_render_menu_prompt_horizontal() {
         // 40 cols wide, 10 rows. Items: "abc", "defgh", "ij" (max width = 5)
         let mut grid = CellGrid::new(40, 10);
-        let menu_face = Face {
+        let menu_face = WireFace {
             fg: Color::Named(NamedColor::Blue),
             bg: Color::Named(NamedColor::White),
-            ..Face::default()
+            ..WireFace::default()
         };
-        let selected_face = Face {
+        let selected_face = WireFace {
             fg: Color::Named(NamedColor::White),
             bg: Color::Named(NamedColor::Blue),
-            ..Face::default()
+            ..WireFace::default()
         };
         let items = vec![make_line("abc"), make_line("defgh"), make_line("ij")];
         // screen_h = 10 - 1 = 9 (excl status), longest = 5, col_w = (40-1)/(6) = 6

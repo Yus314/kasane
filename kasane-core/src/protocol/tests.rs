@@ -161,7 +161,7 @@ fn test_attributes_roundtrip() {
 fn test_face_deserialize() {
     let json =
         r#"{"fg":"red","bg":"default","underline":"default","attributes":["bold","italic"]}"#;
-    let f: Face = serde_json::from_str(json).unwrap();
+    let f: WireFace = serde_json::from_str(json).unwrap();
     assert_eq!(f.fg, Color::Named(NamedColor::Red));
     assert_eq!(f.bg, Color::Default);
     assert_eq!(f.attributes, Attributes::BOLD | Attributes::ITALIC);
@@ -170,8 +170,8 @@ fn test_face_deserialize() {
 #[test]
 fn test_face_minimal() {
     let json = r#"{"fg":"default","bg":"default"}"#;
-    let f: Face = serde_json::from_str(json).unwrap();
-    assert_eq!(f, Face::default());
+    let f: WireFace = serde_json::from_str(json).unwrap();
+    assert_eq!(f, WireFace::default());
 }
 
 // `test_atom_deserialize`: removed in ADR-031 Phase A.2 — `Atom` no longer
@@ -586,15 +586,15 @@ fn test_parse_old_protocol_set_cursor() {
 }
 
 // ---------------------------------------------------------------------------
-// ADR-031: Style projection from wire-format Face
+// ADR-031: Style projection from wire-format WireFace
 // ---------------------------------------------------------------------------
 //
 // Atom no longer derives Deserialize (its style_id is an interner key, not
-// a wire field). The tests below feed Face JSON to Style::from_face — the
+// a wire field). The tests below feed WireFace JSON to Style::from_face — the
 // same path the protocol parser takes when it builds an `Atom` via
 // `Atom::from_wire`.
 
-fn parse_face_json(json: &str) -> Face {
+fn parse_face_json(json: &str) -> WireFace {
     serde_json::from_str(json).unwrap()
 }
 

@@ -4,10 +4,10 @@ use std::sync::Arc;
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
-use super::color::Face;
+use super::color::WireFace;
 use super::style::{Style, UnresolvedStyle};
 
-// `Face` is wire-format-aware. `Atom::from_wire` and the parser
+// `WireFace` is wire-format-aware. `Atom::from_wire` and the parser
 // construct atoms from it while preserving Kakoune `final_*`
 // resolution flags. Post-resolve callers use `Atom::with_style`.
 // `KakouneRequest` carries `Arc<UnresolvedStyle>` end-to-end.
@@ -31,7 +31,7 @@ pub struct Atom {
 impl Atom {
     /// **Wire-format-aware** atom constructor. Allocates a fresh `Arc`
     /// wrapping an [`UnresolvedStyle`] that **preserves the Kakoune
-    /// `final_*` resolution flags** carried by the input wire `Face`.
+    /// `final_*` resolution flags** carried by the input wire `WireFace`.
     ///
     /// Use this only for code that mirrors the wire-format shape: the
     /// protocol parser itself, fixtures that simulate Kakoune's `draw_*`
@@ -39,13 +39,13 @@ impl Atom {
     /// `FINAL_FG | REVERSE` to identify the cursor atom). New host /
     /// plugin / rendering code that holds a [`Style`] should use
     /// [`Atom::with_style`] instead — it bypasses the wire-format
-    /// representation entirely and skips the `Style → Face → Style`
+    /// representation entirely and skips the `Style → WireFace → Style`
     /// round-trip.
     ///
-    /// Sites that build many atoms from the same `Face` should reach for
+    /// Sites that build many atoms from the same `WireFace` should reach for
     /// [`crate::protocol::parse`]'s frame-local intern path so the `Arc`
     /// allocation is shared.
-    pub fn from_wire(face: Face, contents: impl Into<CompactString>) -> Self {
+    pub fn from_wire(face: WireFace, contents: impl Into<CompactString>) -> Self {
         Self {
             contents: contents.into(),
             style: Arc::new(UnresolvedStyle::from_face(&face)),
@@ -188,11 +188,11 @@ pub enum KakouneRequest {
     Draw {
         lines: Vec<Line>,
         cursor_pos: Coord,
-        /// Default style for buffer rendering (formerly `default_face: Face`).
+        /// Default style for buffer rendering (formerly `default_face: WireFace`).
         /// `Arc<UnresolvedStyle>` lets the parser share the allocation across
         /// frames when Kakoune sends the same style repeatedly (interner-backed).
         default_style: Arc<UnresolvedStyle>,
-        /// Padding style (formerly `padding_face: Face`).
+        /// Padding style (formerly `padding_face: WireFace`).
         padding_style: Arc<UnresolvedStyle>,
         widget_columns: u16,
     },
@@ -201,16 +201,16 @@ pub enum KakouneRequest {
         content: Line,
         content_cursor_pos: i32,
         mode_line: Line,
-        /// Status default style (formerly `default_face: Face`).
+        /// Status default style (formerly `default_face: WireFace`).
         default_style: Arc<UnresolvedStyle>,
         style: StatusStyle,
     },
     MenuShow {
         items: Vec<Line>,
         anchor: Coord,
-        /// Selected menu item style (formerly `selected_item_face: Face`).
+        /// Selected menu item style (formerly `selected_item_face: WireFace`).
         selected_item_style: Arc<UnresolvedStyle>,
-        /// Menu base style (formerly `menu_face: Face`).
+        /// Menu base style (formerly `menu_face: WireFace`).
         menu_style: Arc<UnresolvedStyle>,
         style: MenuStyle,
     },
@@ -222,7 +222,7 @@ pub enum KakouneRequest {
         title: Line,
         content: Vec<Line>,
         anchor: Coord,
-        /// Info popup style (formerly `face: Face`).
+        /// Info popup style (formerly `face: WireFace`).
         info_style: Arc<UnresolvedStyle>,
         style: InfoStyle,
     },

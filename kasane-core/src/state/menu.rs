@@ -284,7 +284,7 @@ impl MenuState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Color, Face, Style};
+    use crate::protocol::{Color, Style, WireFace};
 
     /// Helper: build a 3-atom completion item: candidate + padding + colored docstring.
     fn make_completion_item(candidate: &str, padding: &str, docstring: &str) -> Line {
@@ -293,9 +293,9 @@ mod tests {
             Atom::plain(padding),
             Atom::with_style(
                 docstring,
-                Style::from_face(&Face {
+                Style::from_face(&WireFace {
                     fg: Color::Named(crate::protocol::NamedColor::Cyan),
-                    ..Face::default()
+                    ..WireFace::default()
                 }),
             ),
         ]
@@ -328,9 +328,9 @@ mod tests {
             Atom::plain("foo"),
             Atom::with_style(
                 "bar",
-                Style::from_face(&Face {
+                Style::from_face(&WireFace {
                     fg: Color::Named(crate::protocol::NamedColor::Cyan),
-                    ..Face::default()
+                    ..WireFace::default()
                 }),
             ),
         ];

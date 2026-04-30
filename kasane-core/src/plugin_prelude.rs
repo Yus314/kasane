@@ -42,14 +42,14 @@ pub use crate::render::{
 //
 // `Style` / `Brush` / `TextDecoration` / `FontWeight` / `FontSlant` /
 // `FontVariation` are the post-resolve canonical types; new plugin code
-// should construct atoms / element styles via these. `Face` / `Color` /
+// should construct atoms / element styles via these. `WireFace` / `Color` /
 // `Attributes` are wire-format types kept in the prelude for the
 // `detect_cursors`-style code paths that observe Kakoune `final_*`
 // resolution flags (no `Style` equivalent). The host preserves both
 // forms; pick by intent (post-resolve vs. wire-aware).
 pub use crate::protocol::{
-    Atom, Attributes, Brush, Color, Coord, Face, FontSlant, FontVariation, FontWeight, Line,
-    NamedColor, StatusStyle, Style, TextDecoration,
+    Atom, Attributes, Brush, Color, Coord, FontSlant, FontVariation, FontWeight, Line, NamedColor,
+    StatusStyle, Style, TextDecoration, WireFace,
 };
 
 // Scroll policy types

@@ -8,7 +8,9 @@
 
 use proptest::prelude::*;
 
-use kasane_core::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor, Style};
+use kasane_core::protocol::{
+    Atom, Attributes, Color, Coord, CursorMode, NamedColor, Style, WireFace,
+};
 use kasane_core::state::derived::{self, CursorCache};
 use kasane_core::test_support::wire;
 
@@ -16,7 +18,7 @@ use kasane_core::test_support::wire;
 // Strategies (reuse patterns from dirty_flags_property.rs)
 // ---------------------------------------------------------------------------
 
-fn arb_face() -> impl Strategy<Value = Face> {
+fn arb_face() -> impl Strategy<Value = WireFace> {
     (0u8..5, 0u8..5).prop_map(|(fg_idx, bg_idx)| {
         let fg = match fg_idx {
             0 => Color::Default,
@@ -31,10 +33,10 @@ fn arb_face() -> impl Strategy<Value = Face> {
             2 => Color::Named(NamedColor::Green),
             _ => Color::Default,
         };
-        Face {
+        WireFace {
             fg,
             bg,
-            ..Face::default()
+            ..WireFace::default()
         }
     })
 }

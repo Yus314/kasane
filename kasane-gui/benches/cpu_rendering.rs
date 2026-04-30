@@ -7,7 +7,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use kasane_core::config::ColorsConfig;
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Atom, Color, Face, NamedColor, Style};
+use kasane_core::protocol::{Atom, Color, NamedColor, Style, WireFace};
 use kasane_core::render::{CellGrid, render_pipeline};
 use kasane_core::state::AppState;
 use kasane_gui::colors::ColorResolver;
@@ -18,45 +18,45 @@ fn setup_grid() -> (CellGrid, ColorResolver) {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = Face {
+    state.observed.status_default_style = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
-    let kw_face = Face {
+    let kw_face = WireFace {
         fg: Color::Rgb {
             r: 255,
             g: 100,
             b: 0,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let var_face = Face {
+    let var_face = WireFace {
         fg: Color::Rgb {
             r: 0,
             g: 200,
             b: 100,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let str_face = Face {
+    let str_face = WireFace {
         fg: Color::Rgb {
             r: 100,
             g: 100,
             b: 255,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
     state.observed.lines = (0..23)
         .map(|i| {

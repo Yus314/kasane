@@ -9,7 +9,7 @@ use kasane_core::plugin::diagnostics::PluginDiagnosticOverlayState;
 use kasane_core::plugin::{
     AppView, OverlayContext, OverlayContribution, PluginBackend, PluginCapabilities, PluginId,
 };
-use kasane_core::protocol::{Atom, Face, Style};
+use kasane_core::protocol::{Atom, Style, WireFace};
 
 /// Built-in plugin for diagnostics overlay rendering.
 ///
@@ -87,10 +87,10 @@ fn build_diagnostic_element(
 
     let body = Element::column(body_children);
 
-    let border_face = Face {
+    let border_face = WireFace {
         fg: spec.border_face.fg,
         bg: spec.body_face.bg,
-        ..Face::default()
+        ..WireFace::default()
     };
 
     let container = Element::Container {

@@ -145,7 +145,7 @@ pub(super) fn render_wrapped_line(
 pub(super) fn draw_border(
     grid: &mut CellGrid,
     win: &crate::layout::FloatingWindow,
-    face: &crate::protocol::Face,
+    face: &crate::protocol::WireFace,
     truncated: bool,
     corners: (&str, &str, &str, &str), // (top-left, top-right, bottom-left, bottom-right)
 ) {
@@ -173,7 +173,7 @@ pub(super) fn draw_shadow(grid: &mut CellGrid, win: &crate::layout::FloatingWind
         w: win.width,
         h: win.height,
     };
-    let shadow_face = crate::protocol::Face {
+    let shadow_face = crate::protocol::WireFace {
         fg: crate::protocol::Color::Default,
         bg: crate::protocol::Color::Default,
         underline: crate::protocol::Color::Default,

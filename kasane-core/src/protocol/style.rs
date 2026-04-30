@@ -1,6 +1,6 @@
 //! Parley-native text style representation.
 //!
-//! Designed as the eventual replacement for [`Face`](super::color::Face) and
+//! Designed as the eventual replacement for [`WireFace`](super::color::WireFace) and
 //! its companion [`Attributes`](super::color::Attributes) bitflags. During the
 //! migration described in ADR-031, both representations coexist; conversion
 //! helpers ([`Style::from_face`] / [`Style::to_face`]) bridge call sites that
@@ -298,7 +298,7 @@ impl std::hash::Hash for TextDecoration {
 ///
 /// The convenience [`Style::from_face`] shortcut is equivalent to
 /// `UnresolvedStyle::from_face(face).resolved_against_default()` — useful
-/// for sites that hold an unparented Face.
+/// for sites that hold an unparented WireFace.
 #[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
 pub struct Style {
     // Colours
@@ -352,41 +352,41 @@ impl std::hash::Hash for Style {
 }
 
 impl Style {
-    /// Construct a style with defaults equivalent to [`Face::default`].
+    /// Construct a style with defaults equivalent to [`WireFace::default`].
     #[inline]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// **Wire-format conversion only.** Construct a `Style` from a
-    /// Kakoune wire-format `Face`, dropping the resolution flags
+    /// Kakoune wire-format `WireFace`, dropping the resolution flags
     /// (`FINAL_FG` / `FINAL_BG` / `FINAL_ATTR`). Production rendering
     /// code holds `Style` directly; this exists for fixtures, test
     /// helpers, and the parser-side bridge while the wire format
-    /// continues to use `Face`.
+    /// continues to use `WireFace`.
     #[doc(hidden)]
-    pub fn from_face(face: &super::color::Face) -> Self {
+    pub fn from_face(face: &super::color::WireFace) -> Self {
         UnresolvedStyle::from_face(face).style
     }
 
     /// **Wire-format conversion only.** Project this `Style` back to a
-    /// Kakoune wire-format `Face`. The result has no `final_*` flags
+    /// Kakoune wire-format `WireFace`. The result has no `final_*` flags
     /// set (a `Style` is post-resolve). Production rendering reads
     /// `Style` fields directly; this exists for the protocol re-emit
     /// path, theme face-lookup utilities, and tests that compare
     /// against wire-shaped fixtures.
     #[doc(hidden)]
-    pub fn to_face(&self) -> super::color::Face {
+    pub fn to_face(&self) -> super::color::WireFace {
         let (face, _) = self.to_face_with_attrs();
         face
     }
 
-    /// Internal: project to a `Face` and return the in-progress attribute
+    /// Internal: project to a `WireFace` and return the in-progress attribute
     /// bitset. Shared by [`Self::to_face`] and [`UnresolvedStyle::to_face`]
     /// so the latter can OR in the `final_*` bits without duplicating the
     /// rest of the conversion.
-    fn to_face_with_attrs(&self) -> (super::color::Face, super::color::Attributes) {
-        use super::color::{Attributes, Color, Face};
+    fn to_face_with_attrs(&self) -> (super::color::WireFace, super::color::Attributes) {
+        use super::color::{Attributes, Color, WireFace};
         let mut attrs = Attributes::empty();
 
         if self.font_weight.0 >= FontWeight::SEMI_BOLD.0 {
@@ -421,7 +421,7 @@ impl Style {
             underline_color = Color::Default;
         }
 
-        let face = Face {
+        let face = WireFace {
             fg: color_from_brush(self.fg),
             bg: color_from_brush(self.bg),
             underline: underline_color,
@@ -437,7 +437,7 @@ impl Style {
 
 /// Pre-resolution text style as parsed from Kakoune's wire format.
 ///
-/// Kakoune's protocol carries a `Face` whose attribute bitflags include
+/// Kakoune's protocol carries a `WireFace` whose attribute bitflags include
 /// resolution-control bits (`FINAL_FG`, `FINAL_BG`, `FINAL_ATTR`) that govern
 /// how parent-context inheritance applies during resolution. `UnresolvedStyle`
 /// preserves those bits alongside a [`Style`] until [`resolve_style`] consumes
@@ -488,7 +488,7 @@ impl std::hash::Hash for UnresolvedStyle {
 impl UnresolvedStyle {
     /// Convert from the legacy Kakoune face representation, preserving
     /// `final_*` resolution flags.
-    pub fn from_face(face: &super::color::Face) -> Self {
+    pub fn from_face(face: &super::color::WireFace) -> Self {
         use super::color::Attributes;
         let attrs = face.attributes;
 
@@ -569,7 +569,7 @@ impl UnresolvedStyle {
     /// Lossy conversion back to the legacy face representation, preserving
     /// `final_*` flags. Round-trips with [`UnresolvedStyle::from_face`] on
     /// faces whose attributes lie within the legacy set.
-    pub fn to_face(&self) -> super::color::Face {
+    pub fn to_face(&self) -> super::color::WireFace {
         use super::color::Attributes;
         let (mut face, mut attrs) = self.style.to_face_with_attrs();
         if self.final_fg {
@@ -590,21 +590,21 @@ impl UnresolvedStyle {
 // Style resolution
 // ---------------------------------------------------------------------------
 
-// Wire-format `Face` → `Style` conversion via `From`. Internal to the
+// Wire-format `WireFace` → `Style` conversion via `From`. Internal to the
 // protocol layer and the wire-aware test helpers; marked `#[doc(hidden)]`
 // to keep this surface invisible from external API readers.
 #[doc(hidden)]
-impl From<super::color::Face> for Style {
+impl From<super::color::WireFace> for Style {
     #[inline]
-    fn from(face: super::color::Face) -> Self {
+    fn from(face: super::color::WireFace) -> Self {
         Self::from_face(&face)
     }
 }
 
 #[doc(hidden)]
-impl From<&super::color::Face> for Style {
+impl From<&super::color::WireFace> for Style {
     #[inline]
-    fn from(face: &super::color::Face) -> Self {
+    fn from(face: &super::color::WireFace) -> Self {
         Self::from_face(face)
     }
 }
@@ -724,7 +724,7 @@ pub fn default_unresolved_style() -> std::sync::Arc<UnresolvedStyle> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::color::{Attributes, Color, Face};
+    use crate::protocol::color::{Attributes, Color, WireFace};
 
     #[test]
     fn brush_default_is_inherit() {
@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn style_default_matches_face_default_round_trip() {
-        let face = Face::default();
+        let face = WireFace::default();
         let style = Style::from_face(&face);
         assert_eq!(style, Style::default());
         assert_eq!(style.to_face(), face);
@@ -772,7 +772,7 @@ mod tests {
 
     #[test]
     fn from_face_preserves_named_colours() {
-        let face = Face {
+        let face = WireFace {
             fg: Color::Named(NamedColor::Red),
             bg: Color::Named(NamedColor::Blue),
             underline: Color::Default,
@@ -786,7 +786,7 @@ mod tests {
 
     #[test]
     fn from_face_preserves_rgb_colours() {
-        let face = Face {
+        let face = WireFace {
             fg: Color::Rgb { r: 1, g: 2, b: 3 },
             bg: Color::Rgb { r: 4, g: 5, b: 6 },
             underline: Color::Default,
@@ -799,7 +799,7 @@ mod tests {
 
     #[test]
     fn from_face_maps_bold_italic() {
-        let face = Face {
+        let face = WireFace {
             fg: Color::Default,
             bg: Color::Default,
             underline: Color::Default,
@@ -812,7 +812,7 @@ mod tests {
 
     #[test]
     fn from_face_maps_blink_reverse_dim() {
-        let face = Face {
+        let face = WireFace {
             fg: Color::Default,
             bg: Color::Default,
             underline: Color::Default,
@@ -834,7 +834,7 @@ mod tests {
             (Attributes::DASHED_UNDERLINE, DecorationStyle::Dashed),
         ];
         for (attr, expected) in cases {
-            let face = Face {
+            let face = WireFace {
                 fg: Color::Default,
                 bg: Color::Default,
                 underline: Color::Named(NamedColor::Red),
@@ -849,7 +849,7 @@ mod tests {
 
     #[test]
     fn from_face_curly_takes_precedence_over_solid() {
-        let face = Face {
+        let face = WireFace {
             fg: Color::Default,
             bg: Color::Default,
             underline: Color::Default,
@@ -861,7 +861,7 @@ mod tests {
 
     #[test]
     fn from_face_strikethrough() {
-        let face = Face {
+        let face = WireFace {
             fg: Color::Default,
             bg: Color::Default,
             underline: Color::Default,
@@ -873,7 +873,7 @@ mod tests {
 
     #[test]
     fn from_face_final_flags() {
-        let face = Face {
+        let face = WireFace {
             fg: Color::Default,
             bg: Color::Default,
             underline: Color::Default,
@@ -891,10 +891,10 @@ mod tests {
 
     #[test]
     fn to_face_round_trip_preserves_legacy_set() {
-        // Any Face whose attributes lie within the legacy set (including
+        // Any WireFace whose attributes lie within the legacy set (including
         // FINAL_*) should round trip exactly through
         // UnresolvedStyle::from_face → UnresolvedStyle::to_face.
-        let face = Face {
+        let face = WireFace {
             fg: Color::Rgb {
                 r: 10,
                 g: 20,

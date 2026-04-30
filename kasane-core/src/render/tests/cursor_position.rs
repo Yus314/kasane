@@ -9,7 +9,7 @@ use super::super::*;
 use crate::display::DisplayMapRef;
 use crate::layout::line_display_width;
 use crate::plugin::PluginRuntime;
-use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor};
+use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, NamedColor, WireFace};
 use crate::render::cursor;
 use crate::state::AppState;
 use crate::test_support::test_state_80x24;
@@ -20,8 +20,8 @@ use crate::test_utils::make_line;
 // ---------------------------------------------------------------------------
 
 /// Build a cursor face matching Kakoune's typical REVERSE + FINAL_FG + FINAL_BG.
-fn cursor_face() -> Face {
-    Face {
+fn cursor_face() -> WireFace {
+    WireFace {
         fg: Color::Named(NamedColor::Black),
         bg: Color::Named(NamedColor::White),
         underline: Color::Default,
@@ -32,7 +32,7 @@ fn cursor_face() -> Face {
 /// Build a line with a cursor on a specific character, mimicking Kakoune's atom
 /// structure: `[pre_text] [cursor_char (with REVERSE face)] [post_text]`.
 fn make_cursor_line(pre: &str, cursor_char: &str, post: &str) -> Vec<Atom> {
-    let normal = Face::default();
+    let normal = WireFace::default();
     let mut atoms = Vec::new();
     if !pre.is_empty() {
         atoms.push(Atom::from_wire(normal, pre));
@@ -181,12 +181,12 @@ fn buffer_cursor_with_widget_columns() {
     state.observed.cursor_pos = Coord { line: 0, column: 9 };
     state.observed.widget_columns = 3;
 
-    let gutter_face = Face {
+    let gutter_face = WireFace {
         fg: Color::Named(NamedColor::Yellow),
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let normal = Face::default();
+    let normal = WireFace::default();
     state.observed.lines = vec![vec![
         Atom::from_wire(gutter_face, " 1│"),
         Atom::from_wire(normal, "hello "),
@@ -278,7 +278,7 @@ fn prompt_cursor_with_status_left_offset() {
 fn extract_cursor_color_ascii() {
     let mut state = buffer_state(40, 5);
     state.observed.cursor_pos = Coord { line: 0, column: 5 };
-    let cf = Face {
+    let cf = WireFace {
         fg: Color::Rgb { r: 255, g: 0, b: 0 },
         bg: Color::Named(NamedColor::Black),
         underline: Color::Default,
@@ -310,7 +310,7 @@ fn extract_cursor_color_after_cjk() {
     // "hi世" = 4 chars but 4 display columns (h=1,i=1,世=2)
     // Cursor at display column 4 (the "w")
     state.observed.cursor_pos = Coord { line: 0, column: 4 };
-    let cf = Face {
+    let cf = WireFace {
         fg: Color::Rgb { r: 0, g: 255, b: 0 },
         bg: Color::Named(NamedColor::Black),
         underline: Color::Default,

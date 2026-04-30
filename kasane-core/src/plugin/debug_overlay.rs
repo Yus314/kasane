@@ -17,7 +17,7 @@ use crate::element::{Element, OverlayAnchor};
 use crate::input::KeyEvent;
 use crate::plugin::context::{OverlayContext, OverlayContribution};
 use crate::plugin::{AppView, Command, HandlerRegistry, Plugin, PluginId};
-use crate::protocol::{Atom, Color, Face, NamedColor, Style};
+use crate::protocol::{Atom, Color, NamedColor, Style, WireFace};
 use crate::state::DirtyFlags;
 
 /// Debug overlay plugin state.
@@ -86,16 +86,16 @@ fn is_ctrl_shift_d(key: &KeyEvent) -> bool {
 }
 
 fn build_debug_lines(app: &AppView<'_>, ctx: &OverlayContext) -> Vec<Vec<Atom>> {
-    let header_face = Face {
+    let header_face = WireFace {
         fg: Color::Named(NamedColor::Black),
         bg: Color::Named(NamedColor::Cyan),
-        ..Face::default()
+        ..WireFace::default()
     };
-    let label_face = Face {
+    let label_face = WireFace {
         fg: Color::Named(NamedColor::Cyan),
-        ..Face::default()
+        ..WireFace::default()
     };
-    let value_face = Face::default();
+    let value_face = WireFace::default();
 
     let mut lines: Vec<Vec<Atom>> = Vec::new();
 
@@ -160,11 +160,11 @@ fn build_debug_lines(app: &AppView<'_>, ctx: &OverlayContext) -> Vec<Vec<Atom>> 
     lines
 }
 
-fn atom(text: &str, face: Face) -> Atom {
+fn atom(text: &str, face: WireFace) -> Atom {
     Atom::with_style(text, Style::from_face(&face))
 }
 
-fn kv_line(key: &str, value: &str, label_face: Face, value_face: Face) -> Vec<Atom> {
+fn kv_line(key: &str, value: &str, label_face: WireFace, value_face: WireFace) -> Vec<Atom> {
     vec![
         atom(&format!(" {key}: "), label_face),
         atom(&format!("{value} "), value_face),

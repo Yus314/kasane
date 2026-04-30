@@ -1,5 +1,5 @@
 use crate::protocol::{
-    Attributes, Coord, CursorMode, Face, InfoStyle, KakouneRequest, MenuStyle, StatusStyle,
+    Attributes, Coord, CursorMode, InfoStyle, KakouneRequest, MenuStyle, StatusStyle, WireFace,
 };
 use crate::state::{AppState, DirtyFlags, MenuState};
 use crate::test_utils::make_line;
@@ -388,7 +388,7 @@ fn cursor_atom(s: &str) -> Atom {
     // Wire-aware: `final_*` flags must reach `detect_cursors`. `Style::from_face`
     // drops them by design — see `protocol/style.rs::Style::from_face` docstring.
     Atom::from_wire(
-        Face {
+        WireFace {
             fg: Color::Named(NamedColor::White),
             bg: Color::Default,
             underline: Color::Default,

@@ -135,7 +135,7 @@ impl InfoSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Color, Face, NamedColor};
+    use crate::protocol::{Atom, Color, NamedColor, WireFace};
     use crate::state::menu::MenuParams;
 
     fn make_atom(text: &str) -> Atom {
@@ -191,9 +191,9 @@ mod tests {
                 line: 3,
                 column: 10,
             },
-            face: Face {
+            face: WireFace {
                 fg: Color::Named(NamedColor::Yellow),
-                ..Face::default()
+                ..WireFace::default()
             }
             .into(),
             style: InfoStyle::Prompt,

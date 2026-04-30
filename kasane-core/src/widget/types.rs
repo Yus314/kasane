@@ -4,17 +4,17 @@ use compact_str::CompactString;
 
 use crate::element::StyleToken;
 use crate::plugin::{ContribSizeHint, GutterSide, SlotId};
-use crate::protocol::Face;
+use crate::protocol::WireFace;
 use crate::state::DirtyFlags;
 
 use kasane_plugin_model::TransformTarget;
 
 use super::predicate::Predicate;
 
-/// A face that is either a direct Face value or a reference to a theme token.
+/// A face that is either a direct WireFace value or a reference to a theme token.
 #[derive(Clone, PartialEq)]
 pub enum FaceOrToken {
-    Direct(Face),
+    Direct(WireFace),
     Token(StyleToken),
 }
 
@@ -90,7 +90,7 @@ pub struct FaceRule {
 #[derive(Clone, PartialEq)]
 pub struct WidgetPart {
     pub template: Template,
-    /// Face rules evaluated in order; first match wins. Empty = default face.
+    /// WireFace rules evaluated in order; first match wins. Empty = default face.
     pub face_rules: Vec<FaceRule>,
     pub when: Option<Predicate>,
 }
@@ -171,7 +171,7 @@ impl PartialEq for InlinePattern {
 pub struct InlineWidget {
     /// Pattern to match in line content.
     pub pattern: InlinePattern,
-    /// Face to apply to matched ranges.
+    /// WireFace to apply to matched ranges.
     pub face: FaceOrToken,
     /// Global on/off condition.
     pub when: Option<Predicate>,
@@ -182,7 +182,7 @@ pub struct InlineWidget {
 pub struct VirtualTextWidget {
     /// Template for the virtual text content.
     pub template: Template,
-    /// Face rules for the virtual text.
+    /// WireFace rules for the virtual text.
     pub face_rules: Vec<FaceRule>,
     /// Global on/off condition.
     pub when: Option<Predicate>,

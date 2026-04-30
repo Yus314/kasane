@@ -49,8 +49,8 @@ pub(crate) use workspace::*;
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::layout::Rect;
 use kasane_core::protocol::{
-    Atom, Brush, Color, DecorationStyle, Face, FontFeatures, FontSlant, FontVariation, FontWeight,
-    NamedColor, Style, TextDecoration, UnresolvedStyle,
+    Atom, Brush, Color, DecorationStyle, FontFeatures, FontSlant, FontVariation, FontWeight,
+    NamedColor, Style, TextDecoration, UnresolvedStyle, WireFace,
 };
 
 // ---------------------------------------------------------------------------
@@ -59,9 +59,9 @@ use kasane_core::protocol::{
 //
 // ADR-031 Phase 4 (commit a56ddbb0): the wire format now uses `Style`
 // (post-resolve) and `Brush` (paint source) instead of the legacy
-// `Face` + `Color`. Host code that hasn't migrated still consumes
-// native `Face`; the bridge functions below route through `Style` on
-// the wire side and `Face` on the native side.
+// `WireFace` + `Color`. Host code that hasn't migrated still consumes
+// native `WireFace`; the bridge functions below route through `Style` on
+// the wire side and `WireFace` on the native side.
 
 bidirectional_enum! {
     wit_named_to_named: wit::NamedColor => NamedColor,
@@ -96,8 +96,8 @@ pub(crate) fn wit_brush_to_brush(wb: &wit::Brush) -> Brush {
 }
 
 /// Project a native `Color` (the legacy paint source) onto a `wit::Brush`.
-/// Used by callers that still hold a `Color` from `Face`-typed APIs.
-#[allow(dead_code)] // bridge for sites that may migrate Face→Style independently
+/// Used by callers that still hold a `Color` from `WireFace`-typed APIs.
+#[allow(dead_code)] // bridge for sites that may migrate WireFace→Style independently
 pub(crate) fn color_to_wit(c: &Color) -> wit::Brush {
     match c {
         Color::Default => wit::Brush::DefaultColor,
@@ -223,19 +223,19 @@ pub(crate) fn style_to_wit(s: &Style) -> wit::Style {
     }
 }
 
-// --- Face bridge ---
+// --- WireFace bridge ---
 //
-// `wit_style_to_face` keeps host call sites that still hold a `Face`
+// `wit_style_to_face` keeps host call sites that still hold a `WireFace`
 // (decoration / annotation conversions) source-stable. `face_to_wit`
 // is test-only — production code goes through `style_to_wit` directly
 // after the HostState Style migration.
 
-pub(crate) fn wit_style_to_face(ws: &wit::Style) -> Face {
+pub(crate) fn wit_style_to_face(ws: &wit::Style) -> WireFace {
     wit_style_to_style(ws).to_face()
 }
 
 #[cfg(test)]
-pub(crate) fn face_to_wit(f: &Face) -> wit::Style {
+pub(crate) fn face_to_wit(f: &WireFace) -> wit::Style {
     style_to_wit(&Style::from_face(f))
 }
 

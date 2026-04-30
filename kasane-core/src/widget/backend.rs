@@ -2,7 +2,7 @@
 
 use crate::element::{Element, ElementStyle};
 use crate::plugin::{AppView, PluginDiagnostic, PluginId};
-use crate::protocol::{Atom, Face, Style};
+use crate::protocol::{Atom, Style, WireFace};
 
 use super::parse::WidgetNodeError;
 use super::types::{ContributionWidget, FaceOrToken, FaceRule};
@@ -18,8 +18,8 @@ pub(super) fn to_style(face_or_token: &FaceOrToken) -> ElementStyle {
     }
 }
 
-/// Resolve a `FaceOrToken` to a concrete `Face` using the current theme.
-pub(super) fn resolve_face(face_or_token: &FaceOrToken, state: &AppView<'_>) -> Face {
+/// Resolve a `FaceOrToken` to a concrete `WireFace` using the current theme.
+pub(super) fn resolve_face(face_or_token: &FaceOrToken, state: &AppView<'_>) -> WireFace {
     match face_or_token {
         FaceOrToken::Direct(face) => *face,
         FaceOrToken::Token(token) => state
@@ -34,7 +34,7 @@ pub(super) fn resolve_face_rules(
     rules: &[FaceRule],
     resolver: &dyn VariableResolver,
     state: &AppView<'_>,
-) -> Face {
+) -> WireFace {
     for rule in rules {
         if rule
             .when
@@ -44,7 +44,7 @@ pub(super) fn resolve_face_rules(
             return resolve_face(&rule.face, state);
         }
     }
-    Face::default()
+    WireFace::default()
 }
 
 /// Try to resolve face rules to a `Style` without eagerly resolving tokens.

@@ -1,5 +1,5 @@
 use kasane_core::input::ResolvedTextInputTarget;
-use kasane_core::protocol::{Attributes, Face};
+use kasane_core::protocol::{Attributes, WireFace};
 use kasane_core::render::scene::{PixelPos, PixelRect, line_display_width_str};
 use kasane_core::render::{CellSize, DrawCommand, RenderResult};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -85,7 +85,7 @@ fn push_preedit_text(
     x: f32,
     y: f32,
     text: &str,
-    face: Face,
+    face: WireFace,
     cell_size: CellSize,
 ) {
     if text.is_empty() {
@@ -104,7 +104,7 @@ pub(crate) fn build_ime_overlay_commands(
     ime: &GuiImeState,
     render: &RenderResult,
     cell_size: CellSize,
-    face: Face,
+    face: WireFace,
 ) -> Vec<DrawCommand> {
     if ime.preedit.is_empty() {
         return vec![];
@@ -218,7 +218,7 @@ mod tests {
         TextInputTargetAuthority, TextInputTargetKind, resolve_text_input_target,
     };
     use kasane_core::protocol::StatusStyle;
-    use kasane_core::protocol::{Attributes, Face};
+    use kasane_core::protocol::{Attributes, WireFace};
     use kasane_core::session::SessionId;
     use kasane_core::state::AppState;
     use kasane_core::state::derived::EditorMode;
@@ -252,7 +252,7 @@ mod tests {
                 width: 10.0,
                 height: 20.0,
             },
-            Face::default(),
+            WireFace::default(),
         );
 
         assert!(matches!(commands.first(), Some(DrawCommand::BeginOverlay)));
@@ -286,7 +286,7 @@ mod tests {
                 width: 10.0,
                 height: 20.0,
             },
-            Face::default(),
+            WireFace::default(),
         );
 
         let text_segments: Vec<_> = commands
@@ -339,7 +339,7 @@ mod tests {
                 width: 10.0,
                 height: 20.0,
             },
-            Face::default(),
+            WireFace::default(),
         );
 
         assert!(commands.iter().any(|command| {
@@ -375,7 +375,7 @@ mod tests {
                 width: 10.0,
                 height: 20.0,
             },
-            Face::default(),
+            WireFace::default(),
         );
 
         assert!(commands.iter().any(|command| {

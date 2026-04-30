@@ -8,7 +8,7 @@ use super::theme::Theme;
 use crate::element::{BorderLineStyle, Element, ImageFit, ImageSource};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
-use crate::protocol::{Atom, Face, Style};
+use crate::protocol::{Atom, Style, WireFace};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ pub struct CellSize {
 ///
 /// ADR-031 Phase A.3.6: only `style` is stored (the Parley-native
 /// representation). The `face()` accessor projects to the legacy
-/// `Face` for consumers that still expect it.
+/// `WireFace` for consumers that still expect it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedAtom {
     pub contents: String,
@@ -50,11 +50,11 @@ pub struct ResolvedAtom {
 }
 
 impl ResolvedAtom {
-    /// Project this atom's style to the legacy [`Face`] representation.
-    /// Bridge for consumers that still consume `Face`; pure projection
+    /// Project this atom's style to the legacy [`WireFace`] representation.
+    /// Bridge for consumers that still consume `WireFace`; pure projection
     /// (cheap, no allocation).
     #[inline]
-    pub fn face(&self) -> Face {
+    pub fn face(&self) -> WireFace {
         self.style.to_face()
     }
 }
@@ -84,7 +84,7 @@ pub struct BufferParagraph {
     /// Styled atoms (resolved against base face).
     pub atoms: Vec<ResolvedAtom>,
     /// Base style for the line (used for background fill).
-    /// ADR-031 Phase A.3: migrated from `Face`.
+    /// ADR-031 Phase A.3: migrated from `WireFace`.
     pub base_face: Style,
     /// Semantic annotations (cursors, etc.).
     pub annotations: Vec<ParagraphAnnotation>,
@@ -301,10 +301,10 @@ pub(crate) fn to_pixel_rect(rect: &Rect, cs: CellSize) -> PixelRect {
 
 /// Resolve atom styles against an optional base style.
 ///
-/// Operates entirely in `UnresolvedStyle` / `Style` space — no `Face`
+/// Operates entirely in `UnresolvedStyle` / `Style` space — no `WireFace`
 /// round-trip, no per-atom bitflag conversion. Callers that hold a
-/// `Face` should convert it once at the call boundary
-/// (`Style::from_face(face)`) rather than passing the `Face` and
+/// `WireFace` should convert it once at the call boundary
+/// (`Style::from_face(face)`) rather than passing the `WireFace` and
 /// forcing per-atom conversions inside the loop.
 pub(crate) fn resolve_atoms(atoms: &[Atom], base_style: Option<&Style>) -> Vec<ResolvedAtom> {
     let default_base = Style::default();
@@ -335,7 +335,7 @@ mod tests {
     use crate::layout::Rect;
     use crate::layout::flex::place;
     use crate::plugin::PluginRuntime;
-    use crate::protocol::Face;
+    use crate::protocol::WireFace;
     use crate::render::CursorStyle;
     use crate::render::view;
     use crate::test_utils::*;
@@ -447,7 +447,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: ElementStyle::from(Face::default()),
+            style: ElementStyle::from(WireFace::default()),
             title: None,
         };
         let area = Rect {
@@ -487,7 +487,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Single)),
             shadow: true,
             padding: Edges::ZERO,
-            style: ElementStyle::from(Face::default()),
+            style: ElementStyle::from(WireFace::default()),
             title: None,
         };
         let area = Rect {
@@ -526,7 +526,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: ElementStyle::from(Face::default()),
+            style: ElementStyle::from(WireFace::default()),
             title: Some(make_line("Title")),
         };
         let area = Rect {
@@ -619,7 +619,7 @@ mod tests {
         let resolved = resolve_atoms(&atoms, None);
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].contents, "hello");
-        assert_eq!(resolved[0].face(), Face::default());
+        assert_eq!(resolved[0].face(), WireFace::default());
     }
 
     #[test]

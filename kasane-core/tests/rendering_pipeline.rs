@@ -8,7 +8,7 @@ use kasane_core::layout::Rect;
 use kasane_core::layout::flex::place;
 use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{
-    Atom, Color, Coord, Face, InfoStyle, KakouneRequest, Line, MenuStyle, NamedColor, Style,
+    Atom, Color, Coord, InfoStyle, KakouneRequest, Line, MenuStyle, NamedColor, Style, WireFace,
 };
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
@@ -84,9 +84,9 @@ fn buffer_with_colored_atoms() {
     let line = vec![
         Atom::with_style(
             "red",
-            Style::from_face(&Face {
+            Style::from_face(&WireFace {
                 fg: red,
-                ..Face::default()
+                ..WireFace::default()
             }),
         ),
         Atom::plain(" plain"),
@@ -153,17 +153,19 @@ fn menu_show_and_select() {
         items,
         anchor: Coord { line: 0, column: 3 },
         selected_item_style: std::sync::Arc::new(
-            kasane_core::protocol::UnresolvedStyle::from_face(&Face {
+            kasane_core::protocol::UnresolvedStyle::from_face(&WireFace {
                 fg: Color::Named(NamedColor::Black),
                 bg: Color::Named(NamedColor::Cyan),
-                ..Face::default()
+                ..WireFace::default()
             }),
         ),
-        menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&Face {
-            fg: Color::Named(NamedColor::White),
-            bg: Color::Named(NamedColor::Blue),
-            ..Face::default()
-        })),
+        menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Blue),
+                ..WireFace::default()
+            },
+        )),
         style: MenuStyle::Inline,
     });
     assert!(state.observed.menu.is_some());
@@ -484,9 +486,9 @@ fn small_terminal_1x1() {
     state.runtime.cols = 1;
     state.runtime.rows = 1;
     state.observed.lines = vec![make_line("x")];
-    state.observed.default_style = Face::default().into();
-    state.observed.padding_style = Face::default().into();
-    state.observed.status_default_style = Face::default().into();
+    state.observed.default_style = WireFace::default().into();
+    state.observed.padding_style = WireFace::default().into();
+    state.observed.status_default_style = WireFace::default().into();
     state.inference.status_line = make_line("");
     state.observed.status_mode_line = make_line("");
 

@@ -9,7 +9,7 @@ use kasane_core::plugin::{
     PluginCapabilities, PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{
-    Atom, Attributes, Color, Coord, Face, KakouneRequest, Line, MenuStyle, NamedColor,
+    Atom, Attributes, Color, Coord, WireFace, KakouneRequest, Line, MenuStyle, NamedColor,
 };
 use kasane_core::state::{AppState, DirtyFlags};
 use serde::Serialize;
@@ -55,34 +55,34 @@ impl PluginBackend for BenchPlugin {
 
 /// Build a tree-sitter-style colored line with keyword + identifier + literal atoms.
 fn make_colored_line(i: usize) -> Line {
-    let keyword_face = Face {
+    let keyword_face = WireFace {
         fg: Color::Rgb {
             r: 255,
             g: 100,
             b: 0,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let ident_face = Face {
+    let ident_face = WireFace {
         fg: Color::Rgb {
             r: 0,
             g: 200,
             b: 100,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let literal_face = Face {
+    let literal_face = WireFace {
         fg: Color::Rgb {
             r: 100,
             g: 100,
             b: 255,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let plain_face = Face::default();
+    let plain_face = WireFace::default();
 
     vec![
         Atom::from_wire(keyword_face, "let"),
@@ -99,17 +99,17 @@ pub fn typical_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = Face {
+    state.observed.status_default_style = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.lines = (0..line_count).map(make_colored_line).collect();
@@ -128,44 +128,44 @@ pub fn typical_state(line_count: usize) -> AppState {
 // Realistic fixture builders (diverse faces, varied line lengths, wide chars)
 // ---------------------------------------------------------------------------
 
-fn keyword_face() -> Face {
-    Face {
+fn keyword_face() -> WireFace {
+    WireFace {
         fg: Color::Rgb {
             r: 255,
             g: 100,
             b: 0,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     }
 }
 
-fn ident_face() -> Face {
-    Face {
+fn ident_face() -> WireFace {
+    WireFace {
         fg: Color::Rgb {
             r: 0,
             g: 200,
             b: 100,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     }
 }
 
-fn literal_face() -> Face {
-    Face {
+fn literal_face() -> WireFace {
+    WireFace {
         fg: Color::Rgb {
             r: 100,
             g: 100,
             b: 255,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     }
 }
 
-fn comment_face() -> Face {
-    Face {
+fn comment_face() -> WireFace {
+    WireFace {
         fg: Color::Rgb {
             r: 128,
             g: 128,
@@ -173,56 +173,56 @@ fn comment_face() -> Face {
         },
         bg: Color::Default,
         attributes: Attributes::ITALIC,
-        ..Face::default()
+        ..WireFace::default()
     }
 }
 
-fn type_face() -> Face {
-    Face {
+fn type_face() -> WireFace {
+    WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     }
 }
 
-fn operator_face() -> Face {
-    Face {
+fn operator_face() -> WireFace {
+    WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     }
 }
 
-fn string_face() -> Face {
-    Face {
+fn string_face() -> WireFace {
+    WireFace {
         fg: Color::Named(NamedColor::Yellow),
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     }
 }
 
-fn error_face() -> Face {
-    Face {
+fn error_face() -> WireFace {
+    WireFace {
         fg: Color::Named(NamedColor::BrightRed),
         bg: Color::Default,
         attributes: Attributes::BOLD | Attributes::UNDERLINE,
-        ..Face::default()
+        ..WireFace::default()
     }
 }
 
-fn namespace_face() -> Face {
-    Face {
+fn namespace_face() -> WireFace {
+    WireFace {
         fg: Color::Named(NamedColor::Magenta),
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     }
 }
 
-fn constant_face() -> Face {
-    Face {
+fn constant_face() -> WireFace {
+    WireFace {
         fg: Color::Named(NamedColor::BrightBlue),
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     }
 }
 
@@ -296,7 +296,7 @@ fn cjk_comment_line(i: usize) -> Line {
 fn attribute_heavy_line(i: usize) -> Line {
     vec![
         Atom::from_wire(
-            Face {
+            WireFace {
                 attributes: Attributes::BOLD,
                 ..error_face()
             },
@@ -304,7 +304,7 @@ fn attribute_heavy_line(i: usize) -> Line {
         ),
         Atom::from_wire(operator_face(), ": "),
         Atom::from_wire(
-            Face {
+            WireFace {
                 attributes: Attributes::ITALIC | Attributes::UNDERLINE,
                 ..string_face()
             },
@@ -332,17 +332,17 @@ pub fn realistic_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = Face {
+    state.observed.status_default_style = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.lines = (0..line_count).map(make_realistic_line).collect();
@@ -362,10 +362,10 @@ pub fn realistic_state(line_count: usize) -> AppState {
 pub fn draw_realistic_json(line_count: usize) -> Vec<u8> {
     let lines: Vec<Line> = (0..line_count).map(make_realistic_line).collect();
     let wire_lines = lines_to_wire(&lines);
-    let default_face = Face {
+    let default_face = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     };
     let padding_face = default_face;
     to_json_bytes(
@@ -386,10 +386,10 @@ pub fn state_with_edit(base: &AppState, start_line: usize, n: usize) -> AppState
     for i in start_line..(start_line + n).min(state.observed.lines.len()) {
         state.observed.lines[i] = vec![
             Atom::from_wire(
-                Face {
+                WireFace {
                     fg: Color::Rgb { r: 255, g: 0, b: 0 },
                     bg: Color::Default,
-                    ..Face::default()
+                    ..WireFace::default()
                 },
                 format!("edited_line_{i}"),
             ),
@@ -411,15 +411,15 @@ pub fn state_with_menu(item_count: usize) -> AppState {
             }]
         })
         .collect();
-    let menu_face = Face {
+    let menu_face = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Blue),
-        ..Face::default()
+        ..WireFace::default()
     };
-    let selected_face = Face {
+    let selected_face = WireFace {
         fg: Color::Named(NamedColor::Black),
         bg: Color::Named(NamedColor::Cyan),
-        ..Face::default()
+        ..WireFace::default()
     };
     let screen_h = state.available_height();
     state.observed.menu = Some(kasane_core::state::MenuState::new(
@@ -447,17 +447,17 @@ pub fn draw_request(line_count: usize) -> KakouneRequest {
         lines,
         cursor_pos: Coord::default(),
         default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
-            &Face {
+            &WireFace {
                 fg: Color::Named(NamedColor::White),
                 bg: Color::Named(NamedColor::Black),
-                ..Face::default()
+                ..WireFace::default()
             },
         )),
         padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
-            &Face {
+            &WireFace {
                 fg: Color::Named(NamedColor::White),
                 bg: Color::Named(NamedColor::Black),
-                ..Face::default()
+                ..WireFace::default()
             },
         )),
         widget_columns: 0,
@@ -493,7 +493,7 @@ struct JsonRpcMsg<P: Serialize> {
 /// so we project to the legacy `{ face, contents }` shape here.
 #[derive(Serialize)]
 struct WireAtomBench<'a> {
-    face: Face,
+    face: WireFace,
     contents: &'a str,
 }
 
@@ -523,10 +523,10 @@ fn to_json_bytes<P: Serialize>(method: &'static str, params: P) -> Vec<u8> {
 pub fn draw_json(line_count: usize) -> Vec<u8> {
     let lines: Vec<Line> = (0..line_count).map(make_colored_line).collect();
     let wire_lines = lines_to_wire(&lines);
-    let default_face = Face {
+    let default_face = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     };
     let padding_face = default_face;
     to_json_bytes(
@@ -549,10 +549,10 @@ pub fn draw_status_json() -> Vec<u8> {
     let wire_prompt = atoms_to_wire(&prompt);
     let wire_content = atoms_to_wire(&content);
     let wire_mode_line = atoms_to_wire(&mode_line);
-    let default_face = Face {
+    let default_face = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     };
     to_json_bytes(
         "draw_status",
@@ -577,15 +577,15 @@ pub fn menu_show_json(item_count: usize) -> Vec<u8> {
         line: 5,
         column: 10,
     };
-    let selected_face = Face {
+    let selected_face = WireFace {
         fg: Color::Named(NamedColor::Black),
         bg: Color::Named(NamedColor::Cyan),
-        ..Face::default()
+        ..WireFace::default()
     };
-    let menu_face = Face {
+    let menu_face = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Blue),
-        ..Face::default()
+        ..WireFace::default()
     };
     to_json_bytes(
         "menu_show",

@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use crate::config::{ThemeConfig, ThemeValue};
 use crate::element::{ElementStyle, StyleToken};
 use crate::protocol::Style as PStyle;
-use crate::protocol::{Attributes, Color, Face, NamedColor};
+use crate::protocol::{Attributes, Color, NamedColor, WireFace};
 
 /// Theme maps StyleTokens to styles for consistent visual styling.
 ///
-/// Storage and the public API are both `Style`-native. Wire-format `Face`
+/// Storage and the public API are both `Style`-native. Wire-format `WireFace`
 /// values produced by [`parse_face_spec`] are converted to `Style` at the
 /// theme boundary, so callers never see the legacy bitflag representation.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,19 +45,19 @@ impl Theme {
         // Workspace split divider
         map.insert(
             StyleToken::SPLIT_DIVIDER,
-            (Face {
+            (WireFace {
                 fg: Color::Named(NamedColor::BrightBlack),
                 bg: Color::Named(NamedColor::BrightBlack),
-                ..Face::default()
+                ..WireFace::default()
             })
             .into(),
         );
         map.insert(
             StyleToken::SPLIT_DIVIDER_FOCUSED,
-            (Face {
+            (WireFace {
                 fg: Color::Default,
                 bg: Color::Named(NamedColor::BrightBlack),
-                ..Face::default()
+                ..WireFace::default()
             })
             .into(),
         );
@@ -65,13 +65,13 @@ impl Theme {
         // Gutter line numbers (TextPanel)
         map.insert(
             StyleToken::GUTTER_LINE_NUMBER,
-            Face {
+            WireFace {
                 fg: Color::Rgb {
                     r: 120,
                     g: 120,
                     b: 120,
                 },
-                ..Face::default()
+                ..WireFace::default()
             }
             .into(),
         );
@@ -79,13 +79,13 @@ impl Theme {
         // TextPanel cursor highlight
         map.insert(
             StyleToken::TEXT_PANEL_CURSOR,
-            Face {
+            WireFace {
                 bg: Color::Rgb {
                     r: 40,
                     g: 40,
                     b: 60,
                 },
-                ..Face::default()
+                ..WireFace::default()
             }
             .into(),
         );
@@ -93,7 +93,7 @@ impl Theme {
         // Shadow
         map.insert(
             StyleToken::SHADOW,
-            (Face {
+            (WireFace {
                 fg: Color::Default,
                 bg: Color::Default,
                 underline: Color::Default,
@@ -210,7 +210,7 @@ impl Theme {
         if let Some(ref palette) = ctx.chrome {
             self.set_if_still_default(
                 StyleToken::SHADOW,
-                Face {
+                WireFace {
                     fg: palette.dim_fg,
                     bg: Color::Default,
                     underline: Color::Default,
@@ -220,19 +220,19 @@ impl Theme {
             );
             self.set_if_still_default(
                 StyleToken::SPLIT_DIVIDER,
-                Face {
+                WireFace {
                     fg: palette.chrome_bg,
                     bg: palette.chrome_bg,
-                    ..Face::default()
+                    ..WireFace::default()
                 }
                 .into(),
             );
             self.set_if_still_default(
                 StyleToken::SPLIT_DIVIDER_FOCUSED,
-                Face {
+                WireFace {
                     fg: Color::Default,
                     bg: palette.chrome_bg,
-                    ..Face::default()
+                    ..WireFace::default()
                 }
                 .into(),
             );
@@ -354,10 +354,10 @@ fn resolve_token_refs(
     }
 }
 
-/// Parse a simple face spec like "red,blue+bi" into a Face.
+/// Parse a simple face spec like "red,blue+bi" into a WireFace.
 /// Format: "fg,bg+attrs" where fg/bg are color names or "default",
 /// and attrs is a combination of b(old), i(talic), u(nderline), r(everse), d(im).
-pub(crate) fn parse_face_spec(spec: &str) -> Option<Face> {
+pub(crate) fn parse_face_spec(spec: &str) -> Option<WireFace> {
     let (colors_part, attrs_part) = if let Some(pos) = spec.find('+') {
         (&spec[..pos], Some(&spec[pos + 1..]))
     } else {
@@ -385,7 +385,7 @@ pub(crate) fn parse_face_spec(spec: &str) -> Option<Face> {
         })
         .unwrap_or(Attributes::empty());
 
-    Some(Face {
+    Some(WireFace {
         fg,
         bg,
         underline: Color::Default,
@@ -441,9 +441,9 @@ mod tests {
     #[test]
     fn test_resolve_direct() {
         let theme = Theme::new();
-        let face = Face {
+        let face = WireFace {
             fg: Color::Named(NamedColor::Red),
-            ..Face::default()
+            ..WireFace::default()
         };
         let style = ElementStyle::from(face);
         let result = theme.resolve(&style, &PStyle::default());

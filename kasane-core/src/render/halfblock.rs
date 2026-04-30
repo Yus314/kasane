@@ -7,7 +7,7 @@
 
 use crate::element::{ImageFit, ImageSource};
 use crate::layout::Rect;
-use crate::protocol::{Color, Face};
+use crate::protocol::{Color, WireFace};
 
 use super::grid::CellGrid;
 use super::paint::paint_text;
@@ -166,7 +166,7 @@ pub fn paint_halfblock(grid: &mut CellGrid, area: &Rect, cells: &[HalfblockCell]
             let cell = &cells[idx];
             let gx = area.x + fit.dst_x + cx;
             let gy = area.y + fit.dst_y + cy;
-            let face = Face {
+            let face = WireFace {
                 fg: Color::Rgb {
                     r: cell.top.0,
                     g: cell.top.1,
@@ -177,7 +177,7 @@ pub fn paint_halfblock(grid: &mut CellGrid, area: &Rect, cells: &[HalfblockCell]
                     g: cell.bot.1,
                     b: cell.bot.2,
                 },
-                ..Face::default()
+                ..WireFace::default()
             };
             let style = crate::render::TerminalStyle::from_face(&face);
             grid.put_char(gx, gy, "\u{2580}", &style);
@@ -469,9 +469,9 @@ pub(crate) fn paint_image_fallback(grid: &mut CellGrid, source: &ImageSource, ar
         }
         ImageSource::SvgData { .. } => "[SVG]".to_string(),
     };
-    let face = Face {
+    let face = WireFace {
         attributes: crate::protocol::Attributes::DIM,
-        ..Face::default()
+        ..WireFace::default()
     };
     paint_text(grid, area, &label, &face);
 }

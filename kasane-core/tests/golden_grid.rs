@@ -4,7 +4,7 @@
 //! full kasane-core pipeline (protocol → state → view → layout → paint)
 //! and compare the resulting [`CellGrid`] against a committed text
 //! snapshot. They are the regression gate for ADR-031 Phase A's B-wide
-//! PR (Atom → `Arc<Style>` + hot-path Face removal): every code path
+//! PR (Atom → `Arc<Style>` + hot-path WireFace removal): every code path
 //! that B-wide modifies sits between protocol input and CellGrid output,
 //! so any unintended pixel-level behavioural change manifests as a
 //! CellGrid diff first.
@@ -32,7 +32,7 @@
 use std::path::PathBuf;
 
 use kasane_core::protocol::{
-    Atom, Attributes, Color, Coord, Face, KakouneRequest, NamedColor, StatusStyle, Style,
+    Atom, Attributes, Color, Coord, KakouneRequest, NamedColor, StatusStyle, Style, WireFace,
 };
 use kasane_core::render::CellGrid;
 use kasane_core::test_support::{render_to_grid, test_state_80x24};
@@ -76,7 +76,7 @@ fn update_mode() -> bool {
 /// ```
 ///
 /// Diffs surface as: a single row's text changing, a single face run
-/// shifting, or a width regression at a known cell. Face additions appear
+/// shifting, or a width regression at a known cell. WireFace additions appear
 /// as new `fN` legend entries with the corresponding `=fN` reference in a
 /// row's run list.
 pub fn dump_cellgrid(grid: &CellGrid) -> String {
@@ -224,9 +224,9 @@ pub fn assert_grid_snapshot(grid: &CellGrid, name: &str) {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/// Build a Face with the given fg colour and bold attribute.
-fn red_bold() -> Face {
-    Face {
+/// Build a WireFace with the given fg colour and bold attribute.
+fn red_bold() -> WireFace {
+    WireFace {
         fg: Color::Named(NamedColor::Red),
         bg: Color::Default,
         underline: Color::Default,
@@ -234,8 +234,8 @@ fn red_bold() -> Face {
     }
 }
 
-fn cyan_underline() -> Face {
-    Face {
+fn cyan_underline() -> WireFace {
+    WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Default,
         underline: Color::Named(NamedColor::Cyan),
@@ -280,7 +280,7 @@ fn ascii_80x24_smoke() {
         lines: buffer_scene(),
         cursor_pos: Coord { line: 0, column: 0 },
         default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
-            &Face {
+            &WireFace {
                 fg: Color::Named(NamedColor::White),
                 bg: Color::Named(NamedColor::Black),
                 underline: Color::Default,
@@ -288,7 +288,7 @@ fn ascii_80x24_smoke() {
             },
         )),
         padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
-            &Face {
+            &WireFace {
                 fg: Color::Named(NamedColor::White),
                 bg: Color::Named(NamedColor::Black),
                 underline: Color::Default,

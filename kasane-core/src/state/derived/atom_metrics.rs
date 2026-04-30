@@ -3,7 +3,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, WireFace};
 
 /// Compute the display width of an atom's contents.
 pub(crate) fn atom_display_width(atom: &Atom) -> u32 {
@@ -31,7 +31,7 @@ pub(crate) fn line_atom_display_width(line: &[Atom]) -> u32 {
 pub(super) fn face_at_coord(
     lines: &[crate::protocol::Line],
     pos: crate::protocol::Coord,
-) -> Option<Face> {
+) -> Option<WireFace> {
     let line = lines.get(pos.line as usize)?;
     let target_col = pos.column as u32;
     let mut col: u32 = 0;

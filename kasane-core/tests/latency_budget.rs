@@ -8,7 +8,9 @@ use std::time::Instant;
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Atom, Color, Face, KakouneRequest, NamedColor, Style, parse_request};
+use kasane_core::protocol::{
+    Atom, Color, KakouneRequest, NamedColor, Style, WireFace, parse_request,
+};
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
 use kasane_core::render::view;
@@ -20,45 +22,45 @@ fn typical_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = Face {
+    state.observed.status_default_style = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
-    let keyword_face = Face {
+    let keyword_face = WireFace {
         fg: Color::Rgb {
             r: 255,
             g: 100,
             b: 0,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let ident_face = Face {
+    let ident_face = WireFace {
         fg: Color::Rgb {
             r: 0,
             g: 200,
             b: 100,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let literal_face = Face {
+    let literal_face = WireFace {
         fg: Color::Rgb {
             r: 100,
             g: 100,
             b: 255,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
     state.observed.lines = (0..line_count)
         .map(|i| {
@@ -132,17 +134,17 @@ fn full_frame_under_2ms() {
 fn parse_request_under_500us() {
     // Build a 100-line draw JSON message. Atom no longer derives Serialize
     // (its style_id is host-side state), so we construct the wire-format
-    // JSON directly with Face values.
-    let default_face = Face {
+    // JSON directly with WireFace values.
+    let default_face = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     };
     let cursor_pos = kasane_core::protocol::Coord::default();
     let lines_json: Vec<Vec<serde_json::Value>> = (0..100)
         .map(|i| {
             vec![serde_json::json!({
-                "face": Face::default(),
+                "face": WireFace::default(),
                 "contents": format!("line {i}"),
             })]
         })
@@ -185,17 +187,17 @@ fn state_apply_under_200us() {
             .collect(),
         cursor_pos: kasane_core::protocol::Coord::default(),
         default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
-            &Face {
+            &WireFace {
                 fg: Color::Named(NamedColor::White),
                 bg: Color::Named(NamedColor::Black),
-                ..Face::default()
+                ..WireFace::default()
             },
         )),
         padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
-            &Face {
+            &WireFace {
                 fg: Color::Named(NamedColor::White),
                 bg: Color::Named(NamedColor::Black),
-                ..Face::default()
+                ..WireFace::default()
             },
         )),
         widget_columns: 0,
