@@ -696,22 +696,15 @@ fn color_from_brush(b: Brush) -> super::color::Color {
 }
 
 // ---------------------------------------------------------------------------
-// Default-style sharing helper (ADR-031 Phase A — B-wide)
+// Default-style sharing helper
 // ---------------------------------------------------------------------------
 //
-// The previous Phase A.2 design routed every `Atom`'s style through a
-// process-global `Mutex<StyleStore>`. Profiling for the B-wide PR showed
-// that lock acquisition on the hot path (per-atom `Atom::face()` calls
-// from `pipeline.rs`, `walk_scene.rs`, `paint.rs`, …) was the dominant
-// share of the 1-line-frame perf gap. Atoms now hold an
-// `Arc<UnresolvedStyle>` directly, with parse-time interning handled in
-// `protocol::parse` (`HashMap<UnresolvedStyle, Arc<UnresolvedStyle>>`).
-//
-// The default style is special: it is the most common style in any
-// frame and is constructed millions of times (`Atom::plain`, padding
-// rows, etc.). Pre-allocating one shared `Arc` removes the repeated
-// allocation entirely and keeps the default code path cheaper than the
-// pre-A.2 inline-`Face` form.
+// Atoms hold an `Arc<UnresolvedStyle>` so identical styles in a frame
+// share an allocation. Parse-time interning lives in `protocol::parse`
+// (`HashMap<UnresolvedStyle, Arc<UnresolvedStyle>>`). The default
+// style is the most common one in any frame (`Atom::plain`, padding
+// rows, bench fixtures); pre-allocating a single shared `Arc` for it
+// makes the hot default path lock-free and allocation-free.
 
 /// Return the shared `Arc` for [`UnresolvedStyle::default`]. Cheap to
 /// clone — the underlying allocation is performed at most once per

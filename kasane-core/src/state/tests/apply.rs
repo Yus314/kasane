@@ -387,7 +387,7 @@ fn test_select_out_of_range_resets() {
 fn cursor_atom(s: &str) -> Atom {
     // Wire-aware: `final_*` flags must reach `detect_cursors`. `Style::from_face`
     // drops them by design — see `protocol/style.rs::Style::from_face` docstring.
-    Atom::from_face(
+    Atom::from_wire(
         Face {
             fg: Color::Named(NamedColor::White),
             bg: Color::Default,

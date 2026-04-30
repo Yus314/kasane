@@ -382,7 +382,7 @@ pub mod wire {
     /// black). Mirrors the wire-format shape that
     /// `detect_cursors` recognises.
     pub fn cursor_atom(text: impl Into<String>) -> Atom {
-        Atom::from_face(
+        Atom::from_wire(
             face_with_final_fg(Color::Named(NamedColor::White)),
             text.into(),
         )
@@ -390,7 +390,7 @@ pub mod wire {
 
     /// Atom with the supplied wire-format face.
     pub fn atom_with_face(face: Face, text: impl Into<String>) -> Atom {
-        Atom::from_face(face, text.into())
+        Atom::from_wire(face, text.into())
     }
 
     #[cfg(test)]

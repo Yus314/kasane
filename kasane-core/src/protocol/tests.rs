@@ -592,7 +592,7 @@ fn test_parse_old_protocol_set_cursor() {
 // Atom no longer derives Deserialize (its style_id is an interner key, not
 // a wire field). The tests below feed Face JSON to Style::from_face — the
 // same path the protocol parser takes when it builds an `Atom` via
-// `Atom::from_face`.
+// `Atom::from_wire`.
 
 fn parse_face_json(json: &str) -> Face {
     serde_json::from_str(json).unwrap()

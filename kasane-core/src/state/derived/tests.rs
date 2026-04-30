@@ -9,7 +9,7 @@ fn make_atom(text: &str) -> Atom {
 fn make_cursor_atom(text: &str) -> Atom {
     // Wire-aware: `final_*` flags must reach `detect_cursors`. `Style::from_face`
     // drops them by design — see `protocol/style.rs::Style::from_face` docstring.
-    Atom::from_face(
+    Atom::from_wire(
         Face {
             attributes: Attributes::FINAL_FG | Attributes::REVERSE,
             ..Face::default()

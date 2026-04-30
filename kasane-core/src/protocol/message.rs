@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 use super::color::Face;
 use super::style::{Style, UnresolvedStyle};
 
-// `Face` is still used by `Atom::from_face`/`Atom::face` bridges and by
-// internal call sites that have not yet migrated. Phase B3 progressively
-// removes these bridges; the `KakouneRequest` enum has already migrated
-// to `Arc<UnresolvedStyle>` for its style-typed fields below.
+// `Face` is wire-format-aware. `Atom::from_wire` and the parser
+// construct atoms from it while preserving Kakoune `final_*`
+// resolution flags. Post-resolve callers use `Atom::with_style`.
+// `KakouneRequest` carries `Arc<UnresolvedStyle>` end-to-end.
 
 // ---------------------------------------------------------------------------
 // Atom / Line / Coord
@@ -31,7 +31,7 @@ pub struct Atom {
 impl Atom {
     /// **Wire-format-aware** atom constructor. Allocates a fresh `Arc`
     /// wrapping an [`UnresolvedStyle`] that **preserves the Kakoune
-    /// `final_*` resolution flags** carried by the input `Face`.
+    /// `final_*` resolution flags** carried by the input wire `Face`.
     ///
     /// Use this only for code that mirrors the wire-format shape: the
     /// protocol parser itself, fixtures that simulate Kakoune's `draw_*`
@@ -45,7 +45,7 @@ impl Atom {
     /// Sites that build many atoms from the same `Face` should reach for
     /// [`crate::protocol::parse`]'s frame-local intern path so the `Arc`
     /// allocation is shared.
-    pub fn from_face(face: Face, contents: impl Into<CompactString>) -> Self {
+    pub fn from_wire(face: Face, contents: impl Into<CompactString>) -> Self {
         Self {
             contents: contents.into(),
             style: Arc::new(UnresolvedStyle::from_face(&face)),
@@ -60,7 +60,7 @@ impl Atom {
     /// This is the canonical constructor for new host, plugin, and
     /// rendering code that already holds a `Style`. It does **not**
     /// preserve Kakoune `final_*` resolution semantics — for that, see
-    /// [`Atom::from_face`].
+    /// [`Atom::from_wire`].
     #[inline]
     pub fn with_style(contents: impl Into<CompactString>, style: Style) -> Self {
         Self {
