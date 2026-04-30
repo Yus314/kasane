@@ -17,7 +17,7 @@ This provides the Rust toolchain (stable, with `wasm32-wasip2` target), GUI depe
 ### Manual Setup
 
 - [Rust](https://rustup.rs/) stable toolchain
-- [Kakoune](https://kakoune.org/) 2024.12.09 or later
+- [Kakoune](https://kakoune.org/) v2026.04.12 or later
 - For GUI backend: Vulkan SDK, Wayland/X11 development libraries, fontconfig
 - For WASM plugins: `rustup target add wasm32-wasip2`
 

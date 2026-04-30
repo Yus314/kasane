@@ -31,7 +31,7 @@ Existing Kakoune plugins (kak-lsp, …) work as before. See
 ## Quick Start
 
 > [!NOTE]
-> Requires [Kakoune](https://kakoune.org/) 2024.12.09 or later.
+> Requires [Kakoune](https://kakoune.org/) v2026.04.12 or later.
 > Binary packages skip the Rust toolchain requirement.
 
 Arch Linux: `yay -S kasane-bin`
