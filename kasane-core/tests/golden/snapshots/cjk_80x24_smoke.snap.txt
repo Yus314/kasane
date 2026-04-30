@@ -1,0 +1,84 @@
+# golden snapshot v1
+# dim 80 24
+
+# faces
+f0 TerminalStyle { fg: Named(Red), bg: Named(Black), underline_color: Default, underline: None, bold: true, italic: false, dim: false, blink: false, reverse: false, strikethrough: false }
+f1 TerminalStyle { fg: Named(White), bg: Named(Black), underline_color: Default, underline: None, bold: false, italic: false, dim: false, blink: false, reverse: false, strikethrough: false }
+f2 TerminalStyle { fg: Named(Cyan), bg: Named(Black), underline_color: Named(Cyan), underline: Solid, bold: false, italic: false, dim: false, blink: false, reverse: false, strikethrough: false }
+f3 TerminalStyle { fg: Default, bg: Default, underline_color: Default, underline: None, bold: false, italic: false, dim: false, blink: false, reverse: false, strikethrough: false }
+
+# rows
+row 00: |fn メイン() {                                                                   |
+        faces: 0..2=f0 2..80=f1
+row 01: |    let 挨拶 = "こんにちは";                                                    |
+        faces: 0..80=f1
+row 02: |                                                                                |
+        faces: 0..80=f1
+row 03: |    println!("{}", 挨拶);                                                       |
+        faces: 0..4=f1 4..12=f2 12..80=f1
+row 04: |}                                                                               |
+        faces: 0..80=f1
+row 05: |~                                                                               |
+        faces: 0..80=f1
+row 06: |~                                                                               |
+        faces: 0..80=f1
+row 07: |~                                                                               |
+        faces: 0..80=f1
+row 08: |~                                                                               |
+        faces: 0..80=f1
+row 09: |~                                                                               |
+        faces: 0..80=f1
+row 10: |~                                                                               |
+        faces: 0..80=f1
+row 11: |~                                                                               |
+        faces: 0..80=f1
+row 12: |~                                                                               |
+        faces: 0..80=f1
+row 13: |~                                                                               |
+        faces: 0..80=f1
+row 14: |~                                                                               |
+        faces: 0..80=f1
+row 15: |~                                                                               |
+        faces: 0..80=f1
+row 16: |~                                                                               |
+        faces: 0..80=f1
+row 17: |~                                                                               |
+        faces: 0..80=f1
+row 18: |~                                                                               |
+        faces: 0..80=f1
+row 19: |~                                                                               |
+        faces: 0..80=f1
+row 20: |~                                                                               |
+        faces: 0..80=f1
+row 21: |~                                                                               |
+        faces: 0..80=f1
+row 22: |~                                                                               |
+        faces: 0..80=f1
+row 23: | cjk.rs                                                                   normal|
+        faces: 0..80=f3
+
+# non-default widths
+(3, 0): width=2
+(4, 0): width=0
+(5, 0): width=2
+(6, 0): width=0
+(7, 0): width=2
+(8, 0): width=0
+(8, 1): width=2
+(9, 1): width=0
+(10, 1): width=2
+(11, 1): width=0
+(16, 1): width=2
+(17, 1): width=0
+(18, 1): width=2
+(19, 1): width=0
+(20, 1): width=2
+(21, 1): width=0
+(22, 1): width=2
+(23, 1): width=0
+(24, 1): width=2
+(25, 1): width=0
+(19, 3): width=2
+(20, 3): width=0
+(21, 3): width=2
+(22, 3): width=0
