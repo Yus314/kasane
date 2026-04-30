@@ -223,17 +223,18 @@ pub(crate) fn style_to_wit(s: &Style) -> wit::Style {
     }
 }
 
-// --- Face bridge (legacy) ---
+// --- Face bridge ---
 //
-// Many host call sites still hold native `Face`. These helpers route
-// through `Style` on the wire while preserving the `Face` API on the
-// native side. They will retire when host code migrates fully to
-// `Style` / `UnresolvedStyle` (a follow-up to ADR-031 Phase 4).
+// `wit_style_to_face` keeps host call sites that still hold a `Face`
+// (decoration / annotation conversions) source-stable. `face_to_wit`
+// is test-only — production code goes through `style_to_wit` directly
+// after the HostState Style migration.
 
 pub(crate) fn wit_style_to_face(ws: &wit::Style) -> Face {
     wit_style_to_style(ws).to_face()
 }
 
+#[cfg(test)]
 pub(crate) fn face_to_wit(f: &Face) -> wit::Style {
     style_to_wit(&Style::from_face(f))
 }
