@@ -225,6 +225,7 @@ pub enum ElementStyle {
     Token(StyleToken),
 }
 
+#[doc(hidden)]
 impl From<Face> for ElementStyle {
     fn from(face: Face) -> Self {
         ElementStyle::Inline(Arc::new(crate::protocol::UnresolvedStyle::from_face(&face)))

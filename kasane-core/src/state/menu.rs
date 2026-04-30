@@ -56,7 +56,9 @@ fn atoms_display_width(atoms: &[Atom]) -> usize {
 /// preceded by a whitespace-only atom (the alignment padding Kakoune inserts).
 pub fn split_single_item(item: &Line) -> ItemSplit {
     for i in 1..item.len() {
-        if item[i].face().fg != Color::Default && item[i - 1].contents.chars().all(|c| c == ' ') {
+        if item[i].unresolved_style().to_face().fg != Color::Default
+            && item[i - 1].contents.chars().all(|c| c == ' ')
+        {
             // Strip trailing whitespace-only atoms from candidate
             let mut cand_end = i - 1;
             while cand_end > 0 && item[cand_end - 1].contents.chars().all(|c| c == ' ') {

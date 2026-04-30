@@ -83,26 +83,6 @@ impl Atom {
         }
     }
 
-    /// Project this atom's style back to a wire-format [`Face`].
-    ///
-    /// Preserves the Kakoune `final_*` resolution flags and the discrete
-    /// attribute bitset. Used by sites that either need the wire-format
-    /// shape (e.g. the protocol re-emitter, theme face-lookup paths that
-    /// pre-date ADR-031, [`detect_cursors`](crate::state::derived) which
-    /// reads `Attributes::FINAL_FG` to identify cursor atoms) or that
-    /// haven't yet been migrated.
-    ///
-    /// New code should prefer reading the structured representation
-    /// directly: `&*atom.style` for the unresolved form (with the
-    /// `final_*` flags surfaced as bool fields), or
-    /// [`atom.style_resolved_default`](Self::style_resolved_default) for
-    /// the post-resolve [`Style`] form. Hot paths that read multiple
-    /// fields should bind `let s = &*atom.style;` once.
-    #[inline]
-    pub fn face(&self) -> Face {
-        self.style.to_face()
-    }
-
     /// Borrow this atom's parse-side, unresolved style directly.
     ///
     /// Renamed from `style()` in the ADR-031 split (post-Step-1) and now

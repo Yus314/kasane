@@ -405,7 +405,10 @@ mod tests {
 
         // Second item "defgh" at x=6, should be selected
         assert_eq!(grid.get(6, menu_row).unwrap().grapheme, "d");
-        assert_eq!(grid.get(6, menu_row).unwrap().face(), selected_face);
+        assert_eq!(
+            grid.get(6, menu_row).unwrap().style,
+            crate::render::TerminalStyle::from_face(&selected_face)
+        );
 
         // Third item "ij" at x=12
         assert_eq!(grid.get(12, menu_row).unwrap().grapheme, "i");

@@ -113,7 +113,9 @@ fn detect_cursors_by_face(lines: &[Line], primary_pos: Coord) -> Vec<Coord> {
     for (line_idx, line) in lines.iter().enumerate() {
         let mut col: u32 = 0;
         for atom in line.iter() {
-            if atom.face().fg == primary_face.fg && atom.face().bg != Color::Default {
+            if atom.unresolved_style().to_face().fg == primary_face.fg
+                && atom.unresolved_style().to_face().bg != Color::Default
+            {
                 cursors.push(Coord {
                     line: line_idx as i32,
                     column: col as i32,

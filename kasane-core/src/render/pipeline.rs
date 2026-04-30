@@ -184,10 +184,15 @@ fn extract_cursor_color(state: &AppState) -> crate::protocol::Color {
     for atom in atoms {
         let atom_width = crate::layout::line_display_width(std::slice::from_ref(atom));
         if col < pos + atom_width {
-            return if atom.face().attributes.contains(Attributes::REVERSE) {
-                atom.face().fg
+            return if atom
+                .unresolved_style()
+                .to_face()
+                .attributes
+                .contains(Attributes::REVERSE)
+            {
+                atom.unresolved_style().to_face().fg
             } else {
-                atom.face().bg
+                atom.unresolved_style().to_face().bg
             };
         }
         pos += atom_width;

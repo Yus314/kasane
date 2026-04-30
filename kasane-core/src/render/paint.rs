@@ -818,7 +818,7 @@ mod tests {
             BufferLineAction::Synthetic { atoms } => {
                 let text: String = atoms.iter().map(|a| a.contents.as_str()).collect();
                 assert_eq!(text, "folded");
-                assert_eq!(atoms[0].face(), syn_face);
+                assert_eq!(atoms[0].unresolved_style().to_face(), syn_face);
             }
             other => panic!("expected Synthetic, got {other:?}"),
         }
@@ -935,7 +935,7 @@ mod tests {
                 let vt_atoms = virtual_text.expect("expected virtual text");
                 assert_eq!(vt_atoms.len(), 1);
                 assert_eq!(vt_atoms[0].contents.as_str(), "  err");
-                assert_eq!(vt_atoms[0].face(), vt_face);
+                assert_eq!(vt_atoms[0].unresolved_style().to_face(), vt_face);
             }
             other => panic!("expected BufferLine with virtual text, got {other:?}"),
         }
@@ -1122,7 +1122,7 @@ mod tests {
 
         // Decorated content present
         assert_eq!(grid.get(0, 0).unwrap().grapheme, "h");
-        assert_eq!(grid.get(0, 0).unwrap().face().fg, deco_face.fg);
+        assert_eq!(grid.get(0, 0).unwrap().style.fg, deco_face.fg);
         // Virtual text after content
         assert_eq!(grid.get(5, 0).unwrap().grapheme, " ");
         assert_eq!(grid.get(6, 0).unwrap().grapheme, "v");

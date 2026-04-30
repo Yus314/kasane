@@ -2,7 +2,7 @@ use compact_str::CompactString;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Atom, Face, Style, resolve_style};
+use crate::protocol::{Atom, Style, resolve_style};
 use crate::render::terminal_style::TerminalStyle;
 
 // ---------------------------------------------------------------------------
@@ -38,65 +38,11 @@ impl Default for Cell {
 }
 
 impl Cell {
-    /// Project the cell's [`TerminalStyle`] back to the legacy [`Face`]
-    /// representation. Bridge for sites that still consume `Face` (tests,
-    /// theme APIs, plugin decoration emit). Drops fields that have no
-    /// `Face` equivalent. Retires when Phase B3 removes [`Face`].
-    #[inline]
-    pub fn face(&self) -> Face {
-        terminal_style_to_face(&self.style)
-    }
-
     /// Apply a [`TerminalStyle`]-level mutation to the cell. The mutation
-    /// runs directly on the stored style, eliminating the
-    /// `TerminalStyle ↔ Face ↔ bitflags` round-trip that the legacy
-    /// `with_face_mut` bridge paid on every decoration / ornament merge.
+    /// runs directly on the stored style.
     #[inline]
     pub fn with_style_mut<F: FnOnce(&mut TerminalStyle)>(&mut self, f: F) {
         f(&mut self.style);
-    }
-}
-
-/// Lossy projection from [`TerminalStyle`] back to legacy [`Face`].
-///
-/// Bridge that keeps `cell.face()` working during the design-δ migration.
-/// Used by tests and any code path that still pattern-matches on `Face`
-/// fields. Dropped in Phase B3 along with [`Face`] itself.
-fn terminal_style_to_face(ts: &TerminalStyle) -> Face {
-    use crate::protocol::Attributes;
-    let mut attrs = Attributes::empty();
-    if ts.bold {
-        attrs |= Attributes::BOLD;
-    }
-    if ts.italic {
-        attrs |= Attributes::ITALIC;
-    }
-    if ts.dim {
-        attrs |= Attributes::DIM;
-    }
-    if ts.blink {
-        attrs |= Attributes::BLINK;
-    }
-    if ts.reverse {
-        attrs |= Attributes::REVERSE;
-    }
-    if ts.strikethrough {
-        attrs |= Attributes::STRIKETHROUGH;
-    }
-    use crate::render::terminal_style::UnderlineKind;
-    match ts.underline {
-        UnderlineKind::None => {}
-        UnderlineKind::Solid => attrs |= Attributes::UNDERLINE,
-        UnderlineKind::Curly => attrs |= Attributes::CURLY_UNDERLINE,
-        UnderlineKind::Dotted => attrs |= Attributes::DOTTED_UNDERLINE,
-        UnderlineKind::Dashed => attrs |= Attributes::DASHED_UNDERLINE,
-        UnderlineKind::Double => attrs |= Attributes::DOUBLE_UNDERLINE,
-    }
-    Face {
-        fg: ts.fg,
-        bg: ts.bg,
-        underline: ts.underline_color,
-        attributes: attrs,
     }
 }
 
@@ -798,13 +744,7 @@ mod tests {
         assert_eq!(grid.get(1, 0).unwrap().grapheme, ";");
         assert_eq!(grid.get(2, 0).unwrap().grapheme, " ");
         // The space from \n carries the atom's strikethrough attribute
-        assert!(
-            grid.get(2, 0)
-                .unwrap()
-                .face()
-                .attributes
-                .contains(Attributes::STRIKETHROUGH)
-        );
+        assert!(grid.get(2, 0).unwrap().style.strikethrough);
     }
 
     #[test]

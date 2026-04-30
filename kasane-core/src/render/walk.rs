@@ -358,7 +358,7 @@ mod tests {
                             "grapheme mismatch at ({x}, {y}): old={:?} new={:?}",
                             o.grapheme, n.grapheme
                         );
-                        assert_eq!(o.face(), n.face(), "face mismatch at ({x}, {y})");
+                        assert_eq!(o.style, n.style, "style mismatch at ({x}, {y})");
                         assert_eq!(o.width, n.width, "width mismatch at ({x}, {y})");
                     }
                     (None, None) => {}
@@ -954,12 +954,12 @@ mod tests {
                     c.grapheme
                 );
                 assert_eq!(
-                    c.face().fg,
+                    c.style.fg,
                     crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
                     "fg green at ({x},{y})"
                 );
                 assert_eq!(
-                    c.face().bg,
+                    c.style.bg,
                     crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
                     "bg green at ({x},{y})"
                 );
@@ -1157,7 +1157,7 @@ mod tests {
             Default::default(),
             None,
         );
-        let normal_fg = grid.get(0, 0).expect("cell").face().fg;
+        let normal_fg = grid.get(0, 0).expect("cell").style.fg;
         assert_eq!(
             normal_fg,
             Color::Named(NamedColor::BrightBlack),
@@ -1181,7 +1181,7 @@ mod tests {
             Default::default(),
             None,
         );
-        let focused_fg = grid.get(0, 0).expect("cell").face().fg;
+        let focused_fg = grid.get(0, 0).expect("cell").style.fg;
         assert_eq!(
             focused_fg,
             Color::Default,

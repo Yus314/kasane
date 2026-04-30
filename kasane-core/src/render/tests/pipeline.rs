@@ -75,7 +75,7 @@ fn test_treesitter_rgb_colors_preserved() {
     let cell_f = grid_new.get(0, 0).unwrap();
     assert_eq!(cell_f.grapheme, "f");
     assert_eq!(
-        cell_f.face().fg,
+        cell_f.style.fg,
         Color::Rgb {
             r: 255,
             g: 100,
@@ -84,7 +84,7 @@ fn test_treesitter_rgb_colors_preserved() {
         "tree-sitter keyword fg lost in declarative pipeline"
     );
     assert_eq!(
-        cell_f.face().bg,
+        cell_f.style.bg,
         Color::Named(NamedColor::Black),
         "tree-sitter keyword bg not resolved against default_face"
     );
@@ -92,7 +92,7 @@ fn test_treesitter_rgb_colors_preserved() {
     let cell_n = grid_new.get(1, 0).unwrap();
     assert_eq!(cell_n.grapheme, "n");
     assert_eq!(
-        cell_n.face().fg,
+        cell_n.style.fg,
         Color::Rgb {
             r: 255,
             g: 100,
@@ -103,7 +103,7 @@ fn test_treesitter_rgb_colors_preserved() {
     // " " at column 2 should have default_face (resolved from Default)
     let cell_sp = grid_new.get(2, 0).unwrap();
     assert_eq!(
-        cell_sp.face().fg,
+        cell_sp.style.fg,
         Color::Named(NamedColor::White),
         "default space fg should resolve to default_face.fg"
     );
@@ -112,7 +112,7 @@ fn test_treesitter_rgb_colors_preserved() {
     let cell_m = grid_new.get(3, 0).unwrap();
     assert_eq!(cell_m.grapheme, "m");
     assert_eq!(
-        cell_m.face().fg,
+        cell_m.style.fg,
         Color::Rgb {
             r: 0,
             g: 200,
@@ -131,18 +131,14 @@ fn test_treesitter_rgb_colors_preserved() {
                 "grapheme mismatch at ({x}, {y})"
             );
             assert_eq!(
-                old.face().fg,
-                new.face().fg,
+                old.style.fg, new.style.fg,
                 "fg mismatch at ({x}, {y}): old={:?} new={:?}",
-                old.face().fg,
-                new.face().fg
+                old.style.fg, new.style.fg
             );
             assert_eq!(
-                old.face().bg,
-                new.face().bg,
+                old.style.bg, new.style.bg,
                 "bg mismatch at ({x}, {y}): old={:?} new={:?}",
-                old.face().bg,
-                new.face().bg
+                old.style.bg, new.style.bg
             );
         }
     }
@@ -198,7 +194,7 @@ fn test_treesitter_colors_persist_across_frames() {
     // Check "l" has RGB red fg
     let l_cell = diffs1.iter().find(|d| d.x == 0 && d.y == 0).unwrap();
     assert_eq!(
-        l_cell.cell.face().fg,
+        l_cell.cell.style.fg,
         Color::Rgb { r: 255, g: 0, b: 0 },
         "frame 1: tree-sitter fg lost"
     );
@@ -245,7 +241,7 @@ fn test_treesitter_colors_persist_across_frames() {
         "frame 3: color change should be detected"
     );
     assert_eq!(
-        l_cell3.unwrap().cell.face().fg,
+        l_cell3.unwrap().cell.style.fg,
         Color::Rgb { r: 0, g: 0, b: 255 },
         "frame 3: new tree-sitter color not reflected"
     );
@@ -425,8 +421,8 @@ fn test_declarative_matches_imperative_buffer_status() {
                 "grapheme mismatch at ({x}, {y}): old={:?} new={:?}",
                 old.grapheme, new.grapheme
             );
-            assert_eq!(old.face().fg, new.face().fg, "fg mismatch at ({x}, {y})");
-            assert_eq!(old.face().bg, new.face().bg, "bg mismatch at ({x}, {y})");
+            assert_eq!(old.style.fg, new.style.fg, "fg mismatch at ({x}, {y})");
+            assert_eq!(old.style.bg, new.style.bg, "bg mismatch at ({x}, {y})");
         }
     }
 
@@ -441,13 +437,11 @@ fn test_declarative_matches_imperative_buffer_status() {
             old.grapheme, new.grapheme
         );
         assert_eq!(
-            old.face().fg,
-            new.face().fg,
+            old.style.fg, new.style.fg,
             "status fg mismatch at ({x}, {status_y})"
         );
         assert_eq!(
-            old.face().bg,
-            new.face().bg,
+            old.style.bg, new.style.bg,
             "status bg mismatch at ({x}, {status_y})"
         );
     }

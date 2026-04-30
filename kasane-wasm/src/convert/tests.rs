@@ -111,7 +111,10 @@ fn convert_atom() {
     };
     let a = wit_atom_to_atom(&wa);
     assert_eq!(a.contents.as_str(), "hello");
-    assert_eq!(a.face().fg, Color::Named(NamedColor::Red));
+    assert_eq!(
+        a.unresolved_style().to_face().fg,
+        Color::Named(NamedColor::Red)
+    );
 }
 
 #[test]

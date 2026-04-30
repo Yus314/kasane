@@ -89,7 +89,7 @@ pub fn dump_cellgrid(grid: &CellGrid) -> String {
     // First pass: assign face ids in first-seen order (deterministic
     // because we walk the grid in (y, x) order). Also collect per-row
     // text + face id sequences + widths.
-    let mut faces: Vec<Face> = Vec::new();
+    let mut faces: Vec<kasane_core::render::TerminalStyle> = Vec::new();
     let mut row_text: Vec<String> = Vec::with_capacity(grid.height() as usize);
     let mut row_faces: Vec<Vec<usize>> = Vec::with_capacity(grid.height() as usize);
     let mut row_widths: Vec<Vec<u8>> = Vec::with_capacity(grid.height() as usize);
@@ -101,10 +101,10 @@ pub fn dump_cellgrid(grid: &CellGrid) -> String {
         for x in 0..grid.width() {
             let cell = grid.get(x, y).expect("cell in bounds");
             text.push_str(&cell.grapheme);
-            let id = match faces.iter().position(|f| *f == cell.face()) {
+            let id = match faces.iter().position(|f| *f == cell.style) {
                 Some(i) => i,
                 None => {
-                    faces.push(cell.face());
+                    faces.push(cell.style);
                     faces.len() - 1
                 }
             };

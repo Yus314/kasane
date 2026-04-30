@@ -561,7 +561,7 @@ fn test_parse_draw_with_rgba_selection_face() {
     match req {
         KakouneRequest::Draw { lines, .. } => {
             assert_eq!(
-                lines[0][0].face().bg,
+                lines[0][0].unresolved_style().to_face().bg,
                 Color::Rgb {
                     r: 0x46,
                     g: 0x46,

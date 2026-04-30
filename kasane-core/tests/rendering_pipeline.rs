@@ -98,7 +98,7 @@ fn buffer_with_colored_atoms() {
     assert_eq!(row_text(&grid, 0), "red plain");
     // First cell inherits red foreground
     let cell = grid.get(0, 0).unwrap();
-    assert_eq!(cell.face().fg, red);
+    assert_eq!(cell.style.fg, red);
 }
 
 // ===========================================================================
@@ -725,7 +725,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
                     "grapheme mismatch at ({x}, {y}): legacy={:?} salsa={:?}",
                     l.grapheme, s.grapheme
                 );
-                assert_eq!(l.face(), s.face(), "face mismatch at ({x}, {y})");
+                assert_eq!(l.style, s.style, "style mismatch at ({x}, {y})");
             }
         }
     }
@@ -787,7 +787,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
                     "grapheme mismatch at ({x}, {y}): legacy={:?} salsa={:?}",
                     l.grapheme, s.grapheme
                 );
-                assert_eq!(l.face(), s.face(), "face mismatch at ({x}, {y})");
+                assert_eq!(l.style, s.style, "style mismatch at ({x}, {y})");
             }
         }
     }

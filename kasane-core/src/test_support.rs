@@ -436,7 +436,12 @@ pub mod wire {
             // any test fixture using `cursor_atom` will be picked up
             // by the cursor-detection pipeline.
             let atom = cursor_atom("X");
-            assert!(atom.face().attributes.contains(Attributes::FINAL_FG));
+            assert!(
+                atom.unresolved_style()
+                    .to_face()
+                    .attributes
+                    .contains(Attributes::FINAL_FG)
+            );
         }
 
         #[test]

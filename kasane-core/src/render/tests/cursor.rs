@@ -22,8 +22,8 @@ fn test_render_buffer_resolves_default_face() {
 
     let cell = grid.get(0, 0).unwrap();
     assert_eq!(cell.grapheme, "x");
-    assert_eq!(cell.face().fg, Color::Named(NamedColor::Yellow));
-    assert_eq!(cell.face().bg, Color::Named(NamedColor::Blue));
+    assert_eq!(cell.style.fg, Color::Named(NamedColor::Yellow));
+    assert_eq!(cell.style.bg, Color::Named(NamedColor::Blue));
 }
 
 #[test]
@@ -47,14 +47,14 @@ fn test_render_status_resolves_default_face() {
     // Status line at row 1 (last row of 2-row grid)
     let cell = grid.get(0, 1).unwrap();
     assert_eq!(cell.grapheme, "s");
-    assert_eq!(cell.face().fg, Color::Named(NamedColor::Cyan));
-    assert_eq!(cell.face().bg, Color::Named(NamedColor::Magenta));
+    assert_eq!(cell.style.fg, Color::Named(NamedColor::Cyan));
+    assert_eq!(cell.style.bg, Color::Named(NamedColor::Magenta));
 
     // Mode line at rightmost position
     let cell_mode = grid.get(9, 1).unwrap();
     assert_eq!(cell_mode.grapheme, "m");
-    assert_eq!(cell_mode.face().fg, Color::Named(NamedColor::Cyan));
-    assert_eq!(cell_mode.face().bg, Color::Named(NamedColor::Magenta));
+    assert_eq!(cell_mode.style.fg, Color::Named(NamedColor::Cyan));
+    assert_eq!(cell_mode.style.bg, Color::Named(NamedColor::Magenta));
 }
 
 #[test]
@@ -161,7 +161,10 @@ fn test_clear_cursor_face_at_bar() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 2, 0);
 
     let cell = grid.get(2, 0).unwrap();
-    assert_eq!(cell.face(), state.observed.default_style.to_face());
+    assert_eq!(
+        cell.style,
+        crate::render::TerminalStyle::from_style(&state.observed.default_style)
+    );
 }
 
 #[test]
@@ -190,7 +193,10 @@ fn test_clear_cursor_face_at_underline() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Underline, 3, 1);
 
     let cell = grid.get(3, 1).unwrap();
-    assert_eq!(cell.face(), state.observed.default_style.to_face());
+    assert_eq!(
+        cell.style,
+        crate::render::TerminalStyle::from_style(&state.observed.default_style)
+    );
 }
 
 #[test]
@@ -212,7 +218,10 @@ fn test_clear_cursor_face_at_block_noop() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Block, 0, 0);
 
     let cell = grid.get(0, 0).unwrap();
-    assert_eq!(cell.face(), cursor_face);
+    assert_eq!(
+        cell.style,
+        crate::render::TerminalStyle::from_face(&cursor_face)
+    );
 }
 
 #[test]
@@ -242,7 +251,10 @@ fn test_clear_cursor_face_at_prompt() {
     clear_cursor_face_at(&state, &mut grid, CursorStyle::Bar, 4, 4);
 
     let cell = grid.get(4, 4).unwrap();
-    assert_eq!(cell.face(), state.observed.status_default_style.to_face());
+    assert_eq!(
+        cell.style,
+        crate::render::TerminalStyle::from_style(&state.observed.status_default_style)
+    );
 }
 
 #[test]
@@ -351,9 +363,9 @@ fn test_apply_secondary_cursor_faces_on_grid() {
 
     let cell = grid.get(3, 0).unwrap();
     // REVERSE should be gone
-    assert!(!cell.face().attributes.contains(Attributes::REVERSE));
+    assert!(!cell.style.reverse);
     // bg should be a blended RGB
-    assert!(matches!(cell.face().bg, Color::Rgb { .. }));
+    assert!(matches!(cell.style.bg, Color::Rgb { .. }));
 }
 
 #[test]
@@ -387,5 +399,5 @@ fn test_apply_secondary_cursor_faces_with_offset() {
     apply_secondary_cursor_faces(&state, &mut grid, 3, None, 0, 0, None);
 
     let cell = grid.get(5, 1).unwrap();
-    assert!(!cell.face().attributes.contains(Attributes::REVERSE));
+    assert!(!cell.style.reverse);
 }

@@ -358,29 +358,31 @@ impl Style {
         Self::default()
     }
 
-    /// Convert from the legacy Kakoune face representation.
-    ///
-    /// Drops Kakoune resolution flags (`final_fg` / `final_bg` / `final_style`).
-    /// Use [`UnresolvedStyle::from_face`] when those flags must be preserved
-    /// for a downstream [`resolve_style`] call.
+    /// **Wire-format conversion only.** Construct a `Style` from a
+    /// Kakoune wire-format `Face`, dropping the resolution flags
+    /// (`FINAL_FG` / `FINAL_BG` / `FINAL_ATTR`). Production rendering
+    /// code holds `Style` directly; this exists for fixtures, test
+    /// helpers, and the parser-side bridge while the wire format
+    /// continues to use `Face`.
+    #[doc(hidden)]
     pub fn from_face(face: &super::color::Face) -> Self {
         UnresolvedStyle::from_face(face).style
     }
 
-    /// Lossy conversion back to the legacy face representation.
-    ///
-    /// Used by sites that still consume `Face`. Preserves bold/italic/blink
-    /// /reverse/dim/strike/underline-style. `font_weight` outside the discrete
-    /// `{NORMAL, BOLD}` set rounds to bold when ≥ 600. `font_variations`,
-    /// `letter_spacing`, and `bidi_override` are dropped. The result has no
-    /// `final_*` attributes set — a `Style` is post-resolution.
+    /// **Wire-format conversion only.** Project this `Style` back to a
+    /// Kakoune wire-format `Face`. The result has no `final_*` flags
+    /// set (a `Style` is post-resolve). Production rendering reads
+    /// `Style` fields directly; this exists for the protocol re-emit
+    /// path, theme face-lookup utilities, and tests that compare
+    /// against wire-shaped fixtures.
+    #[doc(hidden)]
     pub fn to_face(&self) -> super::color::Face {
         let (face, _) = self.to_face_with_attrs();
         face
     }
 
     /// Internal: project to a `Face` and return the in-progress attribute
-    /// bitset. Shared by [`Style::to_face`] and [`UnresolvedStyle::to_face`]
+    /// bitset. Shared by [`Self::to_face`] and [`UnresolvedStyle::to_face`]
     /// so the latter can OR in the `final_*` bits without duplicating the
     /// rest of the conversion.
     fn to_face_with_attrs(&self) -> (super::color::Face, super::color::Attributes) {
@@ -588,9 +590,10 @@ impl UnresolvedStyle {
 // Style resolution
 // ---------------------------------------------------------------------------
 
-// Bridge during ADR-031 Phase A.3: Face → Style conversion via `From`.
-// Lets call sites with a `Face` (typically from KakouneRequest or theme
-// tokens) flow naturally into Style-typed APIs.
+// Wire-format `Face` → `Style` conversion via `From`. Internal to the
+// protocol layer and the wire-aware test helpers; marked `#[doc(hidden)]`
+// to keep this surface invisible from external API readers.
+#[doc(hidden)]
 impl From<super::color::Face> for Style {
     #[inline]
     fn from(face: super::color::Face) -> Self {
@@ -598,6 +601,7 @@ impl From<super::color::Face> for Style {
     }
 }
 
+#[doc(hidden)]
 impl From<&super::color::Face> for Style {
     #[inline]
     fn from(face: &super::color::Face) -> Self {
