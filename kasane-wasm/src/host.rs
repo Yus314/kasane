@@ -266,7 +266,7 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     fn get_status_mode_line(&mut self) -> Vec<bindings::kasane::plugin::types::Atom> {
         convert::atoms_to_wit(&self.status_mode_line)
     }
-    fn get_status_default_face(&mut self) -> bindings::kasane::plugin::types::Style {
+    fn get_status_default_style(&mut self) -> bindings::kasane::plugin::types::Style {
         convert::face_to_wit(&self.status_default_face)
     }
     fn get_status_style(&mut self) -> String {
@@ -305,10 +305,10 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     fn get_widget_columns(&mut self) -> u16 {
         self.widget_columns
     }
-    fn get_default_face(&mut self) -> bindings::kasane::plugin::types::Style {
+    fn get_default_style(&mut self) -> bindings::kasane::plugin::types::Style {
         convert::face_to_wit(&self.default_face)
     }
-    fn get_padding_face(&mut self) -> bindings::kasane::plugin::types::Style {
+    fn get_padding_style(&mut self) -> bindings::kasane::plugin::types::Style {
         convert::face_to_wit(&self.padding_face)
     }
 
@@ -395,13 +395,13 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     fn get_menu_anchor(&mut self) -> Option<bindings::kasane::plugin::types::Coord> {
         self.menu_anchor.map(|c| c.into())
     }
-    fn get_menu_style(&mut self) -> Option<String> {
+    fn get_menu_mode(&mut self) -> Option<String> {
         self.menu_style.clone()
     }
-    fn get_menu_face(&mut self) -> Option<bindings::kasane::plugin::types::Style> {
+    fn get_menu_style(&mut self) -> Option<bindings::kasane::plugin::types::Style> {
         self.menu_face.map(|f| convert::face_to_wit(&f))
     }
-    fn get_menu_selected_face(&mut self) -> Option<bindings::kasane::plugin::types::Style> {
+    fn get_menu_selected_style(&mut self) -> Option<bindings::kasane::plugin::types::Style> {
         self.menu_selected_face.map(|f| convert::face_to_wit(&f))
     }
 
@@ -434,7 +434,7 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     }
 
     // --- v0.8.0 Tier 9: Theme / Color context ---
-    fn get_theme_face(&mut self, token: String) -> Option<bindings::kasane::plugin::types::Style> {
+    fn get_theme_style(&mut self, token: String) -> Option<bindings::kasane::plugin::types::Style> {
         let st = kasane_core::element::StyleToken::new(token);
         self.theme.get_style(&st).map(convert::style_to_wit)
     }

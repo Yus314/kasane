@@ -124,7 +124,7 @@ pub enum ManifestError {
 }
 
 pub const CURRENT_MANIFEST_VERSION: u32 = 2;
-pub const HOST_ABI_VERSION: &str = "1.1.0";
+pub const HOST_ABI_VERSION: &str = "2.0.0";
 
 impl PluginManifest {
     pub fn parse(toml_str: &str) -> Result<Self, ManifestError> {
@@ -487,7 +487,7 @@ mod tests {
     const MINIMAL_MANIFEST: &str = r#"
 [plugin]
 id = "test_plugin"
-abi_version = "1.1.0"
+abi_version = "2.0.0"
 "#;
 
     #[test]
@@ -502,7 +502,7 @@ abi_version = "1.1.0"
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "1.1.0"
+abi_version = "2.0.0"
 
 [capabilities]
 wasi = ["teleportation"]

@@ -537,7 +537,7 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             /// Query the host theme for a style associated with a token name.
             /// Returns `None` if the token is not in the theme.
             pub fn get_theme_style(token: &str) -> Option<Style> {
-                super::kasane::plugin::host_state::get_theme_face(token)
+                super::kasane::plugin::host_state::get_theme_style(token)
             }
 
             /// Whether the current editor background is dark.

@@ -484,7 +484,7 @@ On terminal resize, `backend.invalidate()` clears the previous buffer, forcing a
 
 ### 5.8 Style and Color Pipeline Invariants
 
-The post-resolve `Style` record (`kasane:plugin@1.0.0` `style`, `kasane_core::protocol::Style`) is the canonical render-ready style across both backends. Plugin authors and contributors must treat the following as load-bearing invariants; a change to any of them requires updating this section first.
+The post-resolve `Style` record (`kasane:plugin@2.0.0` `style`, `kasane_core::protocol::Style`) is the canonical render-ready style across both backends. Plugin authors and contributors must treat the following as load-bearing invariants; a change to any of them requires updating this section first.
 
 **Brush colour space** — Named-colour and RGB brushes (`Brush::Named` / `Brush::Rgb`) are interpreted as sRGB at the source (Kakoune `Face` colours, theme tokens, `Brush::Rgb { r, g, b }` literals from plugins). The GPU pipeline currently composites in linear space without performing sRGB → linear conversion at the texture sample boundary (`kasane-gui/src/gpu/parley_text/gpu_atlas.rs`, `vertex_builder.rs`). The mismatch is intentional for performance: glyph rasters are produced premultiplied in linear space by swash, and the framebuffer view is non-sRGB. Visually, this means low-value channels (e.g. dim greys, anti-aliased glyph edges) render slightly brighter than a strict sRGB compositor would produce, and gradient blending is non-perceptual. Re-introducing sRGB conversion is tracked behind the `SRGB_FLAG` constant in `vertex_builder.rs`. Until that flag is wired up, plugins specifying RGB values should pre-correct for brightness if perceptual accuracy matters.
 
