@@ -1707,7 +1707,6 @@ mod tests {
 
     #[test]
     fn may_interfere_detects_transform_target_overlap() {
-        use crate::plugin::CapabilityDescriptor;
         use crate::plugin::context::TransformTarget;
 
         let mut r1 = HandlerRegistry::<TestState>::new();
@@ -1732,7 +1731,6 @@ mod tests {
 
     #[test]
     fn may_interfere_no_overlap() {
-        use crate::plugin::CapabilityDescriptor;
         use crate::plugin::context::TransformTarget;
 
         let mut r1 = HandlerRegistry::<TestState>::new();

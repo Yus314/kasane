@@ -5,7 +5,7 @@
 //! 2. sync_inputs_from_state correctly projects AppState
 //! 3. Early Cutoff works (unchanged inputs don't trigger recomputation)
 
-use kasane_core::protocol::{Atom, Coord, CursorMode, Face};
+use kasane_core::protocol::{Atom, Coord, CursorMode};
 use kasane_core::render::CursorStyle;
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_queries;

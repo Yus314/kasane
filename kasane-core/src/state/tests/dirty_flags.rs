@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::plugin::AppView;
 use crate::protocol::{Coord, Face, KakouneRequest, MenuStyle};
 use crate::state::{AppState, DirtyFlags};
 use crate::test_utils::make_line;
@@ -133,7 +132,7 @@ fn test_apply_draw_lines_dirty_face_change() {
         widget_columns: 0,
     });
 
-    // Same lines but different default_face → all dirty
+    // Same lines but different default_style → all dirty
     let new_face = Face {
         fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Red),
         ..Face::default()
@@ -377,8 +376,8 @@ fn test_field_dirty_map_matches_macro_analysis() {
     let macro_map: &[(&str, &[&str])] = &[
         ("lines", &["BUFFER_CONTENT"]),
         ("lines_dirty", &["BUFFER_CONTENT"]),
-        ("default_face", &["BUFFER_CONTENT"]),
-        ("padding_face", &["BUFFER_CONTENT"]),
+        ("default_style", &["BUFFER_CONTENT"]),
+        ("padding_style", &["BUFFER_CONTENT"]),
         ("widget_columns", &["BUFFER_CONTENT"]),
         ("cursor_mode", &["BUFFER_CURSOR"]),
         ("cursor_pos", &["BUFFER_CURSOR"]),
@@ -389,7 +388,7 @@ fn test_field_dirty_map_matches_macro_analysis() {
         ("status_content_cursor_pos", &["STATUS"]),
         ("status_line", &["STATUS"]),
         ("status_mode_line", &["STATUS"]),
-        ("status_default_face", &["STATUS"]),
+        ("status_default_style", &["STATUS"]),
         ("status_style", &["STATUS"]),
         ("menu", &["MENU_STRUCTURE", "MENU_SELECTION"]),
         ("infos", &["INFO"]),
@@ -479,14 +478,14 @@ fn test_field_epistemic_map_complete() {
     let expected: HashMap<&str, &str> = HashMap::from([
         // Observed (14)
         ("lines", "observed"),
-        ("default_face", "observed"),
-        ("padding_face", "observed"),
+        ("default_style", "observed"),
+        ("padding_style", "observed"),
         ("cursor_pos", "observed"),
         ("status_prompt", "observed"),
         ("status_content", "observed"),
         ("status_content_cursor_pos", "observed"),
         ("status_mode_line", "observed"),
-        ("status_default_face", "observed"),
+        ("status_default_style", "observed"),
         ("status_style", "observed"),
         ("widget_columns", "observed"),
         ("menu", "observed"),
@@ -582,7 +581,7 @@ fn test_derived_fields_match() {
         ("lines_dirty", "line equality diff (R-3)"),
         ("cursor_mode", "content_cursor_pos sign (I-3)"),
         ("status_line", "prompt + content concatenation"),
-        ("color_context", "default_face luminance analysis"),
+        ("color_context", "default_style luminance analysis"),
         ("editor_mode", "cursor_mode + mode_line (I-2)"),
     ]);
 

@@ -1,20 +1,22 @@
-//! Styled line data model for the Parley shaper (ADR-031, Phase 7).
+//! Styled line data model for the Parley shaper.
 //!
-//! `StyledLine` is the GUI-internal representation of a single Kakoune line
-//! shaped by Parley. It is built from a slice of [`Atom`]s plus a base
-//! [`Style`] (the line's `default_face` analogue), then handed to
-//! [`super::shaper::ParleyShaper`] to produce a [`super::layout::ParleyLayout`].
+//! `StyledLine` is the GUI-internal representation of a single Kakoune
+//! line shaped by Parley. It is built from a slice of [`Atom`]s plus a
+//! base [`Style`] (the line's `default_face` analogue), then handed to
+//! [`super::shaper::shape_line`] to produce
+//! [`super::layout::ParleyLayout`].
 //!
 //! Why a separate type instead of feeding `&[Atom]` directly to Parley:
 //!
-//! - **Style merging**: Adjacent atoms with identical resolved styles can
-//!   share a single [`StyleRun`], reducing the number of properties pushed
-//!   into Parley's `RangedBuilder` and improving ligature continuity.
-//! - **Cache key**: Hashing a `StyledLine` (small fixed-shape struct) is much
-//!   cheaper than re-walking the source atoms each frame.
+//! - **Style merging**: adjacent atoms with identical resolved styles
+//!   share a single [`StyleRun`], reducing the number of properties
+//!   pushed into Parley's `RangedBuilder` and improving ligature
+//!   continuity.
+//! - **Cache key**: hashing a `StyledLine` (small fixed-shape struct)
+//!   is much cheaper than re-walking the source atoms each frame.
 //! - **InlineBox bridge**: `DisplayDirective::InsertInline` content is
-//!   surfaced here as an [`InlineBoxSlot`] so Phase 10's shaper integration
-//!   can call `RangedBuilder::push_inline_box` directly.
+//!   surfaced as an [`InlineBoxSlot`] so the shaper can call
+//!   `RangedBuilder::push_inline_box` directly.
 
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
@@ -33,8 +35,10 @@ pub struct StyledLine {
     /// Style runs covering `text`. Sorted, non-overlapping, contiguous; the
     /// union of all `byte_range`s equals `0..text.len()` for non-empty lines.
     pub runs: Vec<StyleRun>,
-    /// Inline-box slots from `DisplayDirective::InsertInline`. Empty until
-    /// Phase 10 wires the directive translation.
+    /// Inline-box slots from `DisplayDirective::InsertInline`. Empty
+    /// for paragraphs that declare no inline boxes; populated by
+    /// [`Self::with_inline_boxes`] when a host paragraph carries
+    /// `inline_box_slots` metadata.
     pub inline_boxes: Vec<InlineBoxSlot>,
     /// Per-atom byte boundaries in `text`. Length = `source_atom_count + 1`;
     /// `atom_boundaries[i]..atom_boundaries[i+1]` is the byte range of the
@@ -45,9 +49,6 @@ pub struct StyledLine {
     /// projection to `ResolvedParleyStyle` (e.g. `bg`, `dim`, `blink`,
     /// `reverse`) so the renderer can paint backgrounds and post-effects.
     pub atom_styles: Vec<Style>,
-    /// Base style used to resolve atom styles. Kept here so the L1 cache
-    /// key can include it.
-    pub base_style: Style,
     /// Font size in physical pixels (already multiplied by scale factor).
     pub font_size: f32,
     /// Optional maximum advance for line wrapping. `None` means no wrap
@@ -73,8 +74,7 @@ pub struct StyleRun {
 }
 
 /// Slot for an inline widget injected into the layout via
-/// `DisplayDirective::InsertInline`. Phase 10 fills these in; until then the
-/// vector is always empty.
+/// `DisplayDirective::InsertInline`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InlineBoxSlot {
     /// Stable identifier (typically the hash of `(line_idx, byte_offset,
@@ -160,7 +160,6 @@ impl StyledLine {
             inline_boxes: Vec::new(),
             atom_boundaries,
             atom_styles,
-            base_style: base_style.clone(),
             font_size,
             max_width,
             content_hash,
@@ -184,17 +183,17 @@ impl StyledLine {
 
     /// Attach inline-box slots to a styled line built from atoms.
     ///
-    /// ADR-031 Phase 10 Step 2-renderer: `DisplayDirective::InlineBox`
-    /// declarations propagate to the GUI renderer through this builder.
-    /// The shaper (`shaper.rs::shape_line`) calls Parley's
-    /// `push_inline_box` for each slot so the layout engine reserves the
-    /// declared geometry; the host then queries
-    /// `PluginBackend::paint_inline_box(box_id)` per slot at render time
-    /// to obtain the paint Element.
+    /// `DisplayDirective::InlineBox` declarations propagate to the GUI
+    /// renderer through this builder. The shaper
+    /// ([`super::shaper::shape_line`]) calls Parley's
+    /// `push_inline_box` for each slot so the layout engine reserves
+    /// the declared geometry; the host then queries
+    /// `PluginBackend::paint_inline_box(box_id)` per slot at render
+    /// time to obtain the paint Element.
     ///
-    /// `box_id` and slot geometry are part of the L1 LayoutCache content
-    /// hash — changing any slot field invalidates the cache, since slot
-    /// geometry shapes the surrounding text flow.
+    /// `box_id` and slot geometry are part of the L1 LayoutCache
+    /// content hash — changing any slot field invalidates the cache,
+    /// since slot geometry shapes the surrounding text flow.
     pub fn with_inline_boxes(mut self, slots: Vec<InlineBoxSlot>) -> Self {
         self.inline_boxes = slots;
         // Re-hash with the new slots folded into the content hash.
@@ -250,6 +249,12 @@ fn compute_content_hash_with_boxes(
 /// Parley's `RunMetrics` to populate the offset / thickness fields. Two
 /// layouts that differ only by which side of that bool was on are not
 /// interchangeable at paint time.
+///
+/// `font_features` and `font_variations` are shape-affecting (they change
+/// glyph selection, ligature substitution, and axis-driven advance widths)
+/// and are folded in here. The Wave 1.3 invariant: every field that reaches
+/// `RangedBuilder::push` in `shaper.rs::shape_line` must contribute to this
+/// hash, otherwise stale layouts pollute paint output.
 fn compute_style_hash(runs: &[StyleRun]) -> u64 {
     let mut h = FxHasher::default();
     for run in runs {
@@ -262,6 +267,11 @@ fn compute_style_hash(runs: &[StyleRun]) -> u64 {
         run.resolved.slant.hash(&mut h);
         decoration_enabled(&run.resolved.underline).hash(&mut h);
         decoration_enabled(&run.resolved.strikethrough).hash(&mut h);
+        // OpenType features (`u32` bitset) and variable-font axes
+        // (`[FontVariation]`). Must mirror the corresponding pushes in
+        // `shaper.rs::shape_line`.
+        run.resolved.font_features.hash(&mut h);
+        run.resolved.font_variations.as_ref().hash(&mut h);
     }
     h.finish()
 }
@@ -274,10 +284,12 @@ fn decoration_enabled(d: &DecorationKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kasane_core::protocol::{Brush as KBrush, Face, FontWeight as KFontWeight, NamedColor};
+    use kasane_core::protocol::{
+        Brush as KBrush, Face, FontWeight as KFontWeight, NamedColor, Style,
+    };
 
     fn atom(text: &str, face: Face) -> Atom {
-        Atom::from_face(face, text)
+        Atom::with_style(text, Style::from_face(&face))
     }
 
     fn red_face() -> Face {
@@ -454,6 +466,79 @@ mod tests {
             height: 14.0,
         }]);
         assert_ne!(small.content_hash, wide.content_hash);
+    }
+
+    #[test]
+    fn style_hash_changes_with_font_features() {
+        // Wave 1.3 cache-stale pin. Two lines with identical text + fg +
+        // weight but different `font_features` MUST produce different
+        // style hashes — otherwise the L1 LayoutCache would return a
+        // layout shaped without the requested ligature toggle.
+        use kasane_core::protocol::FontFeatures;
+        let plain_atoms = vec![Atom::with_style(
+            "==",
+            Style {
+                font_features: FontFeatures::default(),
+                ..Style::default()
+            },
+        )];
+        let liga_atoms = vec![Atom::with_style(
+            "==",
+            Style {
+                font_features: FontFeatures(FontFeatures::COMMON_LIGATURES),
+                ..Style::default()
+            },
+        )];
+        let plain = StyledLine::from_atoms(
+            &plain_atoms,
+            &Style::default(),
+            Brush::default(),
+            14.0,
+            None,
+        );
+        let liga =
+            StyledLine::from_atoms(&liga_atoms, &Style::default(), Brush::default(), 14.0, None);
+        assert_eq!(
+            plain.content_hash, liga.content_hash,
+            "text is identical so content_hash must match"
+        );
+        assert_ne!(
+            plain.style_hash, liga.style_hash,
+            "different font_features must produce distinct style_hash; \
+             otherwise the L1 LayoutCache returns a stale layout"
+        );
+    }
+
+    #[test]
+    fn style_hash_changes_with_font_variations() {
+        // Same Wave 1.3 invariant for the variable-font axis path.
+        use kasane_core::protocol::FontVariation;
+        let plain_atoms = vec![Atom::with_style("a", Style::default())];
+        let weighted_atoms = vec![Atom::with_style(
+            "a",
+            Style {
+                font_variations: vec![FontVariation::new(*b"wght", 350.0)],
+                ..Style::default()
+            },
+        )];
+        let plain = StyledLine::from_atoms(
+            &plain_atoms,
+            &Style::default(),
+            Brush::default(),
+            14.0,
+            None,
+        );
+        let weighted = StyledLine::from_atoms(
+            &weighted_atoms,
+            &Style::default(),
+            Brush::default(),
+            14.0,
+            None,
+        );
+        assert_ne!(
+            plain.style_hash, weighted.style_hash,
+            "different font_variations must produce distinct style_hash"
+        );
     }
 
     #[test]

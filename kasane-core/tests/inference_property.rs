@@ -8,8 +8,9 @@
 
 use proptest::prelude::*;
 
-use kasane_core::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor};
+use kasane_core::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor, Style};
 use kasane_core::state::derived::{self, CursorCache};
+use kasane_core::test_support::wire;
 
 // ---------------------------------------------------------------------------
 // Strategies (reuse patterns from dirty_flags_property.rs)
@@ -40,7 +41,8 @@ fn arb_face() -> impl Strategy<Value = Face> {
 
 fn arb_line() -> impl Strategy<Value = Vec<Atom>> {
     prop::collection::vec(
-        ("[a-z]{1,10}", arb_face()).prop_map(|(contents, face)| Atom::from_face(face, contents)),
+        ("[a-z]{1,10}", arb_face())
+            .prop_map(|(contents, face)| Atom::with_style(contents, Style::from_face(&face))),
         1..5,
     )
 }
@@ -55,11 +57,14 @@ fn arb_line_with_cursor() -> impl Strategy<Value = (Vec<Atom>, u32)> {
     // prefix: 0-5 ASCII atoms, then one cursor atom, then 0-3 suffix atoms
     let prefix = prop::collection::vec("[a-z]{1,5}".prop_map(|s: String| Atom::plain(s)), 0..5);
     let cursor_text = "[a-z]{1,3}".prop_map(|s: String| {
-        Atom::from_face(
-            Face {
-                attributes: Attributes::FINAL_FG | Attributes::REVERSE,
-                ..Face::default()
-            },
+        // Wire-aware face fixture — must keep FINAL_FG | REVERSE so
+        // `detect_cursors` recognises the atom as a cursor.
+        wire::atom_with_face(
+            wire::face_with_attrs(
+                Color::Default,
+                Color::Default,
+                Attributes::FINAL_FG | Attributes::REVERSE,
+            ),
             s,
         )
     });
@@ -108,13 +113,14 @@ proptest! {
 
         let (count_before, _) = derived::detect_cursors(&lines, pos);
 
-        // Add another cursor atom at end of last line
+        // Add another cursor atom at end of last line.
         let last = lines.len() - 1;
-        lines[last].push(Atom::from_face(
-            Face {
-                attributes: Attributes::FINAL_FG | Attributes::REVERSE,
-                ..Face::default()
-            },
+        lines[last].push(wire::atom_with_face(
+            wire::face_with_attrs(
+                Color::Default,
+                Color::Default,
+                Attributes::FINAL_FG | Attributes::REVERSE,
+            ),
             "x",
         ));
 

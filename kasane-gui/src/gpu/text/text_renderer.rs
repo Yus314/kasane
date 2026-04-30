@@ -1,11 +1,10 @@
-//! wgpu-side renderer for the Parley pipeline (ADR-031, Phase 9b Step 3).
+//! wgpu-side renderer for the Parley + swash pipeline.
 //!
-//! Mirrors [`text_pipeline::TextRenderer`](crate::gpu::text_pipeline::TextRenderer)
-//! but consumes [`DrawableGlyph`]s from [`super::frame_builder`] and writes
+//! Consumes [`DrawableGlyph`]s from [`super::frame_builder`] and writes
 //! [`ParleyGlyphVertex`]s built by [`super::vertex_builder`]. The shader
-//! (`text_pipeline/shader.wgsl`), vertex layout, atlas bind-group layout,
-//! and uniforms layout are all shared with the cosmic-text renderer
-//! through a single [`text_pipeline::Cache`] instance.
+//! ([`shader.wgsl`](super::wgpu_cache)), vertex layout, atlas bind-group
+//! layout, and uniforms layout all sit on a shared
+//! [`Cache`](super::wgpu_cache::Cache) instance.
 //!
 //! ## Two-call lifecycle
 //!
@@ -38,14 +37,19 @@ use wgpu::{
     Device, MultisampleState, Queue, RenderPass, RenderPipeline,
 };
 
-use crate::gpu::text_pipeline::{Cache, Viewport};
+use super::viewport::Viewport;
+use super::wgpu_cache::Cache;
 
 use super::frame_builder::DrawableGlyph;
 use super::gpu_atlas::GpuAtlasShelf;
 use super::vertex_builder::build_vertices;
 
-/// Parley equivalent of `text_pipeline::TextRenderer`.
-pub struct ParleyTextRenderer {
+/// Renders accumulated [`DrawableGlyph`]s into the wgpu vertex buffer.
+///
+/// Owns the vertex buffer, the render pipeline, and the per-frame
+/// atlas bind group. `prepare` builds the vertex data from the
+/// drawables list; `render` issues the draw call.
+pub struct TextRenderer {
     vertex_buffer: Buffer,
     vertex_buffer_size: u64,
     pipeline: RenderPipeline,
@@ -56,10 +60,11 @@ pub struct ParleyTextRenderer {
     glyph_count: u32,
 }
 
-impl ParleyTextRenderer {
-    /// Build a new renderer. Reuses the supplied [`Cache`]'s shader / bind
-    /// layouts / pipeline cache, which means the parley renderer and the
-    /// cosmic-text renderer share their wgpu pipeline state machine.
+impl TextRenderer {
+    /// Build a new renderer. Reuses the supplied [`Cache`]'s shader,
+    /// bind layouts, and pipeline cache so the wgpu pipeline state
+    /// machine is shared with anything else that constructed against
+    /// the same `Cache`.
     pub fn new(
         device: &Device,
         cache: &Cache,
@@ -155,7 +160,7 @@ impl ParleyTextRenderer {
 }
 
 /// Round `size` up to the next power-of-two `COPY_BUFFER_ALIGNMENT`-aligned
-/// buffer size — matches the helper in `text_pipeline::text_render`.
+/// buffer size — same growth strategy the glyphon-derived renderer used.
 fn next_copy_buffer_size(size: u64) -> u64 {
     let align_mask = COPY_BUFFER_ALIGNMENT - 1;
     ((size.next_power_of_two() + align_mask) & !align_mask).max(COPY_BUFFER_ALIGNMENT)
@@ -163,11 +168,11 @@ fn next_copy_buffer_size(size: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    //! Vertex packing + buffer sizing are unit-tested without wgpu. The
-    //! ParleyTextRenderer construction itself is exercised through the
-    //! SceneRenderer end-to-end smoke (Phase 9b Step 4) — building a
-    //! headless wgpu device here would force every CI runner to find a
-    //! Vulkan / Metal / DX adapter.
+    //! Vertex packing + buffer sizing are unit-tested without wgpu.
+    //! TextRenderer construction itself is exercised through the
+    //! SceneRenderer end-to-end smoke — building a headless wgpu
+    //! device here would force every CI runner to find a Vulkan /
+    //! Metal / DX adapter.
     use super::*;
 
     #[test]

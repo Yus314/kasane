@@ -1,4 +1,4 @@
-package kasane:plugin@1.1.0;
+package kasane:plugin@2.0.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -1235,7 +1235,7 @@ interface host-state {
     get-status-content: func() -> list<atom>;
     get-status-line: func() -> list<atom>;
     get-status-mode-line: func() -> list<atom>;
-    get-status-default-face: func() -> style;
+    get-status-default-style: func() -> style;
     get-status-style: func() -> string;
 
     // --- v0.3.0 Tier 2: Menu / Info state ---
@@ -1250,8 +1250,8 @@ interface host-state {
     get-ui-option: func(key: string) -> option<string>;
     get-cursor-mode: func() -> u8;
     get-widget-columns: func() -> u16;
-    get-default-face: func() -> style;
-    get-padding-face: func() -> style;
+    get-default-style: func() -> style;
+    get-padding-style: func() -> style;
 
     // --- v0.4.0 Tier 4: Multi-cursor ---
     get-cursor-count: func() -> u32;
@@ -1278,9 +1278,9 @@ interface host-state {
 
     // --- v0.4.0 Tier 7: Menu details ---
     get-menu-anchor: func() -> option<coord>;
-    get-menu-style: func() -> option<string>;
-    get-menu-face: func() -> option<style>;
-    get-menu-selected-face: func() -> option<style>;
+    get-menu-mode: func() -> option<string>;
+    get-menu-style: func() -> option<style>;
+    get-menu-selected-style: func() -> option<style>;
 
     // --- v0.7.0 Tier 8: Session metadata ---
     get-session-count: func() -> u32;
@@ -1290,7 +1290,7 @@ interface host-state {
 
     // --- v0.8.0 Tier 9: Theme / Color context ---
     /// Resolve a theme token to a face. Returns none if token is not in the theme.
-    get-theme-face: func(token: string) -> option<style>;
+    get-theme-style: func(token: string) -> option<style>;
 
     /// Whether the current background is dark (true) or light (false).
     /// Based on Kakoune's default_face. Defaults to true when unknown.

@@ -73,12 +73,16 @@ pub struct TerminalStyle {
 }
 
 impl TerminalStyle {
-    /// Build from a legacy [`Face`].
-    ///
-    /// Splits the [`Attributes`] bitflag into individual booleans and
-    /// maps the underline-style flag (UNDERLINE / CURLY_UNDERLINE / etc.)
-    /// to the [`UnderlineKind`] enum. `final_*` resolution flags are
-    /// dropped — they are Kakoune-internal and have no terminal meaning.
+    /// **Wire-format conversion only.** Build from a Kakoune wire-format
+    /// [`Face`]. Splits the [`Attributes`] bitflag into individual
+    /// booleans and maps the underline-style flag (UNDERLINE /
+    /// CURLY_UNDERLINE / etc.) to the [`UnderlineKind`] enum. `final_*`
+    /// resolution flags are dropped — they are Kakoune-internal and
+    /// have no terminal meaning. Production paint code uses
+    /// [`Self::from_style`]; this constructor exists for the protocol
+    /// parser bridge and test fixtures that declare style in `Face`
+    /// shape.
+    #[doc(hidden)]
     pub fn from_face(face: &Face) -> Self {
         let attrs = face.attributes;
         let underline = if attrs.contains(Attributes::CURLY_UNDERLINE) {

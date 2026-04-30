@@ -3,7 +3,7 @@ use proptest::prelude::*;
 use super::*;
 use crate::display::{BufferLine, DisplayLine, InverseResult, resolve};
 use crate::plugin::PluginId;
-use crate::protocol::{Atom, Face};
+use crate::protocol::Atom;
 
 #[test]
 fn identity_map_roundtrip() {

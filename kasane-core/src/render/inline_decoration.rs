@@ -2,7 +2,7 @@
 
 use crate::display::InlineBoxAlignment;
 use crate::plugin::PluginId;
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, Face, Style};
 
 /// Metadata for an inline-box slot reserved within a line.
 ///
@@ -310,7 +310,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                     contents,
                     pos - atom_start,
                     atom_end - atom_start,
-                    atom.face(),
+                    atom.unresolved_style().to_face(),
                     &mut result,
                 );
                 break;
@@ -327,7 +327,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                         contents,
                         pos - atom_start,
                         gap_end - atom_start,
-                        atom.face(),
+                        atom.unresolved_style().to_face(),
                         &mut result,
                     );
                     pos = gap_end;
@@ -339,7 +339,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                         atom_end,
                         contents,
                         atom_start,
-                        atom_face: atom.face(),
+                        atom_face: atom.unresolved_style().to_face(),
                         result: &mut result,
                     };
                     if advance_hide(range, &mut cx) {
@@ -356,7 +356,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                         atom_end,
                         contents,
                         atom_start,
-                        atom_face: atom.face(),
+                        atom_face: atom.unresolved_style().to_face(),
                         result: &mut result,
                     };
                     if advance_style(range, op_face, &mut cx) {
@@ -440,9 +440,9 @@ fn advance_style(
     let local_start = clamp_to_char_boundary(cx.contents, effective_start - cx.atom_start);
     let local_end = clamp_to_char_boundary(cx.contents, effective_end - cx.atom_start);
     if local_start < local_end {
-        cx.result.push(Atom::from_face(
-            crate::protocol::resolve_face(op_face, &cx.atom_face),
+        cx.result.push(Atom::with_style(
             &cx.contents[local_start..local_end],
+            Style::from_face(&crate::protocol::resolve_face(op_face, &cx.atom_face)),
         ));
     }
     *cx.pos = effective_end;
@@ -495,7 +495,7 @@ fn emit_sub_atom(
     if start < end {
         let sub = &contents[start..end];
         if !sub.is_empty() {
-            result.push(Atom::from_face(face, sub));
+            result.push(Atom::with_style(sub, Style::from_face(&face)));
         }
     }
 }
@@ -545,7 +545,7 @@ mod tests {
     }
 
     fn make_atom(text: &str, face: Face) -> Atom {
-        Atom::from_face(face, text)
+        Atom::with_style(text, Style::from_face(&face))
     }
 
     // ---- Existing tests (Style/Hide) ----
@@ -816,9 +816,12 @@ mod tests {
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].contents.as_str(), "hello ");
-        assert_eq!(result[0].face(), default_face());
+        assert_eq!(result[0].unresolved_style().to_face(), default_face());
         assert_eq!(result[1].contents.as_str(), "world");
-        assert_eq!(result[1].face().fg, Color::Named(NamedColor::Red));
+        assert_eq!(
+            result[1].unresolved_style().to_face().fg,
+            Color::Named(NamedColor::Red)
+        );
     }
 
     #[test]
@@ -838,7 +841,10 @@ mod tests {
         assert_eq!(result[0].contents.as_str(), "ab");
         assert_eq!(result[1].contents.as_str(), "ef");
         assert_eq!(result[2].contents.as_str(), "gh");
-        assert_eq!(result[2].face().fg, Color::Named(NamedColor::Red));
+        assert_eq!(
+            result[2].unresolved_style().to_face().fg,
+            Color::Named(NamedColor::Red)
+        );
     }
 
     #[test]
@@ -857,11 +863,17 @@ mod tests {
         // "hel"(red) + "lo"(red) + " world"
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "hel");
-        assert_eq!(result[0].face().fg, Color::Named(NamedColor::Red));
+        assert_eq!(
+            result[0].unresolved_style().to_face().fg,
+            Color::Named(NamedColor::Red)
+        );
         assert_eq!(result[1].contents.as_str(), "lo");
-        assert_eq!(result[1].face().fg, Color::Named(NamedColor::Red));
+        assert_eq!(
+            result[1].unresolved_style().to_face().fg,
+            Color::Named(NamedColor::Red)
+        );
         assert_eq!(result[2].contents.as_str(), " world");
-        assert_eq!(result[2].face(), default_face());
+        assert_eq!(result[2].unresolved_style().to_face(), default_face());
     }
 
     #[test]
@@ -878,9 +890,12 @@ mod tests {
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].contents.as_str(), "hello");
-        assert_eq!(result[0].face().fg, Color::Named(NamedColor::Red));
+        assert_eq!(
+            result[0].unresolved_style().to_face().fg,
+            Color::Named(NamedColor::Red)
+        );
         assert_eq!(result[1].contents.as_str(), " world");
-        assert_eq!(result[1].face(), default_face());
+        assert_eq!(result[1].unresolved_style().to_face(), default_face());
     }
 
     #[test]
@@ -934,7 +949,10 @@ mod tests {
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "a");
         assert_eq!(result[1].contents.as_str(), "🎉");
-        assert_eq!(result[1].face().fg, Color::Named(NamedColor::Red));
+        assert_eq!(
+            result[1].unresolved_style().to_face().fg,
+            Color::Named(NamedColor::Red)
+        );
         assert_eq!(result[2].contents.as_str(), "b");
     }
 
@@ -973,7 +991,7 @@ mod tests {
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].contents.as_str(), ">>");
-        assert_eq!(result[0].face(), red_face());
+        assert_eq!(result[0].unresolved_style().to_face(), red_face());
         assert_eq!(result[1].contents.as_str(), "hello");
     }
 
@@ -1001,7 +1019,7 @@ mod tests {
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "hel");
         assert_eq!(result[1].contents.as_str(), "|");
-        assert_eq!(result[1].face(), red_face());
+        assert_eq!(result[1].unresolved_style().to_face(), red_face());
         assert_eq!(result[2].contents.as_str(), "lo");
     }
 
@@ -1039,7 +1057,7 @@ mod tests {
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "ab");
         assert_eq!(result[1].contents.as_str(), "NEW");
-        assert_eq!(result[1].face(), red_face());
+        assert_eq!(result[1].unresolved_style().to_face(), red_face());
         assert_eq!(result[2].contents.as_str(), "ij");
     }
 
@@ -1080,9 +1098,12 @@ mod tests {
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "abc");
         assert_eq!(result[1].contents.as_str(), "!");
-        assert_eq!(result[1].face(), blue_face());
+        assert_eq!(result[1].unresolved_style().to_face(), blue_face());
         assert_eq!(result[2].contents.as_str(), "def");
-        assert_eq!(result[2].face().fg, Color::Named(NamedColor::Red));
+        assert_eq!(
+            result[2].unresolved_style().to_face().fg,
+            Color::Named(NamedColor::Red)
+        );
     }
 
     #[test]
@@ -1221,7 +1242,7 @@ mod tests {
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "abc");
         assert_eq!(result[1].contents.as_str(), "new");
-        assert_eq!(result[1].face(), red_face());
+        assert_eq!(result[1].unresolved_style().to_face(), red_face());
         assert_eq!(result[2].contents.as_str(), "ghi");
     }
 }

@@ -11,7 +11,7 @@
 //!
 //! See `docs/semantics.md` §2.5 and §13.13 for the formal statement.
 
-use kasane_core::protocol::{Atom, Face};
+use kasane_core::protocol::Atom;
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
 use kasane_core::state::AppState;

@@ -1,5 +1,5 @@
 use super::*;
-use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor};
+use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor, Style};
 use crate::render::CursorStyle;
 
 fn make_atom(text: &str) -> Atom {
@@ -7,7 +7,9 @@ fn make_atom(text: &str) -> Atom {
 }
 
 fn make_cursor_atom(text: &str) -> Atom {
-    Atom::from_face(
+    // Wire-aware: `final_*` flags must reach `detect_cursors`. `Style::from_face`
+    // drops them by design — see `protocol/style.rs::Style::from_face` docstring.
+    Atom::from_wire(
         Face {
             attributes: Attributes::FINAL_FG | Attributes::REVERSE,
             ..Face::default()
@@ -66,13 +68,13 @@ fn detect_cursors_cjk_width() {
 /// Helper: create an atom with an explicit fg+bg face (no REVERSE/FINAL_FG),
 /// mimicking third-party themes like anhsirk0/kakoune-themes.
 fn make_themed_cursor_atom(text: &str, fg: Color, bg: Color) -> Atom {
-    Atom::from_face(
-        Face {
+    Atom::with_style(
+        text,
+        Style::from_face(&Face {
             fg,
             bg,
             ..Face::default()
-        },
-        text,
+        }),
     )
 }
 
@@ -531,12 +533,12 @@ fn scan_line_cursors_by_attributes_per_line() {
 // --- detect_selections tests ---
 
 fn make_selection_atom(text: &str) -> Atom {
-    Atom::from_face(
-        Face {
+    Atom::with_style(
+        text,
+        Style::from_face(&Face {
             bg: Color::Named(NamedColor::Blue),
             ..Face::default()
-        },
-        text,
+        }),
     )
 }
 

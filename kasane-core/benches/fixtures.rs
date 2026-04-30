@@ -85,30 +85,12 @@ fn make_colored_line(i: usize) -> Line {
     let plain_face = Face::default();
 
     vec![
-        Atom {
-            face: keyword_face,
-            contents: "let".into(),
-        },
-        Atom {
-            face: plain_face,
-            contents: " ".into(),
-        },
-        Atom {
-            face: ident_face,
-            contents: format!("var_{i}").into(),
-        },
-        Atom {
-            face: plain_face,
-            contents: " = ".into(),
-        },
-        Atom {
-            face: literal_face,
-            contents: format!("\"{i}_value\"").into(),
-        },
-        Atom {
-            face: plain_face,
-            contents: ";".into(),
-        },
+        Atom::from_wire(keyword_face, "let"),
+        Atom::from_wire(plain_face, " "),
+        Atom::from_wire(ident_face, format!("var_{i}")),
+        Atom::from_wire(plain_face, " = "),
+        Atom::from_wire(literal_face, format!("\"{i}_value\"")),
+        Atom::from_wire(plain_face, ";"),
     ]
 }
 
@@ -117,24 +99,26 @@ pub fn typical_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = Face {
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
     state.observed.lines = (0..line_count).map(make_colored_line).collect();
     state.inference.status_line = vec![Atom {
-        style: crate::protocol::default_unresolved_style(),
+        style: kasane_core::protocol::default_unresolved_style(),
         contents: " NORMAL ".into(),
     }];
     state.observed.status_mode_line = vec![Atom {
-        style: crate::protocol::default_unresolved_style(),
+        style: kasane_core::protocol::default_unresolved_style(),
         contents: "normal".into(),
     }];
     state
@@ -243,167 +227,89 @@ fn constant_face() -> Face {
 }
 
 fn short_comment_line(i: usize) -> Line {
-    vec![Atom {
-        face: comment_face(),
-        contents: format!("// comment line {i}").into(),
-    }]
+    vec![Atom::from_wire(
+        comment_face(),
+        format!("// comment line {i}"),
+    )]
 }
 
 fn function_def_line(i: usize) -> Line {
     vec![
-        Atom {
-            face: keyword_face(),
-            contents: "fn ".into(),
-        },
-        Atom {
-            face: ident_face(),
-            contents: format!("process_{i}").into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: "(".into(),
-        },
-        Atom {
-            face: type_face(),
-            contents: "u32".into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: ") {".into(),
-        },
+        Atom::from_wire(keyword_face(), "fn "),
+        Atom::from_wire(ident_face(), format!("process_{i}")),
+        Atom::from_wire(operator_face(), "("),
+        Atom::from_wire(type_face(), "u32"),
+        Atom::from_wire(operator_face(), ") {"),
     ]
 }
 
 fn long_code_line(i: usize) -> Line {
     vec![
-        Atom {
-            face: keyword_face(),
-            contents: "    let ".into(),
-        },
-        Atom {
-            face: ident_face(),
-            contents: format!("result_{i}").into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: " = ".into(),
-        },
-        Atom {
-            face: namespace_face(),
-            contents: "self".into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: ".".into(),
-        },
-        Atom {
-            face: ident_face(),
-            contents: format!("compute_{i}").into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: "(".into(),
-        },
-        Atom {
-            face: literal_face(),
-            contents: format!("{}", i * 42).into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: ", ".into(),
-        },
-        Atom {
-            face: string_face(),
-            contents: format!("\"value_{i}\"").into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: ");".into(),
-        },
+        Atom::from_wire(keyword_face(), "    let "),
+        Atom::from_wire(ident_face(), format!("result_{i}")),
+        Atom::from_wire(operator_face(), " = "),
+        Atom::from_wire(namespace_face(), "self"),
+        Atom::from_wire(operator_face(), "."),
+        Atom::from_wire(ident_face(), format!("compute_{i}")),
+        Atom::from_wire(operator_face(), "("),
+        Atom::from_wire(literal_face(), format!("{}", i * 42)),
+        Atom::from_wire(operator_face(), ", "),
+        Atom::from_wire(string_face(), format!("\"value_{i}\"")),
+        Atom::from_wire(operator_face(), ");"),
     ]
 }
 
 fn string_heavy_line(i: usize) -> Line {
     vec![
-        Atom {
-            face: keyword_face(),
-            contents: "    const ".into(),
-        },
-        Atom {
-            face: constant_face(),
-            contents: format!("MSG_{i}").into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: ": &str = ".into(),
-        },
-        Atom {
-            face: string_face(),
-            contents: format!("\"Hello from module {i}, processing data\"").into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: ";".into(),
-        },
+        Atom::from_wire(keyword_face(), "    const "),
+        Atom::from_wire(constant_face(), format!("MSG_{i}")),
+        Atom::from_wire(operator_face(), ": &str = "),
+        Atom::from_wire(
+            string_face(),
+            format!("\"Hello from module {i}, processing data\""),
+        ),
+        Atom::from_wire(operator_face(), ";"),
     ]
 }
 
 fn indented_block_line(i: usize) -> Line {
     vec![
         Atom {
-            style: crate::protocol::default_unresolved_style(),
+            style: kasane_core::protocol::default_unresolved_style(),
             contents: "    ".into(),
         },
-        Atom {
-            face: keyword_face(),
-            contents: "if ".into(),
-        },
-        Atom {
-            face: ident_face(),
-            contents: format!("count_{i}").into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: " > ".into(),
-        },
-        Atom {
-            face: literal_face(),
-            contents: format!("{}", i * 10).into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: " {".into(),
-        },
+        Atom::from_wire(keyword_face(), "if "),
+        Atom::from_wire(ident_face(), format!("count_{i}")),
+        Atom::from_wire(operator_face(), " > "),
+        Atom::from_wire(literal_face(), format!("{}", i * 10)),
+        Atom::from_wire(operator_face(), " {"),
     ]
 }
 
 fn cjk_comment_line(i: usize) -> Line {
-    vec![Atom {
-        face: comment_face(),
-        contents: format!("// 処理{i}: データ変換と検証").into(),
-    }]
+    vec![Atom::from_wire(
+        comment_face(),
+        format!("// 処理{i}: データ変換と検証"),
+    )]
 }
 
 fn attribute_heavy_line(i: usize) -> Line {
     vec![
-        Atom {
-            face: Face {
+        Atom::from_wire(
+            Face {
                 attributes: Attributes::BOLD,
                 ..error_face()
             },
-            contents: "ERROR".into(),
-        },
-        Atom {
-            face: operator_face(),
-            contents: ": ".into(),
-        },
-        Atom {
-            face: Face {
+            "ERROR",
+        ),
+        Atom::from_wire(operator_face(), ": "),
+        Atom::from_wire(
+            Face {
                 attributes: Attributes::ITALIC | Attributes::UNDERLINE,
                 ..string_face()
             },
-            contents: format!("\"unexpected token at line {i}\"").into(),
-        },
+            format!("\"unexpected token at line {i}\""),
+        ),
     ]
 }
 
@@ -426,24 +332,26 @@ pub fn realistic_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = Face {
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
     state.observed.lines = (0..line_count).map(make_realistic_line).collect();
     state.inference.status_line = vec![Atom {
-        style: crate::protocol::default_unresolved_style(),
+        style: kasane_core::protocol::default_unresolved_style(),
         contents: " NORMAL ".into(),
     }];
     state.observed.status_mode_line = vec![Atom {
-        style: crate::protocol::default_unresolved_style(),
+        style: kasane_core::protocol::default_unresolved_style(),
         contents: "normal".into(),
     }];
     state
@@ -453,6 +361,7 @@ pub fn realistic_state(line_count: usize) -> AppState {
 #[allow(dead_code)]
 pub fn draw_realistic_json(line_count: usize) -> Vec<u8> {
     let lines: Vec<Line> = (0..line_count).map(make_realistic_line).collect();
+    let wire_lines = lines_to_wire(&lines);
     let default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
@@ -462,7 +371,7 @@ pub fn draw_realistic_json(line_count: usize) -> Vec<u8> {
     to_json_bytes(
         "draw",
         (
-            &lines,
+            &wire_lines,
             &Coord::default(),
             &default_face,
             &padding_face,
@@ -476,18 +385,15 @@ pub fn state_with_edit(base: &AppState, start_line: usize, n: usize) -> AppState
     let mut state = base.clone();
     for i in start_line..(start_line + n).min(state.observed.lines.len()) {
         state.observed.lines[i] = vec![
-            Atom {
-                face: Face {
+            Atom::from_wire(
+                Face {
                     fg: Color::Rgb { r: 255, g: 0, b: 0 },
                     bg: Color::Default,
                     ..Face::default()
                 },
-                contents: format!("edited_line_{i}").into(),
-            },
-            Atom {
-                style: crate::protocol::default_unresolved_style(),
-                contents: " // modified".into(),
-            },
+                format!("edited_line_{i}"),
+            ),
+            Atom::plain(" // modified"),
         ];
     }
     state
@@ -500,7 +406,7 @@ pub fn state_with_menu(item_count: usize) -> AppState {
     let items: Vec<Line> = (0..item_count)
         .map(|i| {
             vec![Atom {
-                style: crate::protocol::default_unresolved_style(),
+                style: kasane_core::protocol::default_unresolved_style(),
                 contents: format!("completion_{i}").into(),
             }]
         })
@@ -523,8 +429,8 @@ pub fn state_with_menu(item_count: usize) -> AppState {
                 line: 5,
                 column: 10,
             },
-            selected_item_face: selected_face,
-            menu_face,
+            selected_item_face: selected_face.into(),
+            menu_face: menu_face.into(),
             style: MenuStyle::Inline,
             screen_w: state.runtime.cols,
             screen_h,
@@ -540,16 +446,20 @@ pub fn draw_request(line_count: usize) -> KakouneRequest {
     KakouneRequest::Draw {
         lines,
         cursor_pos: Coord::default(),
-        default_face: Face {
-            fg: Color::Named(NamedColor::White),
-            bg: Color::Named(NamedColor::Black),
-            ..Face::default()
-        },
-        padding_face: Face {
-            fg: Color::Named(NamedColor::White),
-            bg: Color::Named(NamedColor::Black),
-            ..Face::default()
-        },
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &Face {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                ..Face::default()
+            },
+        )),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &Face {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                ..Face::default()
+            },
+        )),
         widget_columns: 0,
     }
 }
@@ -577,6 +487,29 @@ struct JsonRpcMsg<P: Serialize> {
     params: P,
 }
 
+/// Wire-shaped atom for benchmark JSON fixtures. Mirrors `WireAtom` in
+/// `kasane_core::protocol::parse` (which is private). `Atom` itself
+/// holds an `Arc<UnresolvedStyle>` and is opaque to the wire format,
+/// so we project to the legacy `{ face, contents }` shape here.
+#[derive(Serialize)]
+struct WireAtomBench<'a> {
+    face: Face,
+    contents: &'a str,
+}
+
+fn atoms_to_wire(line: &[Atom]) -> Vec<WireAtomBench<'_>> {
+    line.iter()
+        .map(|a| WireAtomBench {
+            face: a.unresolved_style().to_face(),
+            contents: a.contents.as_str(),
+        })
+        .collect()
+}
+
+fn lines_to_wire(lines: &[Vec<Atom>]) -> Vec<Vec<WireAtomBench<'_>>> {
+    lines.iter().map(|l| atoms_to_wire(l)).collect()
+}
+
 fn to_json_bytes<P: Serialize>(method: &'static str, params: P) -> Vec<u8> {
     serde_json::to_vec(&JsonRpcMsg {
         jsonrpc: "2.0",
@@ -589,6 +522,7 @@ fn to_json_bytes<P: Serialize>(method: &'static str, params: P) -> Vec<u8> {
 /// JSON-RPC "draw" message as raw bytes (for simd_json parse benchmarks).
 pub fn draw_json(line_count: usize) -> Vec<u8> {
     let lines: Vec<Line> = (0..line_count).map(make_colored_line).collect();
+    let wire_lines = lines_to_wire(&lines);
     let default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
@@ -598,7 +532,7 @@ pub fn draw_json(line_count: usize) -> Vec<u8> {
     to_json_bytes(
         "draw",
         (
-            &lines,
+            &wire_lines,
             &Coord::default(),
             &default_face,
             &padding_face,
@@ -609,15 +543,12 @@ pub fn draw_json(line_count: usize) -> Vec<u8> {
 
 /// JSON-RPC "draw_status" message as raw bytes.
 pub fn draw_status_json() -> Vec<u8> {
-    let prompt: Line = vec![Atom {
-        style: crate::protocol::default_unresolved_style(),
-        contents: " NORMAL ".into(),
-    }];
+    let prompt: Line = vec![Atom::plain(" NORMAL ")];
     let content: Line = Vec::new();
-    let mode_line: Line = vec![Atom {
-        style: crate::protocol::default_unresolved_style(),
-        contents: "normal".into(),
-    }];
+    let mode_line: Line = vec![Atom::plain("normal")];
+    let wire_prompt = atoms_to_wire(&prompt);
+    let wire_content = atoms_to_wire(&content);
+    let wire_mode_line = atoms_to_wire(&mode_line);
     let default_face = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
@@ -626,10 +557,10 @@ pub fn draw_status_json() -> Vec<u8> {
     to_json_bytes(
         "draw_status",
         (
-            &prompt,
-            &content,
+            &wire_prompt,
+            &wire_content,
             -1i32,
-            &mode_line,
+            &wire_mode_line,
             &default_face,
             "status",
         ),
@@ -639,13 +570,9 @@ pub fn draw_status_json() -> Vec<u8> {
 /// JSON-RPC "menu_show" message as raw bytes with the given item count.
 pub fn menu_show_json(item_count: usize) -> Vec<u8> {
     let items: Vec<Line> = (0..item_count)
-        .map(|i| {
-            vec![Atom {
-                style: crate::protocol::default_unresolved_style(),
-                contents: format!("completion_{i}").into(),
-            }]
-        })
+        .map(|i| vec![Atom::plain(format!("completion_{i}"))])
         .collect();
+    let wire_items = lines_to_wire(&items);
     let anchor = Coord {
         line: 5,
         column: 10,
@@ -662,6 +589,6 @@ pub fn menu_show_json(item_count: usize) -> Vec<u8> {
     };
     to_json_bytes(
         "menu_show",
-        (&items, &anchor, &selected_face, &menu_face, "inline"),
+        (&wire_items, &anchor, &selected_face, &menu_face, "inline"),
     )
 }

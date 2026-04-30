@@ -1,19 +1,20 @@
-//! L3 atlas — etagere-backed CPU-side allocation tracker (ADR-031, Phase 8).
+//! L3 atlas — etagere-backed CPU-side allocation tracker.
 //!
-//! This is the layer that decides *where* each glyph bitmap lives. Phase 9
-//! will pair each [`AtlasSlot`] with a wgpu texture write; until then the
-//! atlas is purely a position tracker that lets the L2 [`GlyphRasterCache`]
-//! reason about packing efficiency and growth.
+//! Decides *where* each glyph bitmap lives. The wgpu-aware
+//! [`GpuAtlasShelf`](super::gpu_atlas::GpuAtlasShelf) wraps this with a
+//! GPU texture; here we keep just the allocator so unit tests can run
+//! without a GPU adapter.
 //!
 //! Two atlases coexist in production: one for [`ContentKind::Mask`]
-//! (single-channel `R8`) and one for [`ContentKind::Color`] (`RGBA8`). Both
-//! use the same allocator implementation; the [`GlyphRasterCache`] picks the
+//! (single-channel `R8`) and one for [`ContentKind::Color`] (`RGBA8`).
+//! Both use the same allocator; the
+//! [`GlyphRasterCache`](super::raster_cache::GlyphRasterCache) picks the
 //! atlas to allocate into based on the rasterised glyph's content kind.
 //!
-//! Eviction protocol: this atlas does not have an LRU of its own. When the
-//! L2 cache evicts a glyph it calls [`AtlasShelf::deallocate`] to release
-//! the slot back to the allocator. When the atlas runs out of space, the L2
-//! cache may either grow the atlas via [`AtlasShelf::grow`] or fall back to
+//! Eviction protocol: this atlas does not have an LRU of its own. When
+//! the L2 cache evicts a glyph it calls [`AtlasShelf::deallocate`] to
+//! release the slot. When the atlas runs out of space, the L2 cache
+//! either grows the atlas via [`AtlasShelf::grow`] or falls back to
 //! "rasterise without caching" for that frame.
 
 use etagere::euclid::Size2D;
@@ -35,16 +36,14 @@ pub struct AtlasSlot {
 pub const MIN_ATLAS_SIZE: u16 = 256;
 
 /// Default starting atlas dimension. Sized to comfortably fit a full
-/// frame's worth of glyphs at HiDPI without growth, since the Phase 9b
-/// renderer clears the atlas every frame (no L2 cache reuse yet).
+/// frame's worth of glyphs at HiDPI plus headroom for the command
+/// palette and status bar.
 ///
 /// Budget at 40 px font (HiDPI mid-size): ~24×40 ≈ 960 px² per glyph.
-/// 2048² = 4 194 304 px² → ~4 350 glyph slots, enough for a buffer view
-/// plus a long command-palette menu plus the status bar in one frame.
-/// Smaller defaults (e.g. 512²) cause silent skip when the menu opens:
-/// only narrow glyphs (`-`, `.`, `_`) fit the leftover slot pattern,
-/// producing the "menu items collapse to a row of dashes" symptom that
-/// surfaced during Phase 9b Step 4e bring-up.
+/// 2048² = 4 194 304 px² → ~4 350 glyph slots. Smaller defaults
+/// (e.g. 512²) cause silent skip when the menu opens: only narrow
+/// glyphs (`-`, `.`, `_`) fit the leftover slot pattern, producing
+/// the "menu items collapse to a row of dashes" symptom.
 pub const DEFAULT_ATLAS_SIZE: u16 = 2048;
 
 /// Maximum atlas dimension. wgpu requires textures ≤ device max (typically
@@ -53,7 +52,8 @@ pub const DEFAULT_ATLAS_SIZE: u16 = 2048;
 pub const MAX_ATLAS_SIZE: u16 = 4096;
 
 /// One CPU-side atlas: an [`etagere::BucketedAtlasAllocator`] plus its
-/// dimensions. No GPU texture lives here yet (Phase 9).
+/// dimensions. The GPU texture lives in
+/// [`GpuAtlasShelf`](super::gpu_atlas::GpuAtlasShelf), which wraps this.
 pub struct AtlasShelf {
     allocator: BucketedAtlasAllocator,
     width: u16,

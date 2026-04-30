@@ -8,7 +8,7 @@ use kasane_core::layout::Rect;
 use kasane_core::layout::flex::place;
 use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{
-    Atom, Color, Coord, Face, InfoStyle, KakouneRequest, Line, MenuStyle, NamedColor,
+    Atom, Color, Coord, Face, InfoStyle, KakouneRequest, Line, MenuStyle, NamedColor, Style,
 };
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
@@ -82,12 +82,12 @@ fn empty_buffer_shows_padding() {
 fn buffer_with_colored_atoms() {
     let red = Color::Rgb { r: 255, g: 0, b: 0 };
     let line = vec![
-        Atom::from_face(
-            Face {
+        Atom::with_style(
+            "red",
+            Style::from_face(&Face {
                 fg: red,
                 ..Face::default()
-            },
-            "red",
+            }),
         ),
         Atom::plain(" plain"),
     ];
@@ -98,7 +98,7 @@ fn buffer_with_colored_atoms() {
     assert_eq!(row_text(&grid, 0), "red plain");
     // First cell inherits red foreground
     let cell = grid.get(0, 0).unwrap();
-    assert_eq!(cell.face().fg, red);
+    assert_eq!(cell.style.fg, red);
 }
 
 // ===========================================================================
@@ -371,7 +371,9 @@ fn parse_draw_status_and_render() {
 fn diff_detects_changes() {
     let state = setup_state(vec![make_line("hello")]);
     let mut grid = CellGrid::new(80, 24);
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
 
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
@@ -390,7 +392,9 @@ fn diff_detects_changes() {
     grid.swap();
 
     // Second identical render: no changes
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     let diffs = grid.diff();
     assert!(
@@ -721,7 +725,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
                     "grapheme mismatch at ({x}, {y}): legacy={:?} salsa={:?}",
                     l.grapheme, s.grapheme
                 );
-                assert_eq!(l.face(), s.face(), "face mismatch at ({x}, {y})");
+                assert_eq!(l.style, s.style, "style mismatch at ({x}, {y})");
             }
         }
     }
@@ -783,7 +787,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
                     "grapheme mismatch at ({x}, {y}): legacy={:?} salsa={:?}",
                     l.grapheme, s.grapheme
                 );
-                assert_eq!(l.face(), s.face(), "face mismatch at ({x}, {y})");
+                assert_eq!(l.style, s.style, "style mismatch at ({x}, {y})");
             }
         }
     }

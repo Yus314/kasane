@@ -63,7 +63,7 @@ impl PaintVisitor for GridPaintVisitor<'_> {
                 });
             }
             self.grid
-                .clear_region(&area, &crate::protocol::Face::default());
+                .clear_region(&area, &crate::render::TerminalStyle::default());
             return;
         }
 
@@ -111,30 +111,35 @@ impl PaintVisitor for GridPaintVisitor<'_> {
     fn visit_container_pre(&mut self, info: &ContainerPaintInfo) {
         // Shadow (drawn first, behind the container)
         if info.shadow {
-            let shadow_face = self.theme.resolve(
-                &crate::element::ElementStyle::Token(crate::element::StyleToken::SHADOW),
-                &Face {
-                    attributes: crate::protocol::Attributes::DIM,
-                    ..Face::default()
-                },
-            );
+            let shadow_fallback = crate::protocol::Style::from_face(&Face {
+                attributes: crate::protocol::Attributes::DIM,
+                ..Face::default()
+            });
+            let shadow_face = self
+                .theme
+                .resolve(
+                    &crate::element::ElementStyle::Token(crate::element::StyleToken::SHADOW),
+                    &shadow_fallback,
+                )
+                .to_face();
             paint_shadow(self.grid, &info.area, &shadow_face);
         }
 
         // Fill entire container area with face
-        self.grid.clear_region(&info.area, &info.face);
+        let info_style = crate::render::TerminalStyle::from_face(&info.face);
+        self.grid.clear_region(&info.area, &info_style);
 
         // Split divider glyphs
         if info.is_split_divider {
             if info.area.w == 1 {
                 for y in info.area.y..info.area.y + info.area.h {
                     self.grid
-                        .put_char(info.area.x, y, info.divider_vertical, &info.face);
+                        .put_char(info.area.x, y, info.divider_vertical, &info_style);
                 }
             } else {
                 for x in info.area.x..info.area.x + info.area.w {
                     self.grid
-                        .put_char(x, info.area.y, info.divider_horizontal, &info.face);
+                        .put_char(x, info.area.y, info.divider_horizontal, &info_style);
                 }
             }
         }
@@ -176,7 +181,8 @@ impl PaintVisitor for GridPaintVisitor<'_> {
 
         let gutter_face = self
             .theme
-            .get(&StyleToken::GUTTER_LINE_NUMBER)
+            .get_style(&StyleToken::GUTTER_LINE_NUMBER)
+            .map(|s| s.to_face())
             .unwrap_or_default();
 
         for row in 0..area.h {
@@ -205,11 +211,13 @@ impl PaintVisitor for GridPaintVisitor<'_> {
                 if let Some((cl, _cc)) = cursor
                     && cl == line_idx
                 {
-                    let cursor_face = self
+                    let cursor_style = self
                         .theme
-                        .get(&StyleToken::TEXT_PANEL_CURSOR)
+                        .get_style(&StyleToken::TEXT_PANEL_CURSOR)
+                        .map(crate::render::TerminalStyle::from_style)
                         .unwrap_or_default();
-                    self.grid.fill_region(y, content_x, content_w, &cursor_face);
+                    self.grid
+                        .fill_region(y, content_x, content_w, &cursor_style);
                 }
             }
         }

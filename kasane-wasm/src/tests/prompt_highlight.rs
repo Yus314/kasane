@@ -1,6 +1,5 @@
 use kasane_core::element::{Element, ElementStyle};
 use kasane_core::plugin::{TransformContext, TransformSubject, TransformTarget};
-use kasane_core::protocol::Face;
 
 use super::*;
 

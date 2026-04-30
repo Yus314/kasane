@@ -35,11 +35,13 @@ fn make_cursor_line(pre: &str, cursor_char: &str, post: &str) -> Vec<Atom> {
     let normal = Face::default();
     let mut atoms = Vec::new();
     if !pre.is_empty() {
-        atoms.push(Atom::from_face(normal, pre));
+        atoms.push(Atom::from_wire(normal, pre));
     }
-    atoms.push(Atom::from_face(cursor_face(), cursor_char));
+    // Wire-aware: cursor_face() carries FINAL_FG/FINAL_BG that detect_cursors
+    // must observe. `Style::from_face` would strip them (post-resolve form).
+    atoms.push(Atom::from_wire(cursor_face(), cursor_char));
     if !post.is_empty() {
-        atoms.push(Atom::from_face(normal, post));
+        atoms.push(Atom::from_wire(normal, post));
     }
     atoms
 }
@@ -58,7 +60,9 @@ fn buffer_state(cols: u16, rows: u16) -> AppState {
 fn render_full(state: &AppState) -> (CellGrid, RenderResult, DisplayMapRef) {
     let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let (result, dm) = pipeline::render_pipeline(state, &registry.view(), &mut grid);
     (grid, result, dm)
 }
@@ -184,10 +188,11 @@ fn buffer_cursor_with_widget_columns() {
     };
     let normal = Face::default();
     state.observed.lines = vec![vec![
-        Atom::from_face(gutter_face, " 1│"),
-        Atom::from_face(normal, "hello "),
-        Atom::from_face(cursor_face(), "w"),
-        Atom::from_face(normal, "orld\n"),
+        Atom::from_wire(gutter_face, " 1│"),
+        Atom::from_wire(normal, "hello "),
+        // Wire-aware (cursor_face has FINAL_FG/REVERSE): see Style::from_face docstring.
+        Atom::from_wire(cursor_face(), "w"),
+        Atom::from_wire(normal, "orld\n"),
     ]];
 
     let (grid, result, _) = render_full(&state);
@@ -281,7 +286,7 @@ fn extract_cursor_color_ascii() {
     };
     state.observed.lines = vec![vec![
         Atom::plain("hello"),
-        Atom::from_face(cf, "w"),
+        Atom::from_wire(cf, "w"),
         Atom::plain("orld\n"),
     ]];
 
@@ -313,7 +318,7 @@ fn extract_cursor_color_after_cjk() {
     };
     state.observed.lines = vec![vec![
         Atom::plain("hi世"),
-        Atom::from_face(cf, "w"),
+        Atom::from_wire(cf, "w"),
         Atom::plain("orld\n"),
     ]];
 

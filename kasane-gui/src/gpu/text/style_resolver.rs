@@ -1,17 +1,21 @@
-//! Kasane [`Style`] → Parley [`StyleProperty`] conversion (ADR-031, Phase 6).
+//! Kasane [`Style`] → Parley [`StyleProperty`] conversion.
 //!
-//! Pushed into `parley::RangedBuilder` as a sequence of properties at shape
-//! time. Each call to [`apply_style_to_builder`] (Phase 7) emits roughly
-//! `O(non_default_fields(style))` properties.
+//! [`resolve_for_parley`] projects a kasane [`Style`] onto a
+//! [`ResolvedParleyStyle`]; [`super::shaper::shape_line`] then pushes
+//! the resolved values into `parley::RangedBuilder` as a sequence of
+//! properties.
 //!
 //! Inheritance: `Style::fg = Brush::Default` is resolved upstream by
 //! [`kasane_core::protocol::resolve_style`] before we get here, so the
 //! Parley-side brush is always concrete. This separation lets the L1
-//! LayoutCache key on the resolved brush directly.
+//! [`LayoutCache`](super::layout_cache::LayoutCache) key on the resolved
+//! brush directly.
+
+use std::sync::Arc;
 
 use kasane_core::protocol::{
-    Brush as KBrush, DecorationStyle, FontSlant, FontWeight as KFontWeight, NamedColor, Style,
-    TextDecoration,
+    Brush as KBrush, DecorationStyle, FontFeatures as KFontFeatures, FontSlant,
+    FontVariation as KFontVariation, FontWeight as KFontWeight, NamedColor, Style, TextDecoration,
 };
 use parley::{FontStyle as PFontStyle, FontWeight as PFontWeight};
 
@@ -89,11 +93,11 @@ pub struct DecorationProperties {
 /// expects. Returns disabled / no-brush / no-size when the decoration is
 /// `None` so the caller can write a single uniform `apply()` loop.
 ///
-/// Note: at Phase 6 we collapse the four "non-solid" decoration styles
-/// (Curly / Dotted / Dashed / Double) to plain underline at the Parley layer
-/// because Parley does not yet expose styled underline kinds. The actual
-/// decoration style is preserved on the `Style` side and re-applied in the
-/// quad pipeline (Phase 10).
+/// Note: the four "non-solid" decoration styles (Curly / Dotted /
+/// Dashed / Double) collapse to plain underline at the Parley layer
+/// because Parley does not expose styled underline kinds. The actual
+/// decoration style is preserved on the `Style` side and re-applied
+/// by the quad pipeline.
 pub fn decoration_properties(deco: Option<TextDecoration>) -> DecorationProperties {
     match deco {
         None => DecorationProperties {
@@ -130,10 +134,20 @@ pub enum SlantKind {
     Oblique,
 }
 
-/// Resolved style ready to be pushed into `parley::RangedBuilder` at Phase 7.
+/// Resolved style ready to be pushed into `parley::RangedBuilder`.
 ///
-/// At Phase 6 this is the boundary type that lets us unit-test the
-/// conversion without instantiating a Parley layout.
+/// Stored types are **kasane-native** (`FontFeatures` bitset, `Arc<[FontVariation]>`)
+/// rather than `parley::FontFeature` / `parley::FontVariation` slices.
+/// Reasons:
+///
+/// - Kasane types implement `Hash` and `PartialEq`, so the L1
+///   [`super::layout_cache::LayoutCache`] hash and the run-merge
+///   equality check in [`super::styled_line::StyledLine::from_atoms`]
+///   stay derive-trivial.
+/// - The conversion to `parley::FontFeature` / `parley::FontVariation`
+///   (at most 5 features × 1 toggle bit, typically 0–2 variations) is
+///   small enough not to be a hot-path concern. Done in
+///   [`super::shaper::shape_line`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedParleyStyle {
     pub fg: Brush,
@@ -143,6 +157,13 @@ pub struct ResolvedParleyStyle {
     pub letter_spacing: f32,
     pub underline: DecorationKind,
     pub strikethrough: DecorationKind,
+    /// OpenType feature toggles (calt / clig / dlig / hlig / liga / zero).
+    /// Empty bitset (`0`) means "use font defaults".
+    pub font_features: KFontFeatures,
+    /// Variable-font axis settings. Empty slice in the steady-state
+    /// (kasane fonts are mostly static); `Arc` makes per-run cloning
+    /// cheap when a plugin assigns the same axis values to many atoms.
+    pub font_variations: Arc<[KFontVariation]>,
 }
 
 /// Decoration projected to what is actually drawn. `Custom` carries the
@@ -163,8 +184,7 @@ pub enum DecorationKind {
 }
 
 /// Project a [`Style`] (with brushes already resolved against a base context)
-/// into [`ResolvedParleyStyle`]. Used by Phase 7's `StyledLineBuilder` after
-/// it calls `kasane_core::protocol::resolve_style`.
+/// into [`ResolvedParleyStyle`].
 ///
 /// Panics in debug builds if `style.fg` / `style.bg` are still
 /// `Brush::Default`; this is a programming error caught early.
@@ -190,7 +210,78 @@ pub fn resolve_for_parley(style: &Style, fallback_text_color: Brush) -> Resolved
         letter_spacing: style.letter_spacing,
         underline: project_decoration(style.underline, fg),
         strikethrough: project_decoration(style.strikethrough, fg),
+        font_features: style.font_features,
+        // Empty `Vec`s share an `Arc::from(&[][..])`-allocated zero-length
+        // slice, so the steady-state cost is one Arc clone per run.
+        font_variations: Arc::from(style.font_variations.as_slice()),
     }
+}
+
+/// Convert a kasane [`FontFeatures`](KFontFeatures) bitset into the
+/// `parley::FontFeature` list the shaper pushes via
+/// [`StyleProperty::FontFeatures`](parley::StyleProperty::FontFeatures).
+///
+/// Each set bit produces one or two OpenType features. The mapping mirrors
+/// the docstring on `FontFeatures` in `kasane-core/src/protocol/style.rs`:
+///
+/// | bit                     | OpenType tag(s) |
+/// |-------------------------|-----------------|
+/// | `STANDARD_LIGATURES`    | `calt`, `clig`  |
+/// | `DISCRETIONARY_LIGATURES` | `dlig`        |
+/// | `HISTORICAL_LIGATURES`  | `hlig`          |
+/// | `COMMON_LIGATURES`      | `liga`          |
+/// | `SLASHED_ZERO`          | `zero`          |
+///
+/// Returns an empty `Vec` for an empty bitset; the caller skips the
+/// `StyleProperty::FontFeatures` push in that case so Parley falls back to
+/// the font's default feature set.
+pub fn kasane_features_to_parley(features: KFontFeatures) -> Vec<parley::FontFeature> {
+    let mut out = Vec::new();
+    if features.has(KFontFeatures::STANDARD_LIGATURES) {
+        out.push(parley::FontFeature::new(
+            parley::setting::Tag::new(b"calt"),
+            1,
+        ));
+        out.push(parley::FontFeature::new(
+            parley::setting::Tag::new(b"clig"),
+            1,
+        ));
+    }
+    if features.has(KFontFeatures::DISCRETIONARY_LIGATURES) {
+        out.push(parley::FontFeature::new(
+            parley::setting::Tag::new(b"dlig"),
+            1,
+        ));
+    }
+    if features.has(KFontFeatures::HISTORICAL_LIGATURES) {
+        out.push(parley::FontFeature::new(
+            parley::setting::Tag::new(b"hlig"),
+            1,
+        ));
+    }
+    if features.has(KFontFeatures::COMMON_LIGATURES) {
+        out.push(parley::FontFeature::new(
+            parley::setting::Tag::new(b"liga"),
+            1,
+        ));
+    }
+    if features.has(KFontFeatures::SLASHED_ZERO) {
+        out.push(parley::FontFeature::new(
+            parley::setting::Tag::new(b"zero"),
+            1,
+        ));
+    }
+    out
+}
+
+/// Convert a slice of kasane [`FontVariation`](KFontVariation) into the
+/// `parley::FontVariation` list the shaper pushes via
+/// [`StyleProperty::FontVariations`](parley::StyleProperty::FontVariations).
+pub fn kasane_variations_to_parley(variations: &[KFontVariation]) -> Vec<parley::FontVariation> {
+    variations
+        .iter()
+        .map(|v| parley::FontVariation::new(parley::setting::Tag::new(&v.tag), v.value))
+        .collect()
 }
 
 fn project_decoration(deco: Option<TextDecoration>, fg: Brush) -> DecorationKind {

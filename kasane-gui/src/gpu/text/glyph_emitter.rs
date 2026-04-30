@@ -1,9 +1,9 @@
 //! Walk a [`ParleyLayout`] and emit fully positioned [`GlyphPlacement`]s
-//! ready for the L2 raster cache + GPU vertex generation (ADR-031 Phase 9b).
+//! ready for the L2 raster cache + GPU vertex generation.
 //!
-//! Sits between [`ParleyLayout`](super::layout::ParleyLayout) (the cached
-//! shape result) and the future wgpu vertex emission stage. By splitting the
-//! "walk Parley" step out of the renderer we get:
+//! Sits between [`ParleyLayout`](super::layout::ParleyLayout) (the
+//! cached shape result) and the wgpu vertex emission stage. Splitting
+//! the "walk Parley" step out of the renderer gives:
 //!
 //! - **Testability**: the emitter is pure — given a layout and an origin, it
 //!   produces a deterministic list of placements that we can inspect without
@@ -45,11 +45,9 @@ pub struct GlyphPlacement {
     pub font_size: f32,
 }
 
-/// Aggregate output of [`emit`]. Decorations (underline / strikethrough /
-/// styled variants) are deferred to Phase 10 — that work pulls per-run
-/// `RunMetrics::underline_offset` / `underline_size` /
-/// `strikethrough_offset` / `strikethrough_size` and feeds them into the
-/// quad pipeline. Phase 9b only routes glyph placements.
+/// Aggregate output of [`emit`]. Decoration metrics (underline /
+/// strikethrough offsets and thicknesses) flow through
+/// [`super::metrics`]; this emitter handles only glyph placements.
 #[derive(Debug, Default, Clone)]
 pub struct EmittedFrame {
     pub glyphs: Vec<GlyphPlacement>,
@@ -62,11 +60,11 @@ pub struct EmittedFrame {
 pub fn emit(layout: &Arc<ParleyLayout>, origin_x: f32, origin_y: f32, hint: bool) -> EmittedFrame {
     let mut frame = EmittedFrame::default();
     for line in layout.layout.lines() {
-        // ADR-031 Phase 9b — Parley's `positioned_glyphs()` already
-        // includes `run.baseline()` in each glyph's `y` (parley v0.9
+        // Parley's `positioned_glyphs()` already includes
+        // `run.baseline()` in each glyph's `y` (parley v0.9:
         // `Run::positioned_glyphs` sets `y = run.baseline() + glyph.y`).
-        // So `origin_y + glyph.y` is the baseline y in absolute coords;
-        // adding `metrics.baseline` again would double-count it.
+        // So `origin_y + glyph.y` is the baseline y in absolute
+        // coords; adding `metrics.baseline` again would double-count.
         for item in line.items() {
             let PositionedLayoutItem::GlyphRun(run) = item else {
                 continue;
@@ -124,10 +122,9 @@ fn first_brush_in_run(run: &parley::layout::GlyphRun<'_, Brush>) -> Brush {
 mod tests {
     use super::*;
     use kasane_core::config::FontConfig;
-    use kasane_core::protocol::{Atom, Face, Style};
+    use kasane_core::protocol::{Atom, Style};
 
     use super::super::ParleyText;
-    use super::super::shaper::shape_line_with_default_family;
     use super::super::styled_line::StyledLine;
 
     fn line(text: &str) -> StyledLine {
@@ -144,7 +141,7 @@ mod tests {
     #[test]
     fn emit_produces_glyph_per_character() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = Arc::new(shape_line_with_default_family(&mut text, &line("hello")));
+        let layout = Arc::new(text.shape(&line("hello")));
         let frame = emit(&layout, 100.0, 50.0, true);
         assert!(
             frame.glyphs.len() >= 5,
@@ -165,7 +162,7 @@ mod tests {
     #[test]
     fn emit_y_anchored_to_baseline() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = Arc::new(shape_line_with_default_family(&mut text, &line("a")));
+        let layout = Arc::new(text.shape(&line("a")));
         let frame_a = emit(&layout, 0.0, 0.0, true);
         let frame_b = emit(&layout, 0.0, 100.0, true);
         // Same layout at different origin_y → glyph y shifts by 100.
@@ -176,7 +173,7 @@ mod tests {
     #[test]
     fn emit_raster_key_is_hint_flag_aware() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = Arc::new(shape_line_with_default_family(&mut text, &line("hi")));
+        let layout = Arc::new(text.shape(&line("hi")));
         let frame_hint = emit(&layout, 0.0, 0.0, true);
         let frame_no_hint = emit(&layout, 0.0, 0.0, false);
         assert!(frame_hint.glyphs[0].raster_key.hint);
@@ -191,7 +188,7 @@ mod tests {
     #[test]
     fn emit_size_q_quantises_consistently() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = Arc::new(shape_line_with_default_family(&mut text, &line("x")));
+        let layout = Arc::new(text.shape(&line("x")));
         let frame = emit(&layout, 0.0, 0.0, true);
         let g = frame.glyphs[0];
         // size_q = round(font_size * 64) — for a 14 px font that's 14 * 64 = 896.
@@ -202,7 +199,7 @@ mod tests {
     #[test]
     fn emit_empty_layout_yields_empty_frame() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = Arc::new(shape_line_with_default_family(&mut text, &line("")));
+        let layout = Arc::new(text.shape(&line("")));
         let frame = emit(&layout, 0.0, 0.0, true);
         assert!(frame.glyphs.is_empty());
     }
@@ -210,7 +207,7 @@ mod tests {
     #[test]
     fn emit_cjk_yields_glyphs() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = Arc::new(shape_line_with_default_family(&mut text, &line("こ")));
+        let layout = Arc::new(text.shape(&line("こ")));
         let frame = emit(&layout, 0.0, 0.0, true);
         assert!(!frame.glyphs.is_empty(), "CJK layout produced no glyphs");
     }
@@ -218,7 +215,7 @@ mod tests {
     #[test]
     fn emit_origin_x_shifts_all_glyphs_uniformly() {
         let mut text = ParleyText::new(&FontConfig::default());
-        let layout = Arc::new(shape_line_with_default_family(&mut text, &line("hello")));
+        let layout = Arc::new(text.shape(&line("hello")));
         let a = emit(&layout, 0.0, 0.0, true);
         let b = emit(&layout, 50.0, 0.0, true);
         for (ga, gb) in a.glyphs.iter().zip(b.glyphs.iter()) {

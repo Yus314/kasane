@@ -21,7 +21,6 @@ use kasane_core::config::FontConfig;
 use winit::dpi::PhysicalSize;
 
 use super::ParleyText;
-use super::shaper::shape_line_with_default_family;
 use super::styled_line::StyledLine;
 use crate::gpu::metrics::CellMetrics;
 use kasane_core::protocol::{Atom, Style};
@@ -43,7 +42,7 @@ pub fn calculate_with_parley(
     let letter_spacing_px = font_config.letter_spacing * scale_factor as f32;
 
     // Build a single-atom "M" line with default style.
-    let probe_atom = Atom::from_face(kasane_core::protocol::Face::default(), "M");
+    let probe_atom = Atom::plain("M");
     let line = StyledLine::from_atoms(
         &[probe_atom],
         &Style::default(),
@@ -51,7 +50,7 @@ pub fn calculate_with_parley(
         font_size,
         None,
     );
-    let layout = shape_line_with_default_family(text_state, &line);
+    let layout = text_state.shape(&line);
 
     // First glyph's advance through Parley → cell width.
     let m_advance = first_glyph_advance(&layout).unwrap_or(font_size * 0.6);

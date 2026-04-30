@@ -1,10 +1,10 @@
-//! `FontConfig` → Parley font family conversion (ADR-031, Phase 6).
+//! `FontConfig` → Parley font family conversion.
 //!
 //! Bridges Kasane's user-facing [`FontConfig`] to the
 //! [`parley::FontFamily`] container that
-//! `RangedBuilder::push_default(StyleProperty::FontFamily(...))` consumes.
-//! Phase 7 wires this into the shaper; until then it is exercised only by
-//! unit tests.
+//! `RangedBuilder::push_default(StyleProperty::FontFamily(...))`
+//! consumes. [`super::ParleyText::new`] caches the resolved stack so
+//! the production hot path does not re-build it per shape call.
 //!
 //! Naming convention: Kakoune (and CSS) use the generic family names
 //! `"monospace"`, `"serif"`, `"sans-serif"`, `"cursive"`, `"fantasy"`. Parley

@@ -1,7 +1,7 @@
 use super::super::test_helpers::test_state_80x24;
 use super::super::*;
 use crate::plugin::PluginRuntime;
-use crate::protocol::{Coord, Face, MenuStyle};
+use crate::protocol::{Coord, MenuStyle};
 use crate::state::DirtyFlags;
 use crate::test_utils::make_line;
 

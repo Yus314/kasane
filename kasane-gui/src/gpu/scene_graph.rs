@@ -114,8 +114,8 @@ pub enum BlendMode {
     Overlay,
 }
 
-/// Face resolution function: (fg, bg, attributes).
-type ResolveFaceFn = dyn Fn(&kasane_core::protocol::Face) -> ([f32; 4], [f32; 4], u32);
+/// Style resolution function: (fg, bg, attributes).
+type ResolveStyleFn = dyn Fn(&kasane_core::protocol::Style) -> ([f32; 4], [f32; 4], u32);
 
 /// Builds a list of `GpuPrimitive`s from `DrawCommand`s.
 ///
@@ -137,23 +137,23 @@ impl SceneBuilder {
     /// Convert a slice of DrawCommands into GpuPrimitives.
     pub fn from_draw_commands(
         commands: &[DrawCommand],
-        resolve_face: &ResolveFaceFn,
+        resolve_style: &ResolveStyleFn,
     ) -> Vec<GpuPrimitive> {
         let mut builder = Self::new();
         for cmd in commands {
-            builder.push_draw_command(cmd, resolve_face);
+            builder.push_draw_command(cmd, resolve_style);
         }
         builder.build()
     }
 
-    fn push_draw_command(&mut self, cmd: &DrawCommand, resolve_face: &ResolveFaceFn) {
+    fn push_draw_command(&mut self, cmd: &DrawCommand, resolve_style: &ResolveStyleFn) {
         match cmd {
             DrawCommand::FillRect {
                 rect,
                 face,
                 elevated,
             } => {
-                let (_, mut bg, _) = resolve_face(&face.to_face());
+                let (_, mut bg, _) = resolve_style(face);
                 if *elevated {
                     bg[0] = (bg[0] + 0.003).min(1.0);
                     bg[1] = (bg[1] + 0.003).min(1.0);
@@ -177,7 +177,7 @@ impl SceneBuilder {
                 let spans: Vec<TextSpan> = atoms
                     .iter()
                     .map(|atom| {
-                        let (fg, _, _) = resolve_face(&atom.face());
+                        let (fg, _, _) = resolve_style(&atom.style);
                         TextSpan {
                             text: atom.contents.clone(),
                             color: fg,
@@ -198,7 +198,7 @@ impl SceneBuilder {
                 face,
                 max_width,
             } => {
-                let (fg, _, _) = resolve_face(&face.to_face());
+                let (fg, _, _) = resolve_style(face);
                 self.primitives.push(GpuPrimitive::TextRun {
                     x: pos.x,
                     y: pos.y,
@@ -211,7 +211,7 @@ impl SceneBuilder {
                 });
             }
             DrawCommand::DrawPaddingRow { pos, ch, face, .. } => {
-                let (fg, _, _) = resolve_face(&face.to_face());
+                let (fg, _, _) = resolve_style(face);
                 self.primitives.push(GpuPrimitive::TextRun {
                     x: pos.x,
                     y: pos.y,
@@ -229,10 +229,10 @@ impl SceneBuilder {
                 face,
                 fill_face,
             } => {
-                let (border_fg, _, _) = resolve_face(&face.to_face());
+                let (border_fg, _, _) = resolve_style(face);
                 let fill = match fill_face {
                     Some(ff) => {
-                        let (_, bg, _) = resolve_face(&ff.to_face());
+                        let (_, bg, _) = resolve_style(ff);
                         bg
                     }
                     None => [0.0, 0.0, 0.0, 0.0],
@@ -324,11 +324,11 @@ impl Default for SceneBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kasane_core::protocol::Face;
+    use kasane_core::protocol::Style;
     use kasane_core::render::scene::{PixelPos, ResolvedAtom};
 
-    fn dummy_resolve(face: &Face) -> ([f32; 4], [f32; 4], u32) {
-        let _ = face;
+    fn dummy_resolve(style: &Style) -> ([f32; 4], [f32; 4], u32) {
+        let _ = style;
         ([1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0)
     }
 
@@ -341,7 +341,7 @@ mod tests {
                 w: 100.0,
                 h: 20.0,
             },
-            face: Face::default().into(),
+            face: Style::default(),
             elevated: false,
         }];
         let prims = SceneBuilder::from_draw_commands(&commands, &dummy_resolve);
@@ -381,7 +381,7 @@ mod tests {
                     w: 10.0,
                     h: 10.0,
                 },
-                face: Face::default().into(),
+                face: Style::default(),
                 elevated: false,
             },
             DrawCommand::BeginOverlay,
@@ -392,7 +392,7 @@ mod tests {
                     w: 10.0,
                     h: 10.0,
                 },
-                face: Face::default().into(),
+                face: Style::default(),
                 elevated: false,
             },
         ];

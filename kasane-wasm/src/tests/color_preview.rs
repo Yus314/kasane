@@ -33,10 +33,15 @@ fn detects_colors_in_line() {
 
     assert!(plugin.has_unified_display());
     let directives = plugin.unified_display(&AppView::new(&state));
-    assert_eq!(directives.len(), 1);
+    // Phase 10 exemplar: gutter swatch + inline_box slot per color.
+    assert_eq!(directives.len(), 2);
     assert!(matches!(
         &directives[0],
         DisplayDirective::Gutter { line: 0, .. }
+    ));
+    assert!(matches!(
+        &directives[1],
+        DisplayDirective::InlineBox { line: 0, .. }
     ));
 }
 

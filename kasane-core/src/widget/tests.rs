@@ -1470,7 +1470,10 @@ fn resolve_face_token_from_theme() {
         bg: crate::protocol::Color::Named(crate::protocol::NamedColor::Blue),
         ..Face::default()
     };
-    state.config.theme.set(token.clone(), expected_face);
+    state
+        .config
+        .theme
+        .set_style(token.clone(), expected_face.into());
     let view = AppView::new(&state);
 
     let fot = super::types::FaceOrToken::Token(token);

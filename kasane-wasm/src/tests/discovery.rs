@@ -137,7 +137,7 @@ fn bundled_plugin_artifacts_include_default_enabled_pane_manager() {
 
     assert_eq!(pane_manager.package_name, "builtin/pane-manager");
     assert!(pane_manager.default_enabled);
-    assert_eq!(pane_manager.abi_version, "1.1.0");
+    assert_eq!(pane_manager.abi_version, "2.0.0");
 }
 
 #[test]

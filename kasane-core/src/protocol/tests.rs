@@ -561,7 +561,7 @@ fn test_parse_draw_with_rgba_selection_face() {
     match req {
         KakouneRequest::Draw { lines, .. } => {
             assert_eq!(
-                lines[0][0].face().bg,
+                lines[0][0].unresolved_style().to_face().bg,
                 Color::Rgb {
                     r: 0x46,
                     g: 0x46,
@@ -592,7 +592,7 @@ fn test_parse_old_protocol_set_cursor() {
 // Atom no longer derives Deserialize (its style_id is an interner key, not
 // a wire field). The tests below feed Face JSON to Style::from_face — the
 // same path the protocol parser takes when it builds an `Atom` via
-// `Atom::from_face`.
+// `Atom::from_wire`.
 
 fn parse_face_json(json: &str) -> Face {
     serde_json::from_str(json).unwrap()

@@ -38,7 +38,7 @@ pub(super) fn face_at_coord(
     for atom in line.iter() {
         let width = atom_display_width(atom);
         if col <= target_col && target_col < col + width.max(1) {
-            return Some(atom.face());
+            return Some(atom.unresolved_style().to_face());
         }
         col += width;
     }

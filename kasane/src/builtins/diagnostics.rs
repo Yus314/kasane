@@ -9,7 +9,7 @@ use kasane_core::plugin::diagnostics::PluginDiagnosticOverlayState;
 use kasane_core::plugin::{
     AppView, OverlayContext, OverlayContribution, PluginBackend, PluginCapabilities, PluginId,
 };
-use kasane_core::protocol::{Atom, Face};
+use kasane_core::protocol::{Atom, Face, Style};
 
 /// Built-in plugin for diagnostics overlay rendering.
 ///
@@ -64,7 +64,7 @@ fn build_diagnostic_element(
     // Header line (first text run)
     if let Some(header_run) = spec.text_runs.first() {
         body_children.push(FlexChild::fixed(Element::StyledLine(vec![
-            Atom::from_face(spec.header_face, header_run.text.clone()),
+            Atom::with_style(header_run.text.clone(), Style::from_face(&spec.header_face)),
         ])));
     }
 
@@ -73,10 +73,13 @@ fn build_diagnostic_element(
     for chunk in body_runs.chunks(2) {
         let mut atoms = Vec::new();
         for run in chunk {
-            atoms.push(Atom::from_face(run.face, run.text.clone()));
+            atoms.push(Atom::with_style(
+                run.text.clone(),
+                Style::from_face(&run.face),
+            ));
             // Space between tag and text
             if atoms.len() == 1 {
-                atoms.push(Atom::from_face(spec.body_face, " "));
+                atoms.push(Atom::with_style(" ", Style::from_face(&spec.body_face)));
             }
         }
         body_children.push(FlexChild::fixed(Element::StyledLine(atoms)));

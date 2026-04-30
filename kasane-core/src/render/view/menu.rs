@@ -5,8 +5,8 @@ use crate::element::{
 };
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
 use crate::plugin::{AppView, PluginView};
-use crate::protocol::resolve_face;
-use crate::protocol::{Atom, Face, MenuStyle};
+use crate::protocol::resolve_style;
+use crate::protocol::{Atom, MenuStyle, Style};
 use crate::render::builders::{
     self, MAX_DROPDOWN_HEIGHT, PREFIX_WIDTH, SCROLLBAR_WIDTH, SUFFIX_RESERVE,
 };
@@ -14,18 +14,18 @@ use crate::state::{AppState, MenuColumns, MenuState};
 
 use super::build_styled_line_with_base;
 
-/// Resolve menu item face: theme override takes precedence, protocol face as fallback.
-fn resolve_menu_face(menu: &MenuState, selected: bool, state: &AppState) -> Face {
+/// Resolve menu item style: theme override takes precedence, protocol style as fallback.
+fn resolve_menu_style(menu: &MenuState, selected: bool, state: &AppState) -> Style {
     if selected {
         state.config.theme.resolve_with_protocol_fallback(
             &StyleToken::MENU_ITEM_SELECTED,
-            menu.selected_item_face.to_face(),
+            menu.selected_item_face.clone(),
         )
     } else {
         state
             .config
             .theme
-            .resolve_with_protocol_fallback(&StyleToken::MENU_ITEM_NORMAL, menu.menu_face.to_face())
+            .resolve_with_protocol_fallback(&StyleToken::MENU_ITEM_NORMAL, menu.menu_face.clone())
     }
 }
 
@@ -66,17 +66,17 @@ fn build_menu_item_element(
     state: &AppState,
 ) -> Element {
     let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
-    let face = resolve_menu_face(menu, selected, state);
+    let style = resolve_menu_style(menu, selected, state);
     let item = if item_idx < menu.items.len() {
         let atoms = &menu.items[item_idx];
         let transformed =
             registry.transform_menu_item(atoms, item_idx, selected, &AppView::new(state));
         let line = transformed.as_ref().unwrap_or(atoms);
-        build_styled_line_with_base(line, &face, width)
+        build_styled_line_with_base(line, &style, width)
     } else {
-        Element::text("", face)
+        Element::text_with_style("", style.clone())
     };
-    Element::container(item, ElementStyle::from(face))
+    Element::container(item, ElementStyle::from(style))
 }
 
 use builders::truncate_atoms;
@@ -94,10 +94,13 @@ fn build_split_item_element(
     state: &AppState,
 ) -> Element {
     let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
-    let face = resolve_menu_face(menu, selected, state);
+    let style = resolve_menu_style(menu, selected, state);
 
     if item_idx >= menu.items.len() {
-        return Element::container(Element::text("", face), ElementStyle::from(face));
+        return Element::container(
+            Element::text_with_style("", style.clone()),
+            ElementStyle::from(style),
+        );
     }
 
     let item = &menu.items[item_idx];
@@ -119,7 +122,7 @@ fn build_split_item_element(
     let mut cand_resolved = truncate_atoms(
         cand_atoms,
         candidate_col_w,
-        &face,
+        &style,
         &state.config.truncation_char,
     );
     // Pad candidate to candidate_col_w
@@ -134,22 +137,22 @@ fn build_split_item_element(
         .sum();
     if (cand_w as u16) < candidate_col_w {
         let pad = candidate_col_w as usize - cand_w;
-        cand_resolved.push(Atom::from_face(face, " ".repeat(pad)));
+        cand_resolved.push(Atom::with_style(" ".repeat(pad), style.clone()));
     }
     atoms.extend(cand_resolved);
 
     // 2. Gap: 1-space separator
-    atoms.push(Atom::from_face(face, " "));
+    atoms.push(Atom::with_style(" ", style.clone()));
 
-    // 3. Docstring portion: resolve faces (paint-level truncation handles overflow)
+    // 3. Docstring portion: resolve styles (paint-level truncation handles overflow)
     for atom in &effective_item[split.docstring_start..] {
-        atoms.push(Atom::from_face(
-            resolve_face(&atom.face(), &face),
+        atoms.push(Atom::with_style(
             atom.contents.clone(),
+            resolve_style(&atom.style, &style),
         ));
     }
 
-    Element::container(Element::StyledLine(atoms), ElementStyle::from(face))
+    Element::container(Element::StyledLine(atoms), ElementStyle::from(style))
 }
 
 fn build_menu_inline(
@@ -266,7 +269,7 @@ fn build_menu_prompt(
     Some(Overlay {
         element: Element::container(
             row,
-            ElementStyle::from(resolve_menu_face(menu, false, state)),
+            ElementStyle::from(resolve_menu_style(menu, false, state)),
         ),
         anchor: OverlayAnchor::Absolute {
             x: 0,
@@ -287,13 +290,13 @@ fn build_menu_search(
     let screen_w = state.runtime.cols as usize;
     let first = menu.first_item;
     let has_prefix = first > 0;
-    let normal_face = resolve_menu_face(menu, false, state);
+    let normal_style = resolve_menu_style(menu, false, state);
 
     let mut atoms: Vec<Atom> = Vec::new();
 
     // "< " prefix
     if has_prefix {
-        atoms.push(Atom::from_face(normal_face, "< "));
+        atoms.push(Atom::with_style("< ", normal_style.clone()));
     }
 
     // Items with gaps
@@ -308,29 +311,29 @@ fn build_menu_search(
                 // Pad and add ">"
                 let pad_len = screen_w.saturating_sub(x + 1);
                 if pad_len > 0 {
-                    atoms.push(Atom::from_face(normal_face, " ".repeat(pad_len)));
+                    atoms.push(Atom::with_style(" ".repeat(pad_len), normal_style.clone()));
                 }
-                atoms.push(Atom::from_face(normal_face, ">"));
+                atoms.push(Atom::with_style(">", normal_style.clone()));
             }
             break;
         }
 
-        let face = resolve_menu_face(menu, Some(idx) == menu.selected, state);
+        let item_style = resolve_menu_style(menu, Some(idx) == menu.selected, state);
 
-        // Add item atoms with resolved face
+        // Add item atoms with resolved style
         for atom in &menu.items[idx] {
-            atoms.push(Atom::from_face(face, atom.contents.clone()));
+            atoms.push(Atom::with_style(atom.contents.clone(), item_style.clone()));
         }
         x += item_w;
 
         // Gap
         if x < screen_w {
-            atoms.push(Atom::from_face(normal_face, " "));
+            atoms.push(Atom::with_style(" ", normal_style.clone()));
             x += 1;
         }
     }
 
-    let element = Element::container(Element::StyledLine(atoms), ElementStyle::from(normal_face));
+    let element = Element::container(Element::StyledLine(atoms), ElementStyle::from(normal_style));
 
     Some(Overlay {
         element,
@@ -395,17 +398,16 @@ fn build_menu_search_dropdown(
 fn build_scrollbar(
     win_height: u16,
     menu: &MenuState,
-    face: &crate::protocol::Style,
+    style: &Style,
     thumb: &str,
     track: &str,
 ) -> Element {
-    let face = face.to_face();
     builders::build_scrollbar(
         win_height,
         menu.items.len(),
         menu.columns,
         menu.first_item,
-        &face,
+        style,
         thumb,
         track,
     )
@@ -448,19 +450,19 @@ impl PluginBackend for BuiltinMenuPlugin {
 mod tests {
     use super::*;
     use crate::plugin::PluginRuntime;
-    use crate::protocol::{Color, Coord, NamedColor};
+    use crate::protocol::{Coord, NamedColor};
     use crate::state::MenuParams;
 
     fn make_completion_item(candidate: &str, padding: &str, docstring: &str) -> Vec<Atom> {
         vec![
             Atom::plain(candidate),
             Atom::plain(padding),
-            Atom::from_face(
-                Face {
-                    fg: Color::Named(NamedColor::Cyan),
-                    ..Face::default()
-                },
+            Atom::with_style(
                 docstring,
+                Style {
+                    fg: crate::protocol::Brush::Named(NamedColor::Cyan),
+                    ..Style::default()
+                },
             ),
         ]
     }
@@ -468,7 +470,7 @@ mod tests {
     #[test]
     fn test_truncate_atoms_no_op() {
         let atoms = vec![Atom::plain("hello")];
-        let result = truncate_atoms(&atoms, 10, &Face::default(), "\u{2026}");
+        let result = truncate_atoms(&atoms, 10, &Style::default(), "\u{2026}");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].contents.as_str(), "hello");
     }
@@ -476,7 +478,7 @@ mod tests {
     #[test]
     fn test_truncate_atoms_with_ellipsis() {
         let atoms = vec![Atom::plain("hello_world_long")];
-        let result = truncate_atoms(&atoms, 8, &Face::default(), "\u{2026}");
+        let result = truncate_atoms(&atoms, 8, &Style::default(), "\u{2026}");
         // Should be truncated to 7 chars + "…"
         let last = result.last().unwrap();
         assert_eq!(last.contents.as_str(), "\u{2026}");
@@ -491,7 +493,7 @@ mod tests {
     fn test_truncate_atoms_cjk() {
         // "あいう" = 3 CJK chars, each width 2 → total 6
         let atoms = vec![Atom::plain("あいう")];
-        let result = truncate_atoms(&atoms, 5, &Face::default(), "\u{2026}");
+        let result = truncate_atoms(&atoms, 5, &Style::default(), "\u{2026}");
         // Can fit "あい" (4) + "…" (1) = 5
         let total_w: usize = result
             .iter()

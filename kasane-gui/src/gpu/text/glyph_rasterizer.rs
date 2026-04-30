@@ -1,16 +1,16 @@
-//! Swash-based glyph rasteriser (ADR-031, Phase 8).
+//! Swash-based glyph rasteriser.
 //!
-//! Turns a `(font, glyph_id, size, subpixel_x, variations)` tuple into a
-//! [`RasterizedGlyph`] (mask or colour bitmap + placement). The
-//! [`swash::scale::ScaleContext`] is owned by the rasteriser and reused
-//! across calls — Parley resolves font references via the shaped layout, so
-//! we receive a `swash::FontRef` from the caller rather than discovering
-//! fonts ourselves.
+//! Turns a `(font, glyph_id, size, subpixel_x, variations)` tuple into
+//! a [`RasterizedGlyph`] (mask or colour bitmap + placement). The
+//! [`swash::scale::ScaleContext`] is owned by the rasteriser and
+//! reused across calls — Parley resolves font references via the
+//! shaped layout, so we receive a `swash::FontRef` from the caller
+//! rather than discovering fonts ourselves.
 //!
-//! Subpixel positioning: x-axis only, quantised to 4 levels (0/4, 1/4, 2/4,
-//! 3/4). y is always pixel-aligned. This matches the cosmic-text-era atlas
-//! footprint multiplier (~4× per glyph in worst case, typically less because
-//! monospace text falls on a small set of subpixel offsets).
+//! Subpixel positioning: x-axis only, quantised to 4 levels (0/4,
+//! 1/4, 2/4, 3/4). y is always pixel-aligned. The 4× atlas footprint
+//! multiplier in worst case is typically smaller in practice because
+//! monospace text falls on a small set of subpixel offsets.
 //!
 //! Color emoji: tried first via `Source::ColorOutline(0)` then
 //! `Source::ColorBitmap(BestFit)`. Outline / Bitmap fall through for normal
@@ -144,7 +144,7 @@ impl GlyphRasterizer {
         let content = match image.content {
             Content::Color => ContentKind::Color,
             // SubpixelMask is treated as Mask for now; the GPU pipeline does
-            // not yet consume RGB-subpixel masks (Phase 10 may revisit).
+            // not consume RGB-subpixel masks (deferred until LCD AA returns).
             Content::Mask | Content::SubpixelMask => ContentKind::Mask,
         };
 

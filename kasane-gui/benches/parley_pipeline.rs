@@ -30,16 +30,15 @@ use kasane_core::config::FontConfig;
 use kasane_core::protocol::{Atom, Color, Face, NamedColor, Style};
 use parley::PositionedLayoutItem;
 
-use kasane_gui::gpu::parley_text::atlas::{AtlasShelf, AtlasSlot};
-use kasane_gui::gpu::parley_text::font_id::{font_id_from_data, var_hash_from_coords};
-use kasane_gui::gpu::parley_text::glyph_rasterizer::ContentKind;
-use kasane_gui::gpu::parley_text::glyph_rasterizer::{GlyphRasterizer, SubpixelX};
-use kasane_gui::gpu::parley_text::layout::ParleyLayout;
-use kasane_gui::gpu::parley_text::layout_cache::LayoutCache;
-use kasane_gui::gpu::parley_text::raster_cache::{AtlasOps, GlyphRasterCache, GlyphRasterKey};
-use kasane_gui::gpu::parley_text::shaper::shape_line_with_default_family;
-use kasane_gui::gpu::parley_text::styled_line::StyledLine;
-use kasane_gui::gpu::parley_text::{Brush, ParleyText};
+use kasane_gui::gpu::text::atlas::{AtlasShelf, AtlasSlot};
+use kasane_gui::gpu::text::font_id::{font_id_from_data, var_hash_from_coords};
+use kasane_gui::gpu::text::glyph_rasterizer::ContentKind;
+use kasane_gui::gpu::text::glyph_rasterizer::{GlyphRasterizer, SubpixelX};
+use kasane_gui::gpu::text::layout::ParleyLayout;
+use kasane_gui::gpu::text::layout_cache::LayoutCache;
+use kasane_gui::gpu::text::raster_cache::{AtlasOps, GlyphRasterCache, GlyphRasterKey};
+use kasane_gui::gpu::text::styled_line::StyledLine;
+use kasane_gui::gpu::text::{Brush, ParleyText};
 
 fn realistic_atoms(line_no: usize) -> Vec<Atom> {
     let kw_face = Face {
@@ -71,12 +70,12 @@ fn realistic_atoms(line_no: usize) -> Vec<Atom> {
         ..Face::default()
     };
     vec![
-        Atom::from_face(kw_face, "let"),
+        Atom::with_style("let", Style::from_face(&kw_face)),
         Atom::plain(" "),
-        Atom::from_face(var_face, format!("var_{line_no}")),
+        Atom::with_style(format!("var_{line_no}"), Style::from_face(&var_face)),
         Atom::plain(" = "),
-        Atom::from_face(str_face, format!("\"{line_no}_value\"")),
-        Atom::from_face(semi_face, ";"),
+        Atom::with_style(format!("\"{line_no}_value\""), Style::from_face(&str_face)),
+        Atom::with_style(";", Style::from_face(&semi_face)),
     ]
 }
 
@@ -154,9 +153,8 @@ impl Pipeline {
     }
 
     fn shape_line_only(&mut self, line_idx: u32, line: &StyledLine) -> Arc<ParleyLayout> {
-        self.layout_cache.get_or_compute(line_idx, line, |l| {
-            shape_line_with_default_family(&mut self.text, l)
-        })
+        self.layout_cache
+            .get_or_compute(line_idx, line, |l| self.text.shape(l))
     }
 
     fn render_frame(&mut self, lines: &[(u32, &StyledLine)]) -> usize {
@@ -212,7 +210,7 @@ fn bench_shape_cold(c: &mut Criterion) {
     c.bench_function("parley/shape_cold", |b| {
         b.iter_with_setup(
             || ParleyText::new(&FontConfig::default()),
-            |mut text| shape_line_with_default_family(&mut text, &lines[0]),
+            |mut text| text.shape(&lines[0]),
         );
     });
 }
@@ -221,7 +219,7 @@ fn bench_shape_warm(c: &mut Criterion) {
     let lines = make_lines(1);
     c.bench_function("parley/shape_warm", |b| {
         let mut text = ParleyText::new(&FontConfig::default());
-        b.iter(|| shape_line_with_default_family(&mut text, &lines[0]));
+        b.iter(|| text.shape(&lines[0]));
     });
 }
 

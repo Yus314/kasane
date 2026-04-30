@@ -18,11 +18,11 @@ impl Plugin for LineNumbersPlugin {
             let children: Vec<_> = (0..total)
                 .map(|i| {
                     let num = format!("{:>w$} ", i + 1, w = width);
-                    FlexChild::fixed(Element::text(
+                    FlexChild::fixed(Element::text_with_style(
                         num,
-                        Face {
-                            fg: Color::Named(NamedColor::Cyan),
-                            ..Face::default()
+                        Style {
+                            fg: Brush::Named(NamedColor::Cyan),
+                            ..Style::default()
                         },
                     ))
                 })

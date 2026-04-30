@@ -15,6 +15,24 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Install system fonts + prime fontconfig cache so Parley / fontique
+      # (used by kasane-gui's L1/L2 cache integration tests) has a stable
+      # fallback chain. Without this, `fontconfig: No writable cache
+      # directories` plus an empty FONT_PATH makes warm-frame shape hashes
+      # diverge from cold-frame hashes, causing L1/L2 cache hit assertions
+      # to fail in tests like
+      # `gpu::text::frame_builder::tests::build_frame_warm_l1_l2_path_drops_to_zero_misses`.
+      # `fc-cache -f` builds the cache up-front; setting XDG_CACHE_HOME
+      # ensures fontconfig has a writable cache dir at runtime.
+      - name: Install system fonts (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-dejavu-core fonts-noto-core fontconfig
+          mkdir -p "$HOME/.cache/fontconfig"
+          fc-cache -f -v
+          fc-list | head -5
+
       - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixpkgs-unstable
@@ -38,7 +56,11 @@ jobs:
         run: nix develop --command cargo build --features gui
 
       - name: Test
-        run: nix develop --command cargo test
+        env:
+          XDG_CACHE_HOME: ${{ github.workspace }}/.cache
+        run: |
+          mkdir -p "$XDG_CACHE_HOME/fontconfig"
+          nix develop --command cargo test
 
       - name: Clippy
         run: nix develop --command cargo clippy -- -D warnings

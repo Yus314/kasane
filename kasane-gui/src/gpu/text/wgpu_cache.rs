@@ -1,7 +1,7 @@
 // Derived from glyphon 0.10.0 (https://github.com/grovesNL/glyphon)
 // Original license: MIT OR Apache-2.0 OR Zlib
 
-use crate::gpu::text_pipeline::{GlyphToRender, Params};
+use super::wgpu_types::{GlyphToRender, Params};
 use std::{
     borrow::Cow,
     mem,

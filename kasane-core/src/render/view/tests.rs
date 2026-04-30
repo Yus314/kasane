@@ -124,12 +124,12 @@ fn test_status_bar_resolves_default_face() {
         Element::StyledLine(atoms) => {
             for atom in atoms {
                 assert_eq!(
-                    atom.face().fg,
+                    atom.unresolved_style().to_face().fg,
                     Color::Named(NamedColor::Cyan),
                     "status_line fg should be resolved from status_default_face"
                 );
                 assert_eq!(
-                    atom.face().bg,
+                    atom.unresolved_style().to_face().bg,
                     Color::Named(NamedColor::Magenta),
                     "status_line bg should be resolved from status_default_face"
                 );
@@ -146,12 +146,12 @@ fn test_status_bar_resolves_default_face() {
         Element::StyledLine(atoms) => {
             for atom in atoms {
                 assert_eq!(
-                    atom.face().fg,
+                    atom.unresolved_style().to_face().fg,
                     Color::Named(NamedColor::Cyan),
                     "mode_line fg should be resolved from status_default_face"
                 );
                 assert_eq!(
-                    atom.face().bg,
+                    atom.unresolved_style().to_face().bg,
                     Color::Named(NamedColor::Magenta),
                     "mode_line bg should be resolved from status_default_face"
                 );

@@ -12,7 +12,7 @@ use kasane_core::plugin::{
     PluginCapabilities, PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
-use kasane_core::render::{CursorStyle, CursorStyleHint, cursor_style_default};
+use kasane_core::render::{CursorStyle, cursor_style_default};
 use kasane_core::state::{AppState, DirtyFlags, Msg, update_in_place};
 use kasane_core::test_support::{make_line, render_with_registry, row_text};
 
@@ -172,7 +172,7 @@ fn plugin_message_delivery() {
 #[kasane_plugin]
 mod prefix_plugin {
     use kasane_core::plugin::AppView;
-    use kasane_core::protocol::{Atom, Face};
+    use kasane_core::protocol::Atom;
 
     #[state]
     #[derive(Default)]
@@ -238,10 +238,7 @@ fn menu_transform_adds_prefix() {
     assert!(found_prefix, "menu should show items with '>> ' prefix");
 
     // Also verify via the registry API directly that the transform is applied
-    let item = vec![kasane_core::protocol::Atom::from_face(
-        Face::default(),
-        "alpha",
-    )];
+    let item = vec![kasane_core::protocol::Atom::plain("alpha")];
     let transformed = registry
         .view()
         .transform_menu_item(&item, 0, false, &AppView::new(&state));
@@ -269,7 +266,6 @@ mod buffer_banner {
     #[allow(unused_imports)]
     use kasane_core::plugin::TransformTarget;
     use kasane_core::plugin::{AppView, TransformSubject};
-    use kasane_core::protocol::Face;
 
     #[state]
     #[derive(Default)]

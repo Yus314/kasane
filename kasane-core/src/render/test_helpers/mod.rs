@@ -2,28 +2,31 @@ pub(in crate::render) mod info;
 pub(in crate::render) mod menu;
 
 use super::grid::CellGrid;
+use super::terminal_style::TerminalStyle;
 use crate::state::AppState;
 
 /// Render the main buffer area (all lines except the last row which is status).
 /// Retained for regression testing against the new declarative pipeline.
 pub(super) fn render_buffer(state: &AppState, grid: &mut CellGrid) {
     let buffer_rows = grid.height().saturating_sub(1);
+    let default_term = TerminalStyle::from_style(&state.observed.default_style);
+    let padding_term = TerminalStyle::from_style(&state.observed.padding_style);
 
     for y in 0..buffer_rows {
         if let Some(line) = state.observed.lines.get(y as usize) {
-            grid.fill_row(y, &state.observed.default_style.to_face());
+            grid.fill_row(y, &default_term);
             grid.put_line_with_base(
                 y,
                 0,
                 line,
                 grid.width(),
-                Some(&state.observed.default_style.to_face()),
+                Some(&state.observed.default_style),
             );
         } else {
             // Padding row
-            grid.fill_row(y, &state.observed.padding_style.to_face());
+            grid.fill_row(y, &padding_term);
             // Show tilde for padding like Kakoune
-            grid.put_char(0, y, "~", &state.observed.padding_style.to_face());
+            grid.put_char(0, y, "~", &padding_term);
         }
     }
 }
@@ -32,7 +35,8 @@ pub(super) fn render_buffer(state: &AppState, grid: &mut CellGrid) {
 /// Retained for regression testing against the new declarative pipeline.
 pub(super) fn render_status(state: &AppState, grid: &mut CellGrid) {
     let y = grid.height().saturating_sub(1);
-    grid.fill_row(y, &state.observed.status_default_style.to_face());
+    let status_term = TerminalStyle::from_style(&state.observed.status_default_style);
+    grid.fill_row(y, &status_term);
 
     // Status line on the left
     grid.put_line_with_base(
@@ -40,7 +44,7 @@ pub(super) fn render_status(state: &AppState, grid: &mut CellGrid) {
         0,
         &state.inference.status_line,
         grid.width(),
-        Some(&state.observed.status_default_style.to_face()),
+        Some(&state.observed.status_default_style),
     );
 
     // Mode line on the right
@@ -52,14 +56,14 @@ pub(super) fn render_status(state: &AppState, grid: &mut CellGrid) {
             mode_x,
             &state.observed.status_mode_line,
             mode_width as u16,
-            Some(&state.observed.status_default_style.to_face()),
+            Some(&state.observed.status_default_style),
         );
     }
 }
 
 /// Retained for regression testing against the new declarative pipeline.
 pub(super) fn render_frame(state: &AppState, grid: &mut CellGrid) {
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&TerminalStyle::from_style(&state.observed.default_style));
     render_buffer(state, grid); // Layer 0
     render_status(state, grid); // Layer 1
     self::menu::render_menu(state, grid); // Layer 2 (+ shadow)
@@ -76,7 +80,7 @@ pub(super) fn render_wrapped_line(
     x_start: u16,
     line: &crate::protocol::Line,
     max_width: u16,
-    base_face: Option<&crate::protocol::Face>,
+    base_style: Option<&crate::protocol::Style>,
     y_limit: u16,
 ) -> u16 {
     use unicode_segmentation::UnicodeSegmentation;
@@ -85,13 +89,14 @@ pub(super) fn render_wrapped_line(
         return 1;
     }
 
-    // Phase 1: collect graphemes with resolved faces and widths
-    let mut graphemes: Vec<(&str, crate::protocol::Face, u16)> = Vec::new();
+    // Phase 1: collect graphemes with resolved styles and widths
+    let mut graphemes: Vec<(&str, TerminalStyle, u16)> = Vec::new();
     for atom in line {
-        let face = match base_face {
-            Some(base) => crate::protocol::resolve_face(&atom.face(), base),
-            None => atom.face(),
+        let style = match base_style {
+            Some(base) => crate::protocol::resolve_style(&atom.style, base),
+            None => atom.style_resolved_default(),
         };
+        let term_style = TerminalStyle::from_style(&style);
         for grapheme in atom.contents.graphemes(true) {
             if grapheme.is_empty() {
                 continue;
@@ -104,7 +109,7 @@ pub(super) fn render_wrapped_line(
             if w == 0 {
                 continue;
             }
-            graphemes.push((grapheme, face, w));
+            graphemes.push((grapheme, term_style, w));
         }
     }
 
@@ -127,8 +132,8 @@ pub(super) fn render_wrapped_line(
             break;
         }
         let mut col = 0u16;
-        for &(grapheme, ref face, w) in &graphemes[seg.start..seg.end] {
-            grid.put_char(x_start + col, y, grapheme, face);
+        for &(grapheme, ref style, w) in &graphemes[seg.start..seg.end] {
+            grid.put_char(x_start + col, y, grapheme, style);
             col += w;
         }
         max_row = row_idx as u16;

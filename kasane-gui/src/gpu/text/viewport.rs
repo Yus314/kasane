@@ -1,7 +1,8 @@
 // Derived from glyphon 0.10.0 (https://github.com/grovesNL/glyphon)
 // Original license: MIT OR Apache-2.0 OR Zlib
 
-use crate::gpu::text_pipeline::{Cache, Params, Resolution};
+use super::wgpu_cache::Cache;
+use super::wgpu_types::{Params, Resolution};
 use std::{mem, slice};
 use wgpu::{BindGroup, Buffer, BufferDescriptor, BufferUsages, Device, Queue};
 

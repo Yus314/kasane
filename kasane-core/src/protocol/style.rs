@@ -56,6 +56,47 @@ impl Brush {
     pub fn is_inherit(self) -> bool {
         matches!(self, Brush::Default)
     }
+
+    /// Concretise this brush to an opaque RGB triple, using `fallback`
+    /// when the variant carries no fixed colour (`Default`) or when
+    /// resolving a `Named` colour.
+    ///
+    /// `Named` colours are looked up via the renderer's palette in normal
+    /// rendering, but for blending operations we accept a caller-provided
+    /// fallback so the function stays pure / palette-free. Named-colour
+    /// callers should pre-resolve via the palette and pass the resulting
+    /// RGB as `fallback`.
+    #[inline]
+    pub fn to_rgb_or(self, fallback: (u8, u8, u8)) -> (u8, u8, u8) {
+        match self {
+            Brush::Solid([r, g, b, _]) => (r, g, b),
+            Brush::Default | Brush::Named(_) => fallback,
+        }
+    }
+
+    /// Linearly interpolate between two brushes in sRGB space.
+    ///
+    /// `ratio` is the weight applied to `a` (1.0 = pure `a`, 0.0 = pure `b`).
+    /// Both brushes are concretised via [`Self::to_rgb_or`] using the
+    /// provided fallbacks, then mixed component-wise. Returned brush is
+    /// always opaque `Brush::Solid` since intermediate alpha is ill-defined
+    /// for the `Named` / `Default` variants.
+    pub fn linear_blend(
+        a: Brush,
+        b: Brush,
+        ratio: f32,
+        fallback_a: (u8, u8, u8),
+        fallback_b: (u8, u8, u8),
+    ) -> Brush {
+        let (ar, ag, ab) = a.to_rgb_or(fallback_a);
+        let (br, bg, bb) = b.to_rgb_or(fallback_b);
+        let mix = |x: u8, y: u8| -> u8 {
+            (x as f32 * ratio + y as f32 * (1.0 - ratio))
+                .round()
+                .clamp(0.0, 255.0) as u8
+        };
+        Brush::Solid([mix(ar, br), mix(ag, bg), mix(ab, bb), 0xff])
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -317,29 +358,31 @@ impl Style {
         Self::default()
     }
 
-    /// Convert from the legacy Kakoune face representation.
-    ///
-    /// Drops Kakoune resolution flags (`final_fg` / `final_bg` / `final_style`).
-    /// Use [`UnresolvedStyle::from_face`] when those flags must be preserved
-    /// for a downstream [`resolve_style`] call.
+    /// **Wire-format conversion only.** Construct a `Style` from a
+    /// Kakoune wire-format `Face`, dropping the resolution flags
+    /// (`FINAL_FG` / `FINAL_BG` / `FINAL_ATTR`). Production rendering
+    /// code holds `Style` directly; this exists for fixtures, test
+    /// helpers, and the parser-side bridge while the wire format
+    /// continues to use `Face`.
+    #[doc(hidden)]
     pub fn from_face(face: &super::color::Face) -> Self {
         UnresolvedStyle::from_face(face).style
     }
 
-    /// Lossy conversion back to the legacy face representation.
-    ///
-    /// Used by sites that still consume `Face`. Preserves bold/italic/blink
-    /// /reverse/dim/strike/underline-style. `font_weight` outside the discrete
-    /// `{NORMAL, BOLD}` set rounds to bold when ≥ 600. `font_variations`,
-    /// `letter_spacing`, and `bidi_override` are dropped. The result has no
-    /// `final_*` attributes set — a `Style` is post-resolution.
+    /// **Wire-format conversion only.** Project this `Style` back to a
+    /// Kakoune wire-format `Face`. The result has no `final_*` flags
+    /// set (a `Style` is post-resolve). Production rendering reads
+    /// `Style` fields directly; this exists for the protocol re-emit
+    /// path, theme face-lookup utilities, and tests that compare
+    /// against wire-shaped fixtures.
+    #[doc(hidden)]
     pub fn to_face(&self) -> super::color::Face {
         let (face, _) = self.to_face_with_attrs();
         face
     }
 
     /// Internal: project to a `Face` and return the in-progress attribute
-    /// bitset. Shared by [`Style::to_face`] and [`UnresolvedStyle::to_face`]
+    /// bitset. Shared by [`Self::to_face`] and [`UnresolvedStyle::to_face`]
     /// so the latter can OR in the `final_*` bits without duplicating the
     /// rest of the conversion.
     fn to_face_with_attrs(&self) -> (super::color::Face, super::color::Attributes) {
@@ -547,9 +590,10 @@ impl UnresolvedStyle {
 // Style resolution
 // ---------------------------------------------------------------------------
 
-// Bridge during ADR-031 Phase A.3: Face → Style conversion via `From`.
-// Lets call sites with a `Face` (typically from KakouneRequest or theme
-// tokens) flow naturally into Style-typed APIs.
+// Wire-format `Face` → `Style` conversion via `From`. Internal to the
+// protocol layer and the wire-aware test helpers; marked `#[doc(hidden)]`
+// to keep this surface invisible from external API readers.
+#[doc(hidden)]
 impl From<super::color::Face> for Style {
     #[inline]
     fn from(face: super::color::Face) -> Self {
@@ -557,6 +601,7 @@ impl From<super::color::Face> for Style {
     }
 }
 
+#[doc(hidden)]
 impl From<&super::color::Face> for Style {
     #[inline]
     fn from(face: &super::color::Face) -> Self {
@@ -651,22 +696,15 @@ fn color_from_brush(b: Brush) -> super::color::Color {
 }
 
 // ---------------------------------------------------------------------------
-// Default-style sharing helper (ADR-031 Phase A — B-wide)
+// Default-style sharing helper
 // ---------------------------------------------------------------------------
 //
-// The previous Phase A.2 design routed every `Atom`'s style through a
-// process-global `Mutex<StyleStore>`. Profiling for the B-wide PR showed
-// that lock acquisition on the hot path (per-atom `Atom::face()` calls
-// from `pipeline.rs`, `walk_scene.rs`, `paint.rs`, …) was the dominant
-// share of the 1-line-frame perf gap. Atoms now hold an
-// `Arc<UnresolvedStyle>` directly, with parse-time interning handled in
-// `protocol::parse` (`HashMap<UnresolvedStyle, Arc<UnresolvedStyle>>`).
-//
-// The default style is special: it is the most common style in any
-// frame and is constructed millions of times (`Atom::plain`, padding
-// rows, etc.). Pre-allocating one shared `Arc` removes the repeated
-// allocation entirely and keeps the default code path cheaper than the
-// pre-A.2 inline-`Face` form.
+// Atoms hold an `Arc<UnresolvedStyle>` so identical styles in a frame
+// share an allocation. Parse-time interning lives in `protocol::parse`
+// (`HashMap<UnresolvedStyle, Arc<UnresolvedStyle>>`). The default
+// style is the most common one in any frame (`Atom::plain`, padding
+// rows, bench fixtures); pre-allocating a single shared `Arc` for it
+// makes the hot default path lock-free and allocation-free.
 
 /// Return the shared `Arc` for [`UnresolvedStyle::default`]. Cheap to
 /// clone — the underlying allocation is performed at most once per

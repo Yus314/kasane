@@ -56,7 +56,9 @@ fn atoms_display_width(atoms: &[Atom]) -> usize {
 /// preceded by a whitespace-only atom (the alignment padding Kakoune inserts).
 pub fn split_single_item(item: &Line) -> ItemSplit {
     for i in 1..item.len() {
-        if item[i].face().fg != Color::Default && item[i - 1].contents.chars().all(|c| c == ' ') {
+        if item[i].unresolved_style().to_face().fg != Color::Default
+            && item[i - 1].contents.chars().all(|c| c == ' ')
+        {
             // Strip trailing whitespace-only atoms from candidate
             let mut cand_end = i - 1;
             while cand_end > 0 && item[cand_end - 1].contents.chars().all(|c| c == ' ') {
@@ -282,19 +284,19 @@ impl MenuState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Color, Face};
+    use crate::protocol::{Color, Face, Style};
 
     /// Helper: build a 3-atom completion item: candidate + padding + colored docstring.
     fn make_completion_item(candidate: &str, padding: &str, docstring: &str) -> Line {
         vec![
             Atom::plain(candidate),
             Atom::plain(padding),
-            Atom::from_face(
-                Face {
+            Atom::with_style(
+                docstring,
+                Style::from_face(&Face {
                     fg: Color::Named(crate::protocol::NamedColor::Cyan),
                     ..Face::default()
-                },
-                docstring,
+                }),
             ),
         ]
     }
@@ -324,12 +326,12 @@ mod tests {
         // Two atoms but no whitespace-only padding between them → no split.
         let item = vec![
             Atom::plain("foo"),
-            Atom::from_face(
-                Face {
+            Atom::with_style(
+                "bar",
+                Style::from_face(&Face {
                     fg: Color::Named(crate::protocol::NamedColor::Cyan),
                     ..Face::default()
-                },
-                "bar",
+                }),
             ),
         ];
         let split = split_single_item(&item);

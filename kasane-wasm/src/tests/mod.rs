@@ -188,7 +188,7 @@ impl PluginBackend for SurfaceProbeContributor {
 }
 
 fn make_state_with_lines(lines: &[&str]) -> AppState {
-    use kasane_core::protocol::{Atom, Face};
+    use kasane_core::protocol::Atom;
     let mut state = AppState::default();
     state.observed.lines = lines.iter().map(|s| vec![Atom::plain(*s)]).collect();
     state.inference.lines_dirty = vec![true; lines.len()];
@@ -229,7 +229,7 @@ fn manifest_wasm_id_mismatch_detected() {
     let toml = r#"
 [plugin]
 id = "wrong_id"
-abi_version = "1.1.0"
+abi_version = "2.0.0"
 
 [handlers]
 flags = ["annotator"]

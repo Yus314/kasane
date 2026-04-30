@@ -495,7 +495,7 @@ version = "0.1.0"
 artifact_digest = "sha256:artifact"
 code_digest = "sha256:code"
 source_kind = "filesystem"
-abi_version = "1.1.0"
+abi_version = "2.0.0"
 "#;
         fs::write(&path, contents).unwrap();
         let lock = PluginsLock::load_from_path(&path).unwrap();

@@ -28,7 +28,7 @@
 
 use std::collections::HashMap;
 
-use crate::protocol::{Coord, Face, Line, StatusStyle};
+use crate::protocol::{Coord, Line, StatusStyle, Style};
 use crate::state::{AppState, InfoState, MenuState, ObservedState};
 
 /// Read-only projection of `AppState` onto its observed (protocol-facing)
@@ -57,18 +57,16 @@ impl<'a> Truth<'a> {
         &self.inner.lines
     }
 
-    /// Observed: default face from `draw` (legacy projection of
-    /// `default_style`).
+    /// Observed: default style from `draw`.
     #[inline]
-    pub fn default_face(&self) -> Face {
-        self.inner.default_style.to_face()
+    pub fn default_style(&self) -> &'a Style {
+        &self.inner.default_style
     }
 
-    /// Observed: padding face from `draw` (legacy projection of
-    /// `padding_style`).
+    /// Observed: padding style from `draw`.
     #[inline]
-    pub fn padding_face(&self) -> Face {
-        self.inner.padding_style.to_face()
+    pub fn padding_style(&self) -> &'a Style {
+        &self.inner.padding_style
     }
 
     /// Observed: number of widget columns from `draw`.
@@ -111,11 +109,10 @@ impl<'a> Truth<'a> {
         &self.inner.status_mode_line
     }
 
-    /// Observed: default face for the status bar from `draw_status`
-    /// (legacy projection of `status_default_style`).
+    /// Observed: default style for the status bar from `draw_status`.
     #[inline]
-    pub fn status_default_face(&self) -> Face {
-        self.inner.status_default_style.to_face()
+    pub fn status_default_style(&self) -> &'a Style {
+        &self.inner.status_default_style
     }
 
     /// Observed: status bar context style from `draw_status`.
@@ -162,15 +159,15 @@ impl<'a> Truth<'a> {
     /// matching accessor here and append its name to this list.
     pub const TRUTH_ACCESSOR_NAMES: &'static [&'static str] = &[
         "lines",
-        "default_face",
-        "padding_face",
+        "default_style",
+        "padding_style",
         "widget_columns",
         "cursor_pos",
         "status_prompt",
         "status_content",
         "status_content_cursor_pos",
         "status_mode_line",
-        "status_default_face",
+        "status_default_style",
         "status_style",
         "menu",
         "infos",

@@ -2,10 +2,10 @@
 # dim 80 24
 
 # faces
-f0 Face { fg: Named(Red), bg: Named(Black), underline: Default, attributes: Attributes(BOLD) }
-f1 Face { fg: Named(White), bg: Named(Black), underline: Default, attributes: Attributes(0x0) }
-f2 Face { fg: Named(Cyan), bg: Named(Black), underline: Named(Cyan), attributes: Attributes(UNDERLINE) }
-f3 Face { fg: Default, bg: Default, underline: Default, attributes: Attributes(0x0) }
+f0 TerminalStyle { fg: Named(Red), bg: Named(Black), underline_color: Default, underline: None, bold: true, italic: false, dim: false, blink: false, reverse: false, strikethrough: false }
+f1 TerminalStyle { fg: Named(White), bg: Named(Black), underline_color: Default, underline: None, bold: false, italic: false, dim: false, blink: false, reverse: false, strikethrough: false }
+f2 TerminalStyle { fg: Named(Cyan), bg: Named(Black), underline_color: Named(Cyan), underline: Solid, bold: false, italic: false, dim: false, blink: false, reverse: false, strikethrough: false }
+f3 TerminalStyle { fg: Default, bg: Default, underline_color: Default, underline: None, bold: false, italic: false, dim: false, blink: false, reverse: false, strikethrough: false }
 
 # rows
 row 00: |fn main() {                                                                     |

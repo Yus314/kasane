@@ -95,11 +95,11 @@ impl Plugin for ContentAnnotationDemoPlugin {
                     let label = format!("  {} {} \u{2014} {}", kw.icon, kw.pattern, kw.label);
                     annotations.push(ContentAnnotation {
                         anchor: ContentAnchor::InsertAfter(i),
-                        element: Element::text(
+                        element: Element::text_with_style(
                             &label,
-                            Face {
-                                fg: Color::Named(kw.color),
-                                ..Face::default()
+                            Style {
+                                fg: Brush::Named(kw.color),
+                                ..Style::default()
                             },
                         ),
                         plugin_id: PluginId("virtual_text_demo".into()),
@@ -118,15 +118,15 @@ impl Plugin for ContentAnnotationDemoPlugin {
             };
 
             Some(Contribution {
-                element: Element::text(
+                element: Element::text_with_style(
                     label,
-                    Face {
+                    Style {
                         fg: if state.enabled {
-                            Color::Named(NamedColor::Green)
+                            Brush::Named(NamedColor::Green)
                         } else {
-                            Color::Default
+                            Brush::Default
                         },
-                        ..Face::default()
+                        ..Style::default()
                     },
                 ),
                 priority: 0,

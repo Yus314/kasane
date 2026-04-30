@@ -61,11 +61,10 @@ mod tests {
         // The only stable way to construct FontData without taking a direct
         // dep on linebender_resource_handle is to drive Parley end-to-end and
         // pull the FontData off a real shaped run. This also exercises the
-        // intended use site (Phase 9b).
-        use super::super::shaper::shape_line_with_default_family;
+        // intended use site (`frame_builder` + `glyph_emitter`).
         use super::super::styled_line::StyledLine;
         use super::super::{Brush, ParleyText};
-        use kasane_core::protocol::{Atom, Face, Style};
+        use kasane_core::protocol::{Atom, Style};
 
         let mut text = ParleyText::new(&FontConfig::default());
         let atoms = vec![Atom::plain("M")];
@@ -76,7 +75,7 @@ mod tests {
             14.0,
             None,
         );
-        let layout = shape_line_with_default_family(&mut text, &line);
+        let layout = text.shape(&line);
         let mut ids = Vec::new();
         for line_iter in layout.layout.lines() {
             for run in line_iter.runs() {
@@ -84,7 +83,7 @@ mod tests {
             }
         }
         // Same shape → same ids on the second pass (stability).
-        let layout2 = shape_line_with_default_family(&mut text, &line);
+        let layout2 = text.shape(&line);
         let mut ids2 = Vec::new();
         for line_iter in layout2.layout.lines() {
             for run in line_iter.runs() {

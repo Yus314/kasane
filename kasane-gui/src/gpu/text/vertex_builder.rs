@@ -1,11 +1,10 @@
-//! Convert [`DrawableGlyph`] to wgpu vertex data (ADR-031, Phase 9b Step 2).
+//! Convert [`DrawableGlyph`] to wgpu vertex data.
 //!
-//! Produces [`ParleyGlyphVertex`] instances ready to upload into a wgpu
-//! vertex buffer. The struct layout exactly matches the existing
-//! `text_pipeline::GlyphToRender` so the same shader (`shader.wgsl`) can
-//! consume both — Phase 9b Step 3's `ParleyTextRenderer` reuses the
-//! existing pipeline plumbing (vertex layout, bind groups) and only swaps
-//! out the *source* of the vertex data.
+//! Produces [`ParleyGlyphVertex`] instances ready to upload into a
+//! wgpu vertex buffer. The struct layout exactly matches
+//! [`super::wgpu_types::GlyphToRender`] so the shared
+//! [`shader.wgsl`](super::wgpu_cache) consumes both — `TextRenderer`
+//! reuses the same pipeline plumbing (vertex layout, bind groups).
 //!
 //! ## Vertex layout (wire format, must match shader.wgsl)
 //!
@@ -21,15 +20,15 @@
 //! ```
 //!
 //! The `content_type` discriminants follow the legacy
-//! `text_pipeline::ContentType` enum (declared as `Color, Mask` so Color=0
+//! `ContentType` enum (declared as `Color, Mask` so Color=0
 //! and Mask=1). Our [`super::glyph_rasterizer::ContentKind`] uses the
 //! reverse order (Mask declared first), so the converter explicitly maps
 //! the values.
 //!
-//! The `srgb` flag mirrors the cosmic-text path's `ColorMode::Web` choice
-//! (1 = no conversion). The Parley path passes already-linear colours; if
-//! a future framebuffer change reintroduces sRGB conversion, [`SRGB_FLAG`]
-//! is the single knob to flip.
+//! The `srgb` flag is the per-vertex sRGB-conversion toggle the
+//! shader honours (1 = no conversion). The Parley path passes
+//! already-linear colours; if a future framebuffer change
+//! reintroduces sRGB conversion, [`SRGB_FLAG`] is the single knob.
 
 use bytemuck::{Pod, Zeroable};
 
@@ -38,7 +37,7 @@ use super::frame_builder::DrawableGlyph;
 use super::glyph_rasterizer::ContentKind;
 
 /// Per-glyph vertex/instance data. Matches the byte layout of
-/// `text_pipeline::GlyphToRender` so the existing shader consumes both.
+/// `super::wgpu_types::GlyphToRender` so the existing shader consumes both.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable, PartialEq)]
 pub struct ParleyGlyphVertex {
@@ -103,7 +102,7 @@ pub fn build_vertices(glyphs: &[DrawableGlyph]) -> Vec<ParleyGlyphVertex> {
 /// the brush in the shader (the bitmap supplies its own colour), but the
 /// field is still written for layout uniformity.
 ///
-/// Channel order is dictated by `text_pipeline/shader.wgsl`, which
+/// Channel order is dictated by [`super::wgpu_cache`]'s `shader.wgsl`, which
 /// extracts components as:
 ///
 /// ```wgsl
@@ -160,7 +159,7 @@ mod tests {
 
     #[test]
     fn vertex_layout_size_is_28_bytes() {
-        // Phase 9b Step 3 uses the existing text_pipeline shader, which
+        // Uses the shared shader (super::wgpu_cache::Cache builds it), which
         // expects 28-byte vertices. Catch any silent layout drift here.
         assert_eq!(std::mem::size_of::<ParleyGlyphVertex>(), 28);
     }
@@ -209,8 +208,8 @@ mod tests {
     fn srgb_flag_matches_color_mode_web() {
         let g = drawable(0.0, 0.0, ContentKind::Mask, Brush::default());
         let v = ParleyGlyphVertex::from_drawable(&g);
-        // 1 = ColorMode::Web (no extra sRGB conversion); matches the
-        // existing cosmic-text path.
+        // 1 = ColorMode::Web in the shader: no sRGB conversion (we
+        // already pass linear colours).
         assert_eq!(v.srgb, SRGB_FLAG);
         assert_eq!(SRGB_FLAG, 1);
     }

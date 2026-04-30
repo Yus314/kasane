@@ -3,7 +3,7 @@ use super::super::*;
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::plugin::PluginRuntime;
-use crate::protocol::{Atom, Color, Face, NamedColor};
+use crate::protocol::{Atom, Color, Face, NamedColor, Style};
 use crate::state::AppState;
 use crate::test_utils::make_line;
 
@@ -43,9 +43,9 @@ fn test_treesitter_rgb_colors_preserved() {
         ..Face::default()
     };
     let ts_line = vec![
-        Atom::from_face(keyword_face, "fn"),
+        Atom::with_style("fn", Style::from_face(&keyword_face)),
         Atom::plain(" "),
-        Atom::from_face(string_face, "main"),
+        Atom::with_style("main", Style::from_face(&string_face)),
     ];
     state.observed.lines = vec![ts_line];
     state.inference.status_line = make_line("status");
@@ -56,7 +56,9 @@ fn test_treesitter_rgb_colors_preserved() {
 
     // New pipeline
     let mut grid_new = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid_new.clear(&state.observed.default_style.to_face());
+    grid_new.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
     let root_area = Rect {
@@ -73,7 +75,7 @@ fn test_treesitter_rgb_colors_preserved() {
     let cell_f = grid_new.get(0, 0).unwrap();
     assert_eq!(cell_f.grapheme, "f");
     assert_eq!(
-        cell_f.face().fg,
+        cell_f.style.fg,
         Color::Rgb {
             r: 255,
             g: 100,
@@ -82,7 +84,7 @@ fn test_treesitter_rgb_colors_preserved() {
         "tree-sitter keyword fg lost in declarative pipeline"
     );
     assert_eq!(
-        cell_f.face().bg,
+        cell_f.style.bg,
         Color::Named(NamedColor::Black),
         "tree-sitter keyword bg not resolved against default_face"
     );
@@ -90,7 +92,7 @@ fn test_treesitter_rgb_colors_preserved() {
     let cell_n = grid_new.get(1, 0).unwrap();
     assert_eq!(cell_n.grapheme, "n");
     assert_eq!(
-        cell_n.face().fg,
+        cell_n.style.fg,
         Color::Rgb {
             r: 255,
             g: 100,
@@ -101,7 +103,7 @@ fn test_treesitter_rgb_colors_preserved() {
     // " " at column 2 should have default_face (resolved from Default)
     let cell_sp = grid_new.get(2, 0).unwrap();
     assert_eq!(
-        cell_sp.face().fg,
+        cell_sp.style.fg,
         Color::Named(NamedColor::White),
         "default space fg should resolve to default_face.fg"
     );
@@ -110,7 +112,7 @@ fn test_treesitter_rgb_colors_preserved() {
     let cell_m = grid_new.get(3, 0).unwrap();
     assert_eq!(cell_m.grapheme, "m");
     assert_eq!(
-        cell_m.face().fg,
+        cell_m.style.fg,
         Color::Rgb {
             r: 0,
             g: 200,
@@ -129,18 +131,14 @@ fn test_treesitter_rgb_colors_preserved() {
                 "grapheme mismatch at ({x}, {y})"
             );
             assert_eq!(
-                old.face().fg,
-                new.face().fg,
+                old.style.fg, new.style.fg,
                 "fg mismatch at ({x}, {y}): old={:?} new={:?}",
-                old.face().fg,
-                new.face().fg
+                old.style.fg, new.style.fg
             );
             assert_eq!(
-                old.face().bg,
-                new.face().bg,
+                old.style.bg, new.style.bg,
                 "bg mismatch at ({x}, {y}): old={:?} new={:?}",
-                old.face().bg,
-                new.face().bg
+                old.style.bg, new.style.bg
             );
         }
     }
@@ -166,14 +164,19 @@ fn test_treesitter_colors_persist_across_frames() {
         bg: Color::Default,
         ..Face::default()
     };
-    state.observed.lines = vec![vec![Atom::from_face(keyword_face, "let")]];
+    state.observed.lines = vec![vec![Atom::with_style(
+        "let",
+        Style::from_face(&keyword_face),
+    )]];
     state.inference.status_line = make_line("st");
 
     let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Frame 1
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let el = view::view(&state, &registry.view());
     let area = Rect {
         x: 0,
@@ -191,7 +194,7 @@ fn test_treesitter_colors_persist_across_frames() {
     // Check "l" has RGB red fg
     let l_cell = diffs1.iter().find(|d| d.x == 0 && d.y == 0).unwrap();
     assert_eq!(
-        l_cell.cell.face().fg,
+        l_cell.cell.style.fg,
         Color::Rgb { r: 255, g: 0, b: 0 },
         "frame 1: tree-sitter fg lost"
     );
@@ -199,7 +202,9 @@ fn test_treesitter_colors_persist_across_frames() {
     grid.swap();
 
     // Frame 2: same content → diff should be empty (colors retained)
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let el = view::view(&state, &registry.view());
     let layout = flex::place(&el, area, &state);
     paint::paint(&el, &layout, &mut grid, &state);
@@ -219,9 +224,11 @@ fn test_treesitter_colors_persist_across_frames() {
         bg: Color::Default,
         ..Face::default()
     };
-    state.observed.lines = vec![vec![Atom::from_face(new_face, "let")]];
+    state.observed.lines = vec![vec![Atom::with_style("let", Style::from_face(&new_face))]];
 
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let el = view::view(&state, &registry.view());
     let layout = flex::place(&el, area, &state);
     paint::paint(&el, &layout, &mut grid, &state);
@@ -234,7 +241,7 @@ fn test_treesitter_colors_persist_across_frames() {
         "frame 3: color change should be detected"
     );
     assert_eq!(
-        l_cell3.unwrap().cell.face().fg,
+        l_cell3.unwrap().cell.style.fg,
         Color::Rgb { r: 0, g: 0, b: 255 },
         "frame 3: new tree-sitter color not reflected"
     );
@@ -389,7 +396,9 @@ fn test_declarative_matches_imperative_buffer_status() {
 
     // New pipeline
     let mut grid_new = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid_new.clear(&state.observed.default_style.to_face());
+    grid_new.clear(&crate::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
     let root_area = Rect {
@@ -412,8 +421,8 @@ fn test_declarative_matches_imperative_buffer_status() {
                 "grapheme mismatch at ({x}, {y}): old={:?} new={:?}",
                 old.grapheme, new.grapheme
             );
-            assert_eq!(old.face().fg, new.face().fg, "fg mismatch at ({x}, {y})");
-            assert_eq!(old.face().bg, new.face().bg, "bg mismatch at ({x}, {y})");
+            assert_eq!(old.style.fg, new.style.fg, "fg mismatch at ({x}, {y})");
+            assert_eq!(old.style.bg, new.style.bg, "bg mismatch at ({x}, {y})");
         }
     }
 
@@ -428,13 +437,11 @@ fn test_declarative_matches_imperative_buffer_status() {
             old.grapheme, new.grapheme
         );
         assert_eq!(
-            old.face().fg,
-            new.face().fg,
+            old.style.fg, new.style.fg,
             "status fg mismatch at ({x}, {status_y})"
         );
         assert_eq!(
-            old.face().bg,
-            new.face().bg,
+            old.style.bg, new.style.bg,
             "status bg mismatch at ({x}, {status_y})"
         );
     }

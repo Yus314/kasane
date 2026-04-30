@@ -1,15 +1,17 @@
 //! Parley shaper — turns a [`StyledLine`] into a [`ParleyLayout`].
 //!
-//! ADR-031, Phase 7. This is the boundary where Kasane talks to Parley's
-//! `RangedBuilder`. Each [`StyleRun`] in the line is pushed as a span of
-//! `StyleProperty::Brush` + `FontWeight` + `FontStyle` properties; the
-//! line's `font_size` and base font family come from the line's `base_style`
-//! plus the `ParleyText` font configuration.
+//! Boundary where Kasane talks to Parley's `RangedBuilder`. Each
+//! [`StyleRun`](super::styled_line::StyleRun) in the line is pushed as
+//! a span of `StyleProperty::Brush` + `FontWeight` + `FontStyle` +
+//! optional `LetterSpacing` / `FontFeatures` / `FontVariations` /
+//! `Underline` / `Strikethrough`; the line's `font_size` and base
+//! font family come from the line's `base_style` plus the
+//! [`ParleyText`] font configuration.
 //!
-//! The shaper is allocation-conscious: `LayoutContext` reuses its internal
-//! buffers across calls, so the only per-line allocation is the `Layout`
-//! itself (Parley does not currently expose a `build_into` for a reusable
-//! `Layout`, so each call creates a new one). The L1
+//! The shaper is allocation-conscious: `LayoutContext` reuses its
+//! internal buffers across calls, so the only per-line allocation is
+//! the `Layout` itself (Parley 0.9 does not expose a `build_into` for
+//! a reusable `Layout`, so each call creates a new one). The L1
 //! [`super::layout_cache::LayoutCache`] amortises this by caching the
 //! `Arc<ParleyLayout>` across frames.
 
@@ -19,20 +21,13 @@ use super::ParleyText;
 use super::layout::ParleyLayout;
 use super::styled_line::StyledLine;
 
-/// Default font family used when the line's base style does not specify one.
-/// Matches the [`FontConfig::default`](kasane_core::config::FontConfig::default)
-/// `monospace` choice.
-fn default_family() -> FontFamily<'static> {
-    FontFamily::Single(parley::FontFamilyName::Generic(
-        parley::GenericFamily::Monospace,
-    ))
-}
-
 /// Shape a [`StyledLine`] into a [`ParleyLayout`].
 ///
 /// `family` is the resolved font family stack (see [`super::font_stack`]);
-/// pass it explicitly so the caller can cache it on `ParleyText` rather than
-/// rebuilding on every shape call.
+/// the production entry point [`ParleyText::shape`] caches the stack on
+/// the renderer state so this signature stays cheap. Tests that want to
+/// exercise an explicit family (e.g. emoji-first fallback chains) call
+/// this function directly.
 pub fn shape_line(
     text_state: &mut ParleyText,
     line: &StyledLine,
@@ -76,10 +71,34 @@ pub fn shape_line(
             );
         }
 
-        // Underline — Parley's StyleProperty::Underline is a bool toggle. The
-        // styled (curly/dotted/dashed/double) variants are deferred to
-        // Phase 10's quad pipeline; here we set the plain underline so the
-        // glyph metrics include the offset/size hint.
+        // OpenType feature toggles (calt / clig / dlig / hlig / liga / zero).
+        // The `parley::FontFeature` slice is short-lived (max 6 entries) and
+        // built once per non-empty bitset; empty bitsets skip the push so
+        // Parley uses the font's default features.
+        if run.resolved.font_features.0 != 0 {
+            let features =
+                super::style_resolver::kasane_features_to_parley(run.resolved.font_features);
+            builder.push(
+                StyleProperty::FontFeatures(features.as_slice().into()),
+                range.clone(),
+            );
+        }
+
+        // Variable-font axis settings (e.g. `wght=350`, `wdth=80`).
+        if !run.resolved.font_variations.is_empty() {
+            let variations =
+                super::style_resolver::kasane_variations_to_parley(&run.resolved.font_variations);
+            builder.push(
+                StyleProperty::FontVariations(variations.as_slice().into()),
+                range.clone(),
+            );
+        }
+
+        // Underline — Parley's StyleProperty::Underline is a bool
+        // toggle. Styled (curly/dotted/dashed/double) variants are
+        // drawn separately by the quad pipeline; here we set the
+        // plain underline so the glyph metrics include the offset /
+        // size hint.
         if !matches!(
             run.resolved.underline,
             super::style_resolver::DecorationKind::None
@@ -96,12 +115,12 @@ pub fn shape_line(
         }
     }
 
-    // ADR-031 Phase 10 Step 2-renderer: reserve inline-box slots in the
-    // layout. Each slot in `StyledLine::inline_boxes` becomes a Parley
-    // `InlineBox` so the layout engine flows surrounding text around the
-    // declared geometry. The actual paint content is queried via the
-    // host's `paint_inline_box(box_id)` callback at render time; the
-    // layout only knows the slot's id, byte offset, width, and height.
+    // Reserve inline-box slots in the layout. Each slot in
+    // `StyledLine::inline_boxes` becomes a Parley `InlineBox` so the
+    // layout engine flows surrounding text around the declared
+    // geometry. The actual paint content is queried via the host's
+    // `paint_inline_box(box_id)` callback at render time; the layout
+    // only knows the slot's id, byte offset, width, and height.
     for slot in &line.inline_boxes {
         builder.push_inline_box(InlineBox {
             id: slot.id,
@@ -117,17 +136,6 @@ pub fn shape_line(
     ParleyLayout::from_layout(layout)
 }
 
-/// Convenience that pulls the family from the [`ParleyText`] state when the
-/// caller has not yet implemented font-family caching.
-///
-/// Phase 9 will retire this in favour of the explicit family argument.
-pub fn shape_line_with_default_family(
-    text_state: &mut ParleyText,
-    line: &StyledLine,
-) -> ParleyLayout {
-    shape_line(text_state, line, default_family())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,7 +145,7 @@ mod tests {
     use super::super::Brush;
 
     fn ascii_atoms(s: &str) -> Vec<Atom> {
-        vec![Atom::from_face(kasane_core::protocol::Face::default(), s)]
+        vec![Atom::plain(s)]
     }
 
     #[test]
@@ -151,7 +159,7 @@ mod tests {
             14.0,
             None,
         );
-        let parley_layout = shape_line_with_default_family(&mut text, &line);
+        let parley_layout = text.shape(&line);
         assert_eq!(parley_layout.line_count, 1);
         assert!(parley_layout.width > 0.0, "expected non-zero width");
         assert!(parley_layout.height > 0.0, "expected non-zero height");
@@ -162,7 +170,7 @@ mod tests {
     fn empty_line_shapes_to_zero_width() {
         let mut text = ParleyText::new(&FontConfig::default());
         let line = StyledLine::from_atoms(&[], &Style::default(), Brush::default(), 14.0, None);
-        let parley_layout = shape_line_with_default_family(&mut text, &line);
+        let parley_layout = text.shape(&line);
         // Parley produces a single zero-width line for empty input.
         assert!(parley_layout.line_count <= 1);
         assert_eq!(parley_layout.width, 0.0);
@@ -173,19 +181,19 @@ mod tests {
         use kasane_core::protocol::{Color, Face, NamedColor};
         let mut text = ParleyText::new(&FontConfig::default());
         let atoms = vec![
-            Atom::from_face(
-                Face {
+            Atom::with_style(
+                "red ",
+                Style::from_face(&Face {
                     fg: Color::Named(NamedColor::Red),
                     ..Face::default()
-                },
-                "red ",
+                }),
             ),
-            Atom::from_face(
-                Face {
+            Atom::with_style(
+                "blue",
+                Style::from_face(&Face {
                     fg: Color::Named(NamedColor::Blue),
                     ..Face::default()
-                },
-                "blue",
+                }),
             ),
         ];
         let line = StyledLine::from_atoms(
@@ -196,7 +204,7 @@ mod tests {
             None,
         );
         assert_eq!(line.runs.len(), 2);
-        let parley_layout = shape_line_with_default_family(&mut text, &line);
+        let parley_layout = text.shape(&line);
         assert_eq!(parley_layout.line_count, 1);
         assert!(parley_layout.width > 0.0);
     }
@@ -212,7 +220,7 @@ mod tests {
             14.0,
             None,
         );
-        let parley_layout = shape_line_with_default_family(&mut text, &line);
+        let parley_layout = text.shape(&line);
         // Some ICU4X data sets emit "No segmentation model for language: ja"
         // diagnostics; the layout still completes successfully and produces a
         // single visual line.
@@ -236,7 +244,7 @@ mod tests {
             14.0,
             None,
         );
-        let plain_layout = shape_line_with_default_family(&mut text, &plain);
+        let plain_layout = text.shape(&plain);
 
         let with_box = StyledLine::from_atoms(
             &atoms,
@@ -251,7 +259,7 @@ mod tests {
             width: 30.0,
             height: 14.0,
         }]);
-        let with_box_layout = shape_line_with_default_family(&mut text, &with_box);
+        let with_box_layout = text.shape(&with_box);
 
         assert_eq!(with_box_layout.line_count, 1);
         assert!(
@@ -282,8 +290,8 @@ mod tests {
             14.0,
             None,
         );
-        let l1 = shape_line_with_default_family(&mut text, &line1);
-        let l2 = shape_line_with_default_family(&mut text, &line2);
+        let l1 = text.shape(&line1);
+        let l2 = text.shape(&line2);
         assert_eq!(l1.line_count, 1);
         assert_eq!(l2.line_count, 1);
         assert!(l2.width > l1.width, "second is longer than first");

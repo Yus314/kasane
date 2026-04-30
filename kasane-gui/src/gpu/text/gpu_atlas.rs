@@ -1,4 +1,4 @@
-//! wgpu-aware wrapper around [`AtlasShelf`] (ADR-031, Phase 9b Step 1).
+//! wgpu-aware wrapper around [`AtlasShelf`].
 //!
 //! Pairs the CPU-side [`AtlasShelf`] allocator with a `wgpu::Texture`, so
 //! the L2 [`GlyphRasterCache`](super::raster_cache::GlyphRasterCache) can
@@ -60,9 +60,9 @@ impl Kind {
     pub fn texture_format(self) -> TextureFormat {
         match self {
             Kind::Mask => TextureFormat::R8Unorm,
-            // Linear (not sRGB): the parley_text render path passes
-            // already-linear colours through a non-sRGB framebuffer view to
-            // match the cosmic-text path's `ColorMode::Web` choice.
+            // Linear (not sRGB): the text render path passes
+            // already-linear colours through a non-sRGB framebuffer
+            // view (matches the shader's `ColorMode::Web` branch).
             Kind::Color => TextureFormat::Rgba8Unorm,
         }
     }
@@ -268,10 +268,10 @@ fn create_texture(device: &Device, kind: Kind, side: u16) -> (Texture, TextureVi
 
 #[cfg(test)]
 mod tests {
-    //! CPU-side tests only. The wgpu integration is exercised through the
-    //! SceneRenderer end-to-end smoke (Phase 9b Step 4); building a
-    //! headless wgpu device here would force every test runner to find a
-    //! Vulkan / Metal / DX adapter, which is too costly for a unit test.
+    //! CPU-side tests only. The wgpu integration is exercised through
+    //! the SceneRenderer end-to-end smoke; building a headless wgpu
+    //! device here would force every test runner to find a Vulkan /
+    //! Metal / DX adapter, which is too costly for a unit test.
     use super::*;
 
     /// Helper: build a synthetic AtlasSlot for queue-only tests.

@@ -34,7 +34,9 @@ fn make_atom(text: &str) -> Atom {
 /// Render with legacy pipeline and return the grid.
 fn render_legacy(state: &AppState, registry: &PluginRuntime) -> CellGrid {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     render_pipeline(state, &registry.view(), &mut grid);
     grid
 }
@@ -47,7 +49,9 @@ fn render_salsa(
     handles: &SalsaInputHandles,
 ) -> CellGrid {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_style.to_face());
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     render_pipeline_cached(
         db,
         handles,

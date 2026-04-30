@@ -419,9 +419,12 @@ fn overlay_face_on_element(el: Element, face: &Face) -> Element {
             atoms
                 .into_iter()
                 .map(|atom| {
-                    let mut merged = atom.face();
+                    let mut merged = atom.unresolved_style().to_face();
                     FaceMerge::Overlay.apply(&mut merged, face);
-                    crate::protocol::Atom::from_face(merged, atom.contents)
+                    crate::protocol::Atom::with_style(
+                        atom.contents,
+                        crate::protocol::Style::from_face(&merged),
+                    )
                 })
                 .collect(),
         ),
@@ -711,7 +714,10 @@ mod tests {
         let result = ElementPatch::ModifyStyle { overlay }.apply(subject);
         match result.into_element() {
             Element::StyledLine(atoms) => {
-                assert_eq!(atoms[0].face().fg, Color::Named(NamedColor::Red));
+                assert_eq!(
+                    atoms[0].unresolved_style().to_face().fg,
+                    Color::Named(NamedColor::Red)
+                );
             }
             other => panic!("expected StyledLine, got {other:?}"),
         }

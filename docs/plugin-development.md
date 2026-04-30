@@ -227,7 +227,7 @@ kasane plugin dev --release      # Same, but release builds
 `kasane plugin dev` does the same as `install`, then watches `src/`, `Cargo.toml`, and `kasane-plugin.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
 WASM plugin ABI note: current Kasane releases expect
-`kasane:plugin@1.1.0`. Rebuild and reinstall any plugin that was built
+`kasane:plugin@2.0.0`. Rebuild and reinstall any plugin that was built
 against an older version; older binaries will not load.
 
 ### Migrating to ABI 1.0.0
@@ -250,7 +250,7 @@ If you are upgrading a plugin from `0.25.0`, the required changes are:
    `theme_face_or` → `theme_style_or`, `get_theme_face` → `get_theme_style`,
    `face_merge::*` → `style_merge::*`.
 5. Rebuild and reinstall the `.wasm`. Existing artifacts built against
-   `0.25.0` are rejected at load time by `kasane:plugin@1.1.0` hosts.
+   `0.25.0` are rejected at load time by `kasane:plugin@2.0.0` hosts.
 
 The `style` record exposes `font_weight: u16`, `font_slant`,
 `font_features`, `font_variations`, `letter_spacing`, `underline` /

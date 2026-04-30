@@ -385,7 +385,9 @@ fn test_select_out_of_range_resets() {
 
 /// Helper: create a cursor atom (FINAL_FG + REVERSE).
 fn cursor_atom(s: &str) -> Atom {
-    Atom::from_face(
+    // Wire-aware: `final_*` flags must reach `detect_cursors`. `Style::from_face`
+    // drops them by design — see `protocol/style.rs::Style::from_face` docstring.
+    Atom::from_wire(
         Face {
             fg: Color::Named(NamedColor::White),
             bg: Color::Default,

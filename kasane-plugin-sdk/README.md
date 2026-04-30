@@ -38,7 +38,7 @@ See the [Plugin Development Guide](https://github.com/Yus314/kasane/blob/master/
 
 | SDK version | Minimum host version | WIT ABI |
 |---|---|---|
-| 0.5.x | kasane >= 0.5.0 | `kasane:plugin@1.0.0` |
+| 0.5.x | kasane >= 0.5.0 | `kasane:plugin@2.0.0` |
 | 0.4.x | kasane >= 0.3.0 | `kasane:plugin@0.25.0` |
 | 0.3.x | kasane >= 0.3.0 | `kasane:plugin@0.24.0` |
 | 0.2.x | kasane >= 0.2.0 | `kasane:plugin@0.14.0` |

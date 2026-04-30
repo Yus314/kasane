@@ -12,9 +12,11 @@ use kasane_core::protocol::{
 };
 use kasane_core::render::paint;
 use kasane_core::render::view;
-use kasane_core::render::{Cell, CellGrid, CursorStyle, RenderResult, render_pipeline};
+use kasane_core::render::{
+    Cell, CellGrid, CursorStyle, RenderResult, TerminalStyle, render_pipeline,
+};
 use kasane_core::state::AppState;
-use kasane_tui::sgr::emit_sgr_diff;
+use kasane_tui::sgr::emit_sgr_diff_style;
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------
@@ -42,7 +44,7 @@ impl MockBackend {
         let w = grid.width() as usize;
         let full_redraw = self.previous.is_empty();
 
-        let mut last_face: Option<Face> = None;
+        let mut last_style: Option<TerminalStyle> = None;
         let mut last_x: u16 = u16::MAX;
         let mut last_y: u16 = u16::MAX;
 
@@ -69,10 +71,10 @@ impl MockBackend {
                     queue!(self.buf, cursor::MoveTo(x, y)).unwrap();
                 }
 
-                let face = &cell.face;
-                if last_face.as_ref() != Some(face) {
-                    emit_sgr_diff(&mut self.buf, last_face.as_ref(), face).unwrap();
-                    last_face = Some(*face);
+                let style = &cell.style;
+                if last_style.as_ref() != Some(style) {
+                    emit_sgr_diff_style(&mut self.buf, last_style.as_ref(), style).unwrap();
+                    last_style = Some(*style);
                 }
 
                 let s = if cell.grapheme.is_empty() {
@@ -182,30 +184,12 @@ fn make_colored_line(i: usize) -> Vec<Atom> {
     let plain_face = Face::default();
 
     vec![
-        Atom {
-            face: keyword_face,
-            contents: "let".into(),
-        },
-        Atom {
-            face: plain_face,
-            contents: " ".into(),
-        },
-        Atom {
-            face: ident_face,
-            contents: format!("var_{i}").into(),
-        },
-        Atom {
-            face: plain_face,
-            contents: " = ".into(),
-        },
-        Atom {
-            face: literal_face,
-            contents: format!("\"{i}_value\"").into(),
-        },
-        Atom {
-            face: plain_face,
-            contents: ";".into(),
-        },
+        Atom::from_wire(keyword_face, "let"),
+        Atom::from_wire(plain_face, " "),
+        Atom::from_wire(ident_face, format!("var_{i}")),
+        Atom::from_wire(plain_face, " = "),
+        Atom::from_wire(literal_face, format!("\"{i}_value\"")),
+        Atom::from_wire(plain_face, ";"),
     ]
 }
 
@@ -213,26 +197,22 @@ fn typical_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = Face {
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
     state.observed.lines = (0..line_count).map(make_colored_line).collect();
-    state.inference.status_line = vec![Atom {
-        face: Face::default(),
-        contents: " NORMAL ".into(),
-    }];
-    state.observed.status_mode_line = vec![Atom {
-        face: Face::default(),
-        contents: "normal".into(),
-    }];
+    state.inference.status_line = vec![Atom::from_wire(Face::default(), " NORMAL ")];
+    state.observed.status_mode_line = vec![Atom::from_wire(Face::default(), "normal")];
     state
 }
 
@@ -251,7 +231,9 @@ fn generate_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid {
     let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
     let mut grid = CellGrid::new(cols, rows);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     grid
 }
@@ -272,30 +254,31 @@ fn generate_incremental_grid() -> CellGrid {
     // "before" frame
     let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     grid.swap();
 
     // "after": modify 1 line
     let mut edited = state.clone();
     edited.observed.lines[10] = vec![
-        Atom {
-            face: Face {
+        Atom::from_wire(
+            Face {
                 fg: Color::Rgb { r: 255, g: 0, b: 0 },
                 bg: Color::Default,
                 ..Face::default()
             },
-            contents: "edited_line_10".into(),
-        },
-        Atom {
-            face: Face::default(),
-            contents: " // modified".into(),
-        },
+            "edited_line_10",
+        ),
+        Atom::from_wire(Face::default(), " // modified"),
     ];
 
     let element = view::view(&edited, &registry.view());
     let layout = flex::place(&element, area, &edited);
-    grid.clear(&edited.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &edited.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &edited);
     grid
 }
@@ -315,7 +298,9 @@ fn generate_realistic_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid 
     let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
     let mut grid = CellGrid::new(cols, rows);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     grid
 }
@@ -425,149 +410,68 @@ fn constant_face() -> Face {
 fn make_realistic_line(i: usize) -> Vec<Atom> {
     match i % 8 {
         0 => vec![], // empty line
-        1 => vec![Atom {
-            face: comment_face(),
-            contents: format!("// comment line {i}").into(),
-        }],
+        1 => vec![Atom::from_wire(
+            comment_face(),
+            format!("// comment line {i}"),
+        )],
         2 => vec![
-            Atom {
-                face: keyword_face(),
-                contents: "fn ".into(),
-            },
-            Atom {
-                face: ident_face(),
-                contents: format!("process_{i}").into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: "(".into(),
-            },
-            Atom {
-                face: type_face(),
-                contents: "u32".into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: ") {".into(),
-            },
+            Atom::from_wire(keyword_face(), "fn "),
+            Atom::from_wire(ident_face(), format!("process_{i}")),
+            Atom::from_wire(operator_face(), "("),
+            Atom::from_wire(type_face(), "u32"),
+            Atom::from_wire(operator_face(), ") {"),
         ],
         3 => vec![
-            Atom {
-                face: keyword_face(),
-                contents: "    let ".into(),
-            },
-            Atom {
-                face: ident_face(),
-                contents: format!("result_{i}").into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: " = ".into(),
-            },
-            Atom {
-                face: namespace_face(),
-                contents: "self".into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: ".".into(),
-            },
-            Atom {
-                face: ident_face(),
-                contents: format!("compute_{i}").into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: "(".into(),
-            },
-            Atom {
-                face: literal_face(),
-                contents: format!("{}", i * 42).into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: ", ".into(),
-            },
-            Atom {
-                face: string_face(),
-                contents: format!("\"value_{i}\"").into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: ");".into(),
-            },
+            Atom::from_wire(keyword_face(), "    let "),
+            Atom::from_wire(ident_face(), format!("result_{i}")),
+            Atom::from_wire(operator_face(), " = "),
+            Atom::from_wire(namespace_face(), "self"),
+            Atom::from_wire(operator_face(), "."),
+            Atom::from_wire(ident_face(), format!("compute_{i}")),
+            Atom::from_wire(operator_face(), "("),
+            Atom::from_wire(literal_face(), format!("{}", i * 42)),
+            Atom::from_wire(operator_face(), ", "),
+            Atom::from_wire(string_face(), format!("\"value_{i}\"")),
+            Atom::from_wire(operator_face(), ");"),
         ],
         4 => vec![
-            Atom {
-                face: keyword_face(),
-                contents: "    const ".into(),
-            },
-            Atom {
-                face: constant_face(),
-                contents: format!("MSG_{i}").into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: ": &str = ".into(),
-            },
-            Atom {
-                face: string_face(),
-                contents: format!("\"Hello from module {i}, processing data\"").into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: ";".into(),
-            },
+            Atom::from_wire(keyword_face(), "    const "),
+            Atom::from_wire(constant_face(), format!("MSG_{i}")),
+            Atom::from_wire(operator_face(), ": &str = "),
+            Atom::from_wire(
+                string_face(),
+                format!("\"Hello from module {i}, processing data\""),
+            ),
+            Atom::from_wire(operator_face(), ";"),
         ],
         5 => vec![
-            Atom {
-                face: Face::default(),
-                contents: "    ".into(),
-            },
-            Atom {
-                face: keyword_face(),
-                contents: "if ".into(),
-            },
-            Atom {
-                face: ident_face(),
-                contents: format!("count_{i}").into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: " > ".into(),
-            },
-            Atom {
-                face: literal_face(),
-                contents: format!("{}", i * 10).into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: " {".into(),
-            },
+            Atom::from_wire(Face::default(), "    "),
+            Atom::from_wire(keyword_face(), "if "),
+            Atom::from_wire(ident_face(), format!("count_{i}")),
+            Atom::from_wire(operator_face(), " > "),
+            Atom::from_wire(literal_face(), format!("{}", i * 10)),
+            Atom::from_wire(operator_face(), " {"),
         ],
-        6 => vec![Atom {
-            face: comment_face(),
-            contents: format!("// 処理{i}: データ変換と検証").into(),
-        }],
+        6 => vec![Atom::from_wire(
+            comment_face(),
+            format!("// 処理{i}: データ変換と検証"),
+        )],
         7 => vec![
-            Atom {
-                face: Face {
+            Atom::from_wire(
+                Face {
                     attributes: Attributes::BOLD,
                     ..error_face()
                 },
-                contents: "ERROR".into(),
-            },
-            Atom {
-                face: operator_face(),
-                contents: ": ".into(),
-            },
-            Atom {
-                face: Face {
+                "ERROR",
+            ),
+            Atom::from_wire(operator_face(), ": "),
+            Atom::from_wire(
+                Face {
                     attributes: Attributes::ITALIC | Attributes::UNDERLINE,
                     ..string_face()
                 },
-                contents: format!("\"unexpected token at line {i}\"").into(),
-            },
+                format!("\"unexpected token at line {i}\""),
+            ),
         ],
         _ => unreachable!(),
     }
@@ -577,26 +481,22 @@ fn realistic_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_face = Face {
+    state.observed.default_style = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
-    state.observed.padding_face = state.observed.default_face;
-    state.observed.status_default_face = Face {
+    }
+    .into();
+    state.observed.padding_style = state.observed.default_style.clone();
+    state.observed.status_default_style = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
-    };
+    }
+    .into();
     state.observed.lines = (0..line_count).map(make_realistic_line).collect();
-    state.inference.status_line = vec![Atom {
-        face: Face::default(),
-        contents: " NORMAL ".into(),
-    }];
-    state.observed.status_mode_line = vec![Atom {
-        face: Face::default(),
-        contents: "normal".into(),
-    }];
+    state.inference.status_line = vec![Atom::from_wire(Face::default(), " NORMAL ")];
+    state.observed.status_mode_line = vec![Atom::from_wire(Face::default(), "normal")];
     state
 }
 
@@ -611,6 +511,29 @@ struct JsonRpcMsg<P: Serialize> {
     params: P,
 }
 
+/// Wire-shaped atom for benchmark JSON fixtures. Mirrors `WireAtom` in
+/// `kasane_core::protocol::parse` (which is private). `Atom` itself
+/// holds an `Arc<UnresolvedStyle>` and is opaque to the wire format,
+/// so we project to the legacy `{ face, contents }` shape here.
+#[derive(Serialize)]
+struct WireAtomBench<'a> {
+    face: Face,
+    contents: &'a str,
+}
+
+fn atoms_to_wire(line: &[Atom]) -> Vec<WireAtomBench<'_>> {
+    line.iter()
+        .map(|a| WireAtomBench {
+            face: a.unresolved_style().to_face(),
+            contents: a.contents.as_str(),
+        })
+        .collect()
+}
+
+fn lines_to_wire(lines: &[Vec<Atom>]) -> Vec<Vec<WireAtomBench<'_>>> {
+    lines.iter().map(|l| atoms_to_wire(l)).collect()
+}
+
 fn to_json_bytes<P: Serialize>(method: &'static str, params: P) -> Vec<u8> {
     serde_json::to_vec(&JsonRpcMsg {
         jsonrpc: "2.0",
@@ -622,6 +545,7 @@ fn to_json_bytes<P: Serialize>(method: &'static str, params: P) -> Vec<u8> {
 
 fn draw_json(line_count: usize) -> Vec<u8> {
     let lines: Vec<Line> = (0..line_count).map(make_colored_line).collect();
+    let wire_lines = lines_to_wire(&lines);
     let default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
@@ -631,7 +555,7 @@ fn draw_json(line_count: usize) -> Vec<u8> {
     to_json_bytes(
         "draw",
         (
-            &lines,
+            &wire_lines,
             &Coord::default(),
             &default_face,
             &padding_face,
@@ -642,6 +566,7 @@ fn draw_json(line_count: usize) -> Vec<u8> {
 
 fn draw_realistic_json(line_count: usize) -> Vec<u8> {
     let lines: Vec<Line> = (0..line_count).map(make_realistic_line).collect();
+    let wire_lines = lines_to_wire(&lines);
     let default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
@@ -651,7 +576,7 @@ fn draw_realistic_json(line_count: usize) -> Vec<u8> {
     to_json_bytes(
         "draw",
         (
-            &lines,
+            &wire_lines,
             &Coord::default(),
             &default_face,
             &padding_face,

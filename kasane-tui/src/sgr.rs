@@ -1,14 +1,6 @@
 //! SGR (Select Graphic Rendition) helper functions for converting
 //! [`crate::terminal_style::TerminalStyle`] to crossterm terminal escape
 //! sequences.
-//!
-//! The previous Face-consuming API ([`emit_sgr_diff(buf, Option<&Face>,
-//! &Face)`]) is preserved as a thin shim that converts via
-//! [`TerminalStyle::from_face`] and dispatches to the new
-//! [`emit_sgr_diff_style`]. This keeps backend.rs call sites
-//! source-stable while ADR-031 Phase 3 Step 1 ships the type-system
-//! foundation; Step 2 will switch backend.rs to the
-//! `TerminalStyle`-direct call once `Cell` migrates to `Style`.
 
 use crossterm::{
     queue,
@@ -17,7 +9,7 @@ use crossterm::{
         SetForegroundColor, SetUnderlineColor,
     },
 };
-use kasane_core::protocol::{Attributes, Color, Face, NamedColor};
+use kasane_core::protocol::{Color, NamedColor};
 
 use crate::terminal_style::{TerminalStyle, UnderlineKind};
 
@@ -120,18 +112,6 @@ pub fn emit_sgr_diff_style(
     Ok(())
 }
 
-/// Emit only the SGR codes that differ between `old` and `new` faces.
-///
-/// Legacy entry point. Internally projects to [`TerminalStyle`] via
-/// [`TerminalStyle::from_face`] and dispatches to
-/// [`emit_sgr_diff_style`]. Will retire when `Cell` migrates to
-/// store `Style` directly (ADR-031 Phase 3 Step 2).
-pub fn emit_sgr_diff(buf: &mut Vec<u8>, old: Option<&Face>, new: &Face) -> anyhow::Result<()> {
-    let new_ts = TerminalStyle::from_face(new);
-    let old_ts = old.map(TerminalStyle::from_face);
-    emit_sgr_diff_style(buf, old_ts.as_ref(), &new_ts)
-}
-
 pub fn convert_color(color: Color) -> CtColor {
     match color {
         Color::Default => CtColor::Reset,
@@ -154,29 +134,6 @@ pub fn convert_color(color: Color) -> CtColor {
             NamedColor::BrightWhite => CtColor::White,
         },
         Color::Rgb { r, g, b } => CtColor::Rgb { r, g, b },
-    }
-}
-
-/// Convert a kasane Attributes flag to a crossterm Attribute.
-/// Returns None for Kakoune-internal attributes (final_*) that have no terminal equivalent.
-///
-/// Retained for plug-in / external consumers; the SGR-emit path now
-/// goes through [`TerminalStyle`] and does not call this directly.
-pub fn convert_attribute(attr: Attributes) -> Option<CtAttribute> {
-    match attr {
-        Attributes::UNDERLINE => Some(CtAttribute::Underlined),
-        Attributes::CURLY_UNDERLINE => Some(CtAttribute::Undercurled),
-        Attributes::DOUBLE_UNDERLINE => Some(CtAttribute::DoubleUnderlined),
-        Attributes::DOTTED_UNDERLINE => Some(CtAttribute::Underdotted),
-        Attributes::DASHED_UNDERLINE => Some(CtAttribute::Underdashed),
-        Attributes::REVERSE => Some(CtAttribute::Reverse),
-        Attributes::BLINK => Some(CtAttribute::SlowBlink),
-        Attributes::BOLD => Some(CtAttribute::Bold),
-        Attributes::DIM => Some(CtAttribute::Dim),
-        Attributes::ITALIC => Some(CtAttribute::Italic),
-        Attributes::STRIKETHROUGH => Some(CtAttribute::CrossedOut),
-        // final_* attributes are Kakoune-internal face composition hints; skip them
-        _ => None,
     }
 }
 
@@ -214,54 +171,6 @@ mod tests {
         assert_eq!(
             convert_color(Color::Named(NamedColor::BrightRed)),
             CtColor::Red
-        );
-    }
-
-    #[test]
-    fn test_convert_attribute() {
-        assert_eq!(convert_attribute(Attributes::BOLD), Some(CtAttribute::Bold));
-        assert_eq!(
-            convert_attribute(Attributes::ITALIC),
-            Some(CtAttribute::Italic)
-        );
-        assert_eq!(
-            convert_attribute(Attributes::REVERSE),
-            Some(CtAttribute::Reverse)
-        );
-        // final_* attributes should be filtered out (None)
-        assert_eq!(convert_attribute(Attributes::FINAL_FG), None);
-        assert_eq!(convert_attribute(Attributes::FINAL_BG), None);
-        assert_eq!(convert_attribute(Attributes::FINAL_ATTR), None);
-    }
-
-    #[test]
-    fn emit_sgr_diff_legacy_face_matches_new_path() {
-        // The Face-consuming shim must produce byte-identical output to
-        // calling emit_sgr_diff_style with the projected TerminalStyle.
-        // This pins the Phase 3 Step 1 invariant: introducing
-        // TerminalStyle does not change observable terminal behaviour.
-        let face_old = Face {
-            fg: Color::Named(NamedColor::Red),
-            attributes: Attributes::BOLD,
-            ..Face::default()
-        };
-        let face_new = Face {
-            fg: Color::Named(NamedColor::Blue),
-            attributes: Attributes::BOLD | Attributes::ITALIC,
-            ..Face::default()
-        };
-
-        let mut via_face = Vec::new();
-        emit_sgr_diff(&mut via_face, Some(&face_old), &face_new).unwrap();
-
-        let ts_old = TerminalStyle::from_face(&face_old);
-        let ts_new = TerminalStyle::from_face(&face_new);
-        let mut via_style = Vec::new();
-        emit_sgr_diff_style(&mut via_style, Some(&ts_old), &ts_new).unwrap();
-
-        assert_eq!(
-            via_face, via_style,
-            "Face shim must match TerminalStyle direct path byte-for-byte"
         );
     }
 

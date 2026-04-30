@@ -936,12 +936,7 @@ mod tests {
     fn test_measure_text_panel() {
         let state = default_state();
         let lines: Vec<Vec<crate::protocol::Atom>> = (0..10)
-            .map(|i| {
-                vec![crate::protocol::Atom::from_face(
-                    Face::default(),
-                    format!("line {i}"),
-                )]
-            })
+            .map(|i| vec![crate::protocol::Atom::plain(format!("line {i}"))])
             .collect();
         let el = Element::text_panel(lines);
         let size = measure(&el, Constraints::loose(80, 24), &state);
@@ -953,12 +948,7 @@ mod tests {
     fn test_measure_text_panel_clamped_height() {
         let state = default_state();
         let lines: Vec<Vec<crate::protocol::Atom>> = (0..50)
-            .map(|i| {
-                vec![crate::protocol::Atom::from_face(
-                    Face::default(),
-                    format!("line {i}"),
-                )]
-            })
+            .map(|i| vec![crate::protocol::Atom::plain(format!("line {i}"))])
             .collect();
         let el = Element::text_panel(lines);
         let size = measure(&el, Constraints::loose(80, 24), &state);
@@ -969,12 +959,7 @@ mod tests {
     fn test_measure_text_panel_with_line_numbers() {
         let state = default_state();
         let lines: Vec<Vec<crate::protocol::Atom>> = (0..100)
-            .map(|i| {
-                vec![crate::protocol::Atom::from_face(
-                    Face::default(),
-                    format!("line {i}"),
-                )]
-            })
+            .map(|i| vec![crate::protocol::Atom::plain(format!("line {i}"))])
             .collect();
         let el = Element::TextPanel {
             lines,

@@ -172,7 +172,7 @@ impl ContentAnnotationStabilityMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Face};
+    use crate::protocol::Atom;
 
     fn fold(start: usize, end: usize) -> DisplayDirective {
         DisplayDirective::Fold {

@@ -102,7 +102,7 @@ kasane plugin rollback --list
 ```
 
 Current Kasane releases expect WASM plugins built against
-`kasane:plugin@1.1.0`. If you are upgrading from an older build,
+`kasane:plugin@2.0.0`. If you are upgrading from an older build,
 rebuild and reinstall those plugins before startup; older artifacts
 will not load. The 1.0.0 ABI replaces the legacy `face` record with the
 post-resolve `style` record (12 fields covering colour, weight, slant,

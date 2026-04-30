@@ -1,4 +1,4 @@
-use super::text_pipeline::{Cache, Resolution, Viewport};
+use super::text::{Cache, Resolution, Viewport};
 use crate::animation::CursorRenderState;
 use kasane_core::config::FontConfig;
 use kasane_core::render::scene::line_display_width_str;
@@ -63,31 +63,31 @@ pub struct SceneRenderer {
     /// Text post-processing effects (shadow, glow).
     text_effects: TextEffects,
 
-    // ADR-031: Parley text stack. See `parley_text/mod.rs` for the
-    // module decomposition.
+    // ADR-031: text stack. See `text/mod.rs` for the module
+    // decomposition.
     /// Parley shaping + font context (FontContext + LayoutContext).
-    parley_text: super::parley_text::ParleyText,
+    text: super::text::ParleyText,
     /// L1: per-line shaped Parley layouts. Cache hits on cursor-only
     /// frames skip the dominant CPU cost (whole-line shaping). Wired
     /// into `process_render_paragraph_parley`.
-    parley_layout_cache: super::parley_text::layout_cache::LayoutCache,
+    layout_cache: super::text::layout_cache::LayoutCache,
     /// swash::ScaleContext owner — reused across frames.
-    parley_glyph_rasterizer: super::parley_text::glyph_rasterizer::GlyphRasterizer,
+    glyph_rasterizer: super::text::glyph_rasterizer::GlyphRasterizer,
     /// L2 glyph bitmap cache. Owns the LRU; the atlases live below.
-    parley_raster_cache: super::parley_text::raster_cache::GlyphRasterCache,
+    raster_cache: super::text::raster_cache::GlyphRasterCache,
     /// L3 GPU mask atlas (R8Unorm).
-    parley_mask_atlas: super::parley_text::gpu_atlas::GpuAtlasShelf,
+    mask_atlas: super::text::gpu_atlas::GpuAtlasShelf,
     /// L3 GPU colour atlas (Rgba8Unorm) — emoji and colour outlines.
-    parley_color_atlas: super::parley_text::gpu_atlas::GpuAtlasShelf,
+    color_atlas: super::text::gpu_atlas::GpuAtlasShelf,
     /// wgpu glue: vertex buffer + pipeline + bind groups.
-    parley_renderer: super::parley_text::parley_text_renderer::ParleyTextRenderer,
+    text_renderer: super::text::text_renderer::TextRenderer,
     /// Shared shader / bind-group-layout cache (owns the wgpu pipeline
-    /// state). Used by `parley_renderer`.
+    /// state). Used by `text_renderer`.
     cache: Cache,
-    /// Per-frame drawable accumulator. Populated by `parley_emit_text`
+    /// Per-frame drawable accumulator. Populated by `emit_text`
     /// during the layer's DrawCommand walk and drained by
-    /// `parley_finalize_frame` before the render pass executes.
-    parley_drawables: Vec<super::parley_text::frame_builder::DrawableGlyph>,
+    /// `finalize_text_frame` before the render pass executes.
+    drawables: Vec<super::text::frame_builder::DrawableGlyph>,
 
     /// Inline-box paint sub-commands queued during paragraph painting.
     /// `process_render_paragraph_parley` pushes translated copies of the
@@ -95,7 +95,7 @@ pub struct SceneRenderer {
     /// `PositionedLayoutItem::InlineBox`; the surrounding
     /// `process_draw_command` `RenderParagraph` arm drains and recurses
     /// once the paragraph is done, so sub-commands compose on top of the
-    /// paragraph layout. ADR-031 Phase 10 Step 2-renderer (Step A.2b).
+    /// paragraph layout.
     pub(super) deferred_inline_box_cmds: Vec<DrawCommand>,
 }
 
@@ -130,9 +130,9 @@ impl SceneRenderer {
         let font_size = font_config.size * scale_factor as f32;
         let line_height = font_size * font_config.line_height;
 
-        let mut parley_text = super::parley_text::ParleyText::new(font_config);
-        let metrics = super::parley_text::metrics::calculate_with_parley(
-            &mut parley_text,
+        let mut text = super::text::ParleyText::new(font_config);
+        let metrics = super::text::metrics::calculate_with_parley(
+            &mut text,
             font_config,
             scale_factor,
             window_size,
@@ -175,19 +175,18 @@ impl SceneRenderer {
         let texture_cache = TextureCache::new(&gpu.device, 128 * 1024 * 1024); // 128 MB budget
         let image = ImagePipeline::new(gpu, surface_format, texture_cache.bind_group_layout());
 
-        let parley_layout_cache = super::parley_text::layout_cache::LayoutCache::new();
-        let parley_glyph_rasterizer = super::parley_text::glyph_rasterizer::GlyphRasterizer::new();
-        let parley_raster_cache =
-            super::parley_text::raster_cache::GlyphRasterCache::default_sized();
-        let parley_mask_atlas = super::parley_text::gpu_atlas::GpuAtlasShelf::default_for(
+        let layout_cache = super::text::layout_cache::LayoutCache::new();
+        let glyph_rasterizer = super::text::glyph_rasterizer::GlyphRasterizer::new();
+        let raster_cache = super::text::raster_cache::GlyphRasterCache::default_sized();
+        let mask_atlas = super::text::gpu_atlas::GpuAtlasShelf::default_for(
             &gpu.device,
-            super::parley_text::gpu_atlas::Kind::Mask,
+            super::text::gpu_atlas::Kind::Mask,
         );
-        let parley_color_atlas = super::parley_text::gpu_atlas::GpuAtlasShelf::default_for(
+        let color_atlas = super::text::gpu_atlas::GpuAtlasShelf::default_for(
             &gpu.device,
-            super::parley_text::gpu_atlas::Kind::Color,
+            super::text::gpu_atlas::Kind::Color,
         );
-        let parley_renderer = super::parley_text::parley_text_renderer::ParleyTextRenderer::new(
+        let text_renderer = super::text::text_renderer::TextRenderer::new(
             &gpu.device,
             &cache,
             surface_format,
@@ -216,15 +215,15 @@ impl SceneRenderer {
             timing,
             depth_stencil,
             text_effects,
-            parley_text,
-            parley_layout_cache,
-            parley_glyph_rasterizer,
-            parley_raster_cache,
-            parley_mask_atlas,
-            parley_color_atlas,
-            parley_renderer,
+            text,
+            layout_cache,
+            glyph_rasterizer,
+            raster_cache,
+            mask_atlas,
+            color_atlas,
+            text_renderer,
             cache,
-            parley_drawables: Vec::with_capacity(2048),
+            drawables: Vec::with_capacity(2048),
             deferred_inline_box_cmds: Vec::new(),
         }
     }
@@ -233,44 +232,25 @@ impl SceneRenderer {
         &self.metrics
     }
 
-    /// Read access to the Parley state — used by future phases that need
-    /// to invoke `parley_text::shaper::shape_line` directly.
+    /// Read access to the Parley state. Currently only used by the
+    /// `Brush` smoke tests; production paths share `&mut self` and
+    /// reach the field directly.
     #[allow(dead_code)]
-    pub(crate) fn parley_text(&self) -> &super::parley_text::ParleyText {
-        &self.parley_text
+    pub(crate) fn text(&self) -> &super::text::ParleyText {
+        &self.text
     }
 
-    /// Mutable access to the Parley state — used by Phase 9b's draw-command
-    /// path migration.
+    /// Mutable access to the Parley state. See [`Self::text`] note.
     #[allow(dead_code)]
-    pub(crate) fn parley_text_mut(&mut self) -> &mut super::parley_text::ParleyText {
-        &mut self.parley_text
+    pub(crate) fn text_mut(&mut self) -> &mut super::text::ParleyText {
+        &mut self.text
     }
 
-    /// ADR-031 Phase 9b Step 4b smoke test — render a hard-coded "PARLEY"
-    /// string at top-left through the Parley pipeline.
-    ///
-    /// **L2 cache bypass**: this smoke deliberately bypasses the
-    /// `parley_raster_cache`. The L2 cache currently owns its own
-    /// CPU-only `AtlasShelf` allocator, but the GPU bind group reads
-    /// from `parley_mask_atlas` / `parley_color_atlas` (separate
-    /// `GpuAtlasShelf` allocators). Routing through L2 would produce
-    /// atlas slot coordinates that point at empty regions of the GPU
-    /// texture. The architectural fix (raster_cache should own the
-    /// `GpuAtlasShelf`s) is staged separately; for the visual smoke we
-    /// rasterise + allocate + queue + render directly.
-    ///
-    /// Atlases are cleared each frame to keep memory bounded — every
-    /// "PARLEY" frame re-allocates and re-uploads. Per-frame waste is
-    /// fine for a smoke test of fixed-size content.
-    ///
-    /// No-op unless `KASANE_TEXT_BACKEND=parley` is set.
     /// Emit a multi-atom run through Parley by shaping each atom
-    /// independently and snapping each to its cell-grid x. Mirrors the
-    /// cosmic-text DrawAtoms layout strategy (atom_estimated_x =
-    /// cumulative cell_w × unicode_width), so per-atom positions match
-    /// the cell-grid backgrounds + decorations emitted in
-    /// `process_draw_atoms_parley`.
+    /// independently and snapping each to its cell-grid x. The
+    /// cumulative `atom_estimated_x = cell_w × unicode_width` keeps
+    /// per-atom positions in lock-step with the cell-grid backgrounds
+    /// and decorations emitted by the surrounding draw command.
     ///
     /// We deliberately do NOT shape the whole `[atom]` slice as one
     /// Parley `StyledLine`: a single Parley layout would lay glyphs out
@@ -279,7 +259,7 @@ impl SceneRenderer {
     /// loses cross-atom shaping (ligatures across atom boundaries) but
     /// that boundary is rare in Kakoune UI atoms (which differ in
     /// face/colour and so already break ligatures naturally).
-    pub(crate) fn parley_emit_atoms(
+    pub(crate) fn emit_atoms(
         &mut self,
         atoms: &[kasane_core::render::ResolvedAtom],
         px: f32,
@@ -294,25 +274,24 @@ impl SceneRenderer {
         for atom in atoms {
             let atom_w = line_display_width_str(&atom.contents) as f32 * cell_w;
             if !atom.contents.is_empty() {
-                self.parley_emit_text(&atom.contents, &atom.face(), x, py, color_resolver);
+                self.emit_text(&atom.contents, &atom.style, x, py, color_resolver);
             }
             x += atom_w;
         }
     }
 
-    pub(crate) fn parley_emit_text(
+    pub(crate) fn emit_text(
         &mut self,
         text: &str,
-        face: &kasane_core::protocol::Face,
+        style: &kasane_core::protocol::Style,
         px: f32,
         py: f32,
         color_resolver: &ColorResolver,
     ) {
-        use super::parley_text::Brush as PBrush;
-        use super::parley_text::frame_builder::DrawableGlyph;
-        use super::parley_text::glyph_rasterizer::SubpixelX;
-        use super::parley_text::shaper::shape_line_with_default_family;
-        use super::parley_text::styled_line::StyledLine;
+        use super::text::Brush as PBrush;
+        use super::text::frame_builder::DrawableGlyph;
+        use super::text::glyph_rasterizer::SubpixelX;
+        use super::text::styled_line::StyledLine;
         use kasane_core::protocol::{Atom, Style};
         use parley::PositionedLayoutItem;
 
@@ -320,7 +299,7 @@ impl SceneRenderer {
             return;
         }
 
-        let atoms = vec![Atom::from_face(*face, text)];
+        let atoms = vec![Atom::with_style(text, style.clone())];
         let line = StyledLine::from_atoms(
             &atoms,
             &Style::default(),
@@ -328,9 +307,9 @@ impl SceneRenderer {
             self.font_size,
             None,
         );
-        let parley_layout = shape_line_with_default_family(&mut self.parley_text, &line);
+        let parley_layout = self.text.shape(&line);
 
-        let (visual_fg, _bg, _needs_bg) = color_resolver.resolve_face_colors_linear(face);
+        let (visual_fg, _bg, _needs_bg) = color_resolver.resolve_style_colors_linear(style);
         let brush = PBrush::rgba(
             (visual_fg[0].clamp(0.0, 1.0) * 255.0).round() as u8,
             (visual_fg[1].clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -338,13 +317,13 @@ impl SceneRenderer {
             (visual_fg[3].clamp(0.0, 1.0) * 255.0).round() as u8,
         );
 
-        // ADR-031 Phase 9b — Parley's `positioned_glyphs()` already
-        // returns each glyph's `y` in layout-relative coordinates that
-        // include the run's baseline (`y = run.baseline() + glyph.y` per
-        // parley v0.9). So `py + glyph.y` already places the glyph at the
-        // intended baseline — adding our own `line_baseline` on top would
-        // double-count the baseline and shift every glyph down by ~ascent
-        // (precisely the bug that put status bar text below its bg).
+        // Parley's `positioned_glyphs()` returns each glyph's `y` in
+        // layout-relative coordinates that already include the run's
+        // baseline (`y = run.baseline() + glyph.y` per parley v0.9).
+        // So `py + glyph.y` places the glyph at the intended baseline
+        // — adding our own `line_baseline` would double-count it and
+        // shift every glyph down by ~ascent (the regression that put
+        // status bar text below its background).
         //
         // We still need a per-line cell-grid leading offset because
         // Parley's intrinsic `line_height` (no LineHeight pushed) is
@@ -355,13 +334,13 @@ impl SceneRenderer {
         let cell_h = self.metrics.cell_height;
         // Split borrows so the L2 cache + rasterizer + atlases all
         // mutate independently inside the per-glyph loop.
-        let rasterizer = &mut self.parley_glyph_rasterizer;
-        let cache = &mut self.parley_raster_cache;
-        let mut atlases = super::parley_text::raster_cache_glue::ParleyAtlasPair {
-            mask: &mut self.parley_mask_atlas,
-            color: &mut self.parley_color_atlas,
+        let rasterizer = &mut self.glyph_rasterizer;
+        let cache = &mut self.raster_cache;
+        let mut atlases = super::text::raster_cache_glue::ParleyAtlasPair {
+            mask: &mut self.mask_atlas,
+            color: &mut self.color_atlas,
         };
-        let drawables = &mut self.parley_drawables;
+        let drawables = &mut self.drawables;
         for layout_line in parley_layout.layout.lines() {
             let lm = layout_line.metrics();
             let leading = (cell_h - lm.line_height).max(0.0);
@@ -373,10 +352,9 @@ impl SceneRenderer {
                 };
                 let parley_run = run.run();
                 let font = parley_run.font();
-                let font_id = super::parley_text::font_id::font_id_from_data(font);
-                let var_hash = super::parley_text::font_id::var_hash_from_coords(
-                    parley_run.normalized_coords(),
-                );
+                let font_id = super::text::font_id::font_id_from_data(font);
+                let var_hash =
+                    super::text::font_id::var_hash_from_coords(parley_run.normalized_coords());
                 let font_size = parley_run.font_size();
                 let size_q = (font_size * 64.0).round().clamp(0.0, u16::MAX as f32) as u16;
                 let Some(font_ref) =
@@ -389,7 +367,7 @@ impl SceneRenderer {
                     let abs_y = layout_origin_y + glyph.y;
                     let subpx = SubpixelX::from_fract(abs_x);
                     let glyph_id = glyph.id as u16;
-                    let key = super::parley_text::raster_cache::GlyphRasterKey {
+                    let key = super::text::raster_cache::GlyphRasterKey {
                         font_id,
                         glyph_id,
                         size_q,
@@ -424,27 +402,28 @@ impl SceneRenderer {
     /// Reset Parley per-frame state. Called once at the start of each
     /// frame.
     ///
-    /// Phase 9b Step 4c: atlases are no longer cleared per frame. The
-    /// L2 [`GlyphRasterCache`](super::parley_text::raster_cache::GlyphRasterCache)
-    /// owns the atlas slots and only releases them on LRU / atlas-full
-    /// eviction. Per-frame clearing was a workaround for the previous
-    /// double-allocator architecture and meant we re-rasterised every
-    /// glyph every frame.
+    /// Reset Parley per-frame state at the start of every frame.
     ///
-    /// Diagnostic: `KASANE_PARLEY_NO_CACHE=1` reverts to the pre-Step-4c
-    /// behaviour by invalidating the cache + clearing both atlases here.
-    /// Used to confirm whether a bug originates in the cache layer.
-    fn parley_frame_start(&mut self) {
-        self.parley_drawables.clear();
+    /// Atlases are NOT cleared per frame — the L2
+    /// [`GlyphRasterCache`](super::text::raster_cache::GlyphRasterCache)
+    /// owns the slots and releases them only on LRU / atlas-full
+    /// eviction.
+    ///
+    /// Diagnostic: `KASANE_PARLEY_NO_CACHE=1` invalidates the cache
+    /// and clears both atlases here, so a bug that vanishes under
+    /// the env var is in the cache layer rather than the shaper /
+    /// rasteriser.
+    fn text_frame_start(&mut self) {
+        self.drawables.clear();
         // Bump the L2 cache's frame epoch so eviction can distinguish
         // entries already drawable-pushed in this frame from older
-        // ones (Phase 9b Step 4c follow-up — fixes the "info popup
-        // glyphs appear scrambled" bug caused by mid-frame slot reuse).
-        self.parley_raster_cache.bump_epoch();
+        // ones (fixes the "info popup glyphs appear scrambled" bug
+        // caused by mid-frame slot reuse).
+        self.raster_cache.bump_epoch();
         if parley_cache_disabled() {
-            self.parley_raster_cache.invalidate_all();
-            self.parley_mask_atlas.clear();
-            self.parley_color_atlas.clear();
+            self.raster_cache.invalidate_all();
+            self.mask_atlas.clear();
+            self.color_atlas.clear();
         }
     }
 
@@ -454,31 +433,39 @@ impl SceneRenderer {
     /// drawables vector is then cleared so the next layer accumulates
     /// fresh entries; atlases keep their slots across layers within the
     /// frame.
-    fn parley_finalize_frame(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+    fn finalize_text_frame(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         tracing::trace!(
             target: "kasane::parley::frame",
-            drawables = self.parley_drawables.len() as u32,
-            mask_pending = self.parley_mask_atlas.pending_uploads().len() as u32,
-            color_pending = self.parley_color_atlas.pending_uploads().len() as u32,
+            drawables = self.drawables.len() as u32,
+            mask_pending = self.mask_atlas.pending_uploads().len() as u32,
+            color_pending = self.color_atlas.pending_uploads().len() as u32,
             "parley finalize"
         );
-        self.parley_renderer.prepare(
+        self.text_renderer.prepare(
             device,
             queue,
             &self.cache,
-            &mut self.parley_mask_atlas,
-            &mut self.parley_color_atlas,
-            &self.parley_drawables,
+            &mut self.mask_atlas,
+            &mut self.color_atlas,
+            &self.drawables,
         );
-        self.parley_drawables.clear();
+        self.drawables.clear();
     }
 
     /// Cell-grid mouse hit test.
     ///
-    /// Phase 11 — the cosmic-text glyph-accurate path is gone with
-    /// the rest of the cosmic code; the Parley path's per-cluster
-    /// hit_test (`super::parley_text::hit_test`) is not yet wired
-    /// here. Until then, mouse coordinates resolve to the cell grid.
+    /// Returns `(col, row)` on the display grid. Kasane is a Kakoune
+    /// frontend and Kakoune is cell-based, so cell-grid resolution is
+    /// the right answer for keyboard / mouse → editor coordinate
+    /// translation; clicks on multi-cell glyphs (CJK, ligatures) land
+    /// on the leftmost cell of the cluster, which matches Kakoune's
+    /// own input model.
+    ///
+    /// `super::text::hit_test::hit_byte` is the byte-precise
+    /// alternative used by paragraph-internal cursor placement
+    /// (`draw_commands.rs::byte_to_advance`). Mouse → byte mapping is
+    /// only needed when the renderer runs a proportional font; until
+    /// that happens the cell-grid path stays as the production hit test.
     pub fn hit_test(&self, px: f64, py: f64) -> (u16, u16) {
         let cell_h = self.metrics.cell_height;
         let cell_w = self.metrics.cell_width;
@@ -572,8 +559,12 @@ impl SceneRenderer {
         self.font_size = font_config.size * scale_factor as f32;
         self.line_height = self.font_size * font_config.line_height;
         self.font_family.clone_from(&font_config.family);
-        self.metrics = super::parley_text::metrics::calculate_with_parley(
-            &mut self.parley_text,
+        // Rebuild the cached default family so subsequent shapes pick up
+        // the new fallback list. Required before metrics recomputation
+        // because `calculate_with_parley` itself shapes a probe line.
+        self.text.set_default_family(font_config);
+        self.metrics = super::text::metrics::calculate_with_parley(
+            &mut self.text,
             font_config,
             scale_factor,
             window_size,
@@ -590,10 +581,11 @@ impl SceneRenderer {
             window_size.width.max(1),
             window_size.height.max(1),
         );
-        // Font / scale changed → all cached glyph bitmaps are invalid.
-        self.parley_raster_cache.invalidate_all();
-        self.parley_mask_atlas.clear();
-        self.parley_color_atlas.clear();
+        // Font / scale changed → all three cache tiers drop in lockstep.
+        self.layout_cache.invalidate_all();
+        self.raster_cache.invalidate_all();
+        self.mask_atlas.clear();
+        self.color_atlas.clear();
     }
 
     /// Render with animated cursor state.
@@ -714,7 +706,7 @@ impl SceneRenderer {
         self.clip_stack.clear();
         self.paragraph_cursor = None;
         // Bump frame epoch + reset per-frame Parley state.
-        self.parley_frame_start();
+        self.text_frame_start();
         self.timing.begin_frame();
 
         // Split commands into layers at BeginOverlay boundaries.
@@ -829,12 +821,12 @@ impl SceneRenderer {
             let image_count = self.image.instances.len() / 9;
             self.image.ensure_buffer(gpu, image_count);
 
-            // Phase 11 — finalize the Parley draw for this layer.
-            // process_draw_* has accumulated DrawableGlyphs into
-            // self.parley_drawables during this layer's processing.
-            // parley_finalize_frame uploads atlas pixels + writes the
-            // vertex buffer + clears the accumulator for the next layer.
-            self.parley_finalize_frame(&gpu.device, &gpu.queue);
+            // Finalize the text draw for this layer. process_draw_*
+            // has accumulated DrawableGlyphs into self.drawables
+            // during this layer's processing. finalize_text_frame
+            // uploads atlas pixels + writes the vertex buffer + clears
+            // the accumulator for the next layer.
+            self.finalize_text_frame(&gpu.device, &gpu.queue);
 
             // Draw this layer: bg → border → text.
             // Each layer needs its own encoder + submit so that
@@ -898,10 +890,9 @@ impl SceneRenderer {
                 let text_effects_active = self.effects.text_effects.is_active();
                 if !text_effects_active {
                     // Standard path: Parley text directly into the main
-                    // render pass. parley_finalize_frame above already
+                    // render pass. finalize_text_frame above already
                     // wrote the vertex buffer for this layer.
-                    self.parley_renderer
-                        .render(&self.viewport, &mut render_pass);
+                    self.text_renderer.render(&self.viewport, &mut render_pass);
                 }
 
                 self.image.upload_and_draw(gpu, &mut render_pass);
@@ -947,7 +938,7 @@ impl SceneRenderer {
                         occlusion_query_set: None,
                         multiview_mask: None,
                     });
-                    self.parley_renderer.render(&self.viewport, &mut text_pass);
+                    self.text_renderer.render(&self.viewport, &mut text_pass);
                 }
 
                 // Blit sharp text to main target

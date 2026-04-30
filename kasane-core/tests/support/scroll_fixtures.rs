@@ -6,7 +6,7 @@ use kasane_core::input::{
 };
 use kasane_core::layout::{Rect, build_hit_map};
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Coord, Face, InfoStyle};
+use kasane_core::protocol::{Coord, InfoStyle};
 use kasane_core::state::{AppState, InfoIdentity, InfoState};
 
 pub fn state_80x24() -> AppState {

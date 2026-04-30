@@ -4,12 +4,13 @@ use unicode_width::UnicodeWidthStr;
 use std::ops::Range;
 
 use super::grid::CellGrid;
+use super::terminal_style::TerminalStyle;
 use super::theme::Theme;
 use crate::display::{DisplayLine, DisplayMap, SourceMapping, SyntheticContent};
 use crate::element::{BorderLineStyle, BufferRefState, Element};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, Face, Style};
 use crate::render::InlineDecoration;
 use crate::state::AppState;
 
@@ -50,6 +51,7 @@ pub fn paint_themed(
 }
 
 pub(crate) fn paint_text(grid: &mut CellGrid, area: &Rect, text: &str, face: &Face) {
+    let style = TerminalStyle::from_face(face);
     let mut x = area.x;
     let limit = area.x + area.w;
     for grapheme in text.graphemes(true) {
@@ -66,7 +68,7 @@ pub(crate) fn paint_text(grid: &mut CellGrid, area: &Rect, text: &str, face: &Fa
         if x + w > limit {
             break;
         }
-        grid.put_char(x, area.y, grapheme, face);
+        grid.put_char(x, area.y, grapheme, &style);
         x += w;
     }
 }
@@ -80,8 +82,8 @@ pub(crate) fn paint_text(grid: &mut CellGrid, area: &Rect, text: &str, face: &Fa
 pub(crate) struct BufferRefParams<'a> {
     pub lines: &'a [Vec<Atom>],
     pub lines_dirty: &'a [bool],
-    pub default_face: Face,
-    pub padding_face: Face,
+    pub default_style: Style,
+    pub padding_style: Style,
     pub padding_char: &'a str,
 }
 
@@ -94,12 +96,12 @@ impl<'a> BufferRefParams<'a> {
             lines_dirty: buffer_state
                 .map(|s| &s.lines_dirty[..])
                 .unwrap_or(&state.inference.lines_dirty),
-            default_face: buffer_state
-                .map(|s| s.default_face)
-                .unwrap_or_else(|| state.observed.default_style.to_face()),
-            padding_face: buffer_state
-                .map(|s| s.padding_face)
-                .unwrap_or_else(|| state.observed.padding_style.to_face()),
+            default_style: buffer_state
+                .map(|s| s.default_style.clone())
+                .unwrap_or_else(|| state.observed.default_style.clone()),
+            padding_style: buffer_state
+                .map(|s| s.padding_style.clone())
+                .unwrap_or_else(|| state.observed.padding_style.clone()),
             padding_char: buffer_state
                 .map(|s| s.padding_char.as_str())
                 .unwrap_or(&state.config.padding_char),
@@ -120,7 +122,7 @@ pub(crate) enum BufferLineAction<'a> {
         /// Buffer line index (for cursor coordinate matching).
         line_idx: usize,
         line: &'a [Atom],
-        base_face: Face,
+        base_style: Style,
         /// Pre-computed decorated atoms (TUI flavour) if inline decorations
         /// apply. `InlineOp::InlineBox` ops emit `width_cells` placeholder
         /// spaces here so cell-grid backends keep correct column accounting.
@@ -145,10 +147,10 @@ pub(crate) enum BufferLineAction<'a> {
     },
     /// Render a padding row (beyond buffer content).
     Padding {
-        /// Background fill face.
-        face: Face,
-        /// Face for the padding character (fg adjusted if same as bg).
-        char_face: Face,
+        /// Background fill style.
+        style: Style,
+        /// Style for the padding character (fg adjusted if same as bg).
+        char_style: Style,
     },
     /// Render editable synthetic content (editable virtual text).
     /// When a shadow cursor is active on this line, `shadow_override` contains
@@ -245,9 +247,10 @@ pub(crate) fn analyze_buffer_line<'a>(
 
     // Step 5: Buffer line or padding
     if let Some(line) = params.lines.get(line_idx) {
-        let base_face = line_backgrounds
+        let base_style = line_backgrounds
             .and_then(|bgs| bgs.get(line_idx).copied().flatten())
-            .unwrap_or(params.default_face);
+            .map(|f| Style::from_face(&f))
+            .unwrap_or_else(|| params.default_style.clone());
         let active_deco = inline_decorations
             .and_then(|ds| ds.get(line_idx))
             .and_then(|d| d.as_ref())
@@ -281,20 +284,20 @@ pub(crate) fn analyze_buffer_line<'a>(
         BufferLineAction::BufferLine {
             line_idx,
             line,
-            base_face,
+            base_style,
             decorated,
             decorated_for_gpu,
             inline_box_slots,
             virtual_text: vt,
         }
     } else {
-        let mut char_face = params.padding_face;
-        if char_face.fg == char_face.bg {
-            char_face.fg = params.default_face.fg;
+        let mut char_style = params.padding_style.clone();
+        if char_style.fg == char_style.bg {
+            char_style.fg = params.default_style.fg;
         }
         BufferLineAction::Padding {
-            face: params.padding_face,
-            char_face,
+            style: params.padding_style.clone(),
+            char_style,
         }
     }
 }
@@ -338,23 +341,25 @@ pub(crate) fn paint_buffer_ref(
                 atoms,
                 shadow_override: _,
             } => {
-                let fill_face = atoms
+                let fill_style = atoms
                     .first()
-                    .map(|a| a.face())
-                    .unwrap_or(params.default_face);
-                grid.fill_region(y, area.x, area.w, &fill_face);
+                    .map(|a| a.unresolved_style().style.clone())
+                    .unwrap_or_else(|| params.default_style.clone());
+                let fill_term = TerminalStyle::from_style(&fill_style);
+                grid.fill_region(y, area.x, area.w, &fill_term);
                 grid.put_line_with_base(y, area.x, atoms, area.w, None);
             }
             BufferLineAction::BufferLine {
                 line,
-                base_face,
+                base_style,
                 decorated,
                 virtual_text: vt,
                 ..
             } => {
-                grid.fill_region(y, area.x, area.w, &base_face);
+                let base_term = TerminalStyle::from_style(&base_style);
+                grid.fill_region(y, area.x, area.w, &base_term);
                 let atoms = decorated.as_deref().unwrap_or(line);
-                let used = grid.put_line_with_base(y, area.x, atoms, area.w, Some(&base_face));
+                let used = grid.put_line_with_base(y, area.x, atoms, area.w, Some(&base_style));
                 // EOL virtual text: append after buffer content
                 if let Some(vt_atoms) = vt
                     && used < area.w
@@ -364,13 +369,15 @@ pub(crate) fn paint_buffer_ref(
                         area.x + used,
                         vt_atoms,
                         area.w - used,
-                        Some(&base_face),
+                        Some(&base_style),
                     );
                 }
             }
-            BufferLineAction::Padding { face, char_face } => {
-                grid.fill_region(y, area.x, area.w, &face);
-                grid.put_char(area.x, y, params.padding_char, &char_face);
+            BufferLineAction::Padding { style, char_style } => {
+                let fill_term = TerminalStyle::from_style(&style);
+                let char_term = TerminalStyle::from_style(&char_style);
+                grid.fill_region(y, area.x, area.w, &fill_term);
+                grid.put_char(area.x, y, params.padding_char, &char_term);
             }
         }
     }
@@ -433,22 +440,24 @@ pub(crate) fn paint_border(
         horiz
     };
 
+    let style = TerminalStyle::from_face(face);
+
     // Corners
-    grid.put_char(x1, y1, tl, face);
-    grid.put_char(x2, y1, tr, face);
-    grid.put_char(x1, y2, bl, face);
-    grid.put_char(x2, y2, br, face);
+    grid.put_char(x1, y1, tl, &style);
+    grid.put_char(x2, y1, tr, &style);
+    grid.put_char(x1, y2, bl, &style);
+    grid.put_char(x2, y2, br, &style);
 
     // Top and bottom edges
     for x in (x1 + 1)..x2 {
-        grid.put_char(x, y1, horiz, face);
-        grid.put_char(x, y2, bottom_dash, face);
+        grid.put_char(x, y1, horiz, &style);
+        grid.put_char(x, y2, bottom_dash, &style);
     }
 
     // Left and right edges
     for y in (y1 + 1)..y2 {
-        grid.put_char(x1, y, vert, face);
-        grid.put_char(x2, y, vert, face);
+        grid.put_char(x1, y, vert, &style);
+        grid.put_char(x2, y, vert, &style);
     }
 }
 
@@ -474,21 +483,24 @@ pub(crate) fn paint_border_title(
     let left_dashes = dash_count / 2;
     // Position: corner(1) + left_dashes + ┤
     let tx = area.x + 1 + left_dashes as u16;
-    grid.put_char(tx, area.y, "┤", face);
-    grid.put_line_with_base(area.y, tx + 1, title, max_title, Some(face));
+    let term_style = TerminalStyle::from_face(face);
+    let proto_style = crate::protocol::Style::from_face(face);
+    grid.put_char(tx, area.y, "┤", &term_style);
+    grid.put_line_with_base(area.y, tx + 1, title, max_title, Some(&proto_style));
     let after = tx + 1 + max_title;
     if after < area.x + area.w - 1 {
-        grid.put_char(after, area.y, "├", face);
+        grid.put_char(after, area.y, "├", &term_style);
     }
 }
 
 pub(crate) fn paint_shadow(grid: &mut CellGrid, area: &Rect, shadow_face: &Face) {
+    let style = TerminalStyle::from_face(shadow_face);
     // Right shadow (1 cell wide)
     let sx = area.x + area.w;
     if sx < grid.width() {
         for y in (area.y + 1)..=(area.y + area.h) {
             if y < grid.height() {
-                grid.put_char(sx, y, " ", shadow_face);
+                grid.put_char(sx, y, " ", &style);
             }
         }
     }
@@ -498,7 +510,7 @@ pub(crate) fn paint_shadow(grid: &mut CellGrid, area: &Rect, shadow_face: &Face)
     if sy < grid.height() {
         for x in (area.x + 1)..=(area.x + area.w) {
             if x < grid.width() {
-                grid.put_char(x, sy, " ", shadow_face);
+                grid.put_char(x, sy, " ", &style);
             }
         }
     }
@@ -512,7 +524,7 @@ mod tests {
         OverlayAnchor,
     };
     use crate::layout::flex::place;
-    use crate::protocol::Face;
+    use crate::protocol::{Face, Style};
     use crate::test_utils::*;
 
     #[test]
@@ -689,10 +701,10 @@ mod tests {
         let state = default_state();
         let mut grid = CellGrid::new(20, 10);
         // Place wide chars in the grid before painting container
-        let wide_face = Face::default();
-        grid.put_char(1, 0, "漢", &wide_face);
-        grid.put_char(3, 0, "字", &wide_face);
-        grid.put_char(1, 1, "あ", &wide_face);
+        let wide_style = TerminalStyle::default();
+        grid.put_char(1, 0, "漢", &wide_style);
+        grid.put_char(3, 0, "字", &wide_style);
+        grid.put_char(1, 1, "あ", &wide_style);
 
         let el = Element::Container {
             child: Box::new(Element::plain_text("hi")),
@@ -760,8 +772,8 @@ mod tests {
         BufferRefParams {
             lines,
             lines_dirty,
-            default_face: Face::default(),
-            padding_face: Face::default(),
+            default_style: Style::default(),
+            padding_style: Style::default(),
             padding_char: "~",
         }
     }
@@ -773,12 +785,12 @@ mod tests {
         match analyze_buffer_line(&params, 0, None, None, None, None, false) {
             BufferLineAction::BufferLine {
                 line_idx,
-                base_face,
+                base_style,
                 decorated,
                 ..
             } => {
                 assert_eq!(line_idx, 0);
-                assert_eq!(base_face, Face::default());
+                assert_eq!(base_style, Style::default());
                 assert!(decorated.is_none());
             }
             other => panic!("expected BufferLine, got {other:?}"),
@@ -798,7 +810,7 @@ mod tests {
             3,
             &[DisplayDirective::Fold {
                 range: 0..2,
-                summary: vec![Atom::from_face(syn_face, "folded")],
+                summary: vec![Atom::with_style("folded", Style::from_face(&syn_face))],
             }],
         );
         // Display line 0 should be the fold summary (synthetic)
@@ -806,7 +818,7 @@ mod tests {
             BufferLineAction::Synthetic { atoms } => {
                 let text: String = atoms.iter().map(|a| a.contents.as_str()).collect();
                 assert_eq!(text, "folded");
-                assert_eq!(atoms[0].face(), syn_face);
+                assert_eq!(atoms[0].unresolved_style().to_face(), syn_face);
             }
             other => panic!("expected Synthetic, got {other:?}"),
         }
@@ -876,10 +888,10 @@ mod tests {
         let params = make_params(&lines, &[]);
         // Line index 1 is beyond the buffer → padding
         match analyze_buffer_line(&params, 1, None, None, None, None, false) {
-            BufferLineAction::Padding { face, char_face } => {
-                assert_eq!(face, Face::default());
-                // When fg == bg, char_face.fg gets default_face.fg
-                assert_eq!(char_face.fg, params.default_face.fg);
+            BufferLineAction::Padding { style, char_style } => {
+                assert_eq!(style, Style::default());
+                // When fg == bg, char_style.fg gets default_style.fg
+                assert_eq!(char_style.fg, params.default_style.fg);
             }
             other => panic!("expected Padding, got {other:?}"),
         }
@@ -895,8 +907,8 @@ mod tests {
         };
         let bgs: Vec<Option<Face>> = vec![Some(bg_face)];
         match analyze_buffer_line(&params, 0, None, Some(&bgs), None, None, false) {
-            BufferLineAction::BufferLine { base_face, .. } => {
-                assert_eq!(base_face, bg_face);
+            BufferLineAction::BufferLine { base_style, .. } => {
+                assert_eq!(base_style, Style::from_face(&bg_face));
             }
             other => panic!("expected BufferLine with bg override, got {other:?}"),
         }
@@ -914,13 +926,16 @@ mod tests {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
             ..Face::default()
         };
-        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::from_face(vt_face, "  err")])];
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::with_style(
+            "  err",
+            Style::from_face(&vt_face),
+        )])];
         match analyze_buffer_line(&params, 0, None, None, None, Some(&vt), false) {
             BufferLineAction::BufferLine { virtual_text, .. } => {
                 let vt_atoms = virtual_text.expect("expected virtual text");
                 assert_eq!(vt_atoms.len(), 1);
                 assert_eq!(vt_atoms[0].contents.as_str(), "  err");
-                assert_eq!(vt_atoms[0].face(), vt_face);
+                assert_eq!(vt_atoms[0].unresolved_style().to_face(), vt_face);
             }
             other => panic!("expected BufferLine with virtual text, got {other:?}"),
         }
@@ -989,7 +1004,10 @@ mod tests {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
             ..Face::default()
         };
-        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::from_face(vt_face, "  err")])];
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::with_style(
+            "  err",
+            Style::from_face(&vt_face),
+        )])];
 
         let mut grid = CellGrid::new(20, 3);
         let area = Rect {
@@ -1078,7 +1096,10 @@ mod tests {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
             ..Face::default()
         };
-        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::from_face(vt_face, " vt")])];
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::with_style(
+            " vt",
+            Style::from_face(&vt_face),
+        )])];
 
         let mut grid = CellGrid::new(20, 1);
         let area = Rect {
@@ -1101,7 +1122,7 @@ mod tests {
 
         // Decorated content present
         assert_eq!(grid.get(0, 0).unwrap().grapheme, "h");
-        assert_eq!(grid.get(0, 0).unwrap().face().fg, deco_face.fg);
+        assert_eq!(grid.get(0, 0).unwrap().style.fg, deco_face.fg);
         // Virtual text after content
         assert_eq!(grid.get(5, 0).unwrap().grapheme, " ");
         assert_eq!(grid.get(6, 0).unwrap().grapheme, "v");

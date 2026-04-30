@@ -214,13 +214,22 @@ impl GlyphRasterCache {
         R: FnOnce() -> Option<RasterizedGlyph>,
     {
         let epoch = self.current_epoch;
-        if self.entries.contains(&key) {
+        // Hit path is two LRU lookups: `get_mut` to promote-to-MRU and
+        // tag `last_used_epoch` (so eviction-loops below leave this slot
+        // alone), then `peek` to obtain the `&V` we return. Going to a
+        // single `get_mut` and reborrowing for the return value would be
+        // ideal, but the current borrow checker (NLL, no Polonius) can't
+        // prove the borrow ends at the early return so the eviction
+        // branches below cannot reuse `self.entries`. Two lookups is a
+        // 33 % reduction from the previous shape (`contains` / `get_mut`
+        // / `peek`); revisit when Polonius lands.
+        let hit = self
+            .entries
+            .get_mut(&key)
+            .map(|entry| entry.last_used_epoch = epoch)
+            .is_some();
+        if hit {
             self.stats.hits += 1;
-            // Tag as touched this frame so eviction-loops below leave
-            // it alone.
-            if let Some(entry) = self.entries.get_mut(&key) {
-                entry.last_used_epoch = epoch;
-            }
             return self.entries.peek(&key);
         }
         let raster = rasterize()?;

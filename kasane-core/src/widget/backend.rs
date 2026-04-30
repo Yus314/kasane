@@ -2,7 +2,7 @@
 
 use crate::element::{Element, ElementStyle};
 use crate::plugin::{AppView, PluginDiagnostic, PluginId};
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, Face, Style};
 
 use super::parse::WidgetNodeError;
 use super::types::{ContributionWidget, FaceOrToken, FaceRule};
@@ -22,7 +22,10 @@ pub(super) fn to_style(face_or_token: &FaceOrToken) -> ElementStyle {
 pub(super) fn resolve_face(face_or_token: &FaceOrToken, state: &AppView<'_>) -> Face {
     match face_or_token {
         FaceOrToken::Direct(face) => *face,
-        FaceOrToken::Token(token) => state.theme_face(token).unwrap_or_default(),
+        FaceOrToken::Token(token) => state
+            .theme_style(token)
+            .map(|s| s.to_face())
+            .unwrap_or_default(),
     }
 }
 
@@ -75,7 +78,7 @@ pub(super) fn build_contribution_element(
 
         let text = part.template.expand(resolver);
         let face = resolve_face_rules(&part.face_rules, resolver, state);
-        atoms.push(Atom::from_face(face, text));
+        atoms.push(Atom::with_style(text, Style::from_face(&face)));
     }
 
     if atoms.is_empty() {
@@ -130,7 +133,7 @@ mod legacy {
     };
     use crate::state::DirtyFlags;
 
-    use super::super::parse::{WidgetNodeError, parse_widgets};
+    use super::super::parse::parse_widgets;
     use super::super::types::{LineExpr, WidgetFile, WidgetKind, WidgetPatch};
     use super::super::variables::{AppViewResolver, LineContextResolver};
     use super::{
@@ -534,9 +537,11 @@ mod legacy {
 
                         let text = branch.template.expand(&line_resolver);
                         let face = resolve_face_rules(&branch.face_rules, &line_resolver, state);
-                        let element = Element::styled_line(vec![crate::protocol::Atom::from_face(
-                            face, text,
-                        )]);
+                        let element =
+                            Element::styled_line(vec![crate::protocol::Atom::with_style(
+                                text,
+                                crate::protocol::Style::from_face(&face),
+                            )]);
                         return Some((widget.priority(), element));
                     }
                 }

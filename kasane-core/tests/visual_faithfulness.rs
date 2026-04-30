@@ -8,7 +8,7 @@
 //! > single interaction.
 
 use kasane_core::display::{BufferLine, DisplayDirective, DisplayMap, FoldToggleState};
-use kasane_core::protocol::{Atom, Face};
+use kasane_core::protocol::Atom;
 
 #[test]
 fn fold_toggle_recovers_all_folded_lines() {

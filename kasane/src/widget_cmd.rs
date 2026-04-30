@@ -158,7 +158,7 @@ fn check_file(file_path: &std::path::Path, verbose: bool) -> Result<(), String> 
                         // Also check built-in tokens (status.line, menu.item.normal, etc.)
                         // by loading a default theme.
                         let is_builtin = kasane_core::render::theme::Theme::default_theme()
-                            .get(&kasane_core::element::StyleToken::new(&token))
+                            .get_style(&kasane_core::element::StyleToken::new(&token))
                             .is_some();
                         if !is_builtin {
                             eprintln!(

@@ -5,7 +5,7 @@ use crate::display::{BufferLine, DisplayMap};
 use crate::element::Element;
 use crate::layout::flex::LayoutResult;
 use crate::layout::line_display_width;
-use crate::protocol::{Attributes, Color, CursorMode, Face};
+use crate::protocol::{Brush, CursorMode, Style};
 use crate::state::AppState;
 
 /// Find the x offset of the BufferRef element in the layout tree.
@@ -348,85 +348,78 @@ pub fn clear_cursor_face_at(
     if style == CursorStyle::Block || style == CursorStyle::Outline {
         return;
     }
-    let base_face = match state.inference.cursor_mode {
-        CursorMode::Buffer => state.observed.default_style.to_face(),
-        CursorMode::Prompt => state.observed.status_default_style.to_face(),
+    let base_style = match state.inference.cursor_mode {
+        CursorMode::Buffer => &state.observed.default_style,
+        CursorMode::Prompt => &state.observed.status_default_style,
     };
     if let Some(cell) = grid.get_mut(cx, cy) {
-        cell.style = crate::render::TerminalStyle::from_face(&base_face);
+        cell.style = crate::render::TerminalStyle::from_style(base_style);
     }
 }
 
-/// Resolve a color to RGB, falling back to a default RGB when the color is `Default`.
-fn color_to_rgb(color: Color, fallback: (u8, u8, u8)) -> (u8, u8, u8) {
-    color.to_rgb().unwrap_or(fallback)
-}
-
-/// Generate a face for secondary cursors.
+/// Generate a Style for secondary cursors.
 ///
 /// # Inference Rule: I-6
-/// **Assumption**: The cursor face uses `REVERSE` attribute for visual highlighting.
-/// Under REVERSE, `face.fg` is displayed as background (the cursor color) and
-/// `face.bg` is displayed as foreground (the text color).
-/// **Failure mode**: If a theme sets cursor faces without REVERSE, the blending
-/// logic produces incorrect colors (fg/bg swap is wrong).
-/// **Severity**: Cosmetic (secondary cursors have wrong colors)
+/// **Assumption**: The cursor style uses `reverse: true` for visual
+/// highlighting. Under REVERSE the terminal swaps `fg` and `bg` at paint
+/// time, so semantically `cursor_style.fg` is the highlight colour and
+/// `cursor_style.bg` is the text colour underneath.
+/// **Failure mode**: A theme that sets cursor styles without `reverse`
+/// makes the swap below produce incorrect colours. Severity: cosmetic.
 ///
-/// Removes REVERSE from the cursor face and sets bg to a blended color
-/// using the given blend ratio (default 0.4 = 40% cursor color + 60% background)
-/// to visually differentiate from primary.
-pub fn make_secondary_cursor_face(
-    cursor_face: &Face,
-    default_face: &Face,
+/// Removes `reverse` and sets `bg` to a blended brush so the secondary
+/// cursor reads as less prominent than the primary.
+pub fn make_secondary_cursor_style(
+    cursor_style: &Style,
+    default_style: &Style,
     blend_ratio: f32,
-) -> Face {
-    // The cursor face has REVERSE set, so fg and bg are swapped visually.
-    // The "cursor color" is the visual foreground (which is face.bg when REVERSE is on,
-    // but in Kakoune's FINAL_FG+REVERSE scheme the visual highlight comes from
-    // the face as-is after reversal). We want to show:
-    //   fg = original fg (text color)
-    //   bg = blend of cursor color and background
-    //
-    // With REVERSE, the terminal shows: visual_fg=face.bg, visual_bg=face.fg
-    // So the "cursor color" that makes the cell stand out is face.fg (displayed as bg).
-    // When we remove REVERSE:
-    //   fg should be face.fg (the original text, which was shown as bg under REVERSE)
-    //   bg should be a dimmed version of the cursor highlight
+) -> Style {
+    let default_fg_rgb = cursor_style.fg.to_rgb_or((255, 255, 255));
+    let default_bg_rgb = default_style.bg.to_rgb_or((0, 0, 0));
+    let resolved_default_fg_rgb = default_style.fg.to_rgb_or(default_fg_rgb);
 
-    // Guard: handle non-REVERSE cursor faces (rare, but possible with custom themes)
-    if !cursor_face.attributes.contains(Attributes::REVERSE) {
-        let default_bg_rgb = color_to_rgb(default_face.bg, (0, 0, 0));
-        let cursor_bg_rgb = color_to_rgb(cursor_face.bg, default_bg_rgb);
-        return Face {
-            fg: cursor_face.fg,
-            bg: super::color_context::linear_blend(
-                cursor_bg_rgb,
-                default_bg_rgb,
-                1.0 - blend_ratio,
-            ),
-            underline: cursor_face.underline,
-            attributes: cursor_face.attributes,
+    if !cursor_style.reverse {
+        // Theme set cursor without reverse: just dim the bg toward default bg.
+        let cursor_bg_rgb = cursor_style.bg.to_rgb_or(default_bg_rgb);
+        let blended_bg = Brush::linear_blend(
+            Brush::Solid([cursor_bg_rgb.0, cursor_bg_rgb.1, cursor_bg_rgb.2, 0xff]),
+            Brush::Solid([default_bg_rgb.0, default_bg_rgb.1, default_bg_rgb.2, 0xff]),
+            1.0 - blend_ratio,
+            cursor_bg_rgb,
+            default_bg_rgb,
+        );
+        return Style {
+            bg: blended_bg,
+            ..cursor_style.clone()
         };
     }
 
-    let default_fg_rgb = color_to_rgb(default_face.fg, (255, 255, 255));
-    let default_bg_rgb = color_to_rgb(default_face.bg, (0, 0, 0));
-
-    // cursor_face.fg is the color that was displayed as background under REVERSE
-    // (i.e., the cursor highlight color)
-    let cursor_color_rgb = color_to_rgb(cursor_face.fg, default_fg_rgb);
-    let bg_rgb = color_to_rgb(cursor_face.bg, default_bg_rgb);
-
-    Face {
-        fg: cursor_face.bg, // text color (was displayed as fg under REVERSE)
-        bg: super::color_context::linear_blend(cursor_color_rgb, bg_rgb, blend_ratio),
-        underline: cursor_face.underline,
-        attributes: cursor_face.attributes & !(Attributes::REVERSE),
+    // Reverse branch: swap so fg = original bg (the text colour shown under
+    // REVERSE), bg = blend(cursor highlight, original bg).
+    let cursor_color_rgb = cursor_style.fg.to_rgb_or(resolved_default_fg_rgb);
+    let bg_rgb = cursor_style.bg.to_rgb_or(default_bg_rgb);
+    let blended_bg = Brush::linear_blend(
+        Brush::Solid([
+            cursor_color_rgb.0,
+            cursor_color_rgb.1,
+            cursor_color_rgb.2,
+            0xff,
+        ]),
+        Brush::Solid([bg_rgb.0, bg_rgb.1, bg_rgb.2, 0xff]),
+        blend_ratio,
+        cursor_color_rgb,
+        bg_rgb,
+    );
+    Style {
+        fg: cursor_style.bg,
+        bg: blended_bg,
+        reverse: false,
+        ..cursor_style.clone()
     }
 }
 
 /// Apply secondary cursor face differentiation to the grid.
-/// Rewrites face at each secondary cursor position.
+/// Rewrites the cell style at each secondary cursor position.
 pub fn apply_secondary_cursor_faces(
     state: &AppState,
     grid: &mut CellGrid,
@@ -436,6 +429,10 @@ pub fn apply_secondary_cursor_faces(
     display_scroll_offset: u16,
     segment_map: Option<&SegmentMap>,
 ) {
+    let default_fg_rgb = state.observed.default_style.fg.to_rgb_or((255, 255, 255));
+    let default_bg_rgb = state.observed.default_style.bg.to_rgb_or((0, 0, 0));
+    let blend_ratio = state.config.secondary_blend_ratio;
+
     for coord in &state.inference.secondary_cursors {
         let x = coord.column as u16 + buffer_x_offset;
         let y = buffer_line_to_screen_y(
@@ -445,12 +442,38 @@ pub fn apply_secondary_cursor_faces(
             segment_map,
         ) + buffer_y_offset;
         if let Some(cell) = grid.get_mut(x, y) {
-            let blended = make_secondary_cursor_face(
-                &cell.face(),
-                &state.observed.default_style.to_face(),
-                state.config.secondary_blend_ratio,
-            );
-            cell.style = crate::render::TerminalStyle::from_face(&blended);
+            differentiate_secondary_cursor_cell(cell, default_fg_rgb, default_bg_rgb, blend_ratio);
         }
     }
+}
+
+/// Mutate a single cell's `TerminalStyle` to differentiate a secondary
+/// cursor: drop `reverse` and blend the bg toward the default. Operates
+/// directly on the cell-grid representation (`Color` / `TerminalStyle`)
+/// because the blend is intrinsically a paint-time RGB operation.
+fn differentiate_secondary_cursor_cell(
+    cell: &mut crate::render::grid::Cell,
+    default_fg_rgb: (u8, u8, u8),
+    default_bg_rgb: (u8, u8, u8),
+    blend_ratio: f32,
+) {
+    let ts = cell.style;
+    if !ts.reverse {
+        let cursor_bg_rgb = ts.bg.to_rgb().unwrap_or(default_bg_rgb);
+        let blended_bg =
+            super::color_context::linear_blend(cursor_bg_rgb, default_bg_rgb, 1.0 - blend_ratio);
+        cell.with_style_mut(|s| {
+            s.bg = blended_bg;
+        });
+        return;
+    }
+    let cursor_color_rgb = ts.fg.to_rgb().unwrap_or(default_fg_rgb);
+    let bg_rgb = ts.bg.to_rgb().unwrap_or(default_bg_rgb);
+    let blended_bg = super::color_context::linear_blend(cursor_color_rgb, bg_rgb, blend_ratio);
+    let original_bg = ts.bg;
+    cell.with_style_mut(|s| {
+        s.fg = original_bg;
+        s.bg = blended_bg;
+        s.reverse = false;
+    });
 }

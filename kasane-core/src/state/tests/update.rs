@@ -8,7 +8,7 @@ use crate::plugin::{
     AppView, Command, Effects, KeyHandleResult, NullEffects, PluginBackend, PluginId,
     PluginRuntime, RecordingEffects,
 };
-use crate::protocol::{Coord, Face, KakouneRequest, KasaneRequest};
+use crate::protocol::{Coord, KakouneRequest, KasaneRequest};
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 use crate::state::update::{Msg, update_in_place};
 use crate::state::{AppState, DirtyFlags};

@@ -604,7 +604,7 @@ For semantic classification, see [semantics.md](./semantics.md).
 | `get_status_content()` | `Vec<Atom>` |
 | `get_status_line()` | `Vec<Atom>` |
 | `get_status_mode_line()` | `Vec<Atom>` |
-| `get_status_default_face()` | `Face` |
+| `get_status_default_style()` | `Style` |
 
 **Menu/Info state (Tier 2):**
 
@@ -624,8 +624,8 @@ For semantic classification, see [semantics.md](./semantics.md).
 | `get_ui_option(key)` | `Option<String>` |
 | `get_cursor_mode()` | `u8` |
 | `get_widget_columns()` | `u16` |
-| `get_default_face()` | `Face` |
-| `get_padding_face()` | `Face` |
+| `get_default_style()` | `Style` |
+| `get_padding_style()` | `Style` |
 
 **Multi-cursor (Tier 4):**
 
@@ -659,9 +659,9 @@ For semantic classification, see [semantics.md](./semantics.md).
 | Function | Return type |
 |---|---|
 | `get_menu_anchor()` | `Option<Coord>` |
-| `get_menu_style()` | `Option<String>` |
-| `get_menu_face()` | `Option<Face>` |
-| `get_menu_selected_face()` | `Option<Face>` |
+| `get_menu_mode()` | `Option<String>` |
+| `get_menu_style()` | `Option<Style>` |
+| `get_menu_selected_style()` | `Option<Style>` |
 
 **Session state (Tier 8):**
 

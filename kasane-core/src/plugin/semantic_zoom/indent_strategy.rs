@@ -201,7 +201,7 @@ fn skeleton(lines: &[Line]) -> Vec<DisplayDirective> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Face};
+    use crate::protocol::Atom;
 
     fn make_line(text: &str) -> Line {
         vec![Atom::plain(text)]

@@ -7,7 +7,7 @@
 use proptest::prelude::*;
 
 use kasane_core::protocol::{
-    Atom, Color, Coord, Face, KakouneRequest, MenuStyle, NamedColor, StatusStyle,
+    Atom, Color, Coord, Face, KakouneRequest, MenuStyle, NamedColor, StatusStyle, Style,
 };
 use kasane_core::state::{AppState, DirtyFlags};
 
@@ -43,8 +43,9 @@ fn arb_coord() -> impl Strategy<Value = Coord> {
 /// Generate a random Line (vec of Atoms).
 fn arb_line() -> impl Strategy<Value = Vec<Atom>> {
     prop::collection::vec(
-        ("[a-z]{1,10}", arb_face())
-            .prop_map(|(contents, face): (String, _)| Atom::from_face(face, contents)),
+        ("[a-z]{1,10}", arb_face()).prop_map(|(contents, face): (String, _)| {
+            Atom::with_style(contents, Style::from_face(&face))
+        }),
         1..5,
     )
 }

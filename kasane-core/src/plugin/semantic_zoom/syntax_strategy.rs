@@ -5,7 +5,7 @@
 
 use crate::display::DisplayDirective;
 use crate::plugin::app_view::AppView;
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, Face, Style};
 use crate::syntax::SyntaxProvider;
 
 use super::{SemanticZoomState, ZoomLevel};
@@ -43,12 +43,12 @@ fn annotated(sp: &dyn SyntaxProvider, app: &AppView<'_>) -> Vec<DisplayDirective
             directives.push(DisplayDirective::VirtualText {
                 line: decl.name_line,
                 position: crate::display::VirtualTextPosition::EndOfLine,
-                content: vec![Atom::from_face(
-                    Face {
+                content: vec![Atom::with_style(
+                    hint_text,
+                    Style::from_face(&Face {
                         fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Cyan),
                         ..Face::default()
-                    },
-                    hint_text,
+                    }),
                 )],
                 priority: -50,
             });

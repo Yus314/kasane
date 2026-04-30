@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::display::{FoldToggleState, ProjectionPolicyState};
 use crate::plugin::PluginId;
 use crate::plugin::setting::SettingValue;
-use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
+use crate::protocol::{Coord, CursorMode, Line, StatusStyle};
 use crate::session::SessionDescriptor;
 use crate::state::{AppState, Inference, InfoState, MenuState, Policy, Truth};
 use crate::syntax::SyntaxProvider;
@@ -142,30 +142,16 @@ impl<'a> AppView<'a> {
         self.state.inference.cursor_mode
     }
 
-    /// Default style from `draw` (formerly `default_face`).
+    /// Default style from `draw`.
     #[inline]
     pub fn default_style(&self) -> &crate::protocol::Style {
         &self.state.observed.default_style
     }
 
-    /// Padding style from `draw` (formerly `padding_face`).
+    /// Padding style from `draw`.
     #[inline]
     pub fn padding_style(&self) -> &crate::protocol::Style {
         &self.state.observed.padding_style
-    }
-
-    /// Bridge during ADR-031 Phase A.3: returns the legacy `Face` projection
-    /// of `default_style`. To be removed once consumers migrate to Style.
-    #[inline]
-    pub fn default_face(&self) -> Face {
-        self.state.observed.default_style.to_face()
-    }
-
-    /// Bridge during ADR-031 Phase A.3: returns the legacy `Face` projection
-    /// of `padding_style`. To be removed once consumers migrate to Style.
-    #[inline]
-    pub fn padding_face(&self) -> Face {
-        self.state.observed.padding_style.to_face()
     }
 
     /// Number of widget columns from `draw`.
@@ -224,17 +210,10 @@ impl<'a> AppView<'a> {
         &self.state.observed.status_mode_line
     }
 
-    /// Default style for the status bar (formerly `status_default_face`).
+    /// Default style for the status bar.
     #[inline]
     pub fn status_default_style(&self) -> &crate::protocol::Style {
         &self.state.observed.status_default_style
-    }
-
-    /// Bridge during ADR-031 Phase A.3: legacy `Face` projection of
-    /// `status_default_style`.
-    #[inline]
-    pub fn status_default_face(&self) -> Face {
-        self.state.observed.status_default_style.to_face()
     }
 
     /// Status prompt atoms.
@@ -363,10 +342,13 @@ impl<'a> AppView<'a> {
     // Tier 9: Theme / Color context
     // =========================================================================
 
-    /// Look up a theme token face.
+    /// Look up a theme token style.
     #[inline]
-    pub fn theme_face(&self, token: &crate::element::StyleToken) -> Option<crate::protocol::Face> {
-        self.state.config.theme.get(token)
+    pub fn theme_style(
+        &self,
+        token: &crate::element::StyleToken,
+    ) -> Option<&crate::protocol::Style> {
+        self.state.config.theme.get_style(token)
     }
 
     /// Whether the background is dark.

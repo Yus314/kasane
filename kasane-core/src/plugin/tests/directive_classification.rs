@@ -10,7 +10,7 @@ use crate::element::Element;
 use crate::plugin::handler_registry::HandlerRegistry;
 use crate::plugin::safe_directive::SafeDisplayDirective;
 use crate::plugin::{RecoveryMechanism, RecoveryWitness};
-use crate::protocol::{Atom, Face};
+use crate::protocol::Atom;
 
 fn make_all_directive_instances() -> Vec<DisplayDirective> {
     vec![

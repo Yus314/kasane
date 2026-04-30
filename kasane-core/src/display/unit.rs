@@ -485,7 +485,7 @@ mod tests {
     use crate::display::resolve::{self, DirectiveSet};
     use crate::display::{DisplayDirective, DisplayMap};
     use crate::plugin::PluginId;
-    use crate::protocol::{Atom, Face};
+    use crate::protocol::Atom;
 
     #[test]
     #[cfg(debug_assertions)]

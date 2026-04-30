@@ -114,14 +114,14 @@ fn get_lines_atoms_end_clamped() {
 
 #[test]
 fn get_lines_atoms_preserves_face() {
-    use kasane_core::protocol::{Color, NamedColor};
+    use kasane_core::protocol::{Color, NamedColor, Style};
 
     let face = Face {
         fg: Color::Named(NamedColor::Red),
         bg: Color::Named(NamedColor::Blue),
         ..Face::default()
     };
-    let lines = vec![vec![Atom::from_face(face, "styled")]];
+    let lines = vec![vec![Atom::with_style("styled", Style::from_face(&face))]];
     let mut host = make_host_with_raw_lines(lines);
     let result = host.get_lines_atoms(0, 1);
     assert_eq!(result.len(), 1);

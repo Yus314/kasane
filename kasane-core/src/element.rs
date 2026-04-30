@@ -225,6 +225,7 @@ pub enum ElementStyle {
     Token(StyleToken),
 }
 
+#[doc(hidden)]
 impl From<Face> for ElementStyle {
     fn from(face: Face) -> Self {
         ElementStyle::Inline(Arc::new(crate::protocol::UnresolvedStyle::from_face(&face)))
@@ -234,6 +235,22 @@ impl From<Face> for ElementStyle {
 impl From<Arc<crate::protocol::UnresolvedStyle>> for ElementStyle {
     fn from(arc: Arc<crate::protocol::UnresolvedStyle>) -> Self {
         ElementStyle::Inline(arc)
+    }
+}
+
+impl From<crate::protocol::Style> for ElementStyle {
+    /// Wrap a post-resolve [`Style`](crate::protocol::Style) in an
+    /// [`UnresolvedStyle`](crate::protocol::UnresolvedStyle) envelope with
+    /// all `final_*` flags `false` (no further deferral expected). The
+    /// Phase B3 successor to `From<Face>` for plugin / host code that
+    /// already holds a `Style`.
+    fn from(style: crate::protocol::Style) -> Self {
+        ElementStyle::Inline(Arc::new(crate::protocol::UnresolvedStyle {
+            style,
+            final_fg: false,
+            final_bg: false,
+            final_style: false,
+        }))
     }
 }
 
@@ -437,8 +454,8 @@ impl FlexChild {
 pub struct BufferRefState {
     pub lines: Vec<Vec<crate::protocol::Atom>>,
     pub lines_dirty: Vec<bool>,
-    pub default_face: Face,
-    pub padding_face: Face,
+    pub default_style: crate::protocol::Style,
+    pub padding_style: crate::protocol::Style,
     pub padding_char: String,
 }
 
@@ -546,8 +563,23 @@ pub enum Element {
 }
 
 impl Element {
+    /// Construct a styled text element from a wire-format [`Face`].
+    ///
+    /// Wire-aware: the `Face` is wrapped in an `UnresolvedStyle` that
+    /// preserves Kakoune's `final_*` resolution flags. New plugin /
+    /// host code that already holds a [`Style`](crate::protocol::Style)
+    /// should use [`Element::text_with_style`] instead.
     pub fn text(s: impl Into<CompactString>, face: Face) -> Self {
         Element::Text(s.into(), ElementStyle::from(face))
+    }
+
+    /// Construct a styled text element from a post-resolve
+    /// [`Style`](crate::protocol::Style). The Phase B3 successor to
+    /// [`Element::text`] for plugin / host authoring code; sets all
+    /// `final_*` flags to `false`.
+    #[inline]
+    pub fn text_with_style(s: impl Into<CompactString>, style: crate::protocol::Style) -> Self {
+        Element::Text(s.into(), ElementStyle::from(style))
     }
 
     /// Construct a plain text element with the default style.

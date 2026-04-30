@@ -7,7 +7,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use kasane_core::config::ColorsConfig;
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Atom, Color, Face, NamedColor};
+use kasane_core::protocol::{Atom, Color, Face, NamedColor, Style};
 use kasane_core::render::{CellGrid, render_pipeline};
 use kasane_core::state::AppState;
 use kasane_gui::colors::ColorResolver;
@@ -61,11 +61,11 @@ fn setup_grid() -> (CellGrid, ColorResolver) {
     state.observed.lines = (0..23)
         .map(|i| {
             vec![
-                Atom::from_face(kw_face, "let"),
+                Atom::with_style("let", Style::from_face(&kw_face)),
                 Atom::plain(" "),
-                Atom::from_face(var_face, format!("var_{i}")),
+                Atom::with_style(format!("var_{i}"), Style::from_face(&var_face)),
                 Atom::plain(" = "),
-                Atom::from_face(str_face, format!("\"{i}_value\"")),
+                Atom::with_style(format!("\"{i}_value\""), Style::from_face(&str_face)),
                 Atom::plain(";"),
             ]
         })
@@ -132,7 +132,7 @@ fn bench_color_resolve(c: &mut Criterion) {
             for row in 0..grid.height() {
                 for col in 0..grid.width() {
                     let cell = grid.get(col, row).unwrap();
-                    let c = resolver.resolve(cell.face.fg, true);
+                    let c = resolver.resolve(cell.style.fg, true);
                     sum += c[0];
                 }
             }
