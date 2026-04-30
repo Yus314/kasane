@@ -2025,12 +2025,16 @@ Phase 5b — `EffectCategory` + `EffectFootprint`:
 
 ## ADR-031: Text Stack Migration — cosmic-text → Parley + swash, with Protocol Style Redesign
 
-**Status:** Accepted — Parley + swash is the production stack as of
-2026-04-26. The protocol-side `Style` redesign and plugin ABI break
-landed across April 28–29 (Phase A.4 split `7fca4784`, B-wide
-`98592a47`, Phase 4 Tier A `a5ef9f56`, Phase 5 Tier B `8f281f52` +
-binaries `f4df0762`). All 50 workspace test suites and the full 188
-`kasane-wasm` cases now pass against `kasane:plugin@1.0.0`.
+**Status:** Accepted, Closed (2026-04-30). Parley + swash is the
+production stack as of 2026-04-26. The protocol-side `Style` redesign
+and plugin ABI break landed across April 28–29 (Phase A.4 split
+`7fca4784`, B-wide `98592a47`, Phase 4 Tier A `a5ef9f56`, Phase 5
+Tier B `8f281f52` + binaries `f4df0762`). The closure cascade
+(PR-5a..PR-7) on `feat/parley-color-emoji-test` retired the public
+Face↔Style bridges, bumped the WIT contract to 2.0.0 with Style-native
+function names, and rebuilt all bundled / fixture WASM. All 50
+workspace test suites and the full 188 `kasane-wasm` cases pass
+against `kasane:plugin@2.0.0`.
 
 **Landed:** Phases 0, 1a, 1b–d (B-wide), 2 (kasane-core type cascade
 via Phase A.3), 4 (WIT 1.0.0 brush/style/inline-box), 5 (10 example
@@ -2136,23 +2140,82 @@ status was already complete pre-branch: Block E commits `75439f1f` +
 `Atom::from_face` callsites are correctly wire-aware (cursor_face with
 `FINAL_FG`, detect_cursors fixtures, parser, `test_support::wire`).
 
-**Pending Phase B3 commits 6-7/7 (bridge deletion):** The remaining
-bridge cleanup covers internal types only (no further plugin-visible
-API change): retire `Style::from_face` / `to_face` /
-`to_face_with_attrs`, `UnresolvedStyle::to_face`, `Atom::face`,
-`Cell::face()`, `From<Face> for Style` / `for ElementStyle`,
-`TerminalStyle::from_face`, and the
-`kasane-tui::sgr::emit_sgr_diff(Face)` shim. `UnresolvedStyle::from_face`
-and `Atom::from_face` (wire-aware) stay — they are the construction
-shape used by the Kakoune protocol parser and the `final_*`-preserving
-cursor fixtures. Estimated cascade: ~30 production callsites (mostly
-inline `Face { ... }` literals in `render/cursor`, `inline_decoration`,
-`markup`, `walk_scene`, `ornament`, `halfblock`, plugin / widget
-defaults) plus ~150 test refs. Best executed compile-error-driven
-after deletion — uniform migration shape avoids per-site stylistic
-divergence. After those retire, `Face` / `Color` / `Attributes`
-downgrade from `pub` to `pub(in crate::protocol)` so wire-format types
-are physically isolated to the parse boundary.
+**Closure cascade (2026-04-30, branch `feat/parley-color-emoji-test`):**
+A six-PR sequence delivered the bridge retirement, observability
+cleanup, WIT bump, and rename:
+
+- `04aa9fa3` (PR-5a) — `Truth` Style-native. `default_face` /
+  `padding_face` / `status_default_face` accessors → `*_style`,
+  returning `&'a Style`. `AppView`'s parallel Face-bridge accessors
+  deleted (Style-native versions already existed). Mapping tables in
+  `state/mod.rs` and `state/tests/dirty_flags.rs` realigned to the
+  underlying `ObservedState` field names.
+- `093f5516` (PR-5b) — production round-trips eliminated. Added
+  `Brush::linear_blend(a, b, ratio, fallback_a, fallback_b)`.
+  `make_secondary_cursor_face` rewritten as Brush-native
+  `make_secondary_cursor_style`; `apply_secondary_cursor_faces` now
+  mutates `cell.style: TerminalStyle` directly without touching the
+  `Cell::face()` bridge. `BufferRefParams` /
+  `BufferLineAction::BufferLine` / `BufferLineAction::Padding` carry
+  `Style` end-to-end through the TUI walker (`paint.rs`) and the GPU
+  walker (`walk_scene.rs`), so per-line `Style::from_face` round-trips
+  are gone. `BufferRefState` and the `salsa_inputs` `BufferInput` /
+  `StatusInput` field names follow.
+  `cargo bench parley/frame_warm_24_lines`: 63.3 µs (−4 % vs Phase 11
+  case A baseline 64.9 µs; within criterion noise but directionally
+  consistent with one fewer round-trip per line).
+- `16266fd1` (PR-5c) — public Face↔Style bridges retired.
+  `Cell::face()`, `Atom::face()`, `kasane-tui::sgr::emit_sgr_diff(Face)`
+  shim, and the `convert_attribute(Attributes)` test helper deleted
+  outright. `Style::from_face` / `Style::to_face`, the `From<Face> for
+  Style` / `From<&Face> for Style` / `From<Face> for ElementStyle`
+  impls, and `TerminalStyle::from_face` marked `#[doc(hidden)]` —
+  invisible from the rendered API surface but still callable for the
+  Kakoune wire-format conversion path that the JSON-RPC parser, the
+  `Atom::from_wire` constructor, and the wire `test_support` helpers
+  depend on. `Style::to_face_with_attrs` downgraded from `pub fn` to
+  `pub(super)`. ~30 production callsites + ~150 test sites cascade
+  via mechanical sed; the golden `ascii_80x24_smoke` snapshot
+  regenerated for the `TerminalStyle`-keyed face legend.
+- `571bff58` (PR-7) — WIT 2.0.0. `kasane:plugin@1.1.0 → @2.0.0` with
+  six function renames (`get-default-face` → `get-default-style` and
+  five siblings) plus a forced collision-resolving rename
+  (`get-menu-style` returning `option<string>` → `get-menu-mode`,
+  freeing the name for the actual menu-item style). `HOST_ABI_VERSION`
+  bumped, all 23 `abi_version = "1.1.0"` literal sites in fixtures /
+  manifests / resolver tests bumped, all 12 bundled / fixture WASM
+  artefacts rebuilt, the `surface-probe` guest and the
+  `define_plugin!` `theme_style_or` macro updated to the new function
+  names, and the `color-preview` test expectation for the Phase 10
+  exemplar (gutter + inline-box per color) corrected.
+- `c87699d0` (PR-6) — `Atom::from_face` → `Atom::from_wire`. The
+  wire-format intent is now in the constructor name; 17 callsites
+  cascade. `Face` / `Color` / `Attributes` are already
+  `#[doc(hidden)]` from PR-5c, so the visibility downgrade and the
+  full `Face` → `WireFace` rename across the host crates
+  (kasane-wasm convert layer, kasane-tui / kasane-gui benches and
+  diagnostics) are scoped out — the `#[doc(hidden)]` markings keep
+  `Face` invisible from the rendered API surface, and a future PR
+  may complete the rename + downgrade once those host sites migrate
+  to Style end-to-end.
+
+Performance after closure (`cargo bench --bench parley_pipeline`,
+`feat/parley-color-emoji-test`): warm 63.3 µs, one_line_changed
+~83 µs. The +18 % gap vs the original 70 µs `frame_one_line_changed`
+target persists and is structural to Parley's `shape_warm = 13.58 µs`
+per L1 miss — closing it requires upstream Parley shape-cache work
+or sub-line word/cluster caching, neither of which is on the
+critical path. Per ADR-024 (perception-oriented performance policy)
+the 83 µs absolute number is comfortably below the 200 µs SLO and
+the 4.17 ms 240-Hz scanout, and the `Atom::face()`-on-hot-path
+mutex hypothesis from §動機 (iii) is refuted — the gap is now
+formally accepted.
+
+Phase 11 perf-tune (`StyledLine` allocation reuse, `atom_styles:
+Vec<Arc<Style>>`, sub-line shape cache) and the deferred `Face` →
+`WireFace` rename + `pub(in crate::protocol)` visibility downgrade
+are tracked as post-closure independent workstreams; see the
+"Next-ADR seeds" subsection below.
 
 **Other pending items.** Phase 10 — bundled `color-preview` WASM plugin
 upgraded to use real `paint_inline_box` (ergonomics demonstration,
