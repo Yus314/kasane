@@ -66,7 +66,9 @@ fn setup_grid_diff_full() -> CellGrid {
     };
     let layout = flex::place(&element, area, &state);
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     grid
 }
@@ -83,10 +85,14 @@ fn setup_grid_diff_incremental() -> CellGrid {
     };
     let layout = flex::place(&element, area, &state);
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     grid.swap();
-    grid.clear(&state.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     grid
 }
@@ -119,7 +125,9 @@ fn iai_full_frame(
         h: state.runtime.rows,
     };
     let layout = flex::place(&element, area, &state);
-    grid.clear(&state.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     let _diffs = grid.diff();
     grid.swap();
@@ -151,7 +159,9 @@ fn iai_paint_80x24(
         CellGrid,
     ),
 ) {
-    grid.clear(&state.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
 }
 

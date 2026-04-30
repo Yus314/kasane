@@ -56,7 +56,9 @@ fn main() {
     for _ in 0..100 {
         let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
         let _ = grid.diff();
         grid.swap();
@@ -68,7 +70,9 @@ fn main() {
         let start = Instant::now();
         let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
         let _ = grid.diff();
         grid.swap();
@@ -108,7 +112,9 @@ fn main() {
     let mut data_paint = Vec::<u64>::with_capacity(ITERATIONS as usize);
     for _ in 0..ITERATIONS {
         let start = Instant::now();
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
         let elapsed = start.elapsed().as_nanos() as u64;
         data_paint.push(elapsed);
@@ -117,7 +123,9 @@ fn main() {
 
     // diff
     // Re-render to get a fresh grid for diffing
-    grid.clear(&state.observed.default_face);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
     paint::paint(&element, &layout, &mut grid, &state);
     let mut data_diff = Vec::<u64>::with_capacity(ITERATIONS as usize);
     for _ in 0..ITERATIONS {

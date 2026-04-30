@@ -80,7 +80,9 @@ fn bench_paint(c: &mut Criterion) {
 
         group.bench_function("80x24", |b| {
             b.iter(|| {
-                grid.clear(&state.observed.default_face);
+                grid.clear(&kasane_core::render::TerminalStyle::from_style(
+                    &state.observed.default_style,
+                ));
                 paint::paint(&element, &layout, &mut grid, &state);
             });
         });
@@ -104,7 +106,9 @@ fn bench_paint(c: &mut Criterion) {
 
         group.bench_function("200x60", |b| {
             b.iter(|| {
-                grid.clear(&state.observed.default_face);
+                grid.clear(&kasane_core::render::TerminalStyle::from_style(
+                    &state.observed.default_style,
+                ));
                 paint::paint(&element, &layout, &mut grid, &state);
             });
         });
@@ -126,7 +130,9 @@ fn bench_paint(c: &mut Criterion) {
 
         group.bench_function("80x24_realistic", |b| {
             b.iter(|| {
-                grid.clear(&state.observed.default_face);
+                grid.clear(&kasane_core::render::TerminalStyle::from_style(
+                    &state.observed.default_style,
+                ));
                 paint::paint(&element, &layout, &mut grid, &state);
             });
         });
@@ -153,7 +159,9 @@ fn bench_grid_diff(c: &mut Criterion) {
     // Full redraw (previous is empty)
     {
         let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
 
         group.bench_function("full_redraw", |b| {
@@ -164,10 +172,14 @@ fn bench_grid_diff(c: &mut Criterion) {
     // Incremental (previous populated, same content → empty diff)
     {
         let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
         grid.swap();
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
 
         group.bench_function("incremental", |b| {
@@ -196,7 +208,9 @@ fn bench_grid_diff_into(c: &mut Criterion) {
     // Full redraw (previous is empty)
     {
         let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
 
         let mut buf = Vec::with_capacity(state.runtime.cols as usize * state.runtime.rows as usize);
@@ -208,10 +222,14 @@ fn bench_grid_diff_into(c: &mut Criterion) {
     // Incremental (previous populated, same content → empty diff)
     {
         let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
         grid.swap();
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
 
         let mut buf = Vec::with_capacity(state.runtime.cols as usize * state.runtime.rows as usize);
@@ -228,7 +246,7 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
     let mut group = c.benchmark_group("line_dirty_buffer_status");
 
     let mut state = typical_state(23);
-    state.observed.status_default_face = state.observed.default_face;
+    state.observed.status_default_style = state.observed.default_style.clone();
     let registry = PluginRuntime::new();
 
     // Prepare warm grid (2 frames to get past swap fallback)
@@ -240,10 +258,10 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
 
     // Now simulate editing 1 line with BUFFER|STATUS dirty
     let mut edited = state.clone();
-    edited.observed.lines[10] = vec![kasane_core::protocol::Atom {
-        face: kasane_core::protocol::Face::default(),
-        contents: "EDITED_LINE".into(),
-    }];
+    edited.observed.lines[10] = vec![kasane_core::protocol::Atom::from_wire(
+        kasane_core::protocol::Face::default(),
+        "EDITED_LINE",
+    )];
     edited.inference.lines_dirty = vec![false; 23];
     edited.inference.lines_dirty[10] = true;
 
@@ -281,11 +299,12 @@ fn bench_grid_clear(c: &mut Criterion) {
         bg: Color::Named(NamedColor::Black),
         ..kasane_core::protocol::Face::default()
     };
+    let term_style = kasane_core::render::TerminalStyle::from_face(&face);
 
     for (cols, rows, label) in [(80, 24, "80x24"), (200, 60, "200x60")] {
         let mut grid = CellGrid::new(cols, rows);
         group.bench_function(label, |b| {
-            b.iter(|| grid.clear(&face));
+            b.iter(|| grid.clear(&term_style));
         });
     }
 
@@ -312,7 +331,9 @@ fn bench_full_frame(c: &mut Criterion) {
         b.iter(|| {
             let element = view::view(&state, &registry.view());
             let layout = flex::place(&element, area, &state);
-            grid.clear(&state.observed.default_face);
+            grid.clear(&kasane_core::render::TerminalStyle::from_style(
+                &state.observed.default_style,
+            ));
             paint::paint(&element, &layout, &mut grid, &state);
             let diffs = grid.diff();
             grid.swap();
@@ -342,7 +363,9 @@ fn bench_draw_message(c: &mut Criterion) {
                 state.apply(req);
                 let element = view::view(&state, &registry.view());
                 let layout = flex::place(&element, area, &state);
-                grid.clear(&state.observed.default_face);
+                grid.clear(&kasane_core::render::TerminalStyle::from_style(
+                    &state.observed.default_style,
+                ));
                 paint::paint(&element, &layout, &mut grid, &state);
                 let diffs = grid.diff();
                 grid.swap();
@@ -376,7 +399,9 @@ fn bench_menu_show(c: &mut Criterion) {
                 b.iter(|| {
                     let element = view::view(&state, &registry.view());
                     let layout = flex::place(&element, area, &state);
-                    grid.clear(&state.observed.default_face);
+                    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+                        &state.observed.default_style,
+                    ));
                     paint::paint(&element, &layout, &mut grid, &state);
                     let diffs = grid.diff();
                     grid.swap();
@@ -407,7 +432,9 @@ fn bench_incremental_edit(c: &mut Criterion) {
         let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
         let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
         grid.swap();
 
@@ -419,7 +446,9 @@ fn bench_incremental_edit(c: &mut Criterion) {
                 // Re-render into current buffer and diff (previous stays fixed — no swap)
                 let element = view::view(&edited_state, &registry.view());
                 let layout = flex::place(&element, area, &edited_state);
-                grid.clear(&edited_state.observed.default_face);
+                grid.clear(&kasane_core::render::TerminalStyle::from_style(
+                    &edited_state.observed.default_style,
+                ));
                 paint::paint(&element, &layout, &mut grid, &edited_state);
                 grid.diff().len()
             });
@@ -433,17 +462,17 @@ fn bench_incremental_edit(c: &mut Criterion) {
 fn bench_message_sequence(c: &mut Criterion) {
     let registry = PluginRuntime::new();
     let draw_status = kasane_core::protocol::KakouneRequest::DrawStatus {
-        prompt: vec![kasane_core::protocol::Atom {
-            face: kasane_core::protocol::Face::default(),
-            contents: " INSERT ".into(),
-        }],
+        prompt: vec![kasane_core::protocol::Atom::from_wire(
+            kasane_core::protocol::Face::default(),
+            " INSERT ",
+        )],
         content: Vec::new(),
         content_cursor_pos: -1,
-        mode_line: vec![kasane_core::protocol::Atom {
-            face: kasane_core::protocol::Face::default(),
-            contents: "insert".into(),
-        }],
-        default_face: kasane_core::protocol::Face::default(),
+        mode_line: vec![kasane_core::protocol::Atom::from_wire(
+            kasane_core::protocol::Face::default(),
+            "insert",
+        )],
+        default_style: kasane_core::protocol::default_unresolved_style(),
         style: kasane_core::protocol::StatusStyle::Status,
     };
     let draw = draw_request(23);
@@ -464,7 +493,9 @@ fn bench_message_sequence(c: &mut Criterion) {
                 state.apply(msg2);
                 let element = view::view(&state, &registry.view());
                 let layout = flex::place(&element, area, &state);
-                grid.clear(&state.observed.default_face);
+                grid.clear(&kasane_core::render::TerminalStyle::from_style(
+                    &state.observed.default_style,
+                ));
                 paint::paint(&element, &layout, &mut grid, &state);
                 let diffs = grid.diff();
                 grid.swap();
@@ -546,17 +577,17 @@ fn bench_state_apply(c: &mut Criterion) {
     // DrawStatus
     {
         let request = kasane_core::protocol::KakouneRequest::DrawStatus {
-            prompt: vec![kasane_core::protocol::Atom {
-                face: kasane_core::protocol::Face::default(),
-                contents: " NORMAL ".into(),
-            }],
+            prompt: vec![kasane_core::protocol::Atom::from_wire(
+                kasane_core::protocol::Face::default(),
+                " NORMAL ",
+            )],
             content: Vec::new(),
             content_cursor_pos: -1,
-            mode_line: vec![kasane_core::protocol::Atom {
-                face: kasane_core::protocol::Face::default(),
-                contents: "normal".into(),
-            }],
-            default_face: kasane_core::protocol::Face::default(),
+            mode_line: vec![kasane_core::protocol::Atom::from_wire(
+                kasane_core::protocol::Face::default(),
+                "normal",
+            )],
+            default_style: kasane_core::protocol::default_unresolved_style(),
             style: kasane_core::protocol::StatusStyle::Status,
         };
         let base_state = typical_state(23);
@@ -573,10 +604,10 @@ fn bench_state_apply(c: &mut Criterion) {
     {
         let items: Vec<kasane_core::protocol::Line> = (0..50)
             .map(|i| {
-                vec![kasane_core::protocol::Atom {
-                    face: kasane_core::protocol::Face::default(),
-                    contents: format!("completion_{i}").into(),
-                }]
+                vec![kasane_core::protocol::Atom::from_wire(
+                    kasane_core::protocol::Face::default(),
+                    format!("completion_{i}"),
+                )]
             })
             .collect();
         let request = kasane_core::protocol::KakouneRequest::MenuShow {
@@ -585,8 +616,8 @@ fn bench_state_apply(c: &mut Criterion) {
                 line: 5,
                 column: 10,
             },
-            selected_item_face: kasane_core::protocol::Face::default(),
-            menu_face: kasane_core::protocol::Face::default(),
+            selected_item_style: kasane_core::protocol::default_unresolved_style(),
+            menu_style: kasane_core::protocol::default_unresolved_style(),
             style: kasane_core::protocol::MenuStyle::Inline,
         };
         let base_state = typical_state(23);
@@ -630,7 +661,9 @@ fn bench_scaling(c: &mut Criterion) {
             b.iter(|| {
                 let element = view::view(&state, &registry.view());
                 let layout = flex::place(&element, area, &state);
-                grid.clear(&state.observed.default_face);
+                grid.clear(&kasane_core::render::TerminalStyle::from_style(
+                    &state.observed.default_style,
+                ));
                 paint::paint(&element, &layout, &mut grid, &state);
                 let diffs = grid.diff();
                 grid.swap();
@@ -674,10 +707,14 @@ fn bench_scaling(c: &mut Criterion) {
         let layout = flex::place(&element, area, &state);
         let mut grid = CellGrid::new(cols, rows);
         // Populate both buffers with the same content
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
         grid.swap();
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
 
         group.bench_function(BenchmarkId::new("diff_incremental", label), |b| {
@@ -839,8 +876,18 @@ fn bench_line_dirty_single_edit(c: &mut Criterion) {
     state_after.apply(kasane_core::protocol::KakouneRequest::Draw {
         lines: edited_lines,
         cursor_pos: kasane_core::protocol::Coord::default(),
-        default_face: state.observed.default_face,
-        padding_face: state.observed.padding_face,
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle {
+            style: state.observed.default_style.clone(),
+            final_fg: false,
+            final_bg: false,
+            final_style: false,
+        }),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle {
+            style: state.observed.padding_style.clone(),
+            final_fg: false,
+            final_bg: false,
+            final_style: false,
+        }),
         widget_columns: 0,
     });
 
@@ -919,15 +966,12 @@ fn bench_detect_cursors_incremental(c: &mut Criterion) {
     };
     state.observed.lines[5] = vec![
         Atom {
-            style: crate::protocol::default_unresolved_style(),
+            style: kasane_core::protocol::default_unresolved_style(),
             contents: "hel".into(),
         },
+        Atom::from_wire(cursor_face, "l"),
         Atom {
-            face: cursor_face,
-            contents: "l".into(),
-        },
-        Atom {
-            style: crate::protocol::default_unresolved_style(),
+            style: kasane_core::protocol::default_unresolved_style(),
             contents: "o world".into(),
         },
     ];
@@ -1456,7 +1500,9 @@ fn bench_allocations(c: &mut Criterion) {
                 alloc_counter::reset();
                 let element = view::view(&state, &registry.view());
                 let layout = flex::place(&element, area, &state);
-                grid.clear(&state.observed.default_face);
+                grid.clear(&kasane_core::render::TerminalStyle::from_style(
+                    &state.observed.default_style,
+                ));
                 paint::paint(&element, &layout, &mut grid, &state);
                 let _diffs = grid.diff();
                 grid.swap();
@@ -1495,7 +1541,9 @@ fn bench_allocations(c: &mut Criterion) {
         alloc_counter::reset();
         let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
         let _diffs = grid.diff();
         grid.swap();
@@ -1544,7 +1592,9 @@ fn bench_allocations(c: &mut Criterion) {
 
         // clear + paint
         alloc_counter::reset();
-        grid.clear(&state.observed.default_face);
+        grid.clear(&kasane_core::render::TerminalStyle::from_style(
+            &state.observed.default_style,
+        ));
         paint::paint(&element, &layout, &mut grid, &state);
         let (c3, b3) = alloc_counter::snapshot();
 
