@@ -1,0 +1,57 @@
+# golden snapshot v1
+# dim 80 24
+
+# faces
+f0 TerminalStyle { fg: Named(White), bg: Named(Black), underline_color: Default, underline: None, bold: false, italic: false, dim: false, blink: false, reverse: false, strikethrough: false }
+f1 TerminalStyle { fg: Named(White), bg: Named(Black), underline_color: Default, underline: None, bold: false, italic: false, dim: false, blink: false, reverse: true, strikethrough: false }
+f2 TerminalStyle { fg: Default, bg: Default, underline_color: Default, underline: None, bold: false, italic: false, dim: false, blink: false, reverse: false, strikethrough: false }
+
+# rows
+row 00: |fn main() {                                                                     |
+        faces: 0..3=f0 3..7=f1 7..80=f0
+row 01: |    let x = 42;                                                                 |
+        faces: 0..80=f0
+row 02: |}                                                                               |
+        faces: 0..80=f0
+row 03: |~                                                                               |
+        faces: 0..80=f0
+row 04: |~                                                                               |
+        faces: 0..80=f0
+row 05: |~                                                                               |
+        faces: 0..80=f0
+row 06: |~                                                                               |
+        faces: 0..80=f0
+row 07: |~                                                                               |
+        faces: 0..80=f0
+row 08: |~                                                                               |
+        faces: 0..80=f0
+row 09: |~                                                                               |
+        faces: 0..80=f0
+row 10: |~                                                                               |
+        faces: 0..80=f0
+row 11: |~                                                                               |
+        faces: 0..80=f0
+row 12: |~                                                                               |
+        faces: 0..80=f0
+row 13: |~                                                                               |
+        faces: 0..80=f0
+row 14: |~                                                                               |
+        faces: 0..80=f0
+row 15: |~                                                                               |
+        faces: 0..80=f0
+row 16: |~                                                                               |
+        faces: 0..80=f0
+row 17: |~                                                                               |
+        faces: 0..80=f0
+row 18: |~                                                                               |
+        faces: 0..80=f0
+row 19: |~                                                                               |
+        faces: 0..80=f0
+row 20: |~                                                                               |
+        faces: 0..80=f0
+row 21: |~                                                                               |
+        faces: 0..80=f0
+row 22: |~                                                                               |
+        faces: 0..80=f0
+row 23: | sel.rs                                                                   normal|
+        faces: 0..80=f2
