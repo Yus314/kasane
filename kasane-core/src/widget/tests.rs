@@ -1460,15 +1460,15 @@ fn parse_face_token_empty_name_error() {
 #[test]
 fn resolve_face_token_from_theme() {
     use crate::element::StyleToken;
-    use crate::protocol::Face;
+    use crate::protocol::WireFace;
 
     let mut state = AppState::default();
     // Set a theme face for "status.line"
     let token = StyleToken::new("status.line");
-    let expected_face = Face {
+    let expected_face = WireFace {
         fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Red),
         bg: crate::protocol::Color::Named(crate::protocol::NamedColor::Blue),
-        ..Face::default()
+        ..WireFace::default()
     };
     state
         .config
@@ -1484,26 +1484,26 @@ fn resolve_face_token_from_theme() {
 #[test]
 fn resolve_face_token_missing_returns_default() {
     use crate::element::StyleToken;
-    use crate::protocol::Face;
+    use crate::protocol::WireFace;
 
     let state = AppState::default();
     let view = AppView::new(&state);
 
     let fot = super::types::FaceOrToken::Token(StyleToken::new("nonexistent.token"));
     let resolved = super::backend::resolve_face(&fot, &view);
-    assert_eq!(resolved, Face::default());
+    assert_eq!(resolved, WireFace::default());
 }
 
 #[test]
 fn resolve_face_direct_passthrough() {
-    use crate::protocol::Face;
+    use crate::protocol::WireFace;
 
     let state = AppState::default();
     let view = AppView::new(&state);
 
-    let expected = Face {
+    let expected = WireFace {
         fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Green),
-        ..Face::default()
+        ..WireFace::default()
     };
     let fot = super::types::FaceOrToken::Direct(expected);
     let resolved = super::backend::resolve_face(&fot, &view);

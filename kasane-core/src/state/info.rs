@@ -18,7 +18,7 @@ pub struct InfoState {
     pub title: Line,
     pub content: Vec<Line>,
     pub anchor: Coord,
-    /// Info popup face. ADR-031 Phase A.3 migrated this from `Face` to
+    /// Info popup face. ADR-031 Phase A.3 migrated this from `WireFace` to
     /// `Style`; the field name is preserved while consumers migrate
     /// (most still call `.to_face()` at the rendering boundary).
     pub face: crate::protocol::Style,

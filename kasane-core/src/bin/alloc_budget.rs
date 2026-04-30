@@ -56,7 +56,7 @@ fn main() {
     use kasane_core::layout::Rect;
     use kasane_core::layout::flex;
     use kasane_core::plugin::PluginRuntime;
-    use kasane_core::protocol::{Atom, Color, Coord, Face, NamedColor, parse_request};
+    use kasane_core::protocol::{Atom, Color, Coord, NamedColor, WireFace, parse_request};
     use kasane_core::render::CellGrid;
     use kasane_core::render::paint;
     use kasane_core::render::view;
@@ -66,57 +66,57 @@ fn main() {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = Face {
+    state.observed.status_default_style = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.lines = (0..23)
         .map(|i| {
             vec![
                 Atom::from_wire(
-                    Face {
+                    WireFace {
                         fg: Color::Rgb {
                             r: 255,
                             g: 100,
                             b: 0,
                         },
                         bg: Color::Default,
-                        ..Face::default()
+                        ..WireFace::default()
                     },
                     "let",
                 ),
                 Atom::plain(" "),
                 Atom::from_wire(
-                    Face {
+                    WireFace {
                         fg: Color::Rgb {
                             r: 0,
                             g: 200,
                             b: 100,
                         },
                         bg: Color::Default,
-                        ..Face::default()
+                        ..WireFace::default()
                     },
                     format!("var_{i}"),
                 ),
                 Atom::plain(" = "),
                 Atom::from_wire(
-                    Face {
+                    WireFace {
                         fg: Color::Rgb {
                             r: 100,
                             g: 100,
                             b: 255,
                         },
                         bg: Color::Default,
-                        ..Face::default()
+                        ..WireFace::default()
                     },
                     format!("\"{i}_value\""),
                 ),
@@ -172,10 +172,10 @@ fn main() {
     // `Arc<UnresolvedStyle>`), so build a local wire shape for the JSON.
     #[derive(serde::Serialize)]
     struct WireAtomBudget<'a> {
-        face: Face,
+        face: WireFace,
         contents: &'a str,
     }
-    let plain_face = Face::default();
+    let plain_face = WireFace::default();
     let line_strings: Vec<String> = (0..100).map(|i| format!("line {i}")).collect();
     let draw_lines: Vec<Vec<WireAtomBudget<'_>>> = line_strings
         .iter()
@@ -186,10 +186,10 @@ fn main() {
             }]
         })
         .collect();
-    let default_face = Face {
+    let default_face = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     };
     let cursor_pos = Coord::default();
     let json_msg = serde_json::to_vec(&serde_json::json!({

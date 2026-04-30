@@ -115,12 +115,12 @@ fn buffer_to_grid(
 mod tests {
     use super::*;
     use crate::plugin::FaceMerge;
-    use crate::protocol::{Color, Coord, Face};
+    use crate::protocol::{Color, Coord, WireFace};
 
     fn make_decoration(target: DecorationTarget, merge: FaceMerge) -> CellDecoration {
         CellDecoration {
             target,
-            style: crate::protocol::Style::from_face(&Face {
+            style: crate::protocol::Style::from_face(&WireFace {
                 fg: Color::Default,
                 bg: Color::Rgb { r: 255, g: 0, b: 0 },
                 underline: Color::Default,

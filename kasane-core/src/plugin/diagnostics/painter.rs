@@ -1,7 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Attributes, Color, Face, NamedColor};
+use crate::protocol::{Attributes, Color, NamedColor, WireFace};
 
 use super::scoring::{OverlayBackdropTone, overlay_backdrop_tone_for_title};
 use super::types::{
@@ -289,8 +289,8 @@ pub fn paint_plugin_diagnostic_overlay<P: PluginDiagnosticOverlayPainter>(
     }
 }
 
-pub fn plugin_diagnostic_overlay_border_face(severity: PluginDiagnosticSeverity) -> Face {
-    Face {
+pub fn plugin_diagnostic_overlay_border_face(severity: PluginDiagnosticSeverity) -> WireFace {
+    WireFace {
         fg: match severity {
             PluginDiagnosticSeverity::Warning => Color::Named(NamedColor::BrightYellow),
             PluginDiagnosticSeverity::Error => Color::Named(NamedColor::BrightRed),
@@ -305,14 +305,14 @@ pub fn plugin_diagnostic_overlay_border_face(severity: PluginDiagnosticSeverity)
     }
 }
 
-pub fn plugin_diagnostic_overlay_header_face(severity: PluginDiagnosticSeverity) -> Face {
+pub fn plugin_diagnostic_overlay_header_face(severity: PluginDiagnosticSeverity) -> WireFace {
     plugin_diagnostic_overlay_header_face_for(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE, severity)
 }
 
 pub fn plugin_diagnostic_overlay_header_face_for(
     title: &str,
     severity: PluginDiagnosticSeverity,
-) -> Face {
+) -> WireFace {
     plugin_diagnostic_overlay_header_face_with_tone(
         title,
         overlay_backdrop_tone_for_title(title),
@@ -324,8 +324,8 @@ pub(super) fn plugin_diagnostic_overlay_header_face_with_tone(
     _title: &str,
     tone: OverlayBackdropTone,
     severity: PluginDiagnosticSeverity,
-) -> Face {
-    Face {
+) -> WireFace {
+    WireFace {
         fg: Color::Named(NamedColor::BrightWhite),
         bg: match (tone, severity) {
             (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Error) => Color::Rgb {
@@ -364,7 +364,7 @@ pub(super) fn plugin_diagnostic_overlay_header_face_with_tone(
     }
 }
 
-pub fn plugin_diagnostic_overlay_body_face() -> Face {
+pub fn plugin_diagnostic_overlay_body_face() -> WireFace {
     plugin_diagnostic_overlay_body_face_for(
         PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
         PluginDiagnosticSeverity::Warning,
@@ -374,7 +374,7 @@ pub fn plugin_diagnostic_overlay_body_face() -> Face {
 pub fn plugin_diagnostic_overlay_body_face_for(
     title: &str,
     severity: PluginDiagnosticSeverity,
-) -> Face {
+) -> WireFace {
     plugin_diagnostic_overlay_body_face_with_tone(
         title,
         overlay_backdrop_tone_for_title(title),
@@ -386,8 +386,8 @@ pub(super) fn plugin_diagnostic_overlay_body_face_with_tone(
     _title: &str,
     tone: OverlayBackdropTone,
     severity: PluginDiagnosticSeverity,
-) -> Face {
-    Face {
+) -> WireFace {
+    WireFace {
         fg: Color::Named(NamedColor::BrightWhite),
         bg: match (tone, severity) {
             (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Error) => Color::Rgb {
@@ -424,8 +424,8 @@ pub(super) fn plugin_diagnostic_overlay_body_face_with_tone(
 pub fn plugin_diagnostic_overlay_text_face(
     kind: PluginDiagnosticOverlayTagKind,
     severity: PluginDiagnosticSeverity,
-) -> Face {
-    Face {
+) -> WireFace {
+    WireFace {
         fg: match (kind, severity) {
             (PluginDiagnosticOverlayTagKind::Activation, PluginDiagnosticSeverity::Error) => {
                 Color::Named(NamedColor::BrightWhite)
@@ -481,8 +481,8 @@ pub fn plugin_diagnostic_overlay_text_face(
 pub fn plugin_diagnostic_overlay_tag_face(
     kind: PluginDiagnosticOverlayTagKind,
     severity: PluginDiagnosticSeverity,
-) -> Face {
-    Face {
+) -> WireFace {
+    WireFace {
         fg: match kind {
             PluginDiagnosticOverlayTagKind::Discovery => Color::Named(NamedColor::BrightWhite),
             _ => Color::Named(NamedColor::Black),

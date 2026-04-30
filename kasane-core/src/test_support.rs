@@ -10,7 +10,7 @@
 //! `Attributes::FINAL_FG` / `FINAL_BG` / `FINAL_ATTR` resolution
 //! flags that distinguish "this colour is final, do not inherit" from
 //! "this colour will be resolved later" semantics. Production code
-//! uses [`Style`](crate::protocol::Style) and never constructs `Face`
+//! uses [`Style`](crate::protocol::Style) and never constructs `WireFace`
 //! directly; tests that simulate wire input (cursor detection
 //! fixtures, protocol-parser fixtures, etc.) belong in `wire`.
 
@@ -20,7 +20,7 @@ use crate::element::Element;
 use crate::layout::Rect;
 use crate::layout::flex::place;
 use crate::plugin::{Command, PluginRuntime};
-use crate::protocol::{Atom, Color, Face, Line, NamedColor};
+use crate::protocol::{Atom, Color, Line, NamedColor, WireFace};
 // Phase A.2: tests construct atoms with default style via Atom::plain.
 use crate::render::pipeline::render_pipeline;
 use crate::render::view;
@@ -46,17 +46,17 @@ pub fn test_state_80x24() -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = Face {
+    state.observed.status_default_style = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state
@@ -277,19 +277,19 @@ impl Surface for TestSurfaceImpl {
 }
 
 // ---------------------------------------------------------------------------
-// Wire-format-aware Face constructors
+// Wire-format-aware WireFace constructors
 // ---------------------------------------------------------------------------
 
-/// Wire-format-aware [`Face`](crate::protocol::Face) constructors for tests.
+/// Wire-format-aware [`WireFace`](crate::protocol::WireFace) constructors for tests.
 ///
 /// Production code uses [`Style`](crate::protocol::Style); the only
-/// remaining legitimate `Face` callers are the Kakoune wire-format
-/// parser (which receives `Face` over JSON-RPC) and tests that
+/// remaining legitimate `WireFace` callers are the Kakoune wire-format
+/// parser (which receives `WireFace` over JSON-RPC) and tests that
 /// simulate that parser's input.
 ///
 /// The helpers here name the wire-format patterns that would
-/// otherwise require multi-line `Face { fg, attributes:
-/// Attributes::FINAL_FG | ..., ..Face::default() }` literal struct
+/// otherwise require multi-line `WireFace { fg, attributes:
+/// Attributes::FINAL_FG | ..., ..WireFace::default() }` literal struct
 /// updates at every call site.
 ///
 /// `cursor_atom`, `cursor_text`, and the `_with_final_*` variants
@@ -299,82 +299,82 @@ impl Surface for TestSurfaceImpl {
 /// `kasane-core/src/state/derived/cursor.rs` and the closure rationale
 /// in `project_adr_031_phase_b3_semantic_split.md` (memory).
 pub mod wire {
-    use crate::protocol::{Atom, Attributes, Color, Face, NamedColor};
+    use crate::protocol::{Atom, Attributes, Color, NamedColor, WireFace};
 
-    /// Plain default face. Equivalent to `Face::default()` but named
+    /// Plain default face. Equivalent to `WireFace::default()` but named
     /// for symmetry with the other constructors below.
     #[inline]
-    pub fn default_face() -> Face {
-        Face::default()
+    pub fn default_face() -> WireFace {
+        WireFace::default()
     }
 
-    /// `Face { fg, ..default }` — the simplest wire-format face.
-    pub fn face_with_fg(fg: Color) -> Face {
-        Face {
+    /// `WireFace { fg, ..default }` — the simplest wire-format face.
+    pub fn face_with_fg(fg: Color) -> WireFace {
+        WireFace {
             fg,
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
-    /// `Face { bg, ..default }` — background-only face.
-    pub fn face_with_bg(bg: Color) -> Face {
-        Face {
+    /// `WireFace { bg, ..default }` — background-only face.
+    pub fn face_with_bg(bg: Color) -> WireFace {
+        WireFace {
             bg,
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
-    /// `Face { fg, bg, ..default }`.
-    pub fn face_with_fg_bg(fg: Color, bg: Color) -> Face {
-        Face {
+    /// `WireFace { fg, bg, ..default }`.
+    pub fn face_with_fg_bg(fg: Color, bg: Color) -> WireFace {
+        WireFace {
             fg,
             bg,
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
-    /// Face carrying the `FINAL_FG` resolution flag — instructs the
+    /// WireFace carrying the `FINAL_FG` resolution flag — instructs the
     /// inheritance resolver to treat `fg` as final and skip parent
     /// lookup. Used by Kakoune for theme-resolved foreground that
     /// should not be re-inherited downstream, and by
     /// [`detect_cursors`](crate::state::derived::cursor::detect_cursors)
     /// fixtures to mark a cell as a cursor.
-    pub fn face_with_final_fg(fg: Color) -> Face {
-        Face {
+    pub fn face_with_final_fg(fg: Color) -> WireFace {
+        WireFace {
             fg,
             attributes: Attributes::FINAL_FG,
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
-    /// Face with the `FINAL_BG` resolution flag set.
-    pub fn face_with_final_bg(bg: Color) -> Face {
-        Face {
+    /// WireFace with the `FINAL_BG` resolution flag set.
+    pub fn face_with_final_bg(bg: Color) -> WireFace {
+        WireFace {
             bg,
             attributes: Attributes::FINAL_BG,
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
-    /// Face with both `FINAL_FG` and `FINAL_BG` set — typical for a
+    /// WireFace with both `FINAL_FG` and `FINAL_BG` set — typical for a
     /// theme-resolved `default_face` arriving over the wire.
-    pub fn face_with_final_fg_bg(fg: Color, bg: Color) -> Face {
-        Face {
+    pub fn face_with_final_fg_bg(fg: Color, bg: Color) -> WireFace {
+        WireFace {
             fg,
             bg,
             attributes: Attributes::FINAL_FG | Attributes::FINAL_BG,
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
-    /// Face with arbitrary attribute bits set on top of fg/bg. Use
+    /// WireFace with arbitrary attribute bits set on top of fg/bg. Use
     /// when a fixture needs e.g. `REVERSE | FINAL_FG`.
-    pub fn face_with_attrs(fg: Color, bg: Color, attributes: Attributes) -> Face {
-        Face {
+    pub fn face_with_attrs(fg: Color, bg: Color, attributes: Attributes) -> WireFace {
+        WireFace {
             fg,
             bg,
             attributes,
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
@@ -389,7 +389,7 @@ pub mod wire {
     }
 
     /// Atom with the supplied wire-format face.
-    pub fn atom_with_face(face: Face, text: impl Into<String>) -> Atom {
+    pub fn atom_with_face(face: WireFace, text: impl Into<String>) -> Atom {
         Atom::from_wire(face, text.into())
     }
 
@@ -399,7 +399,7 @@ pub mod wire {
 
         #[test]
         fn default_face_equals_face_default() {
-            assert_eq!(default_face(), Face::default());
+            assert_eq!(default_face(), WireFace::default());
         }
 
         #[test]

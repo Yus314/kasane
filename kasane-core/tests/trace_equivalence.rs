@@ -8,7 +8,7 @@
 
 use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{
-    Color, Coord, Face, InfoStyle, KakouneRequest, MenuStyle, NamedColor, StatusStyle,
+    Color, Coord, InfoStyle, KakouneRequest, MenuStyle, NamedColor, StatusStyle, WireFace,
 };
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::test_support::{assert_grids_equal, make_line, render_to_grid, test_state_80x24};
@@ -97,17 +97,17 @@ fn apply_mutation(state: &mut AppState, mutation: &Mutation) -> DirtyFlags {
             items: vec![make_line("alpha"), make_line("beta"), make_line("gamma")],
             anchor: Coord { line: 1, column: 4 },
             selected_item_style: std::sync::Arc::new(
-                kasane_core::protocol::UnresolvedStyle::from_face(&Face {
+                kasane_core::protocol::UnresolvedStyle::from_face(&WireFace {
                     fg: Color::Named(NamedColor::Black),
                     bg: Color::Named(NamedColor::Cyan),
-                    ..Face::default()
+                    ..WireFace::default()
                 }),
             ),
             menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
-                &Face {
+                &WireFace {
                     fg: Color::Named(NamedColor::White),
                     bg: Color::Named(NamedColor::Blue),
-                    ..Face::default()
+                    ..WireFace::default()
                 },
             )),
             style: MenuStyle::Inline,
@@ -155,10 +155,10 @@ fn rich_state() -> AppState {
     ];
     state.inference.status_line = make_line(" main.rs ");
     state.observed.status_mode_line = make_line("normal");
-    state.observed.status_default_style = Face {
+    state.observed.status_default_style = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.cursor_pos = Coord { line: 1, column: 4 };
@@ -168,17 +168,19 @@ fn rich_state() -> AppState {
         items: vec![make_line("foo"), make_line("bar"), make_line("baz")],
         anchor: Coord { line: 1, column: 4 },
         selected_item_style: std::sync::Arc::new(
-            kasane_core::protocol::UnresolvedStyle::from_face(&Face {
+            kasane_core::protocol::UnresolvedStyle::from_face(&WireFace {
                 fg: Color::Named(NamedColor::Black),
                 bg: Color::Named(NamedColor::Cyan),
-                ..Face::default()
+                ..WireFace::default()
             }),
         ),
-        menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(&Face {
-            fg: Color::Named(NamedColor::White),
-            bg: Color::Named(NamedColor::Blue),
-            ..Face::default()
-        })),
+        menu_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Blue),
+                ..WireFace::default()
+            },
+        )),
         style: MenuStyle::Inline,
     });
     state.apply(KakouneRequest::MenuSelect { selected: 0 });

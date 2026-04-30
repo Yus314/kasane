@@ -1,5 +1,5 @@
 use super::*;
-use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor, Style};
+use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, NamedColor, Style, WireFace};
 use crate::render::CursorStyle;
 
 fn make_atom(text: &str) -> Atom {
@@ -10,9 +10,9 @@ fn make_cursor_atom(text: &str) -> Atom {
     // Wire-aware: `final_*` flags must reach `detect_cursors`. `Style::from_face`
     // drops them by design — see `protocol/style.rs::Style::from_face` docstring.
     Atom::from_wire(
-        Face {
+        WireFace {
             attributes: Attributes::FINAL_FG | Attributes::REVERSE,
-            ..Face::default()
+            ..WireFace::default()
         },
         text,
     )
@@ -70,10 +70,10 @@ fn detect_cursors_cjk_width() {
 fn make_themed_cursor_atom(text: &str, fg: Color, bg: Color) -> Atom {
     Atom::with_style(
         text,
-        Style::from_face(&Face {
+        Style::from_face(&WireFace {
             fg,
             bg,
-            ..Face::default()
+            ..WireFace::default()
         }),
     )
 }
@@ -143,7 +143,7 @@ fn detect_cursors_fallback_with_secondary() {
 #[test]
 fn lines_dirty_same_content() {
     let lines = vec![vec![make_atom("hello")]];
-    let face = Face::default();
+    let face = WireFace::default();
     let dirty = compute_lines_dirty(&lines, &lines, &face, &face, &face, &face);
     assert_eq!(dirty, vec![false]);
 }
@@ -152,7 +152,7 @@ fn lines_dirty_same_content() {
 fn lines_dirty_changed_content() {
     let old = vec![vec![make_atom("hello")]];
     let new = vec![vec![make_atom("world")]];
-    let face = Face::default();
+    let face = WireFace::default();
     let dirty = compute_lines_dirty(&old, &new, &face, &face, &face, &face);
     assert_eq!(dirty, vec![true]);
 }
@@ -161,7 +161,7 @@ fn lines_dirty_changed_content() {
 fn lines_dirty_length_change_marks_all() {
     let old = vec![vec![make_atom("a")]];
     let new = vec![vec![make_atom("a")], vec![make_atom("b")]];
-    let face = Face::default();
+    let face = WireFace::default();
     let dirty = compute_lines_dirty(&old, &new, &face, &face, &face, &face);
     assert_eq!(dirty, vec![true, true]);
 }
@@ -169,10 +169,10 @@ fn lines_dirty_length_change_marks_all() {
 #[test]
 fn lines_dirty_face_change_marks_all() {
     let lines = vec![vec![make_atom("hello")]];
-    let old_face = Face::default();
-    let new_face = Face {
+    let old_face = WireFace::default();
+    let new_face = WireFace {
         fg: Color::Named(NamedColor::Red),
-        ..Face::default()
+        ..WireFace::default()
     };
     let dirty = compute_lines_dirty(&lines, &lines, &old_face, &new_face, &old_face, &old_face);
     assert_eq!(dirty, vec![true]);
@@ -505,7 +505,7 @@ fn detect_cursors_incremental_face_fallback_forces_full_rescan() {
     let all_dirty = vec![true];
     let (count, _sec) = detect_cursors_incremental(&lines, primary, &all_dirty, &mut cache);
 
-    // Face fallback should be used
+    // WireFace fallback should be used
     assert!(cache.used_fallback);
     assert_eq!(count, 1);
 
@@ -535,9 +535,9 @@ fn scan_line_cursors_by_attributes_per_line() {
 fn make_selection_atom(text: &str) -> Atom {
     Atom::with_style(
         text,
-        Style::from_face(&Face {
+        Style::from_face(&WireFace {
             bg: Color::Named(NamedColor::Blue),
-            ..Face::default()
+            ..WireFace::default()
         }),
     )
 }
@@ -551,7 +551,7 @@ fn detect_selections_single_char_cursor() {
         make_atom("o"),
     ]];
     let cursor = Coord { line: 0, column: 3 };
-    let sels = detect_selections(&lines, cursor, &[], &Face::default());
+    let sels = detect_selections(&lines, cursor, &[], &WireFace::default());
     // Cursor has REVERSE+FINAL_FG bg which is Default (no bg set) → detection
     // depends on whether cursor face bg is non-default. Since default cursor
     // atom has bg=Default, no selection bg is found.
@@ -570,7 +570,7 @@ fn detect_selections_with_selection_face() {
         make_atom("orld"),
     ]];
     let cursor = Coord { line: 0, column: 4 }; // "he"=2, "ll"=2, cursor at 4
-    let sels = detect_selections(&lines, cursor, &[], &Face::default());
+    let sels = detect_selections(&lines, cursor, &[], &WireFace::default());
     assert_eq!(sels.len(), 1);
     assert!(sels[0].is_primary);
     // Selection should span from "ll" start (col 2) to " w" end (col 6)
@@ -580,7 +580,7 @@ fn detect_selections_with_selection_face() {
 
 #[test]
 fn detect_selections_empty_lines() {
-    let sels = detect_selections(&[], Coord::default(), &[], &Face::default());
+    let sels = detect_selections(&[], Coord::default(), &[], &WireFace::default());
     assert!(sels.is_empty());
 }
 
@@ -590,6 +590,6 @@ fn detect_selections_too_many_cursors() {
     let cursor = Coord { line: 0, column: 0 };
     // 65 secondary cursors → exceeds safety valve
     let secondaries: Vec<Coord> = (0..65).map(|i| Coord { line: 0, column: i }).collect();
-    let sels = detect_selections(&lines, cursor, &secondaries, &Face::default());
+    let sels = detect_selections(&lines, cursor, &secondaries, &WireFace::default());
     assert!(sels.is_empty());
 }

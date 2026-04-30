@@ -205,7 +205,7 @@ fn parse_color(s: &str) -> Option<Color> {
 // ---------------------------------------------------------------------------
 
 bitflags! {
-    /// Kakoune wire-format attribute bitset for [`Face`].
+    /// Kakoune wire-format attribute bitset for [`WireFace`].
     ///
     /// Wire-format-only (ADR-031 Phase B3 Block F). New code uses the
     /// structured equivalents on [`Style`](super::style::Style):
@@ -323,7 +323,7 @@ impl Serialize for Attributes {
 }
 
 // ---------------------------------------------------------------------------
-// Face
+// WireFace
 // ---------------------------------------------------------------------------
 
 /// Kakoune wire-format face record.
@@ -333,9 +333,9 @@ impl Serialize for Attributes {
 /// input into a structured value. Once parsed, atoms carry an
 /// [`Arc<UnresolvedStyle>`](super::style::UnresolvedStyle) directly; downstream
 /// code (rendering, plugins, theme resolution) operates on
-/// [`Style`](super::style::Style) or `UnresolvedStyle`, never on `Face`.
+/// [`Style`](super::style::Style) or `UnresolvedStyle`, never on `WireFace`.
 ///
-/// New code should not construct or read `Face` outside the protocol parser
+/// New code should not construct or read `WireFace` outside the protocol parser
 /// and a small number of legacy bridges (kept under doc-hidden visibility
 /// until Block F's hard visibility downgrade lands). The only field that
 /// callers outside `protocol` legitimately need is the `attributes`
@@ -344,16 +344,16 @@ impl Serialize for Attributes {
 /// cursor atom; that is one of the few wire-format-aware code paths.
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Face {
+pub struct WireFace {
     pub fg: Color,
     pub bg: Color,
     pub underline: Color,
     pub attributes: Attributes,
 }
 
-impl Default for Face {
+impl Default for WireFace {
     fn default() -> Self {
-        Face {
+        WireFace {
             fg: Color::Default,
             bg: Color::Default,
             underline: Color::Default,
@@ -362,7 +362,7 @@ impl Default for Face {
     }
 }
 
-impl<'de> Deserialize<'de> for Face {
+impl<'de> Deserialize<'de> for WireFace {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -378,7 +378,7 @@ impl<'de> Deserialize<'de> for Face {
         }
 
         let h = FaceHelper::deserialize(deserializer)?;
-        Ok(Face {
+        Ok(WireFace {
             fg: h.fg,
             bg: h.bg,
             underline: h.underline,
@@ -387,13 +387,13 @@ impl<'de> Deserialize<'de> for Face {
     }
 }
 
-impl Serialize for Face {
+impl Serialize for WireFace {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("Face", 4)?;
+        let mut s = serializer.serialize_struct("WireFace", 4)?;
         s.serialize_field("fg", &self.fg)?;
         s.serialize_field("bg", &self.bg)?;
         s.serialize_field("underline", &self.underline)?;
@@ -403,13 +403,13 @@ impl Serialize for Face {
 }
 
 // ---------------------------------------------------------------------------
-// Face resolution
+// WireFace resolution
 // ---------------------------------------------------------------------------
 
 /// Resolve Default colors in an atom face against a base face.
 /// In Kakoune, `default` means "inherit from the containing context".
-pub fn resolve_face(atom_face: &Face, base: &Face) -> Face {
-    Face {
+pub fn resolve_face(atom_face: &WireFace, base: &WireFace) -> WireFace {
+    WireFace {
         fg: if atom_face.fg == Color::Default {
             base.fg
         } else {

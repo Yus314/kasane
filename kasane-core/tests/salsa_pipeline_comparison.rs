@@ -10,7 +10,7 @@ use kasane_core::plugin::{
     Contribution, LineAnnotation, PluginBackend, PluginCapabilities, PluginId, PluginRuntime,
     SlotId, TransformContext, TransformTarget,
 };
-use kasane_core::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
+use kasane_core::protocol::{Atom, Color, Coord, InfoStyle, MenuStyle, NamedColor, WireFace};
 use kasane_core::render::{CellGrid, render_pipeline, render_pipeline_cached};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
@@ -373,7 +373,7 @@ impl PluginBackend for BufferTransformPlugin {
                 Element::column(vec![
                     kasane_core::element::FlexChild::fixed(Element::text(
                         "~banner~",
-                        Face::default(),
+                        WireFace::default(),
                     )),
                     kasane_core::element::FlexChild::flexible(element, 1.0),
                 ])
@@ -407,9 +407,9 @@ impl PluginBackend for LineHighlightPlugin {
                 left_gutter: None,
                 right_gutter: None,
                 background: Some(BackgroundLayer {
-                    style: kasane_core::protocol::Style::from_face(&Face {
+                    style: kasane_core::protocol::Style::from_face(&WireFace {
                         bg: Color::Named(NamedColor::Blue),
-                        ..Face::default()
+                        ..WireFace::default()
                     }),
                     z_order: 0,
                     blend: BlendMode::Opaque,

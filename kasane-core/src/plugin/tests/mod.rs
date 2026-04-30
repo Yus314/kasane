@@ -2,7 +2,7 @@ use super::*;
 use crate::input::KeyEvent;
 use crate::layout::SplitDirection;
 use crate::plugin::Effects;
-use crate::protocol::Face;
+use crate::protocol::WireFace;
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::{Surface, SurfaceId};
 use crate::test_support::TestSurfaceBuilder;

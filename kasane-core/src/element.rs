@@ -7,7 +7,7 @@ use compact_str::CompactString;
 
 use crate::display::DisplayMapRef;
 use crate::layout::Rect;
-use crate::protocol::{Atom, Coord, Face, Line};
+use crate::protocol::{Atom, Coord, Line, WireFace};
 
 /// Source of image data for `Element::Image`.
 #[derive(Debug, Clone)]
@@ -215,9 +215,9 @@ impl StyleToken {
 /// or a semantic [`StyleToken`] that the renderer resolves through the
 /// active [`Theme`](crate::render::Theme).
 ///
-/// ADR-031 Phase B3 commit 3c: the legacy `Direct(Face)` variant is replaced
+/// ADR-031 Phase B3 commit 3c: the legacy `Direct(WireFace)` variant is replaced
 /// by `Inline(Arc<UnresolvedStyle>)` so the Element tree no longer holds
-/// `Face` directly. The `From<Face> for ElementStyle` impl preserves the
+/// `WireFace` directly. The `From<WireFace> for ElementStyle` impl preserves the
 /// callsite ergonomics.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ElementStyle {
@@ -226,8 +226,8 @@ pub enum ElementStyle {
 }
 
 #[doc(hidden)]
-impl From<Face> for ElementStyle {
-    fn from(face: Face) -> Self {
+impl From<WireFace> for ElementStyle {
+    fn from(face: WireFace) -> Self {
         ElementStyle::Inline(Arc::new(crate::protocol::UnresolvedStyle::from_face(&face)))
     }
 }
@@ -242,7 +242,7 @@ impl From<crate::protocol::Style> for ElementStyle {
     /// Wrap a post-resolve [`Style`](crate::protocol::Style) in an
     /// [`UnresolvedStyle`](crate::protocol::UnresolvedStyle) envelope with
     /// all `final_*` flags `false` (no further deferral expected). The
-    /// Phase B3 successor to `From<Face>` for plugin / host code that
+    /// Phase B3 successor to `From<WireFace>` for plugin / host code that
     /// already holds a `Style`.
     fn from(style: crate::protocol::Style) -> Self {
         ElementStyle::Inline(Arc::new(crate::protocol::UnresolvedStyle {
@@ -255,12 +255,12 @@ impl From<crate::protocol::Style> for ElementStyle {
 }
 
 impl ElementStyle {
-    /// Project the inline style back to a [`Face`], or `None` for token variants.
+    /// Project the inline style back to a [`WireFace`], or `None` for token variants.
     ///
-    /// Replaces the previous `face() -> Option<&Face>` accessor; the inline
+    /// Replaces the previous `face() -> Option<&WireFace>` accessor; the inline
     /// representation is now `Arc<UnresolvedStyle>`, so the projection is a
     /// (cheap) `to_face()` call rather than a borrow.
-    pub fn face(&self) -> Option<Face> {
+    pub fn face(&self) -> Option<WireFace> {
         match self {
             ElementStyle::Inline(arc) => Some(arc.to_face()),
             ElementStyle::Token(_) => None,
@@ -549,7 +549,7 @@ pub enum Element {
     BufferRef {
         line_range: Range<usize>,
         /// Per-line background overrides from plugins (indexed by line within range).
-        line_backgrounds: Option<Arc<Vec<Option<Face>>>>,
+        line_backgrounds: Option<Arc<Vec<Option<WireFace>>>>,
         /// Display transformation map (None = identity, no transformations).
         display_map: Option<DisplayMapRef>,
         /// Pane-specific state for multi-pane rendering. When `Some`, `paint_buffer_ref`
@@ -563,13 +563,13 @@ pub enum Element {
 }
 
 impl Element {
-    /// Construct a styled text element from a wire-format [`Face`].
+    /// Construct a styled text element from a wire-format [`WireFace`].
     ///
-    /// Wire-aware: the `Face` is wrapped in an `UnresolvedStyle` that
+    /// Wire-aware: the `WireFace` is wrapped in an `UnresolvedStyle` that
     /// preserves Kakoune's `final_*` resolution flags. New plugin /
     /// host code that already holds a [`Style`](crate::protocol::Style)
     /// should use [`Element::text_with_style`] instead.
-    pub fn text(s: impl Into<CompactString>, face: Face) -> Self {
+    pub fn text(s: impl Into<CompactString>, face: WireFace) -> Self {
         Element::Text(s.into(), ElementStyle::from(face))
     }
 
@@ -701,7 +701,7 @@ impl Element {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::Face;
+    use crate::protocol::WireFace;
 
     #[test]
     fn test_element_text() {
@@ -779,7 +779,7 @@ mod tests {
 
     #[test]
     fn test_element_container() {
-        let style = ElementStyle::from(Face::default());
+        let style = ElementStyle::from(WireFace::default());
         let el = Element::container(Element::Empty, style);
         match el {
             Element::Container {
@@ -823,7 +823,7 @@ mod tests {
 
     #[test]
     fn test_style_from_face() {
-        let face = Face::default();
+        let face = WireFace::default();
         let style = ElementStyle::from(face);
         assert!(matches!(style, ElementStyle::Inline(_)));
         assert_eq!(style.face(), Some(face));

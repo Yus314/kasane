@@ -259,7 +259,7 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
     // Now simulate editing 1 line with BUFFER|STATUS dirty
     let mut edited = state.clone();
     edited.observed.lines[10] = vec![kasane_core::protocol::Atom::from_wire(
-        kasane_core::protocol::Face::default(),
+        kasane_core::protocol::WireFace::default(),
         "EDITED_LINE",
     )];
     edited.inference.lines_dirty = vec![false; 23];
@@ -294,10 +294,10 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
 /// Bench: grid.clear() standalone — isolate O(w×h) clear cost from paint
 fn bench_grid_clear(c: &mut Criterion) {
     let mut group = c.benchmark_group("grid_clear");
-    let face = kasane_core::protocol::Face {
+    let face = kasane_core::protocol::WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..kasane_core::protocol::Face::default()
+        ..kasane_core::protocol::WireFace::default()
     };
     let term_style = kasane_core::render::TerminalStyle::from_face(&face);
 
@@ -463,13 +463,13 @@ fn bench_message_sequence(c: &mut Criterion) {
     let registry = PluginRuntime::new();
     let draw_status = kasane_core::protocol::KakouneRequest::DrawStatus {
         prompt: vec![kasane_core::protocol::Atom::from_wire(
-            kasane_core::protocol::Face::default(),
+            kasane_core::protocol::WireFace::default(),
             " INSERT ",
         )],
         content: Vec::new(),
         content_cursor_pos: -1,
         mode_line: vec![kasane_core::protocol::Atom::from_wire(
-            kasane_core::protocol::Face::default(),
+            kasane_core::protocol::WireFace::default(),
             "insert",
         )],
         default_style: kasane_core::protocol::default_unresolved_style(),
@@ -578,13 +578,13 @@ fn bench_state_apply(c: &mut Criterion) {
     {
         let request = kasane_core::protocol::KakouneRequest::DrawStatus {
             prompt: vec![kasane_core::protocol::Atom::from_wire(
-                kasane_core::protocol::Face::default(),
+                kasane_core::protocol::WireFace::default(),
                 " NORMAL ",
             )],
             content: Vec::new(),
             content_cursor_pos: -1,
             mode_line: vec![kasane_core::protocol::Atom::from_wire(
-                kasane_core::protocol::Face::default(),
+                kasane_core::protocol::WireFace::default(),
                 "normal",
             )],
             default_style: kasane_core::protocol::default_unresolved_style(),
@@ -605,7 +605,7 @@ fn bench_state_apply(c: &mut Criterion) {
         let items: Vec<kasane_core::protocol::Line> = (0..50)
             .map(|i| {
                 vec![kasane_core::protocol::Atom::from_wire(
-                    kasane_core::protocol::Face::default(),
+                    kasane_core::protocol::WireFace::default(),
                     format!("completion_{i}"),
                 )]
             })
@@ -955,14 +955,14 @@ fn bench_apply_draw_line_comparison(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 
 fn bench_detect_cursors_incremental(c: &mut Criterion) {
-    use kasane_core::protocol::{Atom, Attributes, Coord, Face};
+    use kasane_core::protocol::{Atom, Attributes, Coord, WireFace};
     use kasane_core::state::derived::{self, CursorCache};
 
     let mut state = typical_state(23);
     // Add a cursor atom on line 5 (simulates Kakoune's baked cursor face)
-    let cursor_face = Face {
+    let cursor_face = WireFace {
         attributes: Attributes::FINAL_FG | Attributes::REVERSE,
-        ..Face::default()
+        ..WireFace::default()
     };
     state.observed.lines[5] = vec![
         Atom {

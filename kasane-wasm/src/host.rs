@@ -6,7 +6,7 @@ use kasane_core::element::{
 };
 use kasane_core::plugin::PluginId;
 use kasane_core::plugin::setting::SettingValue;
-use kasane_core::protocol::{Coord, CursorMode, Face, Line};
+use kasane_core::protocol::{Coord, CursorMode, Line, WireFace};
 use kasane_core::state::{AppState, DirtyFlags, InfoState};
 use wasmtime_wasi::WasiCtxBuilder;
 
@@ -34,7 +34,7 @@ pub(crate) struct HostState {
     pub status_content: Line,
     pub status_line: Line,
     pub status_mode_line: Line,
-    pub status_default_face: Face,
+    pub status_default_style: kasane_core::protocol::Style,
     pub status_style: String,
 
     // --- v0.3.0 Tier 2: Menu / Info state ---
@@ -48,8 +48,8 @@ pub(crate) struct HostState {
     pub ui_options: std::collections::HashMap<String, String>,
     pub cursor_mode: u8,
     pub widget_columns: u16,
-    pub default_face: Face,
-    pub padding_face: Face,
+    pub default_style: kasane_core::protocol::Style,
+    pub padding_style: kasane_core::protocol::Style,
 
     // --- v0.4.0 Tier 4: Multi-cursor ---
     pub cursor_count: u32,
@@ -66,9 +66,9 @@ pub(crate) struct HostState {
 
     // --- v0.4.0 Tier 7: Menu details ---
     pub menu_anchor: Option<Coord>,
-    pub menu_style: Option<String>,
-    pub menu_face: Option<Face>,
-    pub menu_selected_face: Option<Face>,
+    pub menu_mode: Option<String>,
+    pub menu_style: Option<kasane_core::protocol::Style>,
+    pub menu_selected_style: Option<kasane_core::protocol::Style>,
 
     // --- v0.7.0 Tier 8: Session metadata ---
     pub session_descriptors: Vec<SessionDescriptorCache>,
@@ -134,7 +134,7 @@ impl Default for HostState {
             status_content: Vec::new(),
             status_line: Vec::new(),
             status_mode_line: Vec::new(),
-            status_default_face: Face::default(),
+            status_default_style: kasane_core::protocol::Style::default(),
             status_style: "status".into(),
             has_menu: false,
             menu_items: Vec::new(),
@@ -144,17 +144,17 @@ impl Default for HostState {
             ui_options: std::collections::HashMap::new(),
             cursor_mode: 0,
             widget_columns: 0,
-            default_face: Face::default(),
-            padding_face: Face::default(),
+            default_style: kasane_core::protocol::Style::default(),
+            padding_style: kasane_core::protocol::Style::default(),
             cursor_count: 0,
             secondary_cursors: Vec::new(),
             config_values: std::collections::HashMap::new(),
             settings: std::collections::HashMap::new(),
             infos: Vec::new(),
             menu_anchor: None,
+            menu_mode: None,
             menu_style: None,
-            menu_face: None,
-            menu_selected_face: None,
+            menu_selected_style: None,
             session_descriptors: Vec::new(),
             active_session_key: None,
             editor_mode: 0,
@@ -267,7 +267,7 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
         convert::atoms_to_wit(&self.status_mode_line)
     }
     fn get_status_default_style(&mut self) -> bindings::kasane::plugin::types::Style {
-        convert::face_to_wit(&self.status_default_face)
+        convert::style_to_wit(&self.status_default_style)
     }
     fn get_status_style(&mut self) -> String {
         self.status_style.clone()
@@ -306,10 +306,10 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
         self.widget_columns
     }
     fn get_default_style(&mut self) -> bindings::kasane::plugin::types::Style {
-        convert::face_to_wit(&self.default_face)
+        convert::style_to_wit(&self.default_style)
     }
     fn get_padding_style(&mut self) -> bindings::kasane::plugin::types::Style {
-        convert::face_to_wit(&self.padding_face)
+        convert::style_to_wit(&self.padding_style)
     }
 
     // --- v0.4.0 Tier 4: Multi-cursor ---
@@ -396,13 +396,13 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
         self.menu_anchor.map(|c| c.into())
     }
     fn get_menu_mode(&mut self) -> Option<String> {
-        self.menu_style.clone()
+        self.menu_mode.clone()
     }
     fn get_menu_style(&mut self) -> Option<bindings::kasane::plugin::types::Style> {
-        self.menu_face.map(|f| convert::face_to_wit(&f))
+        self.menu_style.as_ref().map(convert::style_to_wit)
     }
     fn get_menu_selected_style(&mut self) -> Option<bindings::kasane::plugin::types::Style> {
-        self.menu_selected_face.map(|f| convert::face_to_wit(&f))
+        self.menu_selected_style.as_ref().map(convert::style_to_wit)
     }
 
     // --- v0.7.0 Tier 8: Session metadata ---
@@ -616,7 +616,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             border: border.as_ref().map(convert::wit_border_to_border_config),
             shadow,
             padding: convert::wit_edges_to_edges(&padding),
-            style: ElementStyle::from(Face::default()),
+            style: ElementStyle::from(WireFace::default()),
             title: None,
         };
         self.store_element(element)
@@ -1009,7 +1009,7 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
         host.status_content = state.observed.status_content.clone();
         host.status_line = state.inference.status_line.clone();
         host.status_mode_line = state.observed.status_mode_line.clone();
-        host.status_default_face = state.observed.status_default_style.to_face();
+        host.status_default_style = state.observed.status_default_style.clone();
         host.status_style = convert::status_style_to_string(&state.observed.status_style);
     }
 
@@ -1020,16 +1020,16 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
             host.menu_items = menu.items.clone();
             host.menu_selected = menu.selected.map(|s| s as i32).unwrap_or(-1);
             host.menu_anchor = Some(menu.anchor);
-            host.menu_style = Some(convert::menu_style_to_string(&menu.style));
-            host.menu_face = Some(menu.menu_face.to_face());
-            host.menu_selected_face = Some(menu.selected_item_face.to_face());
+            host.menu_mode = Some(convert::menu_style_to_string(&menu.style));
+            host.menu_style = Some(menu.menu_face.clone());
+            host.menu_selected_style = Some(menu.selected_item_face.clone());
         } else {
             host.menu_items.clear();
             host.menu_selected = -1;
             host.menu_anchor = None;
-            host.menu_style = None;
-            host.menu_face = None;
-            host.menu_selected_face = None;
+            host.menu_mode = None;
+            host.menu_mode = None;
+            host.menu_selected_style = None;
         }
     }
 
@@ -1044,8 +1044,8 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
     if view_deps.intersects(DirtyFlags::OPTIONS) {
         host.ui_options.clone_from(&state.observed.ui_options);
         host.widget_columns = state.observed.widget_columns;
-        host.default_face = state.observed.default_style.to_face();
-        host.padding_face = state.observed.padding_style.to_face();
+        host.default_style = state.observed.default_style.clone();
+        host.padding_style = state.observed.padding_style.clone();
         host.theme = state.config.theme.clone();
         host.is_dark = state.inference.color_context.is_dark;
 

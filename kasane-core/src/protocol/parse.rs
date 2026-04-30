@@ -3,7 +3,7 @@ use serde::Deserialize;
 use simd_json::prelude::*;
 use thiserror::Error;
 
-use super::color::Face;
+use super::color::WireFace;
 use super::message::{Atom, KakouneRequest, Line, StatusStyle};
 
 // ---------------------------------------------------------------------------
@@ -27,14 +27,14 @@ pub enum ProtocolError {
 // ---------------------------------------------------------------------------
 //
 // `Atom` no longer derives `Deserialize` because its `style: Arc<UnresolvedStyle>`
-// is opaque to the wire format — Kakoune only knows about `Face`. Parsing
+// is opaque to the wire format — Kakoune only knows about `WireFace`. Parsing
 // lands in `WireAtom` (the legacy shape) and the parser converts it to
 // `Atom` by allocating an `Arc<UnresolvedStyle>` per distinct style in the
 // current request, so identical styles within a frame share an allocation.
 
 #[derive(Debug, Clone, Deserialize)]
 struct WireAtom {
-    face: Face,
+    face: WireFace,
     contents: CompactString,
 }
 
@@ -53,7 +53,7 @@ type Interner = std::collections::HashMap<
 
 fn intern_face(
     intern: &mut Interner,
-    face: &Face,
+    face: &WireFace,
 ) -> std::sync::Arc<super::style::UnresolvedStyle> {
     let unresolved = super::style::UnresolvedStyle::from_face(face);
     if let Some(arc) = intern.get(&unresolved) {
@@ -114,8 +114,8 @@ fn parse_method(
                 let (wire_lines, cursor_pos, default_face, padding_face, widget_columns): (
                     Vec<WireLine>,
                     _,
-                    Face,
-                    Face,
+                    WireFace,
+                    WireFace,
                     _,
                 ) = de_params(method, params)?;
                 Ok(KakouneRequest::Draw {
@@ -129,8 +129,8 @@ fn parse_method(
                 let (wire_lines, cursor_pos, default_face, padding_face): (
                     Vec<WireLine>,
                     _,
-                    Face,
-                    Face,
+                    WireFace,
+                    WireFace,
                 ) = de_params(method, params)?;
                 Ok(KakouneRequest::Draw {
                     lines: intern_lines(&mut intern, wire_lines),
@@ -154,7 +154,7 @@ fn parse_method(
                     wire_mode_line,
                     default_face,
                     style,
-                ): (WireLine, WireLine, _, WireLine, Face, _) = de_params(method, params)?;
+                ): (WireLine, WireLine, _, WireLine, WireFace, _) = de_params(method, params)?;
                 Ok(KakouneRequest::DrawStatus {
                     prompt: intern_line(&mut intern, wire_prompt),
                     content: intern_line(&mut intern, wire_content),
@@ -169,7 +169,7 @@ fn parse_method(
                     WireLine,
                     _,
                     WireLine,
-                    Face,
+                    WireFace,
                 ) = de_params(method, params)?;
                 Ok(KakouneRequest::DrawStatus {
                     prompt: intern_line(&mut intern, wire_prompt),
@@ -185,8 +185,8 @@ fn parse_method(
             let (wire_items, anchor, selected_item_face, menu_face, style): (
                 Vec<WireLine>,
                 _,
-                Face,
-                Face,
+                WireFace,
+                WireFace,
                 _,
             ) = de_params(method, params)?;
             Ok(KakouneRequest::MenuShow {
@@ -207,7 +207,7 @@ fn parse_method(
                 WireLine,
                 Vec<WireLine>,
                 _,
-                Face,
+                WireFace,
                 _,
             ) = de_params(method, params)?;
             Ok(KakouneRequest::InfoShow {

@@ -6,10 +6,10 @@ use kasane_core::plugin::{
     AppView, Command, ContributeContext, CursorEffect, IoEvent, OrnamentModality, ProcessEvent,
     StdinMode, SurfaceOrnAnchor, SurfaceOrnKind,
 };
-use kasane_core::protocol::{Atom, Face, KasaneRequest};
+use kasane_core::protocol::{Atom, KasaneRequest, WireFace};
 
 /// Test helper: build a `wit::Style` from the legacy face-equivalent
-/// fields. The legacy `Face` had four fields (fg, bg, underline,
+/// fields. The legacy `WireFace` had four fields (fg, bg, underline,
 /// attributes); the new `Style` has 12. This helper mirrors what
 /// `Style::from_face` does on the host side, letting test literals
 /// stay compact while exercising the WIT-level conversion path.
@@ -19,7 +19,7 @@ fn wit_style_from_face_fields(
     underline: wit::Brush,
     attributes: u16,
 ) -> wit::Style {
-    let face = Face {
+    let face = WireFace {
         fg: super::wit_brush_to_color(&fg),
         bg: super::wit_brush_to_color(&bg),
         underline: super::wit_brush_to_color(&underline),
@@ -779,7 +779,7 @@ fn convert_color_to_wit_named() {
 #[test]
 fn convert_face_roundtrip() {
     use kasane_core::protocol::Attributes;
-    let native = Face {
+    let native = WireFace {
         fg: Color::Named(NamedColor::Red),
         bg: Color::Rgb { r: 1, g: 2, b: 3 },
         underline: Color::Default,

@@ -474,7 +474,7 @@ impl<'a> PluginView<'a> {
 
         let mut left_rows: Vec<FlexChild> = Vec::with_capacity(line_count);
         let mut right_rows: Vec<FlexChild> = Vec::with_capacity(line_count);
-        let mut backgrounds: Vec<Option<crate::protocol::Face>> = vec![None; line_count];
+        let mut backgrounds: Vec<Option<crate::protocol::WireFace>> = vec![None; line_count];
         let mut inline_decorations: Vec<Option<crate::render::InlineDecoration>> =
             vec![None; line_count];
         let mut virtual_texts: Vec<Option<Vec<crate::protocol::Atom>>> = vec![None; line_count];
@@ -746,7 +746,7 @@ impl<'a> PluginView<'a> {
             right_parts.sort_by_key(|(prio, id, _)| (*prio, id.clone()));
 
             let left_cell = match left_parts.len() {
-                0 => Element::text(" ", crate::protocol::Face::default()),
+                0 => Element::text(" ", crate::protocol::WireFace::default()),
                 1 => left_parts.pop().unwrap().2,
                 _ => Element::row(
                     left_parts
@@ -758,7 +758,7 @@ impl<'a> PluginView<'a> {
             left_rows.push(FlexChild::fixed(left_cell));
 
             let right_cell = match right_parts.len() {
-                0 => Element::text(" ", crate::protocol::Face::default()),
+                0 => Element::text(" ", crate::protocol::WireFace::default()),
                 1 => right_parts.pop().unwrap().2,
                 _ => Element::row(
                     right_parts
@@ -780,9 +780,9 @@ impl<'a> PluginView<'a> {
                 vt_parts.sort_by_key(|(prio, id, _)| (*prio, id.clone()));
                 let separator = crate::protocol::Atom::with_style(
                     "  ",
-                    crate::protocol::Style::from_face(&crate::protocol::Face {
+                    crate::protocol::Style::from_face(&crate::protocol::WireFace {
                         attributes: crate::protocol::Attributes::DIM,
-                        ..crate::protocol::Face::default()
+                        ..crate::protocol::WireFace::default()
                     }),
                 );
                 let mut merged = Vec::new();

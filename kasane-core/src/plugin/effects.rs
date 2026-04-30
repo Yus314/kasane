@@ -147,7 +147,7 @@ impl Effects {
         }
 
         let mut set_config_last: HashMap<String, usize> = HashMap::new();
-        let mut merged_tokens: Vec<(String, crate::protocol::Face)> = Vec::new();
+        let mut merged_tokens: Vec<(String, crate::protocol::WireFace)> = Vec::new();
         let mut has_theme_tokens = false;
 
         // First pass: identify last SetConfig per key, merge RegisterThemeTokens

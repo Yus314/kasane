@@ -113,7 +113,7 @@ fn format_delta(before: u32, after: u32) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Face helpers (use SDK-generated functions via glob import)
+// WireFace helpers (use SDK-generated functions via glob import)
 // ---------------------------------------------------------------------------
 
 fn match_face_for_mode(mode: PromptMode) -> Style {

@@ -491,11 +491,11 @@ pub struct CellDiff {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Attributes, Color, Face, NamedColor, Style, resolve_face};
+    use crate::protocol::{Atom, Attributes, Color, NamedColor, Style, WireFace, resolve_face};
     use crate::test_utils::make_line;
 
-    fn default_face() -> Face {
-        Face::default()
+    fn default_face() -> WireFace {
+        WireFace::default()
     }
 
     fn default_style() -> TerminalStyle {
@@ -588,9 +588,9 @@ mod tests {
     #[test]
     fn test_clear() {
         let mut grid = CellGrid::new(3, 1);
-        let face = Face {
+        let face = WireFace {
             fg: Color::Named(NamedColor::Red),
-            ..Face::default()
+            ..WireFace::default()
         };
         grid.put_char(0, 0, "A", &TerminalStyle::from_face(&face));
         grid.clear(&TerminalStyle::default());
@@ -619,15 +619,15 @@ mod tests {
 
     #[test]
     fn test_resolve_face_fg_bg() {
-        let base = Face {
+        let base = WireFace {
             fg: Color::Named(NamedColor::Red),
             bg: Color::Named(NamedColor::Blue),
-            ..Face::default()
+            ..WireFace::default()
         };
-        let atom = Face {
+        let atom = WireFace {
             fg: Color::Default,
             bg: Color::Named(NamedColor::Green),
-            ..Face::default()
+            ..WireFace::default()
         };
         let resolved = resolve_face(&atom, &base);
         assert_eq!(resolved.fg, base.fg); // inherited
@@ -636,19 +636,19 @@ mod tests {
 
     #[test]
     fn test_resolve_face_underline() {
-        let base = Face {
+        let base = WireFace {
             underline: Color::Named(NamedColor::Red),
-            ..Face::default()
+            ..WireFace::default()
         };
         // Default underline inherits from base
-        let atom_default = Face::default();
+        let atom_default = WireFace::default();
         let resolved = resolve_face(&atom_default, &base);
         assert_eq!(resolved.underline, base.underline);
 
         // Explicit underline is kept
-        let atom_explicit = Face {
+        let atom_explicit = WireFace {
             underline: Color::Named(NamedColor::Green),
-            ..Face::default()
+            ..WireFace::default()
         };
         let resolved2 = resolve_face(&atom_explicit, &base);
         assert_eq!(resolved2.underline, atom_explicit.underline);
@@ -656,13 +656,13 @@ mod tests {
 
     #[test]
     fn test_resolve_face_attributes_merge() {
-        let base = Face {
+        let base = WireFace {
             attributes: Attributes::BOLD,
-            ..Face::default()
+            ..WireFace::default()
         };
-        let atom = Face {
+        let atom = WireFace {
             attributes: Attributes::ITALIC,
-            ..Face::default()
+            ..WireFace::default()
         };
         let resolved = resolve_face(&atom, &base);
         assert!(resolved.attributes.contains(Attributes::BOLD));
@@ -672,13 +672,13 @@ mod tests {
 
     #[test]
     fn test_resolve_face_attributes_final() {
-        let base = Face {
+        let base = WireFace {
             attributes: Attributes::BOLD,
-            ..Face::default()
+            ..WireFace::default()
         };
-        let atom = Face {
+        let atom = WireFace {
             attributes: Attributes::ITALIC | Attributes::FINAL_ATTR,
-            ..Face::default()
+            ..WireFace::default()
         };
         let resolved = resolve_face(&atom, &base);
         // FinalAttr means atom attributes replace base entirely
@@ -733,9 +733,9 @@ mod tests {
     #[test]
     fn test_put_line_newline_renders_as_space() {
         let mut grid = CellGrid::new(20, 1);
-        let face = Face {
+        let face = WireFace {
             attributes: Attributes::STRIKETHROUGH,
-            ..Face::default()
+            ..WireFace::default()
         };
         let line = vec![Atom::with_style("};\n", Style::from_face(&face))];
         let cols = grid.put_line(0, 0, &line, 20);

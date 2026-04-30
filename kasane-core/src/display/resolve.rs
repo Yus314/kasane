@@ -378,7 +378,7 @@ pub fn partition_by_category(set: &DirectiveSet) -> CategorizedDirectives {
 
 use std::collections::HashMap;
 
-use crate::protocol::Face;
+use crate::protocol::WireFace;
 use crate::render::inline_decoration::{InlineDecoration, InlineOp};
 
 /// Resolve inline directives from multiple plugins into per-line `InlineDecoration`.
@@ -419,7 +419,7 @@ pub fn resolve_inline(directives: &[TaggedDirective]) -> HashMap<usize, InlineDe
 /// Resolve inline directives for a single line.
 fn resolve_inline_line(directives: &[&TaggedDirective]) -> Vec<InlineOp> {
     let mut inserts: Vec<(usize, i16, &TaggedDirective)> = Vec::new();
-    let mut styles: Vec<(Range<usize>, Face, i16, &PluginId)> = Vec::new();
+    let mut styles: Vec<(Range<usize>, WireFace, i16, &PluginId)> = Vec::new();
     let mut hides: Vec<Range<usize>> = Vec::new();
 
     for td in directives {
@@ -508,9 +508,9 @@ fn merge_ranges(ranges: &mut [Range<usize>]) -> Vec<Range<usize>> {
 /// for each segment between consecutive boundaries, layer the applicable
 /// styles by priority (higher priority = applied last via resolve_face).
 fn resolve_style_overlaps(
-    styles: &[(Range<usize>, Face, i16, &PluginId)],
+    styles: &[(Range<usize>, WireFace, i16, &PluginId)],
     hidden: &[Range<usize>],
-) -> Vec<(Range<usize>, Face)> {
+) -> Vec<(Range<usize>, WireFace)> {
     if styles.is_empty() {
         return Vec::new();
     }
@@ -546,7 +546,7 @@ fn resolve_style_overlaps(
         }
 
         // Collect all styles that cover this segment, sorted by priority ascending
-        let mut applicable: Vec<(i16, &PluginId, Face)> = styles
+        let mut applicable: Vec<(i16, &PluginId, WireFace)> = styles
             .iter()
             .filter(|(range, _, _, _)| range.start <= seg_start && seg_end <= range.end)
             .map(|(_, face, priority, plugin_id)| (*priority, *plugin_id, *face))
@@ -569,7 +569,7 @@ fn resolve_style_overlaps(
     }
 
     // Merge adjacent segments with the same face
-    let mut merged: Vec<(Range<usize>, Face)> = Vec::new();
+    let mut merged: Vec<(Range<usize>, WireFace)> = Vec::new();
     for (range, face) in result {
         if let Some(last) = merged.last_mut()
             && last.0.end == range.start

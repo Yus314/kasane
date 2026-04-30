@@ -4,7 +4,7 @@ wit_bindgen::generate!({
 });
 
 use exports::kasane::bench::plugin_api::{
-    Color, Face, FaceColor, Guest, GutterResult, LineDecoration, TextElement,
+    Color, WireFace, FaceColor, Guest, GutterResult, LineDecoration, TextElement,
 };
 
 struct BenchPlugin;
@@ -27,7 +27,7 @@ impl Guest for BenchPlugin {
                 let width = width.max(2);
                 TextElement {
                     content: format!("{:>w$} ", i, w = width),
-                    face: Face {
+                    face: WireFace {
                         fg: FaceColor::Rgb(Color {
                             r: 0,
                             g: 200,

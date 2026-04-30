@@ -10,7 +10,7 @@ use crate::display::{DisplayLine, DisplayMap, SourceMapping, SyntheticContent};
 use crate::element::{BorderLineStyle, BufferRefState, Element};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
-use crate::protocol::{Atom, Face, Style};
+use crate::protocol::{Atom, Style, WireFace};
 use crate::render::InlineDecoration;
 use crate::state::AppState;
 
@@ -50,7 +50,7 @@ pub fn paint_themed(
     );
 }
 
-pub(crate) fn paint_text(grid: &mut CellGrid, area: &Rect, text: &str, face: &Face) {
+pub(crate) fn paint_text(grid: &mut CellGrid, area: &Rect, text: &str, face: &WireFace) {
     let style = TerminalStyle::from_face(face);
     let mut x = area.x;
     let limit = area.x + area.w;
@@ -184,7 +184,7 @@ pub(crate) fn analyze_buffer_line<'a>(
     params: &'a BufferRefParams<'a>,
     display_line: usize,
     display_map: Option<&'a DisplayMap>,
-    line_backgrounds: Option<&[Option<Face>]>,
+    line_backgrounds: Option<&[Option<WireFace>]>,
     inline_decorations: Option<&[Option<InlineDecoration>]>,
     virtual_text: Option<&'a [Option<Vec<Atom>>]>,
     skip_clean: bool,
@@ -306,7 +306,7 @@ pub(crate) fn analyze_buffer_line<'a>(
 #[derive(Default)]
 pub(crate) struct BufferPaintContext<'a> {
     pub buffer_state: Option<&'a BufferRefState>,
-    pub line_backgrounds: Option<&'a [Option<Face>]>,
+    pub line_backgrounds: Option<&'a [Option<WireFace>]>,
     pub display_map: Option<&'a DisplayMap>,
     pub inline_decorations: Option<&'a [Option<InlineDecoration>]>,
     pub virtual_text: Option<&'a [Option<Vec<Atom>>]>,
@@ -386,7 +386,7 @@ pub(crate) fn paint_buffer_ref(
 pub(crate) fn paint_border(
     grid: &mut CellGrid,
     area: &Rect,
-    face: &Face,
+    face: &WireFace,
     truncated: bool,
     border_style: BorderLineStyle,
 ) {
@@ -465,7 +465,7 @@ pub(crate) fn paint_border(
 pub(crate) fn paint_border_title(
     grid: &mut CellGrid,
     area: &Rect,
-    face: &Face,
+    face: &WireFace,
     title: &[crate::protocol::Atom],
 ) {
     use crate::layout::line_display_width;
@@ -493,7 +493,7 @@ pub(crate) fn paint_border_title(
     }
 }
 
-pub(crate) fn paint_shadow(grid: &mut CellGrid, area: &Rect, shadow_face: &Face) {
+pub(crate) fn paint_shadow(grid: &mut CellGrid, area: &Rect, shadow_face: &WireFace) {
     let style = TerminalStyle::from_face(shadow_face);
     // Right shadow (1 cell wide)
     let sx = area.x + area.w;
@@ -524,7 +524,7 @@ mod tests {
         OverlayAnchor,
     };
     use crate::layout::flex::place;
-    use crate::protocol::{Face, Style};
+    use crate::protocol::{Style, WireFace};
     use crate::test_utils::*;
 
     #[test]
@@ -587,7 +587,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: ElementStyle::from(Face::default()),
+            style: ElementStyle::from(WireFace::default()),
             title: None,
         };
         let area = Rect {
@@ -641,7 +641,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: ElementStyle::from(Face::default()),
+            style: ElementStyle::from(WireFace::default()),
             title: Some(make_line("Hi")),
         };
         let area = Rect {
@@ -711,7 +711,7 @@ mod tests {
             border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
-            style: ElementStyle::from(Face::default()),
+            style: ElementStyle::from(WireFace::default()),
             title: None,
         };
         let area = Rect {
@@ -802,9 +802,9 @@ mod tests {
         use crate::display::{DisplayDirective, DisplayMap};
         let lines = vec![make_line("line0"), make_line("line1"), make_line("line2")];
         let params = make_params(&lines, &[]);
-        let syn_face = Face {
+        let syn_face = WireFace {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
-            ..Face::default()
+            ..WireFace::default()
         };
         let dm = DisplayMap::build(
             3,
@@ -865,9 +865,9 @@ mod tests {
         use crate::render::inline_decoration::InlineOp;
         let lines = vec![make_line("hello")];
         let params = make_params(&lines, &[]);
-        let deco_face = Face {
+        let deco_face = WireFace {
             fg: crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
-            ..Face::default()
+            ..WireFace::default()
         };
         let deco = InlineDecoration::new(vec![InlineOp::Style {
             range: 0..5,
@@ -901,11 +901,11 @@ mod tests {
     fn analyze_line_background_override() {
         let lines = vec![make_line("hello")];
         let params = make_params(&lines, &[]);
-        let bg_face = Face {
+        let bg_face = WireFace {
             bg: crate::protocol::Color::Rgb { r: 0, g: 0, b: 128 },
-            ..Face::default()
+            ..WireFace::default()
         };
-        let bgs: Vec<Option<Face>> = vec![Some(bg_face)];
+        let bgs: Vec<Option<WireFace>> = vec![Some(bg_face)];
         match analyze_buffer_line(&params, 0, None, Some(&bgs), None, None, false) {
             BufferLineAction::BufferLine { base_style, .. } => {
                 assert_eq!(base_style, Style::from_face(&bg_face));
@@ -922,9 +922,9 @@ mod tests {
     fn analyze_virtual_text_attached() {
         let lines = vec![make_line("hello")];
         let params = make_params(&lines, &[]);
-        let vt_face = Face {
+        let vt_face = WireFace {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
-            ..Face::default()
+            ..WireFace::default()
         };
         let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::with_style(
             "  err",
@@ -1000,9 +1000,9 @@ mod tests {
         state.runtime.cols = 20;
         state.runtime.rows = 3;
 
-        let vt_face = Face {
+        let vt_face = WireFace {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
-            ..Face::default()
+            ..WireFace::default()
         };
         let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::with_style(
             "  err",
@@ -1082,9 +1082,9 @@ mod tests {
         state.runtime.cols = 20;
         state.runtime.rows = 1;
 
-        let deco_face = Face {
+        let deco_face = WireFace {
             fg: crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
-            ..Face::default()
+            ..WireFace::default()
         };
         let deco = InlineDecoration::new(vec![InlineOp::Style {
             range: 0..5,
@@ -1092,9 +1092,9 @@ mod tests {
         }]);
         let decos: Vec<Option<InlineDecoration>> = vec![Some(deco)];
 
-        let vt_face = Face {
+        let vt_face = WireFace {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
-            ..Face::default()
+            ..WireFace::default()
         };
         let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::with_style(
             " vt",

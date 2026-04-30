@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use crate::element::{Direction, OverlayAnchor};
 use crate::plugin::{AppView, LineAnnotation, PluginBackend, PluginId, PluginRuntime, SlotId};
-use crate::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
+use crate::protocol::{Atom, Color, Coord, InfoStyle, MenuStyle, NamedColor, WireFace};
 use crate::state::AppState;
 use crate::surface::{
     SurfaceId, SurfaceRegistry, buffer::KakouneBufferSurface, status::StatusBarSurface,
@@ -101,10 +101,10 @@ fn test_view_with_info() {
 #[test]
 fn test_status_bar_resolves_default_face() {
     let mut state = AppState::default();
-    state.observed.status_default_style = Face {
+    state.observed.status_default_style = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Magenta),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     // Atoms with Color::Default — should be resolved to status_default_face colors

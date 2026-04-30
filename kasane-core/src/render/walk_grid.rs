@@ -14,7 +14,7 @@ use super::walk::{ContainerPaintInfo, PaintVisitor};
 use crate::display::DisplayMap;
 use crate::element::{BufferRefState, ImageFit, ImageSource, StyleToken};
 use crate::layout::Rect;
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, WireFace};
 use crate::state::AppState;
 
 /// PaintVisitor that writes to a CellGrid (TUI rendering).
@@ -46,7 +46,7 @@ impl<'a> GridPaintVisitor<'a> {
 }
 
 impl PaintVisitor for GridPaintVisitor<'_> {
-    fn visit_text(&mut self, text: &str, face: &Face, area: Rect) {
+    fn visit_text(&mut self, text: &str, face: &WireFace, area: Rect) {
         paint_text(self.grid, &area, text, face);
     }
 
@@ -88,7 +88,7 @@ impl PaintVisitor for GridPaintVisitor<'_> {
         line_range: Range<usize>,
         state: &AppState,
         buffer_state: Option<&BufferRefState>,
-        line_backgrounds: Option<&[Option<Face>]>,
+        line_backgrounds: Option<&[Option<WireFace>]>,
         display_map: Option<&DisplayMap>,
         inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
         virtual_text: Option<&[Option<Vec<Atom>>]>,
@@ -111,9 +111,9 @@ impl PaintVisitor for GridPaintVisitor<'_> {
     fn visit_container_pre(&mut self, info: &ContainerPaintInfo) {
         // Shadow (drawn first, behind the container)
         if info.shadow {
-            let shadow_fallback = crate::protocol::Style::from_face(&Face {
+            let shadow_fallback = crate::protocol::Style::from_face(&WireFace {
                 attributes: crate::protocol::Attributes::DIM,
-                ..Face::default()
+                ..WireFace::default()
             });
             let shadow_face = self
                 .theme

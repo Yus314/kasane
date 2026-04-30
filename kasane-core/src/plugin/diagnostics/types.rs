@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::protocol::Face;
+use crate::protocol::WireFace;
 
 use super::scoring::{
     OverlayBucket, collect_diagnostic_overlay_buckets, merge_overlay_buckets,
@@ -183,7 +183,7 @@ pub struct PluginDiagnosticOverlayTextRun {
     pub x: u16,
     pub y: u16,
     pub text: String,
-    pub face: Face,
+    pub face: WireFace,
     pub max_width: u16,
 }
 
@@ -197,15 +197,15 @@ pub struct PluginDiagnosticOverlayShadowSpec {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PluginDiagnosticOverlayPaintSpec {
     pub layout: PluginDiagnosticOverlayLayout,
-    pub header_face: Face,
-    pub body_face: Face,
-    pub border_face: Face,
+    pub header_face: WireFace,
+    pub body_face: WireFace,
+    pub border_face: WireFace,
     pub shadow: Option<PluginDiagnosticOverlayShadowSpec>,
     pub text_runs: Vec<PluginDiagnosticOverlayTextRun>,
 }
 
 pub trait PluginDiagnosticOverlayPainter {
-    fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, face: Face);
-    fn draw_border(&mut self, x: u16, y: u16, width: u16, height: u16, face: Face);
+    fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, face: WireFace);
+    fn draw_border(&mut self, x: u16, y: u16, width: u16, height: u16, face: WireFace);
     fn draw_text_run(&mut self, run: &PluginDiagnosticOverlayTextRun);
 }

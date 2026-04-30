@@ -521,7 +521,7 @@ impl SceneRenderer {
     }
 
     /// Emit decoration instances for a style's `underline` / `strikethrough`
-    /// records. Reads the post-resolve [`Style`] directly — no Face / bitflag
+    /// records. Reads the post-resolve [`Style`] directly — no WireFace / bitflag
     /// projection.
     fn emit_decorations(
         &mut self,
@@ -773,7 +773,7 @@ impl SceneRenderer {
         //    needed) and shape it once via Parley. The L1 LayoutCache
         //    returns the same `Arc<ParleyLayout>` on cursor-only frames
         //    where the line text + style + width + size are unchanged.
-        //    Direct `Style` clone — no Style → Face → Style round-trip.
+        //    Direct `Style` clone — no Style → WireFace → Style round-trip.
         let kasane_atoms: Vec<Atom> = para
             .atoms
             .iter()
@@ -793,7 +793,8 @@ impl SceneRenderer {
             (base_visual_fg[2].clamp(0.0, 1.0) * 255.0).round() as u8,
             (base_visual_fg[3].clamp(0.0, 1.0) * 255.0).round() as u8,
         );
-        let mut line = StyledLine::from_atoms(
+        let mut line = StyledLine::from_atoms_with_scratch(
+            &mut self.styled_line_scratch,
             &kasane_atoms,
             &Style::default(),
             fallback_brush,
@@ -878,7 +879,7 @@ impl SceneRenderer {
         for i in 0..atom_count {
             // Pick the per-atom style (cursor-stripped if the cursor
             // sits on this atom). Stays in `Style`-space; only the
-            // decoration call below projects to `Face` for its
+            // decoration call below projects to `WireFace` for its
             // bitflags-based attribute checks.
             let style: &Style = if clear_cursor_atom_idx == Some(i) {
                 &para.base_face

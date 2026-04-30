@@ -3,7 +3,7 @@ use kasane_core::kasane_plugin;
 #[kasane_plugin]
 mod icon_plugin {
     use kasane_core::plugin::AppView;
-    use kasane_core::protocol::{Atom, Face};
+    use kasane_core::protocol::{Atom, WireFace};
 
     #[state]
     #[derive(Default)]
@@ -24,7 +24,7 @@ mod icon_plugin {
 
 fn main() {
     use kasane_core::plugin::{AppView, PluginBackend};
-    use kasane_core::protocol::{Atom, Face};
+    use kasane_core::protocol::{Atom, WireFace};
     use kasane_core::state::AppState;
 
     let plugin = IconPluginPlugin::new();

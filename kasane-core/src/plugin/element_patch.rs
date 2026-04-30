@@ -21,7 +21,7 @@
 use std::sync::Arc;
 
 use crate::element::{Align, Direction, Element, ElementStyle, FlexChild, OverlayAnchor};
-use crate::protocol::Face;
+use crate::protocol::WireFace;
 use crate::widget::predicate::Predicate;
 
 use super::context::{FaceMerge, TransformContext, TransformScope, TransformSubject};
@@ -264,7 +264,7 @@ impl ElementPatch {
 
             Self::WrapContainer { style: _ } => {
                 // Wrap element in a Flex container.
-                // Face styling is carried in the patch for the rendering pipeline;
+                // WireFace styling is carried in the patch for the rendering pipeline;
                 // structural wrapping is applied here.
                 subject.map_element(|el| Element::Flex {
                     direction: Direction::Column,
@@ -402,7 +402,7 @@ fn scope_impact(scope: &TransformScope) -> u8 {
 }
 
 /// Best-effort face overlay on an element's styled content.
-fn overlay_face_on_element(el: Element, face: &Face) -> Element {
+fn overlay_face_on_element(el: Element, face: &WireFace) -> Element {
     match el {
         Element::Text(text, style) => {
             let new_style = match style {
@@ -439,7 +439,7 @@ fn overlay_face_on_element(el: Element, face: &Face) -> Element {
 mod tests {
     use super::*;
     use crate::element::Element;
-    use crate::protocol::{Color, Face, NamedColor};
+    use crate::protocol::{Color, NamedColor, WireFace};
 
     fn sample_element() -> Element {
         Element::plain_text("hello")
@@ -707,9 +707,9 @@ mod tests {
         use crate::protocol::Atom;
         let atoms = vec![Atom::plain("test")];
         let subject = TransformSubject::Element(Element::StyledLine(atoms));
-        let overlay = Arc::new(crate::protocol::UnresolvedStyle::from_face(&Face {
+        let overlay = Arc::new(crate::protocol::UnresolvedStyle::from_face(&WireFace {
             fg: Color::Named(NamedColor::Red),
-            ..Face::default()
+            ..WireFace::default()
         }));
         let result = ElementPatch::ModifyStyle { overlay }.apply(subject);
         match result.into_element() {

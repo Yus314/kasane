@@ -178,21 +178,21 @@ mod tests {
 
     #[test]
     fn multi_run_line_shapes() {
-        use kasane_core::protocol::{Color, Face, NamedColor};
+        use kasane_core::protocol::{Color, NamedColor, WireFace};
         let mut text = ParleyText::new(&FontConfig::default());
         let atoms = vec![
             Atom::with_style(
                 "red ",
-                Style::from_face(&Face {
+                Style::from_face(&WireFace {
                     fg: Color::Named(NamedColor::Red),
-                    ..Face::default()
+                    ..WireFace::default()
                 }),
             ),
             Atom::with_style(
                 "blue",
-                Style::from_face(&Face {
+                Style::from_face(&WireFace {
                     fg: Color::Named(NamedColor::Blue),
-                    ..Face::default()
+                    ..WireFace::default()
                 }),
             ),
         ];

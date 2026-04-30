@@ -730,7 +730,7 @@ mod inline_box_dispatch_tests {
     use crate::plugin::handler_registry::HandlerRegistry;
     use crate::plugin::state::Plugin;
     use crate::plugin::{PluginId, PluginRuntime};
-    use crate::protocol::{Color, Face, NamedColor};
+    use crate::protocol::{Color, NamedColor, WireFace};
     use crate::render::CursorStyle;
     use crate::render::inline_decoration::InlineBoxSlotMeta;
     use crate::render::scene::{
@@ -754,9 +754,9 @@ mod inline_box_dispatch_tests {
                 if box_id == 0xCAFE {
                     Some(Element::text(
                         "X",
-                        Face {
+                        WireFace {
                             bg: Color::Named(NamedColor::Magenta),
-                            ..Face::default()
+                            ..WireFace::default()
                         },
                     ))
                 } else {

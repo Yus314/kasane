@@ -15,7 +15,7 @@ use super::walk::{ContainerPaintInfo, PaintVisitor};
 use crate::display::DisplayMap;
 use crate::element::{BufferRefState, ImageFit, ImageSource, StyleToken};
 use crate::layout::Rect;
-use crate::protocol::{Atom, Face, Style};
+use crate::protocol::{Atom, Style, WireFace};
 use crate::state::AppState;
 
 /// PaintVisitor that emits `DrawCommand`s (GPU rendering).
@@ -66,7 +66,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         });
     }
 
-    fn visit_text(&mut self, text: &str, face: &Face, area: Rect) {
+    fn visit_text(&mut self, text: &str, face: &WireFace, area: Rect) {
         let pr = to_pixel_rect(&area, self.cell_size);
         self.out.push(DrawCommand::DrawText {
             pos: PixelPos { x: pr.x, y: pr.y },
@@ -94,7 +94,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         line_range: Range<usize>,
         state: &AppState,
         buffer_state: Option<&BufferRefState>,
-        line_backgrounds: Option<&[Option<Face>]>,
+        line_backgrounds: Option<&[Option<WireFace>]>,
         display_map: Option<&DisplayMap>,
         inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
         virtual_text: Option<&[Option<Vec<Atom>>]>,

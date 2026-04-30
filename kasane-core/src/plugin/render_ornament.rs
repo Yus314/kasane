@@ -1,5 +1,5 @@
 use crate::plugin::CellDecoration;
-use crate::protocol::{Color, Face};
+use crate::protocol::{Color, WireFace};
 use crate::render::{CursorStyle, CursorStyleHint};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -105,7 +105,7 @@ pub enum CursorEffect {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CursorEffectOrn {
     pub kind: CursorEffect,
-    pub face: Face,
+    pub face: WireFace,
     pub priority: i16,
     pub modality: OrnamentModality,
 }
@@ -136,7 +136,7 @@ pub enum SurfaceOrnKind {
 pub struct SurfaceOrn {
     pub anchor: SurfaceOrnAnchor,
     pub kind: SurfaceOrnKind,
-    pub face: Face,
+    pub face: WireFace,
     pub priority: i16,
     pub modality: OrnamentModality,
 }

@@ -1,6 +1,6 @@
 //! Default inference strategy that delegates to the existing free functions.
 
-use crate::protocol::{Coord, CursorMode, Face, Line};
+use crate::protocol::{Coord, CursorMode, Line, WireFace};
 
 use super::cursor::CursorCache;
 use super::selection::Selection;
@@ -30,7 +30,7 @@ impl InferenceStrategy for DefaultInferenceStrategy {
         lines: &[Line],
         primary_cursor_pos: Coord,
         secondary_cursors: &[Coord],
-        default_face: &Face,
+        default_face: &WireFace,
     ) -> Vec<Selection> {
         super::detect_selections(lines, primary_cursor_pos, secondary_cursors, default_face)
     }

@@ -6,17 +6,17 @@
 //! - `\{`          — literal `{`
 //! - Any text outside braces is rendered with the current face
 //!
-//! Face spec format: `fg,bg+attrs` (see `render::theme::parse_face_spec`).
+//! WireFace spec format: `fg,bg+attrs` (see `render::theme::parse_face_spec`).
 
 use compact_str::CompactString;
 
-use crate::protocol::{Atom, Face, Line, Style};
+use crate::protocol::{Atom, Line, Style, WireFace};
 use crate::render::theme::parse_face_spec;
 
 /// Parse a markup string into a vector of Atoms.
 ///
 /// The `base` face is used as the starting face and for `{default}`.
-pub fn parse_markup(input: &str, base: &Face) -> Line {
+pub fn parse_markup(input: &str, base: &WireFace) -> Line {
     let mut atoms: Vec<Atom> = Vec::new();
     let mut current_face = *base;
     let mut current_text = CompactString::default();
@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn test_plain_text() {
-        let base = Face::default();
+        let base = WireFace::default();
         let atoms = parse_markup("hello world", &base);
         assert_eq!(atoms.len(), 1);
         assert_eq!(atoms[0].contents, "hello world");
@@ -84,7 +84,7 @@ mod tests {
 
     #[test]
     fn test_single_face() {
-        let base = Face::default();
+        let base = WireFace::default();
         let atoms = parse_markup("{red,blue}colored", &base);
         assert_eq!(atoms.len(), 1);
         assert_eq!(atoms[0].contents, "colored");
@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn test_face_then_default() {
-        let base = Face::default();
+        let base = WireFace::default();
         let atoms = parse_markup("{green,default}ok{default} done", &base);
         assert_eq!(atoms.len(), 2);
         assert_eq!(atoms[0].contents, "ok");
@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_attributes() {
-        let base = Face::default();
+        let base = WireFace::default();
         let atoms = parse_markup("{default,default+b}bold", &base);
         assert_eq!(atoms.len(), 1);
         assert!(
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn test_escaped_brace() {
-        let base = Face::default();
+        let base = WireFace::default();
         let atoms = parse_markup("use \\{braces\\}", &base);
         assert_eq!(atoms.len(), 1);
         assert_eq!(atoms[0].contents, "use {braces}");
@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn test_multiple_faces() {
-        let base = Face::default();
+        let base = WireFace::default();
         let atoms = parse_markup("{red,default}err{yellow,default}warn{default}ok", &base);
         assert_eq!(atoms.len(), 3);
         assert_eq!(
@@ -152,14 +152,14 @@ mod tests {
 
     #[test]
     fn test_empty_input() {
-        let base = Face::default();
+        let base = WireFace::default();
         let atoms = parse_markup("", &base);
         assert!(atoms.is_empty());
     }
 
     #[test]
     fn test_empty_spec_resets() {
-        let base = Face::default();
+        let base = WireFace::default();
         let atoms = parse_markup("{red,default}colored{}reset", &base);
         assert_eq!(atoms.len(), 2);
         assert_eq!(atoms[1].unresolved_style().to_face(), base);

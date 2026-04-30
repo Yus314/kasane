@@ -5,7 +5,7 @@ use std::time::Duration;
 use bitflags::bitflags;
 
 use crate::input::InputEvent;
-use crate::protocol::{Face, KasaneRequest};
+use crate::protocol::{KasaneRequest, WireFace};
 use crate::session::{SessionCommand, SessionId};
 use crate::state::DirtyFlags;
 use crate::state::DragState;
@@ -162,7 +162,7 @@ pub enum Command {
         surface_key: String,
     },
     /// Register custom theme tokens with default faces.
-    RegisterThemeTokens(Vec<(String, Face)>),
+    RegisterThemeTokens(Vec<(String, WireFace)>),
     /// Spawn an external process.
     SpawnProcess {
         job_id: u64,

@@ -82,7 +82,7 @@ pub trait Plugin: Send + 'static {
 pub(in crate::plugin) mod tests {
     use super::*;
     use crate::plugin::{BackgroundLayer, BlendMode, Effects, HandlerRegistry, PluginId};
-    use crate::protocol::{Color, Face, NamedColor};
+    use crate::protocol::{Color, NamedColor, WireFace};
     use crate::state::DirtyFlags;
 
     // ---- CursorLinePure test double ----
@@ -116,9 +116,9 @@ pub(in crate::plugin) mod tests {
             r.on_annotate_background(|state, line, _app, _ctx| {
                 if line as i32 == state.active_line {
                     Some(BackgroundLayer {
-                        style: crate::protocol::Style::from_face(&Face {
+                        style: crate::protocol::Style::from_face(&WireFace {
                             bg: Color::Named(NamedColor::Blue),
-                            ..Face::default()
+                            ..WireFace::default()
                         }),
                         z_order: 0,
                         blend: BlendMode::Opaque,
@@ -171,9 +171,9 @@ pub(in crate::plugin) mod tests {
             r.on_annotate_background(|state, line, _app, _ctx| {
                 if state.color_lines.contains_key(&line) {
                     Some(BackgroundLayer {
-                        style: crate::protocol::Style::from_face(&Face {
+                        style: crate::protocol::Style::from_face(&WireFace {
                             bg: Color::Named(NamedColor::Green),
-                            ..Face::default()
+                            ..WireFace::default()
                         }),
                         z_order: 0,
                         blend: BlendMode::Opaque,

@@ -154,14 +154,14 @@ fn test_collect_ornaments() {
             cursor_position: None,
             cursor_effects: vec![CursorEffectOrn {
                 kind: CursorEffect::Halo,
-                face: crate::protocol::Face::default(),
+                face: crate::protocol::WireFace::default(),
                 priority: 15,
                 modality: OrnamentModality::Approximate,
             }],
             surfaces: vec![SurfaceOrn {
                 anchor: SurfaceOrnAnchor::FocusedSurface,
                 kind: SurfaceOrnKind::FocusFrame,
-                face: crate::protocol::Face::default(),
+                face: crate::protocol::WireFace::default(),
                 priority: 30,
                 modality: OrnamentModality::Must,
             }],
@@ -193,7 +193,7 @@ fn test_cursor_style_does_not_compete_with_effects() {
             cursor_position: None,
             cursor_effects: vec![CursorEffectOrn {
                 kind: CursorEffect::Halo,
-                face: crate::protocol::Face::default(),
+                face: crate::protocol::WireFace::default(),
                 priority: 20,
                 modality: OrnamentModality::Must,
             }],
@@ -236,7 +236,7 @@ fn test_cursor_effects_accumulate() {
             OrnamentBatch {
                 cursor_effects: vec![CursorEffectOrn {
                     kind: self.effect,
-                    face: crate::protocol::Face::default(),
+                    face: crate::protocol::WireFace::default(),
                     priority: 10,
                     modality: OrnamentModality::Approximate,
                 }],

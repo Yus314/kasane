@@ -43,7 +43,7 @@ pub use validation::{
 
 pub use default_strategy::DefaultInferenceStrategy;
 
-use crate::protocol::{Coord, CursorMode, Face, Line};
+use crate::protocol::{Coord, CursorMode, Line, WireFace};
 
 /// Parsed editor mode derived from cursor mode and status mode line.
 ///
@@ -93,7 +93,7 @@ pub trait InferenceStrategy: Send + Sync {
         lines: &[Line],
         primary_cursor_pos: Coord,
         secondary_cursors: &[Coord],
-        default_face: &Face,
+        default_face: &WireFace,
     ) -> Vec<Selection>;
 
     /// Derive editor mode from cursor mode and status mode line (I-2).

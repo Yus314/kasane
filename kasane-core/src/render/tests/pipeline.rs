@@ -3,7 +3,7 @@ use super::super::*;
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::plugin::PluginRuntime;
-use crate::protocol::{Atom, Color, Face, NamedColor, Style};
+use crate::protocol::{Atom, Color, NamedColor, Style, WireFace};
 use crate::state::AppState;
 use crate::test_utils::make_line;
 
@@ -14,33 +14,33 @@ fn test_treesitter_rgb_colors_preserved() {
     let mut state = AppState::default();
     state.runtime.cols = 40;
     state.runtime.rows = 5;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
     state.observed.status_default_style = state.observed.default_style.clone();
 
     // Simulate tree-sitter: atoms with explicit RGB fg, Default bg
-    let keyword_face = Face {
+    let keyword_face = WireFace {
         fg: Color::Rgb {
             r: 255,
             g: 100,
             b: 0,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
-    let string_face = Face {
+    let string_face = WireFace {
         fg: Color::Rgb {
             r: 0,
             g: 200,
             b: 100,
         },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
     let ts_line = vec![
         Atom::with_style("fn", Style::from_face(&keyword_face)),
@@ -150,19 +150,19 @@ fn test_treesitter_colors_persist_across_frames() {
     let mut state = AppState::default();
     state.runtime.cols = 20;
     state.runtime.rows = 3;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
     state.observed.status_default_style = state.observed.default_style.clone();
 
-    let keyword_face = Face {
+    let keyword_face = WireFace {
         fg: Color::Rgb { r: 255, g: 0, b: 0 },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
     state.observed.lines = vec![vec![Atom::with_style(
         "let",
@@ -219,10 +219,10 @@ fn test_treesitter_colors_persist_across_frames() {
     grid.swap();
 
     // Frame 3: new content with different colors
-    let new_face = Face {
+    let new_face = WireFace {
         fg: Color::Rgb { r: 0, g: 0, b: 255 },
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     };
     state.observed.lines = vec![vec![Atom::with_style("let", Style::from_face(&new_face))]];
 
@@ -255,10 +255,10 @@ fn test_line_dirty_buffer_and_status() {
     let mut state = AppState::default();
     state.runtime.cols = 20;
     state.runtime.rows = 5;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
@@ -315,10 +315,10 @@ fn test_line_dirty_buffer_only_regression() {
     let mut state = AppState::default();
     state.runtime.cols = 20;
     state.runtime.rows = 5;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
@@ -364,16 +364,16 @@ fn test_declarative_matches_imperative_buffer_status() {
     let mut state = AppState::default();
     state.runtime.cols = 40;
     state.runtime.rows = 10;
-    state.observed.default_style = Face {
+    state.observed.default_style = WireFace {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
-    state.observed.padding_style = Face {
+    state.observed.padding_style = WireFace {
         fg: Color::Named(NamedColor::Blue),
         bg: Color::Named(NamedColor::Black),
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
     state.observed.lines = vec![
@@ -383,10 +383,10 @@ fn test_declarative_matches_imperative_buffer_status() {
     ];
     state.inference.status_line = make_line("status text");
     state.observed.status_mode_line = make_line("normal");
-    state.observed.status_default_style = Face {
+    state.observed.status_default_style = WireFace {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Default,
-        ..Face::default()
+        ..WireFace::default()
     }
     .into();
 

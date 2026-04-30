@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::protocol::{Attributes, Color, Face, NamedColor};
+use crate::protocol::{Attributes, Color, NamedColor, WireFace};
 use crate::surface::SurfaceRegistrationError;
 
 use super::painter::{
@@ -1209,17 +1209,17 @@ fn overlay_shadow_varies_by_title_and_severity() {
 fn paint_overlay_issues_fill_border_and_text_primitives() {
     #[derive(Default)]
     struct MockPainter {
-        fills: Vec<(u16, u16, u16, u16, Face)>,
-        borders: Vec<(u16, u16, u16, u16, Face)>,
-        texts: Vec<(u16, u16, String, Face, u16)>,
+        fills: Vec<(u16, u16, u16, u16, WireFace)>,
+        borders: Vec<(u16, u16, u16, u16, WireFace)>,
+        texts: Vec<(u16, u16, String, WireFace, u16)>,
     }
 
     impl PluginDiagnosticOverlayPainter for MockPainter {
-        fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, face: Face) {
+        fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, face: WireFace) {
             self.fills.push((x, y, width, height, face));
         }
 
-        fn draw_border(&mut self, x: u16, y: u16, width: u16, height: u16, face: Face) {
+        fn draw_border(&mut self, x: u16, y: u16, width: u16, height: u16, face: WireFace) {
             self.borders.push((x, y, width, height, face));
         }
 

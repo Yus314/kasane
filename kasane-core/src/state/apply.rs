@@ -50,7 +50,7 @@ pub(crate) fn apply_protocol(
             // so incremental cursor detection can use dirty flags)
             let observed_default_face = observed.default_style.to_face();
             let observed_padding_face = observed.padding_style.to_face();
-            // Bridge to Face for `compute_lines_dirty` and `detect_selections`
+            // Bridge to WireFace for `compute_lines_dirty` and `detect_selections`
             // until those functions migrate (Phase B3 follow-up).
             let default_face = default_style.to_face();
             let padding_face = padding_style.to_face();

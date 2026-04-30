@@ -1,6 +1,6 @@
 //! Validation, line-dirty computation, and status line building.
 
-use crate::protocol::{Atom, Coord, Face, Line};
+use crate::protocol::{Atom, Coord, Line, WireFace};
 
 use super::atom_metrics::atom_display_width;
 
@@ -77,10 +77,10 @@ pub fn check_cursor_width_consistency(
 pub fn compute_lines_dirty(
     old_lines: &[Line],
     new_lines: &[Line],
-    old_default_face: &Face,
-    new_default_face: &Face,
-    old_padding_face: &Face,
-    new_padding_face: &Face,
+    old_default_face: &WireFace,
+    new_default_face: &WireFace,
+    old_padding_face: &WireFace,
+    new_padding_face: &WireFace,
 ) -> Vec<bool> {
     let face_changed =
         *old_default_face != *new_default_face || *old_padding_face != *new_padding_face;

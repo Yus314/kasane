@@ -3,7 +3,7 @@ use kasane_core::plugin::PluginDiagnosticOverlayState;
 use kasane_core::plugin::diagnostics::{
     PluginDiagnosticOverlayPainter, PluginDiagnosticOverlayTextRun, paint_plugin_diagnostic_overlay,
 };
-use kasane_core::protocol::Face;
+use kasane_core::protocol::WireFace;
 use kasane_core::render::scene::{PixelPos, PixelRect};
 use kasane_core::render::{CellSize, DrawCommand};
 
@@ -46,7 +46,7 @@ struct SceneOverlayPainter<'a> {
 }
 
 impl PluginDiagnosticOverlayPainter for SceneOverlayPainter<'_> {
-    fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, face: Face) {
+    fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, face: WireFace) {
         self.commands.push(DrawCommand::FillRect {
             rect: pixel_rect(x, y, width, height, self.cell_size),
             face: face.into(),
@@ -54,7 +54,7 @@ impl PluginDiagnosticOverlayPainter for SceneOverlayPainter<'_> {
         });
     }
 
-    fn draw_border(&mut self, x: u16, y: u16, width: u16, height: u16, face: Face) {
+    fn draw_border(&mut self, x: u16, y: u16, width: u16, height: u16, face: WireFace) {
         self.commands.push(DrawCommand::DrawBorder {
             rect: pixel_rect(x, y, width, height, self.cell_size),
             line_style: BorderLineStyle::Single,

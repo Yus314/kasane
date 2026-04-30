@@ -50,7 +50,7 @@ fn write_text(s: &[u8], fg_r: u8, fg_g: u8, fg_b: u8) {
     for &b in s {
         write_byte(b);
     }
-    // Face: fg=RGB(r,g,b), bg=default, attrs=0
+    // WireFace: fg=RGB(r,g,b), bg=default, attrs=0
     write_byte(0x02); // fg type: RGB
     write_byte(fg_r);
     write_byte(fg_g);

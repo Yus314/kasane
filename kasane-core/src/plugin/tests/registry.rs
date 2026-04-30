@@ -863,15 +863,15 @@ impl Plugin for DecomposedAnnotatorPlugin {
         r.on_annotate_gutter(GutterSide::Left, 10, |_state, line, _app, _ctx| {
             Some(crate::element::Element::text(
                 format!("{}", line + 1),
-                Face::default(),
+                WireFace::default(),
             ))
         });
         r.on_annotate_background(|_state, line, _app, _ctx| {
             if line == 0 {
                 Some(BackgroundLayer {
-                    style: crate::protocol::Style::from_face(&Face {
+                    style: crate::protocol::Style::from_face(&WireFace {
                         bg: crate::protocol::Color::Named(crate::protocol::NamedColor::Blue),
-                        ..Face::default()
+                        ..WireFace::default()
                     }),
                     z_order: 0,
                     blend: BlendMode::Opaque,
@@ -904,7 +904,7 @@ impl PluginBackend for LegacyAnnotatorPlugin {
         Some(super::super::LineAnnotation {
             left_gutter: Some(crate::element::Element::text(
                 format!("L{}", line + 1),
-                Face::default(),
+                WireFace::default(),
             )),
             right_gutter: None,
             background: None,
@@ -1493,9 +1493,9 @@ impl Plugin for UnifiedDisplayPlugin {
                 // Decoration: background
                 DisplayDirective::StyleLine {
                     line: 0,
-                    face: Face {
+                    face: WireFace {
                         bg: crate::protocol::Color::Named(crate::protocol::NamedColor::Red),
-                        ..Face::default()
+                        ..WireFace::default()
                     },
                     z_order: 0,
                 },
@@ -1523,9 +1523,9 @@ impl Plugin for UnifiedDisplayPlugin {
                 DisplayDirective::StyleInline {
                     line: 1,
                     byte_range: 0..3,
-                    face: Face {
+                    face: WireFace {
                         fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Green),
-                        ..Face::default()
+                        ..WireFace::default()
                     },
                 },
             ]
