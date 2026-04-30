@@ -83,6 +83,7 @@ pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
     if set.is_empty() {
         return Vec::new();
     }
+    check_editable_inline_box_overlap(set);
 
     // Partition into folds and hides
     let mut folds: Vec<(Range<usize>, &TaggedDirective)> = Vec::new();
@@ -215,6 +216,88 @@ pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
 /// Check if two ranges overlap (non-empty intersection).
 fn ranges_overlap(a: &Range<usize>, b: &Range<usize>) -> bool {
     a.start < b.end && b.start < a.end
+}
+
+/// Diagnose `EditableSpan` regions whose buffer-coordinate range collides
+/// with a peer plugin's [`DisplayDirective::InlineBox`] anchor.
+///
+/// Per `docs/semantics.md` "InlineBox boundary against ShadowCursor":
+/// inline-box interiors are not part of the buffer's display-coordinate
+/// text grid, so an editable span whose `buffer_byte_range` covers an
+/// inline-box anchor would let a shadow cursor edit a region the host
+/// promised was opaque. The semantic remedy is to drop the cursor for
+/// that frame; this check makes the violation visible at directive
+/// resolution time so plugin authors discover it before a real cursor
+/// is activated. Same-plugin collisions still report — semantics frames
+/// the rule as a peer-plugin contract, but a plugin that overlaps its
+/// own boxes equally violates the unit-boundary invariant
+/// (`EditProjection` walks one `DisplayUnit` per inline-box regardless
+/// of owner).
+///
+/// Emits `tracing::warn!` once per overlap and trips a `debug_assert!`
+/// in debug builds. No directives are mutated — the dropping behaviour
+/// belongs at `ShadowCursor` activation time and is filed as future work
+/// alongside the fixed-point spec for cursor lifecycle.
+pub fn check_editable_inline_box_overlap(set: &DirectiveSet) {
+    use super::DisplayDirective;
+
+    // Build (line, byte_offset, owner) index for InlineBox anchors.
+    // Allocate once per call; the typical plugin set has <10 inline boxes.
+    let mut inline_boxes: Vec<(usize, usize, &PluginId)> = Vec::new();
+    for td in &set.directives {
+        if let DisplayDirective::InlineBox {
+            line, byte_offset, ..
+        } = &td.directive
+        {
+            inline_boxes.push((*line, *byte_offset, &td.plugin_id));
+        }
+    }
+    if inline_boxes.is_empty() {
+        return;
+    }
+
+    for td in &set.directives {
+        let DisplayDirective::EditableVirtualText { editable_spans, .. } = &td.directive else {
+            continue;
+        };
+        for span in editable_spans {
+            for &(box_line, box_offset, box_owner) in &inline_boxes {
+                if box_line != span.anchor_line {
+                    continue;
+                }
+                // Inclusive on both ends: an inline-box at the boundary
+                // shares the cell that the editable span would carry the
+                // shadow cursor onto.
+                if box_offset >= span.buffer_byte_range.start
+                    && box_offset <= span.buffer_byte_range.end
+                {
+                    tracing::warn!(
+                        target: "kasane_core::display",
+                        line = box_line,
+                        inline_box_byte_offset = box_offset,
+                        inline_box_owner = box_owner.0.as_str(),
+                        editable_span_owner = td.plugin_id.0.as_str(),
+                        editable_span_start = span.buffer_byte_range.start,
+                        editable_span_end = span.buffer_byte_range.end,
+                        "ShadowCursor × InlineBox overlap: an editable span \
+                         covers a peer plugin's inline-box anchor. The \
+                         shadow cursor will be dropped at activation time \
+                         (semantics.md §InlineBox boundary against ShadowCursor).",
+                    );
+                    debug_assert!(
+                        false,
+                        "ShadowCursor × InlineBox overlap on line {box_line}: \
+                         inline-box at byte {box_offset} (owner={box_owner_id}) \
+                         falls inside editable span {start}..{end} (owner={span_owner})",
+                        box_owner_id = box_owner.0,
+                        start = span.buffer_byte_range.start,
+                        end = span.buffer_byte_range.end,
+                        span_owner = td.plugin_id.0,
+                    );
+                }
+            }
+        }
+    }
 }
 
 // =============================================================================
