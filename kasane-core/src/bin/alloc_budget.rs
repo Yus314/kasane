@@ -56,7 +56,7 @@ fn main() {
     use kasane_core::layout::Rect;
     use kasane_core::layout::flex;
     use kasane_core::plugin::PluginRuntime;
-    use kasane_core::protocol::{Atom, Color, Coord, WireFace, NamedColor, parse_request};
+    use kasane_core::protocol::{Atom, Color, Coord, NamedColor, WireFace, parse_request};
     use kasane_core::render::CellGrid;
     use kasane_core::render::paint;
     use kasane_core::render::view;

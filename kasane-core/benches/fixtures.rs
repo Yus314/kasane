@@ -9,7 +9,7 @@ use kasane_core::plugin::{
     PluginCapabilities, PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{
-    Atom, Attributes, Color, Coord, WireFace, KakouneRequest, Line, MenuStyle, NamedColor,
+    Atom, Attributes, Color, Coord, KakouneRequest, Line, MenuStyle, NamedColor, WireFace,
 };
 use kasane_core::state::{AppState, DirtyFlags};
 use serde::Serialize;
