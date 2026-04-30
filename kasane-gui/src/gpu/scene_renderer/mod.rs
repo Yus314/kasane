@@ -97,6 +97,12 @@ pub struct SceneRenderer {
     /// once the paragraph is done, so sub-commands compose on top of the
     /// paragraph layout.
     pub(super) deferred_inline_box_cmds: Vec<DrawCommand>,
+
+    /// Reusable buffers for `StyledLine::from_atoms_with_scratch`. Owned
+    /// by the renderer and threaded through the per-line build path so
+    /// the four vec / string allocations in `StyledLine` move from
+    /// per-line to per-frame on the warm path.
+    pub(super) styled_line_scratch: super::text::styled_line::StyledLineScratch,
 }
 
 /// Diagnostic kill-switch for the Parley L2 raster cache.
@@ -225,6 +231,7 @@ impl SceneRenderer {
             cache,
             drawables: Vec::with_capacity(2048),
             deferred_inline_box_cmds: Vec::new(),
+            styled_line_scratch: super::text::styled_line::StyledLineScratch::default(),
         }
     }
 

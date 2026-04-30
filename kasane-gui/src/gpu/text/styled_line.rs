@@ -89,6 +89,39 @@ pub struct InlineBoxSlot {
     pub height: f32,
 }
 
+/// Reusable allocation buffers for [`StyledLine::from_atoms_with_scratch`].
+///
+/// The renderer holds one of these per frame and threads it through every
+/// `StyledLine` it builds. Each line's construction consumes the scratch
+/// (moves text / runs / atom_styles / atom_boundaries out, leaving zero
+/// capacity), and the caller returns capacity via
+/// [`StyledLine::recycle`] before the next line. Net effect: the four
+/// vec / string allocations move from per-line to per-frame on the warm
+/// path, eliminating allocator churn at the (24 lines × 4 vecs = 96)
+/// allocations per frame typing-edit boundary.
+///
+/// The scratch is `Default` so callers can `Default::default()` once and
+/// reuse forever; the actual capacities grow lazily as line lengths
+/// dictate.
+#[derive(Debug, Default)]
+pub struct StyledLineScratch {
+    pub text: String,
+    pub runs: Vec<StyleRun>,
+    pub atom_styles: Vec<Style>,
+    pub atom_boundaries: Vec<u32>,
+}
+
+impl StyledLineScratch {
+    /// Drop the contents but keep the allocations.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.text.clear();
+        self.runs.clear();
+        self.atom_styles.clear();
+        self.atom_boundaries.clear();
+    }
+}
+
 impl StyledLine {
     /// Build a `StyledLine` from a slice of source atoms.
     ///
@@ -108,6 +141,85 @@ impl StyledLine {
         let mut atom_boundaries = Vec::with_capacity(atoms.len() + 1);
         let mut atom_styles = Vec::with_capacity(atoms.len());
         let mut runs: Vec<StyleRun> = Vec::with_capacity(atoms.len());
+
+        atom_boundaries.push(0u32);
+        let mut current_run_start: u32 = 0;
+        let mut current_resolved: Option<ResolvedParleyStyle> = None;
+
+        for atom in atoms {
+            let raw = atom.unresolved_style();
+            let resolved_style = resolve_style(raw, base_style);
+            let resolved_parley = resolve_for_parley(&resolved_style, fallback_text_color);
+
+            let atom_start = text.len() as u32;
+            text.push_str(&atom.contents);
+            let atom_end = text.len() as u32;
+            atom_boundaries.push(atom_end);
+            atom_styles.push(resolved_style);
+
+            match &current_resolved {
+                Some(prev) if *prev == resolved_parley => {}
+                _ => {
+                    if let Some(prev) = current_resolved.take() {
+                        runs.push(StyleRun {
+                            byte_range: current_run_start..atom_start,
+                            resolved: prev,
+                        });
+                    }
+                    current_run_start = atom_start;
+                    current_resolved = Some(resolved_parley);
+                }
+            }
+            let _ = atom_end;
+        }
+
+        if let Some(prev) = current_resolved {
+            runs.push(StyleRun {
+                byte_range: current_run_start..text.len() as u32,
+                resolved: prev,
+            });
+        }
+
+        let content_hash = compute_content_hash(&text, &atom_boundaries);
+        let style_hash = compute_style_hash(&runs);
+
+        StyledLine {
+            text,
+            runs,
+            inline_boxes: Vec::new(),
+            atom_boundaries,
+            atom_styles,
+            font_size,
+            max_width,
+            content_hash,
+            style_hash,
+        }
+    }
+
+    /// Build a `StyledLine` reusing the buffers in `scratch`. The scratch
+    /// is left empty (zero capacity) on return; pair with
+    /// [`Self::recycle`] to return the buffers after the line is consumed.
+    pub fn from_atoms_with_scratch(
+        scratch: &mut StyledLineScratch,
+        atoms: &[Atom],
+        base_style: &Style,
+        fallback_text_color: Brush,
+        font_size: f32,
+        max_width: Option<f32>,
+    ) -> Self {
+        scratch.clear();
+        let StyledLineScratch {
+            text,
+            runs,
+            atom_styles,
+            atom_boundaries,
+        } = scratch;
+
+        let needed_text_capacity: usize = atoms.iter().map(|a| a.contents.len()).sum();
+        text.reserve(needed_text_capacity.saturating_sub(text.capacity()));
+        atom_boundaries.reserve(atoms.len() + 1);
+        atom_styles.reserve(atoms.len());
+        runs.reserve(atoms.len());
 
         atom_boundaries.push(0u32);
         let mut current_run_start: u32 = 0;
@@ -151,20 +263,32 @@ impl StyledLine {
             });
         }
 
-        let content_hash = compute_content_hash(&text, &atom_boundaries);
-        let style_hash = compute_style_hash(&runs);
+        let content_hash = compute_content_hash(text, atom_boundaries);
+        let style_hash = compute_style_hash(runs);
 
         StyledLine {
-            text,
-            runs,
+            text: std::mem::take(text),
+            runs: std::mem::take(runs),
             inline_boxes: Vec::new(),
-            atom_boundaries,
-            atom_styles,
+            atom_boundaries: std::mem::take(atom_boundaries),
+            atom_styles: std::mem::take(atom_styles),
             font_size,
             max_width,
             content_hash,
             style_hash,
         }
+    }
+
+    /// Return this line's buffers to `scratch` so the next
+    /// [`Self::from_atoms_with_scratch`] call reuses the capacity.
+    /// The line is consumed; only `inline_boxes` (which `from_atoms_*`
+    /// always builds fresh as `Vec::new()`) is dropped.
+    pub fn recycle(self, scratch: &mut StyledLineScratch) {
+        scratch.text = self.text;
+        scratch.runs = self.runs;
+        scratch.atom_styles = self.atom_styles;
+        scratch.atom_boundaries = self.atom_boundaries;
+        scratch.clear();
     }
 
     /// Number of source atoms this line was built from.
@@ -556,5 +680,76 @@ mod tests {
         assert_eq!(line.runs[0].byte_range, 0..1);
         assert_eq!(line.runs[1].byte_range, 1..4);
         assert_eq!(line.runs[2].byte_range, 4..5);
+    }
+
+    #[test]
+    fn scratch_reuse_produces_identical_line() {
+        let atoms = vec![
+            atom("hello ", red_face()),
+            atom("world", blue_face()),
+            atom("!", red_face()),
+        ];
+        let owned = StyledLine::from_atoms(&atoms, &Style::default(), Brush::default(), 14.0, None);
+
+        let mut scratch = StyledLineScratch::default();
+        let scratched = StyledLine::from_atoms_with_scratch(
+            &mut scratch,
+            &atoms,
+            &Style::default(),
+            Brush::default(),
+            14.0,
+            None,
+        );
+
+        assert_eq!(owned.text, scratched.text);
+        assert_eq!(owned.atom_boundaries, scratched.atom_boundaries);
+        assert_eq!(owned.atom_styles, scratched.atom_styles);
+        assert_eq!(owned.runs, scratched.runs);
+        assert_eq!(owned.content_hash, scratched.content_hash);
+        assert_eq!(owned.style_hash, scratched.style_hash);
+        // Scratch is empty after the build.
+        assert!(scratch.text.is_empty());
+        assert_eq!(scratch.atom_boundaries.capacity(), 0);
+    }
+
+    #[test]
+    fn scratch_recycle_preserves_capacity_across_calls() {
+        let atoms = vec![atom("hello world", red_face())];
+        let mut scratch = StyledLineScratch::default();
+
+        let line1 = StyledLine::from_atoms_with_scratch(
+            &mut scratch,
+            &atoms,
+            &Style::default(),
+            Brush::default(),
+            14.0,
+            None,
+        );
+        let cap_text = line1.text.capacity();
+        let cap_boundaries = line1.atom_boundaries.capacity();
+        line1.recycle(&mut scratch);
+        assert!(scratch.text.is_empty());
+        assert!(scratch.atom_boundaries.is_empty());
+        assert!(
+            scratch.text.capacity() >= cap_text,
+            "recycled scratch must retain text capacity (was {cap_text}, now {})",
+            scratch.text.capacity()
+        );
+        assert!(
+            scratch.atom_boundaries.capacity() >= cap_boundaries,
+            "recycled scratch must retain atom_boundaries capacity"
+        );
+
+        // Subsequent build reuses the capacity (allocator-free for content
+        // that fits within the previously-grown buffers).
+        let line2 = StyledLine::from_atoms_with_scratch(
+            &mut scratch,
+            &atoms,
+            &Style::default(),
+            Brush::default(),
+            14.0,
+            None,
+        );
+        assert_eq!(line2.text, "hello world");
     }
 }

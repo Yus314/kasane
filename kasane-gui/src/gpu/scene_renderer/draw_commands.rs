@@ -793,7 +793,8 @@ impl SceneRenderer {
             (base_visual_fg[2].clamp(0.0, 1.0) * 255.0).round() as u8,
             (base_visual_fg[3].clamp(0.0, 1.0) * 255.0).round() as u8,
         );
-        let mut line = StyledLine::from_atoms(
+        let mut line = StyledLine::from_atoms_with_scratch(
+            &mut self.styled_line_scratch,
             &kasane_atoms,
             &Style::default(),
             fallback_brush,
