@@ -230,7 +230,7 @@ fn parse_method(
         // Old Kakoune protocol used "set_cursor" instead of including cursor_pos
         // in "draw" params. Detect this and give a helpful error.
         "set_cursor" => Err(ProtocolError::OldProtocol(
-            "Kasane requires Kakoune 2024.12.09 or later (commit 3dd6f30d).\n\
+            "Kasane requires Kakoune v2026.04.12 or later (or master from commit 3dd6f30d, 2025-11-18).\n\
              Your Kakoune appears to use an older protocol (set_cursor method detected).\n\
              Please update Kakoune: https://github.com/mawww/kakoune"
                 .into(),
