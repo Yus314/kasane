@@ -27,6 +27,13 @@ pub(crate) const CURSOR_BAR_WIDTH: f32 = 2.0;
 pub(crate) const CURSOR_UNDERLINE_HEIGHT: f32 = 2.0;
 /// Thickness of the cursor outline (CursorStyle::Outline) border in pixels.
 pub(crate) const CURSOR_OUTLINE_THICKNESS: f32 = 1.0;
+/// Minimum width for Block/Underline/Outline cursors as a fraction of `cell_w`.
+/// Why: 4d48bbd allowed proportional cursor narrowing for narrow glyphs (i, l).
+/// At empty/EOL positions the cluster advance can collapse to ~0, and clamping
+/// only to `CURSOR_BAR_WIDTH` made Block cursors visually identical to Bar
+/// (Insert mode). Block always reserves at least this fraction of a cell so it
+/// stays distinguishable from the Insert-mode Bar.
+pub(crate) const CURSOR_BLOCK_MIN_RATIO: f32 = 0.5;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
