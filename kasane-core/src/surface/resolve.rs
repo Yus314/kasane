@@ -892,6 +892,8 @@ mod tests {
         seen: Rc<RefCell<Vec<ContributeContext>>>,
     }
 
+    crate::impl_pubsub_member_default!(RecordingPlugin);
+
     impl PluginBackend for RecordingPlugin {
         fn id(&self) -> PluginId {
             PluginId("recording_plugin".into())

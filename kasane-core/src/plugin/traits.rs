@@ -7,7 +7,6 @@ use crate::state::{self, DirtyFlags};
 
 use super::effects::StateUpdates;
 use super::extension_point::{ExtensionOutput, ExtensionPointId};
-use super::pubsub::TopicBus;
 use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
 use crate::display::unit::DisplayUnit;
 
@@ -105,8 +104,14 @@ pub enum TextInputPreDispatchResult {
 }
 
 /// Internal framework trait. Plugin authors should use [`Plugin`] instead.
+///
+/// Super-trait composition is being phased in by R1.4+. Each capability
+/// trait whose body migration is complete becomes a super-trait of
+/// `PluginBackend`, so every implementer must provide the corresponding
+/// `impl CapTrait for X` block (manually for overriders, via the
+/// `impl_<cap>_default!` macro for non-overriders).
 #[doc(hidden)]
-pub trait PluginBackend: Any {
+pub trait PluginBackend: super::capability_traits::PubSubMember + Any {
     fn id(&self) -> PluginId;
 
     /// Inject the framework-assigned plugin tag for interactive ID ownership.
@@ -691,16 +696,10 @@ pub trait PluginBackend: Any {
     }
 
     // --- Pub/Sub ---
-
-    /// Collect publications from this plugin onto the topic bus.
-    /// Only `PluginBridge` (native plugins with HandlerTable) overrides this.
-    fn collect_publications(&self, _bus: &mut TopicBus, _state: &AppView<'_>) {}
-
-    /// Deliver subscribed topic values to this plugin, returning true if state changed.
-    /// Only `PluginBridge` (native plugins with HandlerTable) overrides this.
-    fn deliver_subscriptions(&mut self, _bus: &TopicBus) -> bool {
-        false
-    }
+    // Migrated to `capability_traits::PubSubMember` (R1.4); `PluginBackend`
+    // is now a super-trait of it, so every implementer must provide
+    // `impl PubSubMember for X` (overriders) or
+    // `impl_pubsub_member_default!(X)` (non-overriders).
 
     // --- Extension Points ---
 

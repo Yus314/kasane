@@ -12,6 +12,8 @@ use crate::plugin::{
 /// by registering their own `MOUSE_FALLBACK` handler.
 pub struct BuiltinMouseFallbackPlugin;
 
+crate::impl_pubsub_member_default!(BuiltinMouseFallbackPlugin);
+
 impl PluginBackend for BuiltinMouseFallbackPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.mouse_fallback".into())

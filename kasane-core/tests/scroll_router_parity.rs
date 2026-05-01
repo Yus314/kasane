@@ -109,6 +109,7 @@ fn parity_info_popup_scroll_trace() {
 #[test]
 fn parity_plugin_hit_then_miss_trace() {
     struct MousePlugin;
+    kasane_core::impl_pubsub_member_default!(MousePlugin);
     impl PluginBackend for MousePlugin {
         fn id(&self) -> PluginId {
             PluginId("mouse_plugin".into())

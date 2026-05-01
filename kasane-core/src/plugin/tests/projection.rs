@@ -11,6 +11,8 @@ use crate::display::{
 };
 use crate::protocol::Atom;
 
+crate::impl_pubsub_member_default!(ProjectionTestPlugin);
+
 // ---------------------------------------------------------------------------
 // Test plugin: defines one Structural and one Additive projection
 // ---------------------------------------------------------------------------

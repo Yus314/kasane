@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use kasane_core::config::FontConfig;
-use kasane_core::protocol::{Atom, Color, NamedColor, Style, WireFace};
+use kasane_core::protocol::{Atom, Color, Face, NamedColor, Style};
 use parley::PositionedLayoutItem;
 
 use kasane_gui::gpu::text::atlas::{AtlasShelf, AtlasSlot};
@@ -41,33 +41,33 @@ use kasane_gui::gpu::text::styled_line::StyledLine;
 use kasane_gui::gpu::text::{Brush, ParleyText};
 
 fn realistic_atoms(line_no: usize) -> Vec<Atom> {
-    let kw_face = WireFace {
+    let kw_face = Face {
         fg: Color::Rgb {
             r: 255,
             g: 100,
             b: 0,
         },
-        ..WireFace::default()
+        ..Face::default()
     };
-    let var_face = WireFace {
+    let var_face = Face {
         fg: Color::Rgb {
             r: 0,
             g: 200,
             b: 100,
         },
-        ..WireFace::default()
+        ..Face::default()
     };
-    let str_face = WireFace {
+    let str_face = Face {
         fg: Color::Rgb {
             r: 100,
             g: 100,
             b: 255,
         },
-        ..WireFace::default()
+        ..Face::default()
     };
-    let semi_face = WireFace {
+    let semi_face = Face {
         fg: Color::Named(NamedColor::White),
-        ..WireFace::default()
+        ..Face::default()
     };
     vec![
         Atom::with_style("let", Style::from_face(&kw_face)),

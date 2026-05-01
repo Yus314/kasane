@@ -17,6 +17,8 @@ use kasane_core::protocol::{Atom, Style, WireFace};
 /// overlay when diagnostics are active.
 pub struct BuiltinDiagnosticsPlugin;
 
+kasane_core::impl_pubsub_member_default!(BuiltinDiagnosticsPlugin);
+
 impl PluginBackend for BuiltinDiagnosticsPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.diagnostics".into())

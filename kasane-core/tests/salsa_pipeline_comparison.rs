@@ -5,11 +5,20 @@
 //! of AppState configurations, including with active plugins.
 
 use kasane_core::element::Element;
+use kasane_core::impl_pubsub_member_default;
 use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, ContribSizeHint, ContributeContext,
     Contribution, LineAnnotation, PluginBackend, PluginCapabilities, PluginId, PluginRuntime,
     SlotId, TransformContext, TransformTarget,
 };
+
+impl_pubsub_member_default!(
+    BufferLeftPlugin,
+    StatusRightPlugin,
+    BufferTransformPlugin,
+    LineHighlightPlugin,
+    GutterPlugin,
+);
 use kasane_core::protocol::{Atom, Color, Coord, InfoStyle, MenuStyle, NamedColor, WireFace};
 use kasane_core::render::{CellGrid, render_pipeline, render_pipeline_cached};
 use kasane_core::salsa_db::KasaneDatabase;

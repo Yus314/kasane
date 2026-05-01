@@ -1493,6 +1493,59 @@ impl PluginBackend for WasmPlugin {
         &self.shared.extension_defs
     }
 
+    fn evaluate_extension(
+        &self,
+        id: &kasane_core::plugin::extension_point::ExtensionPointId,
+        input: &kasane_core::plugin::channel::ChannelValue,
+        state: &AppView<'_>,
+    ) -> Vec<kasane_core::plugin::extension_point::ExtensionOutput> {
+        let consumes = self
+            .shared
+            .extensions_consumed
+            .iter()
+            .any(|s| s == id.as_str());
+        if !consumes {
+            return vec![];
+        }
+        let plugin_id = self.shared.plugin_id.clone();
+        let wit_input = convert::channel_value_to_wit(input);
+        let id_str = id.as_str().to_string();
+        let result: Option<kasane_core::plugin::channel::ChannelValue> =
+            self.shared.call_synced(state, "evaluate_extension", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                Ok(api
+                    .call_evaluate_extension(&mut rt.store, &id_str, &wit_input)?
+                    .map(|wv| convert::wit_channel_value_to_core(&wv)))
+            });
+        match result {
+            Some(cv) => vec![kasane_core::plugin::extension_point::ExtensionOutput {
+                plugin_id,
+                value: cv,
+            }],
+            None => vec![],
+        }
+    }
+
+    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppView<'_>) -> Effects {
+        if let Some(bytes) = msg.downcast_ref::<Vec<u8>>() {
+            let shared = Arc::clone(&self.shared);
+            self.shared
+                .call_synced_with_hash(state, "update_effects", |rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    Ok(shared
+                        .convert_runtime_effects(&api.call_update_effects(&mut rt.store, bytes)?))
+                })
+        } else {
+            tracing::warn!(
+                "WASM plugin {} received non-byte message, ignoring typed update_effects",
+                self.shared.plugin_id.0
+            );
+            Effects::default()
+        }
+    }
+}
+
+impl kasane_core::plugin::capability_traits::PubSubMember for WasmPlugin {
     fn collect_publications(&self, bus: &mut kasane_core::plugin::TopicBus, state: &AppView<'_>) {
         if self.shared.publish_topics.is_empty() {
             return;
@@ -1553,56 +1606,5 @@ impl PluginBackend for WasmPlugin {
             }
         }
         changed
-    }
-
-    fn evaluate_extension(
-        &self,
-        id: &kasane_core::plugin::extension_point::ExtensionPointId,
-        input: &kasane_core::plugin::channel::ChannelValue,
-        state: &AppView<'_>,
-    ) -> Vec<kasane_core::plugin::extension_point::ExtensionOutput> {
-        let consumes = self
-            .shared
-            .extensions_consumed
-            .iter()
-            .any(|s| s == id.as_str());
-        if !consumes {
-            return vec![];
-        }
-        let plugin_id = self.shared.plugin_id.clone();
-        let wit_input = convert::channel_value_to_wit(input);
-        let id_str = id.as_str().to_string();
-        let result: Option<kasane_core::plugin::channel::ChannelValue> =
-            self.shared.call_synced(state, "evaluate_extension", |rt| {
-                let api = rt.instance.kasane_plugin_plugin_api();
-                Ok(api
-                    .call_evaluate_extension(&mut rt.store, &id_str, &wit_input)?
-                    .map(|wv| convert::wit_channel_value_to_core(&wv)))
-            });
-        match result {
-            Some(cv) => vec![kasane_core::plugin::extension_point::ExtensionOutput {
-                plugin_id,
-                value: cv,
-            }],
-            None => vec![],
-        }
-    }
-
-    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppView<'_>) -> Effects {
-        if let Some(bytes) = msg.downcast_ref::<Vec<u8>>() {
-            let shared = Arc::clone(&self.shared);
-            self.shared
-                .call_synced_with_hash(state, "update_effects", |rt| {
-                    let api = rt.instance.kasane_plugin_plugin_api();
-                    Ok(shared
-                        .convert_runtime_effects(&api.call_update_effects(&mut rt.store, bytes)?))
-                })
-        } else {
-            tracing::warn!(
-                "WASM plugin {} received non-byte message, ignoring typed update_effects",
-                self.shared.plugin_id.0
-            );
-            Effects::default()
-        }
     }
 }

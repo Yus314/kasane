@@ -508,6 +508,7 @@ mod tests {
     }
 
     struct CursorLineOverridePlugin;
+    kasane_core::impl_pubsub_member_default!(CursorLineOverridePlugin);
 
     impl PluginBackend for CursorLineOverridePlugin {
         fn id(&self) -> PluginId {
@@ -566,6 +567,8 @@ mod tests {
     struct ReloadChainPlugin {
         variant: ReloadVariant,
     }
+
+    kasane_core::impl_pubsub_member_default!(ReloadChainPlugin);
 
     impl PluginBackend for ReloadChainPlugin {
         fn id(&self) -> PluginId {
@@ -643,6 +646,8 @@ mod tests {
     struct DiagnosticSurfacePlugin {
         variant: DiagnosticVariant,
     }
+
+    kasane_core::impl_pubsub_member_default!(DiagnosticSurfacePlugin);
 
     impl PluginBackend for DiagnosticSurfacePlugin {
         fn id(&self) -> PluginId {

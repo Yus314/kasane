@@ -10,6 +10,24 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+crate::impl_pubsub_member_default!(
+    TypedLifecyclePlugin,
+    TypedRuntimePlugin,
+    ShutdownProbePlugin,
+    DisplayTransformPlugin,
+    WorkspaceObserverPlugin,
+    KeyMiddlewarePlugin,
+    AuthorityPlugin,
+    TargetedReadyPlugin,
+    ContributorPlugin,
+    AnnotatorPlugin,
+    LegacyAnnotatorPlugin,
+    MousePlugin42,
+    DecoyMousePlugin,
+    NavPolicyPlugin,
+    NavActionPlugin,
+);
+
 struct TypedLifecyclePlugin;
 
 impl PluginBackend for TypedLifecyclePlugin {

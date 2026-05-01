@@ -117,6 +117,7 @@ fn info_popup_scroll_consumes_event_without_kakoune_scroll() {
 #[test]
 fn plugin_hit_mouse_press_consumes_before_default_mouse_forwarding() {
     struct MousePlugin;
+    kasane_core::impl_pubsub_member_default!(MousePlugin);
     impl PluginBackend for MousePlugin {
         fn id(&self) -> PluginId {
             PluginId("mouse_plugin".into())

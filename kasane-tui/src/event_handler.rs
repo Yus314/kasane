@@ -839,6 +839,8 @@ mod tests {
         surface_id: SurfaceId,
     }
 
+    kasane_core::impl_pubsub_member_default!(ReloadResourcePlugin);
+
     impl PluginBackend for ReloadResourcePlugin {
         fn id(&self) -> PluginId {
             PluginId("reload-owner".to_string())

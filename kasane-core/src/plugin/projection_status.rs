@@ -13,6 +13,8 @@ use crate::plugin::{PluginCapabilities, PluginId, SlotId};
 /// Builtin plugin that displays active projection state in STATUS_RIGHT.
 pub struct ProjectionStatusPlugin;
 
+crate::impl_pubsub_member_default!(ProjectionStatusPlugin);
+
 impl PluginBackend for ProjectionStatusPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.projection-status".into())

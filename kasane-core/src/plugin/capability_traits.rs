@@ -854,14 +854,11 @@ impl<T: super::PluginBackend + ?Sized> Io for T {
     }
 }
 
-impl<T: super::PluginBackend + ?Sized> PubSubMember for T {
-    fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
-        super::PluginBackend::collect_publications(self, bus, state)
-    }
-    fn deliver_subscriptions(&mut self, bus: &TopicBus) -> bool {
-        super::PluginBackend::deliver_subscriptions(self, bus)
-    }
-}
+// PubSubMember has no blanket impl — R1.4 migrated it to a super-trait
+// of PluginBackend, with method bodies living in this trait.
+// Implementers must opt in via either an explicit `impl PubSubMember
+// for X` block (for overriders) or `impl_pubsub_member_default!(X)`
+// (for non-overriders).
 
 impl<T: super::PluginBackend + ?Sized> ExtensionParticipant for T {
     fn extension_definitions(&self) -> &[ExtensionDefinition] {
@@ -949,96 +946,97 @@ impl<T: super::PluginBackend + ?Sized> PluginMeta for T {
 /// unnecessary.
 #[macro_export]
 macro_rules! plugin_capabilities_default {
-    ($t:ty) => {
-        $crate::impl_lifecycle_default!($t);
-        $crate::impl_input_handler_default!($t);
-        $crate::impl_contributor_default!($t);
-        $crate::impl_transformer_default!($t);
-        $crate::impl_annotator_default!($t);
-        $crate::impl_display_transform_default!($t);
-        $crate::impl_renderer_default!($t);
-        $crate::impl_io_default!($t);
-        $crate::impl_pubsub_member_default!($t);
-        $crate::impl_extension_participant_default!($t);
-        $crate::impl_workspace_member_default!($t);
+    ($($t:ty),+ $(,)?) => {
+        $crate::impl_lifecycle_default!($($t),+);
+        $crate::impl_input_handler_default!($($t),+);
+        $crate::impl_contributor_default!($($t),+);
+        $crate::impl_transformer_default!($($t),+);
+        $crate::impl_annotator_default!($($t),+);
+        $crate::impl_display_transform_default!($($t),+);
+        $crate::impl_renderer_default!($($t),+);
+        $crate::impl_io_default!($($t),+);
+        $crate::impl_pubsub_member_default!($($t),+);
+        $crate::impl_extension_participant_default!($($t),+);
+        $crate::impl_workspace_member_default!($($t),+);
     };
 }
 
-/// Empty `impl Lifecycle for $type {}`. Use when the implementer does
-/// not override any lifecycle method.
+/// Empty `impl Lifecycle for $type {}`. Accepts one or more comma-
+/// separated types. Use when the implementer does not override any
+/// lifecycle method.
 #[macro_export]
 macro_rules! impl_lifecycle_default {
-    ($t:ty) => {
-        impl $crate::plugin::capability_traits::Lifecycle for $t {}
+    ($($t:ty),+ $(,)?) => {
+        $( impl $crate::plugin::capability_traits::Lifecycle for $t {} )+
     };
 }
 
 #[macro_export]
 macro_rules! impl_input_handler_default {
-    ($t:ty) => {
-        impl $crate::plugin::capability_traits::InputHandler for $t {}
+    ($($t:ty),+ $(,)?) => {
+        $( impl $crate::plugin::capability_traits::InputHandler for $t {} )+
     };
 }
 
 #[macro_export]
 macro_rules! impl_contributor_default {
-    ($t:ty) => {
-        impl $crate::plugin::capability_traits::Contributor for $t {}
+    ($($t:ty),+ $(,)?) => {
+        $( impl $crate::plugin::capability_traits::Contributor for $t {} )+
     };
 }
 
 #[macro_export]
 macro_rules! impl_transformer_default {
-    ($t:ty) => {
-        impl $crate::plugin::capability_traits::Transformer for $t {}
+    ($($t:ty),+ $(,)?) => {
+        $( impl $crate::plugin::capability_traits::Transformer for $t {} )+
     };
 }
 
 #[macro_export]
 macro_rules! impl_annotator_default {
-    ($t:ty) => {
-        impl $crate::plugin::capability_traits::Annotator for $t {}
+    ($($t:ty),+ $(,)?) => {
+        $( impl $crate::plugin::capability_traits::Annotator for $t {} )+
     };
 }
 
 #[macro_export]
 macro_rules! impl_display_transform_default {
-    ($t:ty) => {
-        impl $crate::plugin::capability_traits::DisplayTransform for $t {}
+    ($($t:ty),+ $(,)?) => {
+        $( impl $crate::plugin::capability_traits::DisplayTransform for $t {} )+
     };
 }
 
 #[macro_export]
 macro_rules! impl_renderer_default {
-    ($t:ty) => {
-        impl $crate::plugin::capability_traits::Renderer for $t {}
+    ($($t:ty),+ $(,)?) => {
+        $( impl $crate::plugin::capability_traits::Renderer for $t {} )+
     };
 }
 
 #[macro_export]
 macro_rules! impl_io_default {
-    ($t:ty) => {
-        impl $crate::plugin::capability_traits::Io for $t {}
+    ($($t:ty),+ $(,)?) => {
+        $( impl $crate::plugin::capability_traits::Io for $t {} )+
     };
 }
 
 #[macro_export]
 macro_rules! impl_pubsub_member_default {
-    ($t:ty) => {
-        impl $crate::plugin::capability_traits::PubSubMember for $t {}
+    ($($t:ty),+ $(,)?) => {
+        $( impl $crate::plugin::capability_traits::PubSubMember for $t {} )+
     };
 }
 
 #[macro_export]
 macro_rules! impl_extension_participant_default {
-    ($t:ty) => {
-        impl $crate::plugin::capability_traits::ExtensionParticipant for $t {}
+    ($($t:ty),+ $(,)?) => {
+        $( impl $crate::plugin::capability_traits::ExtensionParticipant for $t {} )+
     };
 }
 
 #[macro_export]
 macro_rules! impl_workspace_member_default {
-    ($t:ty) => {
-        impl $crate::plugin::capability_traits::WorkspaceMember for $t {}
+    ($($t:ty),+ $(,)?) => {
+        $( impl $crate::plugin::capability_traits::WorkspaceMember for $t {} )+
     };
 }

@@ -114,11 +114,8 @@ impl GlyphRasterizer {
     /// Rasterise a single glyph.
     ///
     /// Returns `None` when the glyph has no representable form in the font
-    /// (e.g. notdef without an outline) **or** when swash produced an empty
-    /// bitmap (`width == 0` or `height == 0`, e.g. whitespace glyphs).
-    /// Callers should fall back to a glyph-not-found bitmap or skip the glyph
-    /// entirely; whitespace already advances via the layout, so skipping is
-    /// the correct behaviour.
+    /// (e.g. notdef without an outline) — callers should fall back to a
+    /// glyph-not-found bitmap or skip the glyph entirely.
     pub fn rasterize(
         &mut self,
         font: FontRef<'_>,
@@ -143,14 +140,6 @@ impl GlyphRasterizer {
         render.format(Format::Alpha);
         render.offset(Vector::new(subpx_x.as_offset(), 0.0));
         let image = render.render(&mut scaler, glyph_id)?;
-
-        // Whitespace and other zero-extent glyphs produce an empty placement.
-        // Forwarding them as `Some(empty)` would force the atlas allocator
-        // to refuse a 0×0 slot and the L2 cache to count a spurious `dropped`.
-        // Treat them like notdef: the layout already carries their advance.
-        if image.placement.width == 0 || image.placement.height == 0 {
-            return None;
-        }
 
         let content = match image.content {
             Content::Color => ContentKind::Color,

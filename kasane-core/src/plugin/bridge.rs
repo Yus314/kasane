@@ -827,30 +827,6 @@ impl PluginBackend for PluginBridge {
         }
     }
 
-    fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
-        let plugin_id = self.id.clone();
-        for entry in &self.table.publishers {
-            let value = (entry.handler)(&*self.state, state);
-            bus.publish(entry.topic.clone(), plugin_id.clone(), value);
-        }
-    }
-
-    fn deliver_subscriptions(&mut self, bus: &TopicBus) -> bool {
-        let mut changed = false;
-        for entry in &self.table.subscribers {
-            if let Some(publications) = bus.get_publications(&entry.topic) {
-                for pub_value in publications {
-                    self.state = (entry.handler)(&*self.state, &pub_value.value);
-                    changed = true;
-                }
-            }
-        }
-        if changed {
-            self.check_state_change();
-        }
-        changed
-    }
-
     fn capability_descriptor(&self) -> Option<super::CapabilityDescriptor> {
         Some(self.table.capability_descriptor())
     }
@@ -894,6 +870,32 @@ impl PluginBackend for PluginBridge {
     }
 }
 
+impl super::capability_traits::PubSubMember for PluginBridge {
+    fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
+        let plugin_id = self.id.clone();
+        for entry in &self.table.publishers {
+            let value = (entry.handler)(&*self.state, state);
+            bus.publish(entry.topic.clone(), plugin_id.clone(), value);
+        }
+    }
+
+    fn deliver_subscriptions(&mut self, bus: &TopicBus) -> bool {
+        let mut changed = false;
+        for entry in &self.table.subscribers {
+            if let Some(publications) = bus.get_publications(&entry.topic) {
+                for pub_value in publications {
+                    self.state = (entry.handler)(&*self.state, &pub_value.value);
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.check_state_change();
+        }
+        changed
+    }
+}
+
 /// Marker trait for runtime detection of `Plugin`-backed plugins.
 ///
 /// Enables the framework to access externalized state directly on `dyn PluginBackend`
@@ -914,6 +916,7 @@ impl IsBridgedPlugin for PluginBridge {
 
 #[cfg(test)]
 mod tests {
+    use super::super::capability_traits::PubSubMember;
     use super::super::state::tests::{ColorPreviewPure, CursorLinePure, CursorLineState};
     use super::*;
     use crate::layout::Rect;

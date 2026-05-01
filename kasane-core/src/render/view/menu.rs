@@ -426,6 +426,8 @@ use crate::plugin::{FrameworkAccess, PluginBackend, PluginCapabilities, PluginId
 /// with the same capability take precedence.
 pub struct BuiltinMenuPlugin;
 
+crate::impl_pubsub_member_default!(BuiltinMenuPlugin);
+
 impl PluginBackend for BuiltinMenuPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.menu".into())

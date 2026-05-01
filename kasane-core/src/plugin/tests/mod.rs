@@ -18,6 +18,8 @@ mod io;
 mod projection;
 mod registry;
 
+crate::impl_pubsub_member_default!(TestPlugin, LifecyclePlugin, SurfacePlugin, StatefulPlugin);
+
 struct TestPlugin;
 
 impl PluginBackend for TestPlugin {

@@ -125,6 +125,7 @@ fn test_update_focus_gained() {
 #[test]
 fn test_update_plugin_handles_key() {
     struct KeyPlugin;
+    crate::impl_pubsub_member_default!(KeyPlugin);
     impl PluginBackend for KeyPlugin {
         fn id(&self) -> PluginId {
             PluginId("key_plugin".into())
@@ -167,6 +168,7 @@ fn test_update_plugin_handles_key() {
 #[test]
 fn test_update_key_forwards_transformed_key_to_kakoune() {
     struct TransformPlugin;
+    crate::impl_pubsub_member_default!(TransformPlugin);
     impl PluginBackend for TransformPlugin {
         fn id(&self) -> PluginId {
             PluginId("transform".into())
@@ -216,6 +218,7 @@ fn test_update_key_forwards_transformed_key_to_kakoune() {
 #[test]
 fn test_update_key_transformed_then_consumed_by_next_plugin() {
     struct TransformPlugin;
+    crate::impl_pubsub_member_default!(TransformPlugin);
     impl PluginBackend for TransformPlugin {
         fn id(&self) -> PluginId {
             PluginId("transform".into())
@@ -238,6 +241,7 @@ fn test_update_key_transformed_then_consumed_by_next_plugin() {
     }
 
     struct ConsumePlugin;
+    crate::impl_pubsub_member_default!(ConsumePlugin);
     impl PluginBackend for ConsumePlugin {
         fn id(&self) -> PluginId {
             PluginId("consume".into())
@@ -287,6 +291,7 @@ fn test_update_key_transformed_then_consumed_by_next_plugin() {
 #[test]
 fn test_update_mouse_routes_to_plugin() {
     struct MousePlugin;
+    crate::impl_pubsub_member_default!(MousePlugin);
     impl PluginBackend for MousePlugin {
         fn id(&self) -> PluginId {
             PluginId("mouse_plugin".into())
@@ -368,6 +373,7 @@ fn test_observe_key_called_for_all_plugins() {
     let observed = Arc::new(AtomicBool::new(false));
 
     struct ObserverPlugin(Arc<AtomicBool>);
+    crate::impl_pubsub_member_default!(ObserverPlugin);
     impl PluginBackend for ObserverPlugin {
         fn id(&self) -> PluginId {
             PluginId("observer".into())
@@ -395,6 +401,7 @@ fn test_observe_key_called_even_when_plugin_handles() {
     let observed = Arc::new(AtomicBool::new(false));
 
     struct ObserverPlugin(Arc<AtomicBool>);
+    crate::impl_pubsub_member_default!(ObserverPlugin);
     impl PluginBackend for ObserverPlugin {
         fn id(&self) -> PluginId {
             PluginId("observer".into())
@@ -405,6 +412,7 @@ fn test_observe_key_called_even_when_plugin_handles() {
     }
 
     struct HandlerPlugin;
+    crate::impl_pubsub_member_default!(HandlerPlugin);
     impl PluginBackend for HandlerPlugin {
         fn id(&self) -> PluginId {
             PluginId("handler".into())
@@ -432,6 +440,7 @@ fn test_observe_text_input_called_for_all_plugins() {
     let observed = Arc::new(AtomicBool::new(false));
 
     struct ObserverPlugin(Arc<AtomicBool>);
+    crate::impl_pubsub_member_default!(ObserverPlugin);
     impl PluginBackend for ObserverPlugin {
         fn id(&self) -> PluginId {
             PluginId("observer".into())
@@ -452,6 +461,7 @@ fn test_observe_text_input_called_for_all_plugins() {
 #[test]
 fn test_plugin_can_handle_text_input() {
     struct TextPlugin;
+    crate::impl_pubsub_member_default!(TextPlugin);
     impl PluginBackend for TextPlugin {
         fn id(&self) -> PluginId {
             PluginId("text_plugin".into())
@@ -479,6 +489,7 @@ fn test_plugin_can_handle_text_input() {
 #[test]
 fn test_plugin_can_override_pageup() {
     struct PageUpPlugin;
+    crate::impl_pubsub_member_default!(PageUpPlugin);
     impl PluginBackend for PageUpPlugin {
         fn id(&self) -> PluginId {
             PluginId("pageup_override".into())
@@ -517,6 +528,7 @@ fn test_observe_mouse_called_without_hit_test() {
     let observed = Arc::new(AtomicBool::new(false));
 
     struct MouseObserver(Arc<AtomicBool>);
+    crate::impl_pubsub_member_default!(MouseObserver);
     impl PluginBackend for MouseObserver {
         fn id(&self) -> PluginId {
             PluginId("mouse_observer".into())
@@ -548,6 +560,7 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
     let called = Arc::new(AtomicBool::new(false));
 
     struct StateWatcher(Arc<AtomicBool>);
+    crate::impl_pubsub_member_default!(StateWatcher);
     impl PluginBackend for StateWatcher {
         fn id(&self) -> PluginId {
             PluginId("watcher".into())
@@ -584,6 +597,7 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
 #[test]
 fn test_on_state_changed_effects_return_scroll_plans() {
     struct StateWatcher;
+    crate::impl_pubsub_member_default!(StateWatcher);
 
     impl PluginBackend for StateWatcher {
         fn id(&self) -> PluginId {

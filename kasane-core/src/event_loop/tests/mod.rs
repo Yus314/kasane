@@ -19,6 +19,15 @@ mod dispatch;
 mod session;
 mod surface;
 
+crate::impl_pubsub_member_default!(
+    TestPlugin,
+    RuntimeMessagePlugin,
+    TextInputPlugin,
+    SurfacePlugin,
+    ReplacementSurfacePlugin,
+    InvalidSurfacePlugin,
+);
+
 pub(super) struct TestPlugin {
     pub id: PluginId,
     pub allow_spawn: bool,

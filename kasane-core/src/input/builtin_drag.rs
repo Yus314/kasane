@@ -16,6 +16,8 @@ use crate::state::DragState;
 /// new drag state without an out-of-band side channel.
 pub struct BuiltinDragPlugin;
 
+crate::impl_pubsub_member_default!(BuiltinDragPlugin);
+
 impl PluginBackend for BuiltinDragPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.drag".into())
