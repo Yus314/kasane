@@ -29,6 +29,9 @@ kasane-core = { workspace = true }
 # already in [dependencies] above and is reused by the test harness for
 # blocking on `request_adapter` / `request_device` / `map_async`.)
 image-compare = "0.4"
+# ADR-031 Phase 10 fixture skeletons (W2 follow-on) — `ResolvedAtom.contents`
+# is a `compact_str::CompactString`; tests need to construct those directly.
+compact_str = { workspace = true }
 
 [[bench]]
 name = "cpu_rendering"

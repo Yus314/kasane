@@ -688,3 +688,447 @@ fn monochrome_grid_matches_snapshot() {
     let img = render_scene_to_image(&gpu, width, height, &commands);
     assert_dssim(&img, "monochrome_grid");
 }
+
+// ---------------------------------------------------------------------------
+// ADR-031 Phase 10 feature goldens (ADR-032 W2 fixture skeletons).
+//
+// Each test below is a *skeleton*: the input DrawCommand list is
+// deterministic and committed; the snapshot is missing on first
+// run, so the bootstrap path of `assert_dssim` writes a fresh PNG
+// the first time the test runs in a GPU-capable environment
+// (whether `KASANE_GOLDEN_UPDATE=1` is set or not — `assert_dssim`
+// auto-bootstraps when the snapshot does not exist). On
+// subsequent runs, the test asserts DSSIM ≤ DSSIM_THRESHOLD
+// against the bootstrapped snapshot.
+//
+// Sandboxed environments without `/dev/dri` skip via
+// `headless_gpu_state` returning `None`, matching
+// `monochrome_grid_matches_snapshot`'s graceful-skip pattern.
+//
+// Each fixture pins one Phase 10 feature so a regression in that
+// feature surfaces as a single-fixture DSSIM failure with a clear
+// blame. Snapshot bootstrap on a GPU-capable machine is the only
+// remaining manual step; once committed, CI assertion runs
+// automatically.
+//
+// Fixture naming convention: `<feature>_matches_snapshot` for the
+// test, `<feature>` for the snapshot PNG.
+// ---------------------------------------------------------------------------
+
+/// Subpixel x-quantisation: 4-step bucket (0/4, 1/4, 2/4, 3/4) per
+/// `text/glyph_rasterizer.rs:24-42`. The fixture renders four
+/// short strings at increasing fractional x positions; a regression
+/// in the quantisation logic shifts the rasterised glyph bitmaps
+/// across the buckets and the DSSIM rises. Pinned by ADR-031 Phase
+/// 10 Step A landing.
+#[test]
+fn subpixel_quantisation_4step_matches_snapshot() {
+    use kasane_core::protocol::Style;
+    use kasane_core::render::{DrawCommand, PixelPos, PixelRect, scene::ResolvedAtom};
+
+    let width = 320u32;
+    let height = 96u32;
+    let Some(gpu) = headless_gpu_state(width, height) else {
+        eprintln!("no wgpu adapter available; skipping subpixel_quantisation_4step golden");
+        return;
+    };
+
+    let bg = DrawCommand::FillRect {
+        rect: PixelRect {
+            x: 0.0,
+            y: 0.0,
+            w: width as f32,
+            h: height as f32,
+        },
+        face: Style::default(),
+        elevated: false,
+    };
+    let mk_atoms = |y_cell: f32, x_offset_frac: f32, line_idx: u32| DrawCommand::DrawAtoms {
+        pos: PixelPos {
+            x: x_offset_frac,
+            y: y_cell * 16.0,
+        },
+        atoms: vec![ResolvedAtom {
+            contents: compact_str::CompactString::new("subpx"),
+            style: Style::default(),
+        }],
+        max_width: width as f32,
+        line_idx,
+    };
+    let commands = vec![
+        bg,
+        mk_atoms(0.0, 0.0, 0),
+        mk_atoms(1.0, 0.25, 1),
+        mk_atoms(2.0, 0.5, 2),
+        mk_atoms(3.0, 0.75, 3),
+    ];
+
+    let img = render_scene_to_image(&gpu, width, height, &commands);
+    assert_dssim(&img, "subpixel_quantisation_4step");
+}
+
+/// Variable font axes: continuous `FontWeight(u16)` per
+/// ADR-031 Phase 10. The fixture renders four "weight" lines at
+/// 100, 400, 700, 900 to pin that the weight value flows through
+/// to Parley as `StyleProperty::FontVariations` rather than being
+/// quantised to a discrete enum. A regression here typically
+/// surfaces as identical-looking lines (axis ignored) or
+/// misweighted glyphs (axis swapped).
+///
+/// **Note:** the weight values are encoded into `Style.font_weight`
+/// at the wire level; this fixture exercises the wire-to-Parley
+/// path via `Atom::with_style`. The bench currently builds via
+/// `Style::from_face`, which does not set `font_weight`; the
+/// fixture is *deliberately* unfilled at the weight axis until
+/// `Style.font_weight` is observable through the public protocol
+/// surface (post-ADR-031 Phase 10 Step C). Marked `#[ignore]` for
+/// now and unblocked when the surface lands.
+#[test]
+#[ignore = "ADR-031 Phase 10 Step C: Style.font_weight not yet on the public surface"]
+fn variable_font_axes_matches_snapshot() {
+    eprintln!(
+        "variable_font_axes fixture: blocked on ADR-031 Phase 10 Step C \
+         (Style.font_weight on protocol surface); skipped"
+    );
+}
+
+/// Curly underline with font-metric-driven amplitude per
+/// ADR-031 Phase 10 (rich underlines: curly/dotted/dashed/double).
+/// The fixture renders a single line with `Attributes::CURLY_UNDERLINE`
+/// set and `WireFace.underline` carrying a contrasting underline
+/// colour, sized so the curly waveform peaks/troughs are
+/// observable in the rasterised output. A regression in
+/// `kurbo::CubicBez` chain emission or `RunMetrics::underline_offset/size`
+/// plumbing shifts the waveform's amplitude or phase and the
+/// DSSIM rises.
+///
+/// **Note:** `Attributes::CURLY_UNDERLINE` is part of the public
+/// `Attributes` bitflags and the GPU side rasterises via the
+/// existing decoration path. The fixture is buildable today; pending
+/// only the snapshot bootstrap on a GPU-capable machine.
+#[test]
+fn curly_underline_matches_snapshot() {
+    use kasane_core::protocol::{Attributes, Color, NamedColor, Style, WireFace};
+    use kasane_core::render::{DrawCommand, PixelPos, PixelRect, scene::ResolvedAtom};
+
+    let width = 320u32;
+    let height = 32u32;
+    let Some(gpu) = headless_gpu_state(width, height) else {
+        eprintln!("no wgpu adapter available; skipping curly_underline golden");
+        return;
+    };
+
+    let underline_face: Style = WireFace {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        underline: Color::Named(NamedColor::Red),
+        attributes: Attributes::CURLY_UNDERLINE,
+    }
+    .into();
+
+    let commands = vec![
+        DrawCommand::FillRect {
+            rect: PixelRect {
+                x: 0.0,
+                y: 0.0,
+                w: width as f32,
+                h: height as f32,
+            },
+            face: Style::default(),
+            elevated: false,
+        },
+        DrawCommand::DrawAtoms {
+            pos: PixelPos { x: 0.0, y: 0.0 },
+            atoms: vec![ResolvedAtom {
+                contents: compact_str::CompactString::new("curly underline"),
+                style: underline_face,
+            }],
+            max_width: width as f32,
+            line_idx: 0,
+        },
+    ];
+
+    let img = render_scene_to_image(&gpu, width, height, &commands);
+    assert_dssim(&img, "curly_underline");
+}
+
+/// InlineBox text flow: a `RenderParagraph` carrying an
+/// `InlineBoxSlotMeta` with pre-painted plugin content. Pins the
+/// Phase 10 Step 2-renderer A.2b path. Snapshot validates that
+/// inline-box rect translation places the plugin content at the
+/// Parley-reported box rect.
+///
+/// Built via `BufferParagraph::builder().inline_box_slot(...)`;
+/// the slot is positioned at byte offset 6 (between "hello " and
+/// "world"), 2 cells wide, 1 line tall, with a single solid red
+/// FillRect as its paint command. A regression in
+/// `process_render_paragraph_parley`'s inline-box rect translation
+/// shifts where the red square renders relative to the surrounding
+/// text and the DSSIM rises.
+#[test]
+fn inline_box_text_flow_matches_snapshot() {
+    use kasane_core::display::InlineBoxAlignment;
+    use kasane_core::plugin::PluginId;
+    use kasane_core::protocol::{Color, NamedColor, Style, WireFace};
+    use kasane_core::render::{DrawCommand, PixelPos, PixelRect, scene::BufferParagraph};
+
+    let width = 320u32;
+    let height = 32u32;
+    let Some(gpu) = headless_gpu_state(width, height) else {
+        eprintln!("no wgpu adapter available; skipping inline_box_text_flow golden");
+        return;
+    };
+
+    let red_face: Style = WireFace {
+        fg: Color::Named(NamedColor::Red),
+        bg: Color::Named(NamedColor::Red),
+        ..WireFace::default()
+    }
+    .into();
+
+    // Inline-box paint contribution: one solid red square at
+    // origin (0, 0) sized to the slot's declared geometry
+    // (2 cells × 1 line ≈ 16×16 px at default cell metrics).
+    let inline_paint = vec![DrawCommand::FillRect {
+        rect: PixelRect {
+            x: 0.0,
+            y: 0.0,
+            w: 16.0,
+            h: 16.0,
+        },
+        face: red_face,
+        elevated: false,
+    }];
+
+    let paragraph = BufferParagraph::builder()
+        .atom("hello ", Style::default())
+        .atom("world", Style::default())
+        .inline_box_slot(
+            6,
+            2.0,
+            1.0,
+            0,
+            InlineBoxAlignment::Center,
+            PluginId("test.inline_box_fixture".to_string()),
+            inline_paint,
+        )
+        .build();
+
+    let commands = vec![
+        DrawCommand::FillRect {
+            rect: PixelRect {
+                x: 0.0,
+                y: 0.0,
+                w: width as f32,
+                h: height as f32,
+            },
+            face: Style::default(),
+            elevated: false,
+        },
+        DrawCommand::RenderParagraph {
+            pos: PixelPos { x: 0.0, y: 0.0 },
+            max_width: width as f32,
+            paragraph,
+            line_idx: 0,
+        },
+    ];
+
+    let img = render_scene_to_image(&gpu, width, height, &commands);
+    assert_dssim(&img, "inline_box_text_flow");
+}
+
+/// RTL/BiDi cursor placement: a paragraph mixing Latin and Arabic,
+/// with a `PrimaryCursor` annotation at a byte offset that lands at
+/// the Latin/Arabic boundary. Pins the Phase 10 RTL hit_test
+/// landing — a regression in cluster-position translation places
+/// the cursor on the wrong side of the boundary, producing a
+/// DSSIM-detectable shift.
+///
+/// Built via `BufferParagraph::builder().primary_cursor_at(...)`.
+/// Cursor sits at byte offset 6 (immediately after "Hello "), which
+/// is the LTR/RTL boundary in the mixed string. Phase 10 RTL
+/// hit_test must place the cursor at the *visual* right edge of
+/// the Latin run (= visual left edge of the RTL run, since Arabic
+/// is right-to-left).
+#[test]
+fn rtl_bidi_cursor_matches_snapshot() {
+    use kasane_core::protocol::Style;
+    use kasane_core::render::{
+        CursorStyle, DrawCommand, PixelPos, PixelRect, scene::BufferParagraph,
+    };
+
+    let width = 320u32;
+    let height = 32u32;
+    let Some(gpu) = headless_gpu_state(width, height) else {
+        eprintln!("no wgpu adapter available; skipping rtl_bidi_cursor golden");
+        return;
+    };
+
+    // Mixed Latin+Arabic: "Hello " (6 bytes) + "العالم" (Arabic
+    // for "world", multi-byte UTF-8). The cursor at byte offset 6
+    // lands at the boundary between the LTR Latin run and the RTL
+    // Arabic run — the most regression-prone position for BiDi
+    // hit-testing.
+    let paragraph = BufferParagraph::builder()
+        .atom("Hello ", Style::default())
+        .atom(
+            "\u{0627}\u{0644}\u{0639}\u{0627}\u{0644}\u{0645}",
+            Style::default(),
+        )
+        .primary_cursor_at(6, CursorStyle::Bar)
+        .build();
+
+    let commands = vec![
+        DrawCommand::FillRect {
+            rect: PixelRect {
+                x: 0.0,
+                y: 0.0,
+                w: width as f32,
+                h: height as f32,
+            },
+            face: Style::default(),
+            elevated: false,
+        },
+        DrawCommand::RenderParagraph {
+            pos: PixelPos { x: 0.0, y: 0.0 },
+            max_width: width as f32,
+            paragraph,
+            line_idx: 0,
+        },
+    ];
+
+    let img = render_scene_to_image(&gpu, width, height, &commands);
+    assert_dssim(&img, "rtl_bidi_cursor");
+}
+
+/// CJK cluster double-width: a single line of mixed CJK + Latin
+/// where the cursor sits over a CJK glyph. The Phase 10 cursor
+/// width clamp (`4d48bbd9` regression) ensures the cursor renders
+/// at the cluster's full display width, not the byte-width of the
+/// first code unit. A regression here halves the cursor width over
+/// CJK glyphs and surfaces as a high DSSIM in the cursor cell.
+///
+/// Built via `BufferParagraph::builder().primary_cursor_at(...)`.
+/// Cursor sits at byte offset 5 (start of "漢" — UTF-8 byte
+/// offset, since "Hello" is 5 ASCII bytes). The Phase 10 width
+/// clamp must render the Block cursor at the full 2-cell display
+/// width of the CJK glyph cluster, not at the 1-cell width that
+/// the byte-offset would naively suggest.
+#[test]
+fn cjk_cluster_double_width_matches_snapshot() {
+    use kasane_core::protocol::Style;
+    use kasane_core::render::{
+        CursorStyle, DrawCommand, PixelPos, PixelRect, scene::BufferParagraph,
+    };
+
+    let width = 320u32;
+    let height = 32u32;
+    let Some(gpu) = headless_gpu_state(width, height) else {
+        eprintln!("no wgpu adapter available; skipping cjk_cluster_double_width golden");
+        return;
+    };
+
+    // "Hello" + "漢字" — the cursor at byte offset 5 lands at the
+    // start of "漢" (3-byte UTF-8 sequence). Block cursor must span
+    // 2 display cells, not 1.
+    let paragraph = BufferParagraph::builder()
+        .atom("Hello", Style::default())
+        .atom("\u{6F22}\u{5B57}", Style::default())
+        .primary_cursor_at(5, CursorStyle::Block)
+        .build();
+
+    let commands = vec![
+        DrawCommand::FillRect {
+            rect: PixelRect {
+                x: 0.0,
+                y: 0.0,
+                w: width as f32,
+                h: height as f32,
+            },
+            face: Style::default(),
+            elevated: false,
+        },
+        DrawCommand::RenderParagraph {
+            pos: PixelPos { x: 0.0, y: 0.0 },
+            max_width: width as f32,
+            paragraph,
+            line_idx: 0,
+        },
+    ];
+
+    let img = render_scene_to_image(&gpu, width, height, &commands);
+    assert_dssim(&img, "cjk_cluster_double_width");
+}
+
+/// Color emoji source priority: a glyph that has both a COLR
+/// outline and an embedded color bitmap (e.g. U+1F600 in fonts
+/// that ship both representations). The
+/// `text/glyph_rasterizer.rs:135-140` source-priority list is
+/// `ColorOutline(0) → ColorBitmap(BestFit) → Outline → Bitmap`;
+/// the snapshot pins the COLR outline as the chosen
+/// representation. A regression that flips the priority order
+/// produces a different glyph appearance and the DSSIM rises.
+///
+/// Builds via a single-emoji DrawAtoms; the rasterizer's source
+/// priority is exercised when the font cascade resolves to a
+/// COLR-bearing font.
+#[test]
+fn color_emoji_priority_matches_snapshot() {
+    use kasane_core::protocol::Style;
+    use kasane_core::render::{DrawCommand, PixelPos, PixelRect, scene::ResolvedAtom};
+
+    let width = 64u32;
+    let height = 64u32;
+    let Some(gpu) = headless_gpu_state(width, height) else {
+        eprintln!("no wgpu adapter available; skipping color_emoji_priority golden");
+        return;
+    };
+
+    let commands = vec![
+        DrawCommand::FillRect {
+            rect: PixelRect {
+                x: 0.0,
+                y: 0.0,
+                w: width as f32,
+                h: height as f32,
+            },
+            face: Style::default(),
+            elevated: false,
+        },
+        DrawCommand::DrawAtoms {
+            pos: PixelPos { x: 8.0, y: 16.0 },
+            atoms: vec![ResolvedAtom {
+                contents: compact_str::CompactString::new("\u{1F600}"),
+                style: Style::default(),
+            }],
+            max_width: width as f32,
+            line_idx: 0,
+        },
+    ];
+
+    let img = render_scene_to_image(&gpu, width, height, &commands);
+    assert_dssim(&img, "color_emoji_priority");
+}
+
+/// Font fallback chain: primary family deliberately set to a name
+/// that does not exist on the system, falling back to the configured
+/// fallback list. The `text/font_stack.rs:resolve_stack` fixture
+/// pins that the configured fallback list is honoured rather than
+/// silently using the platform default. A regression that ignores
+/// the fallback list produces a different glyph cascade and the
+/// DSSIM rises.
+///
+/// **Note:** the `FontConfig` plumbing into the render path runs
+/// through `SceneRenderer::resize` (font config change). Building
+/// this fixture requires the test to exercise the font-config
+/// switch, which the current `render_scene_to_image` helper does
+/// not expose. Marked `#[ignore]` until the helper accepts an
+/// optional `&FontConfig` override.
+#[test]
+#[ignore = "Font-fallback fixture pending render_scene_to_image FontConfig override"]
+fn font_fallback_chain_matches_snapshot() {
+    eprintln!(
+        "font_fallback_chain fixture: blocked on render_scene_to_image \
+         FontConfig override; skipped. Pin: text/font_stack.rs:resolve_stack"
+    );
+}
