@@ -34,8 +34,8 @@ use std::path::PathBuf;
 use kasane_core::protocol::{
     Atom, Attributes, Color, Coord, KakouneRequest, NamedColor, StatusStyle, Style, WireFace,
 };
-use kasane_core::render::CellGrid;
-use kasane_core::test_support::{render_to_grid, test_state_80x24};
+use kasane_core::render::{CellGrid, RenderResult};
+use kasane_core::test_support::{render_to_grid, render_to_grid_with_result, test_state_80x24};
 
 // ---------------------------------------------------------------------------
 // Snapshot harness
@@ -162,6 +162,20 @@ pub fn dump_cellgrid(grid: &CellGrid) -> String {
     output
 }
 
+/// Append a deterministic dump of [`RenderResult`] cursor fields to a
+/// CellGrid snapshot. The TUI backend doesn't write the cursor cell into
+/// the grid (the terminal draws it via SGR positioning), so cursor
+/// coordinates / style / colour are only visible through `RenderResult`.
+/// Including them in the snapshot pins display-column → screen-coordinate
+/// translation for cursor placement under CJK / EOL / line-change scenarios.
+fn append_cursor_dump(out: &mut String, result: &RenderResult) {
+    use std::fmt::Write;
+    let _ = writeln!(out, "\n# cursor");
+    let _ = writeln!(out, "position: ({}, {})", result.cursor_x, result.cursor_y);
+    let _ = writeln!(out, "style:    {:?}", result.cursor_style);
+    let _ = writeln!(out, "color:    {:?}", result.cursor_color);
+}
+
 /// Assert that `grid`'s dump matches the committed snapshot at
 /// `tests/golden/snapshots/<name>.snap.txt`. On first run (no file) or
 /// when `KASANE_GOLDEN_UPDATE=1`, write the snapshot and pass.
@@ -182,6 +196,65 @@ pub fn assert_grid_snapshot(grid: &CellGrid, name: &str) {
 
     if actual != expected {
         // Show a compact diff: locate the first differing line.
+        let actual_lines: Vec<&str> = actual.lines().collect();
+        let expected_lines: Vec<&str> = expected.lines().collect();
+        let max = actual_lines.len().max(expected_lines.len());
+        let mut first_diff_line: Option<usize> = None;
+        for i in 0..max {
+            let a = actual_lines.get(i).copied().unwrap_or("");
+            let e = expected_lines.get(i).copied().unwrap_or("");
+            if a != e {
+                first_diff_line = Some(i);
+                break;
+            }
+        }
+        let detail = match first_diff_line {
+            Some(line_no) => {
+                let context_before = line_no.saturating_sub(2);
+                let context_after = (line_no + 3).min(max);
+                let mut detail = format!("first diff at line {}:\n", line_no + 1);
+                for i in context_before..context_after {
+                    let a = actual_lines.get(i).copied().unwrap_or("<eof>");
+                    let e = expected_lines.get(i).copied().unwrap_or("<eof>");
+                    let mark = if a == e { " " } else { ">" };
+                    detail.push_str(&format!(
+                        "  {mark} L{}\n      actual:   {a}\n      expected: {e}\n",
+                        i + 1
+                    ));
+                }
+                detail
+            }
+            None => "(no line-level diff found; check trailing whitespace)".to_string(),
+        };
+
+        panic!(
+            "golden snapshot mismatch for {name}\n{detail}\n\
+             update with: KASANE_GOLDEN_UPDATE=1 cargo test -p kasane-core --test golden_grid"
+        );
+    }
+}
+
+/// Like [`assert_grid_snapshot`] but extends the dump with cursor metadata
+/// from [`RenderResult`]. Required for cursor-positioning goldens because
+/// the TUI cursor cell isn't written into [`CellGrid`] — the terminal
+/// draws it through SGR positioning.
+pub fn assert_cursor_grid_snapshot(grid: &CellGrid, result: &RenderResult, name: &str) {
+    let dir = snapshots_dir();
+    std::fs::create_dir_all(&dir).expect("create snapshots dir");
+    let path = dir.join(format!("{name}.snap.txt"));
+    let mut actual = dump_cellgrid(grid);
+    append_cursor_dump(&mut actual, result);
+
+    if update_mode() || !path.exists() {
+        std::fs::write(&path, &actual).expect("write snapshot");
+        eprintln!("golden grid wrote snapshot: {}", path.display());
+        return;
+    }
+
+    let expected = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("load snapshot {}: {e}", path.display()));
+
+    if actual != expected {
         let actual_lines: Vec<&str> = actual.lines().collect();
         let expected_lines: Vec<&str> = expected.lines().collect();
         let max = actual_lines.len().max(expected_lines.len());
@@ -400,6 +473,111 @@ fn cjk_80x24_smoke() {
     let grid = render_to_grid(&state, &registry);
 
     assert_grid_snapshot(&grid, "cjk_80x24_smoke");
+}
+
+// ---------------------------------------------------------------------------
+// Cursor positioning tests
+// ---------------------------------------------------------------------------
+//
+// These exercise the display-column → screen-coordinate translation that
+// `cursor_position` performs for the TUI / GUI backends. The cursor cell
+// itself isn't written into [`CellGrid`] — the terminal draws it via SGR
+// positioning — so coverage flows through [`RenderResult::cursor_x/_y`]
+// captured by [`assert_cursor_grid_snapshot`].
+
+/// Buffer with mixed ASCII + CJK content for cursor placement tests.
+/// Row 0 has wide cells starting at display column 3 (`メ`); row 1 has
+/// a CJK identifier embedded after the `let` keyword. Same content as
+/// `buffer_scene_cjk` but kept local so cursor tests stay self-contained
+/// against future fixture refactors.
+fn buffer_scene_for_cursor() -> Vec<Vec<Atom>> {
+    vec![
+        vec![Atom::plain("fn メイン() {")],
+        vec![Atom::plain("    let x = 42;")],
+        vec![Atom::plain("}")],
+    ]
+}
+
+/// Helper that runs the standard 80×24 pipeline for the cursor fixtures.
+fn render_cursor_scene(cursor_pos: Coord) -> (CellGrid, RenderResult) {
+    let mut state = test_state_80x24();
+    let _ = state.apply(KakouneRequest::Draw {
+        lines: buffer_scene_for_cursor(),
+        cursor_pos,
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
+        widget_columns: 0,
+    });
+    let _ = state.apply(KakouneRequest::DrawStatus {
+        prompt: vec![],
+        content: vec![Atom::plain(" cursor.rs ")],
+        content_cursor_pos: -1,
+        mode_line: vec![Atom::plain("normal")],
+        default_style: kasane_core::protocol::default_unresolved_style(),
+        style: StatusStyle::Status,
+    });
+
+    let registry = kasane_core::plugin::PluginRuntime::default();
+    render_to_grid_with_result(&state, &registry)
+}
+
+/// Cursor at the buffer origin (line 0, column 0). Pins the screen
+/// coordinate baseline: cursor_x must be 0 (or the gutter offset when
+/// gutters are enabled), cursor_y must be 0.
+#[test]
+fn cursor_at_origin() {
+    let (grid, result) = render_cursor_scene(Coord { line: 0, column: 0 });
+    assert_cursor_grid_snapshot(&grid, &result, "cursor_at_origin");
+}
+
+/// Cursor inside the CJK identifier `メイン` at display column 6
+/// (the start of `イ`). A regression that interprets `cursor_pos.column`
+/// as a byte offset would land at column 4 (after `fn ` byte-wise points
+/// into the middle of `メ`'s UTF-8 sequence) instead of column 6 — see
+/// project memory `project_cursor_pos_display_column.md`.
+#[test]
+fn cursor_in_cjk_display_column() {
+    let (grid, result) = render_cursor_scene(Coord { line: 0, column: 6 });
+    assert_cursor_grid_snapshot(&grid, &result, "cursor_in_cjk_display_column");
+}
+
+/// Cursor at end of line 1 — display column 15 lands on the trailing `;`
+/// of `    let x = 42;`. Pins that EOL cursor placement maps to the
+/// last cell of content, not past the buffer edge.
+#[test]
+fn cursor_at_eol() {
+    let (grid, result) = render_cursor_scene(Coord {
+        line: 1,
+        column: 15,
+    });
+    assert_cursor_grid_snapshot(&grid, &result, "cursor_at_eol");
+}
+
+/// Cursor positioned past the rendered buffer (line 100). Pins the
+/// out-of-viewport behaviour: `cursor_position` clamps via
+/// `buffer_line_to_screen_y`, so cursor_y should saturate or land at a
+/// well-defined value rather than wrap or panic.
+#[test]
+fn cursor_past_viewport() {
+    let (grid, result) = render_cursor_scene(Coord {
+        line: 100,
+        column: 0,
+    });
+    assert_cursor_grid_snapshot(&grid, &result, "cursor_past_viewport");
 }
 
 /// Combining-mark sequence — kana base + voiced sound mark. The dakuten
