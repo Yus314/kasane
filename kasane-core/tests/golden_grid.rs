@@ -316,6 +316,54 @@ fn cyan_underline() -> WireFace {
     }
 }
 
+/// Kakoune's typical selection face: reverse attribute on the default
+/// fg/bg pair. The protocol pre-resolves selection ranges into per-atom
+/// faces before sending Draw, so kasane sees them as ordinary styled
+/// atoms — these fixtures emulate that handoff.
+fn selection_face() -> WireFace {
+    WireFace {
+        fg: Color::Default,
+        bg: Color::Default,
+        underline: Color::Default,
+        attributes: Attributes::REVERSE,
+    }
+}
+
+/// Single-line selection: characters 3..7 (`main`) styled with the
+/// selection face within `fn main() {`. The snapshot's face-run column
+/// must show three runs: default → selection → default.
+fn buffer_scene_selection_single() -> Vec<Vec<Atom>> {
+    let sel = selection_face();
+    vec![
+        vec![
+            Atom::plain("fn "),
+            Atom::with_style("main", Style::from_face(&sel)),
+            Atom::plain("() {"),
+        ],
+        vec![Atom::plain("    let x = 42;")],
+        vec![Atom::plain("}")],
+    ]
+}
+
+/// Multi-line selection: trailing portion of line 0 plus leading
+/// portion of line 1. Pins that selection-styled atoms render
+/// independently per row — face ids are reused across rows when the
+/// underlying TerminalStyle matches.
+fn buffer_scene_selection_multi() -> Vec<Vec<Atom>> {
+    let sel = selection_face();
+    vec![
+        vec![
+            Atom::plain("fn "),
+            Atom::with_style("main() {", Style::from_face(&sel)),
+        ],
+        vec![
+            Atom::with_style("    let", Style::from_face(&sel)),
+            Atom::plain(" x = 42;"),
+        ],
+        vec![Atom::plain("}")],
+    ]
+}
+
 /// Construct an 80×24 buffer scene with multi-style atoms exercising the
 /// resolution path that B-wide will rewire. Lines mimic a small Rust
 /// source file fragment with keyword highlighting and an underlined
@@ -473,6 +521,70 @@ fn cjk_80x24_smoke() {
     let grid = render_to_grid(&state, &registry);
 
     assert_grid_snapshot(&grid, "cjk_80x24_smoke");
+}
+
+// ---------------------------------------------------------------------------
+// Selection rendering tests
+// ---------------------------------------------------------------------------
+//
+// Kakoune resolves selection ranges into per-atom faces before sending the
+// Draw protocol message, so selections surface in kasane as ordinary styled
+// atoms. These tests pin that the face boundaries on each row match the
+// selection range and that multi-row selections produce coherent face runs.
+
+/// Helper that drives the standard 80×24 pipeline for selection fixtures.
+fn render_selection_scene(lines: Vec<Vec<Atom>>) -> CellGrid {
+    let mut state = test_state_80x24();
+    let _ = state.apply(KakouneRequest::Draw {
+        lines,
+        cursor_pos: Coord { line: 0, column: 0 },
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
+        widget_columns: 0,
+    });
+    let _ = state.apply(KakouneRequest::DrawStatus {
+        prompt: vec![],
+        content: vec![Atom::plain(" sel.rs ")],
+        content_cursor_pos: -1,
+        mode_line: vec![Atom::plain("normal")],
+        default_style: kasane_core::protocol::default_unresolved_style(),
+        style: StatusStyle::Status,
+    });
+
+    let registry = kasane_core::plugin::PluginRuntime::default();
+    render_to_grid(&state, &registry)
+}
+
+/// Single-line selection: `main` (cols 3..7) styled with the selection
+/// face. The snapshot's row 0 face-run line must split into three: the
+/// leading default run, the selection run, and the trailing default run.
+#[test]
+fn selection_single_line() {
+    let grid = render_selection_scene(buffer_scene_selection_single());
+    assert_grid_snapshot(&grid, "selection_single_line");
+}
+
+/// Multi-line selection straddling row 0 and row 1. Pins that selection
+/// runs are emitted per row (no cross-row face merging) and that face
+/// ids are reused across rows when the TerminalStyle matches.
+#[test]
+fn selection_multi_line() {
+    let grid = render_selection_scene(buffer_scene_selection_multi());
+    assert_grid_snapshot(&grid, "selection_multi_line");
 }
 
 // ---------------------------------------------------------------------------
