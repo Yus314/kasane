@@ -245,117 +245,7 @@ fn update_inner<E: PluginEffects>(
                 },
             }
         }
-        Msg::Mouse(mouse) => {
-            // Pre-dispatch: plugins with MOUSE_PRE_DISPATCH capability
-            // (e.g., BuiltinShadowCursorPlugin) intercept mouse before observation.
-            match effects.dispatch_mouse_pre_dispatch(&mouse, &AppView::new(state)) {
-                MousePreDispatchResult::Consumed {
-                    flags,
-                    mut commands,
-                } => {
-                    if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
-                        state.runtime.shadow_cursor = sc;
-                    }
-                    if let Some(drag) = extract_drag_state_update(&mut commands) {
-                        state.runtime.drag = drag;
-                    }
-                    let extra_flags = extract_redraw_flags(&mut commands);
-                    return UpdateResult {
-                        flags: flags | extra_flags,
-                        commands,
-                        ..Default::default()
-                    };
-                }
-                MousePreDispatchResult::Pass { mut commands } => {
-                    if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
-                        state.runtime.shadow_cursor = sc;
-                    }
-                    if let Some(drag) = extract_drag_state_update(&mut commands) {
-                        state.runtime.drag = drag;
-                    }
-                }
-            }
-
-            // Notify all plugins (observe only, independent of hit test)
-            effects.observe_mouse_all(&mouse, &AppView::new(state));
-
-            // Plugin mouse handling: route click/press to plugins via hit test
-            if let Some(id) = state
-                .runtime
-                .hit_map
-                .test(mouse.column as u16, mouse.line as u16)
-            {
-                tracing::debug!(id = ?id, col = mouse.column, line = mouse.line, "hit_test matched");
-                match effects.dispatch_mouse_handler(&mouse, id, &AppView::new(state)) {
-                    MouseHandleResult::Handled {
-                        source_plugin,
-                        mut commands,
-                    } => {
-                        tracing::debug!(count = commands.len(), "handle_mouse returned commands");
-                        let flags = extract_redraw_flags(&mut commands);
-                        return UpdateResult {
-                            flags,
-                            commands,
-                            source_plugin: Some(source_plugin),
-                            ..Default::default()
-                        };
-                    }
-                    MouseHandleResult::NotHandled => {
-                        tracing::debug!(id = ?id, "no plugin handled mouse");
-                    }
-                }
-            } else if matches!(mouse.kind, input::MouseEventKind::Press(_)) {
-                tracing::debug!(col = mouse.column, line = mouse.line, kind = ?mouse.kind, "hit_test: no match");
-            }
-
-            // Temporarily take the hit_map to avoid split-borrow conflict
-            // (dispatch_legacy_mouse_scroll needs &mut state and &HitMap simultaneously)
-            let hit_map = std::mem::take(&mut state.runtime.hit_map);
-            let scroll_result = crate::scroll::dispatch_legacy_mouse_scroll(
-                state,
-                &mouse,
-                &hit_map,
-                effects,
-                scroll_amount,
-            );
-            state.runtime.hit_map = hit_map;
-            match scroll_result {
-                LegacyScrollDispatch::ConsumedInfo => {
-                    return UpdateResult {
-                        flags: DirtyFlags::INFO,
-                        ..Default::default()
-                    };
-                }
-                LegacyScrollDispatch::Requests(requests) => {
-                    let commands = requests.into_iter().map(Command::SendToKakoune).collect();
-                    return UpdateResult {
-                        commands,
-                        ..Default::default()
-                    };
-                }
-                LegacyScrollDispatch::Plan(plan) => {
-                    return UpdateResult {
-                        scroll_plans: vec![plan],
-                        ..Default::default()
-                    };
-                }
-                LegacyScrollDispatch::NotHandled => {}
-            }
-
-            // Display unit dispatch (ρ₂'): when display transforms are active,
-            // dispatch based on NavigationPolicy for the hit display unit.
-            if let Some(result) = dispatch_display_unit_mouse(state, effects, &mouse) {
-                return result;
-            }
-
-            let cmds = effects
-                .dispatch_mouse_fallback(&mouse, scroll_amount, &AppView::new(state))
-                .unwrap_or_default();
-            UpdateResult {
-                commands: cmds,
-                ..Default::default()
-            }
-        }
+        Msg::Mouse(mouse) => dispatch_mouse_event(state, effects, mouse, scroll_amount),
         Msg::Drop(drop) => {
             // 1. Broadcast observation
             effects.observe_drop_all(&drop, &AppView::new(state));
@@ -424,6 +314,126 @@ fn update_inner<E: PluginEffects>(
                 ..Default::default()
             }
         }
+    }
+}
+
+/// Dispatch a mouse event through the full plugin pipeline:
+/// pre-dispatch → observation → hit-test handler → legacy scroll →
+/// display-unit navigation → fallback.
+fn dispatch_mouse_event<E: PluginEffects>(
+    state: &mut AppState,
+    effects: &mut E,
+    mouse: MouseEvent,
+    scroll_amount: i32,
+) -> UpdateResult {
+    // Pre-dispatch: plugins with MOUSE_PRE_DISPATCH capability
+    // (e.g., BuiltinShadowCursorPlugin) intercept mouse before observation.
+    match effects.dispatch_mouse_pre_dispatch(&mouse, &AppView::new(state)) {
+        MousePreDispatchResult::Consumed {
+            flags,
+            mut commands,
+        } => {
+            if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
+                state.runtime.shadow_cursor = sc;
+            }
+            if let Some(drag) = extract_drag_state_update(&mut commands) {
+                state.runtime.drag = drag;
+            }
+            let extra_flags = extract_redraw_flags(&mut commands);
+            return UpdateResult {
+                flags: flags | extra_flags,
+                commands,
+                ..Default::default()
+            };
+        }
+        MousePreDispatchResult::Pass { mut commands } => {
+            if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
+                state.runtime.shadow_cursor = sc;
+            }
+            if let Some(drag) = extract_drag_state_update(&mut commands) {
+                state.runtime.drag = drag;
+            }
+        }
+    }
+
+    // Notify all plugins (observe only, independent of hit test)
+    effects.observe_mouse_all(&mouse, &AppView::new(state));
+
+    // Plugin mouse handling: route click/press to plugins via hit test
+    if let Some(id) = state
+        .runtime
+        .hit_map
+        .test(mouse.column as u16, mouse.line as u16)
+    {
+        tracing::debug!(id = ?id, col = mouse.column, line = mouse.line, "hit_test matched");
+        match effects.dispatch_mouse_handler(&mouse, id, &AppView::new(state)) {
+            MouseHandleResult::Handled {
+                source_plugin,
+                mut commands,
+            } => {
+                tracing::debug!(count = commands.len(), "handle_mouse returned commands");
+                let flags = extract_redraw_flags(&mut commands);
+                return UpdateResult {
+                    flags,
+                    commands,
+                    source_plugin: Some(source_plugin),
+                    ..Default::default()
+                };
+            }
+            MouseHandleResult::NotHandled => {
+                tracing::debug!(id = ?id, "no plugin handled mouse");
+            }
+        }
+    } else if matches!(mouse.kind, input::MouseEventKind::Press(_)) {
+        tracing::debug!(col = mouse.column, line = mouse.line, kind = ?mouse.kind, "hit_test: no match");
+    }
+
+    // Temporarily take the hit_map to avoid split-borrow conflict
+    // (dispatch_legacy_mouse_scroll needs &mut state and &HitMap simultaneously)
+    let hit_map = std::mem::take(&mut state.runtime.hit_map);
+    let scroll_result = crate::scroll::dispatch_legacy_mouse_scroll(
+        state,
+        &mouse,
+        &hit_map,
+        effects,
+        scroll_amount,
+    );
+    state.runtime.hit_map = hit_map;
+    match scroll_result {
+        LegacyScrollDispatch::ConsumedInfo => {
+            return UpdateResult {
+                flags: DirtyFlags::INFO,
+                ..Default::default()
+            };
+        }
+        LegacyScrollDispatch::Requests(requests) => {
+            let commands = requests.into_iter().map(Command::SendToKakoune).collect();
+            return UpdateResult {
+                commands,
+                ..Default::default()
+            };
+        }
+        LegacyScrollDispatch::Plan(plan) => {
+            return UpdateResult {
+                scroll_plans: vec![plan],
+                ..Default::default()
+            };
+        }
+        LegacyScrollDispatch::NotHandled => {}
+    }
+
+    // Display unit dispatch (ρ₂'): when display transforms are active,
+    // dispatch based on NavigationPolicy for the hit display unit.
+    if let Some(result) = dispatch_display_unit_mouse(state, effects, &mouse) {
+        return result;
+    }
+
+    let cmds = effects
+        .dispatch_mouse_fallback(&mouse, scroll_amount, &AppView::new(state))
+        .unwrap_or_default();
+    UpdateResult {
+        commands: cmds,
+        ..Default::default()
     }
 }
 
