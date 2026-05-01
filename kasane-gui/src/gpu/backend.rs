@@ -55,6 +55,11 @@ pub struct BackendCapabilities {
     pub supports_compute: bool,
     /// Glyph atlas implementation in use.
     pub atlas_kind: AtlasKind,
+    /// What happens when a plugin contribution carries a primitive
+    /// that exceeds the rest of `BackendCapabilities`. See
+    /// [`DegradationPolicy`] and ADR-032 §Decision item 3 for the
+    /// visible-behaviour table.
+    pub degradation_policy: DegradationPolicy,
 }
 
 /// Glyph atlas implementation strategy.
@@ -68,6 +73,44 @@ pub enum AtlasKind {
     /// repo). Reserved for a future spike-validated backend; not
     /// currently constructed by any production code path.
     Glifo,
+}
+
+/// What a backend does with a plugin contribution whose primitive
+/// kind exceeds the negotiated capability set.
+///
+/// Each value's visible behaviour is fixed by ADR-032 §Decision item 3:
+///
+/// - [`Reject`](Self::Reject): drop the contribution, emit one
+///   [`PluginDiagnosticKind::BackendCapabilityRejected`](kasane_core::plugin::diagnostics::PluginDiagnosticKind)
+///   per `(plugin_id, primitive_kind)` per session, render the frame
+///   without the contribution and without a placeholder pixel. Default
+///   for backends that have not selected another value.
+/// - [`Skip`](Self::Skip): identical to `Reject` but the diagnostic is
+///   suppressed. For best-effort decoration where silence is the user's
+///   preferred outcome.
+/// - [`FallbackToTui`](Self::FallbackToTui): re-render the contribution
+///   through the TUI translation path of the same primitive. Defined
+///   only for primitives with a TUI analogue (path → ASCII frame, and
+///   so on); a primitive without one degrades to `Reject` and emits the
+///   diagnostic.
+///
+/// Note that this enum governs *backend capability mismatch*, not
+/// plugin handler crashes — plugin panic / WASM trap is the contract
+/// of [ADR-033 Plugin Failure Semantics](../../../../../../../docs/decisions.md).
+/// Both can fire on the same frame for different plugins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DegradationPolicy {
+    /// Drop the contribution and emit a single
+    /// `BackendCapabilityRejected` diagnostic per
+    /// `(plugin_id, primitive_kind)` per session. Default.
+    #[default]
+    Reject,
+    /// Drop the contribution silently. No diagnostic.
+    Skip,
+    /// Re-render the contribution through the TUI translation path of
+    /// the same primitive. A primitive without a TUI analogue degrades
+    /// to `Reject` (and emits the diagnostic).
+    FallbackToTui,
 }
 
 /// Error returned by a [`GpuBackend`] operation.

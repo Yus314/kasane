@@ -66,6 +66,27 @@ pub enum PluginDiagnosticKind {
     ConfigError {
         key: String,
     },
+    /// A plugin contribution carried a primitive whose kind exceeds the
+    /// active GPU backend's `BackendCapabilities` and the backend's
+    /// `degradation_policy` was `Reject`. The contribution was dropped
+    /// for the frame; subsequent frames continue dispatching the
+    /// plugin normally — this is *not* a quarantine event (see
+    /// ADR-033 for plugin failure semantics, which is a distinct
+    /// contract).
+    ///
+    /// Emitted at most once per `(plugin_id, primitive_kind)` per
+    /// session — the per-frame rejection check deduplicates so a
+    /// plugin emitting the same path on every frame produces a single
+    /// diagnostic, not one per frame. Per ADR-032 §Decision item 3.
+    BackendCapabilityRejected {
+        /// Short identifier for the rejected primitive ("path",
+        /// "gradient", "blur", "DrawCanvas", etc.). Static-string-shaped
+        /// to keep the diagnostic-emission path allocation-free.
+        primitive_kind: &'static str,
+        /// Backend that rejected (`"WgpuBackend"`, `"VelloBackend"`,
+        /// future backends). Static-string-shaped for the same reason.
+        backend: &'static str,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -162,6 +183,31 @@ impl PluginDiagnostic {
         }
     }
 
+    /// Construct a `BackendCapabilityRejected` diagnostic. Used by the
+    /// GPU backend layer when a plugin contribution carrying a
+    /// primitive that exceeds `BackendCapabilities` is dropped under
+    /// `DegradationPolicy::Reject`. See ADR-032 §Decision item 3.
+    ///
+    /// The caller is responsible for deduplicating
+    /// `(plugin_id, primitive_kind)` across frames; this constructor
+    /// simply builds the diagnostic value.
+    pub fn backend_capability_rejected(
+        plugin_id: PluginId,
+        primitive_kind: &'static str,
+        backend: &'static str,
+    ) -> Self {
+        Self {
+            target: PluginDiagnosticTarget::Plugin(plugin_id),
+            message: format!("{backend} cannot render {primitive_kind} (contribution dropped)"),
+            kind: PluginDiagnosticKind::BackendCapabilityRejected {
+                primitive_kind,
+                backend,
+            },
+            previous: None,
+            attempted: None,
+        }
+    }
+
     pub fn plugin_id(&self) -> Option<&PluginId> {
         match &self.target {
             PluginDiagnosticTarget::Plugin(plugin_id) => Some(plugin_id),
@@ -183,7 +229,10 @@ impl PluginDiagnostic {
             | PluginDiagnosticKind::ProviderCollectFailed
             | PluginDiagnosticKind::RuntimeError { .. } => PluginDiagnosticSeverity::Error,
             PluginDiagnosticKind::ProviderArtifactFailed { .. }
-            | PluginDiagnosticKind::ConfigError { .. } => PluginDiagnosticSeverity::Warning,
+            | PluginDiagnosticKind::ConfigError { .. }
+            | PluginDiagnosticKind::BackendCapabilityRejected { .. } => {
+                PluginDiagnosticSeverity::Warning
+            }
         }
     }
 }
@@ -247,6 +296,12 @@ pub fn summarize_plugin_diagnostic(diagnostic: &PluginDiagnostic) -> String {
         }
         PluginDiagnosticKind::ConfigError { key } => {
             format!("{key}: {}", diagnostic.message)
+        }
+        PluginDiagnosticKind::BackendCapabilityRejected {
+            primitive_kind,
+            backend,
+        } => {
+            format!("{target}: {backend} rejected {primitive_kind}")
         }
     }
 }
@@ -395,6 +450,19 @@ pub fn report_plugin_diagnostics(diagnostics: &[PluginDiagnostic]) {
                     key = %key,
                     message = %diagnostic.message,
                     "plugin config error"
+                );
+            }
+            PluginDiagnosticKind::BackendCapabilityRejected {
+                primitive_kind,
+                backend,
+            } => {
+                tracing::warn!(
+                    plugin_id = plugin_id.unwrap_or("none"),
+                    kind = "backend_capability_rejected",
+                    primitive_kind = %primitive_kind,
+                    backend = %backend,
+                    message = %diagnostic.message,
+                    "plugin contribution dropped"
                 );
             }
         }

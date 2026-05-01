@@ -590,6 +590,7 @@ fn diagnostic_overlay_priority(diagnostic: &PluginDiagnostic) -> (u8, u8, u8, u8
         PluginDiagnosticKind::RuntimeError { .. } => 1,
         PluginDiagnosticKind::ProviderCollectFailed => 1,
         PluginDiagnosticKind::ConfigError { .. } => 1,
+        PluginDiagnosticKind::BackendCapabilityRejected { .. } => 1,
         PluginDiagnosticKind::ProviderArtifactFailed { .. } => 0,
     };
     let stage = match diagnostic.kind {
@@ -625,5 +626,8 @@ fn diagnostic_overlay_tag_kind(diagnostic: &PluginDiagnostic) -> PluginDiagnosti
         },
         PluginDiagnosticKind::RuntimeError { .. } => PluginDiagnosticOverlayTagKind::Runtime,
         PluginDiagnosticKind::ConfigError { .. } => PluginDiagnosticOverlayTagKind::Config,
+        PluginDiagnosticKind::BackendCapabilityRejected { .. } => {
+            PluginDiagnosticOverlayTagKind::Runtime
+        }
     }
 }

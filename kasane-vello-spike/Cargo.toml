@@ -33,6 +33,7 @@ with-vello = ["dep:vello_hybrid"]
 criterion = { workspace = true }
 pollster = { workspace = true }
 image = { workspace = true }
+compact_str = { workspace = true }
 
 # Spike performance bench; requires --features with-vello to do
 # anything meaningful. Without the feature it compiles and runs as a

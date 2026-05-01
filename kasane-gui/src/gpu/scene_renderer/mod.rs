@@ -1275,6 +1275,14 @@ impl super::backend::GpuBackend for SceneRenderer {
             supports_paths: false,
             supports_compute: false,
             atlas_kind: super::backend::AtlasKind::EtagereShelf,
+            // Default per ADR-032 §Decision item 3. Currently no
+            // primitive in `DrawCommand` exceeds `WgpuBackend`'s
+            // capability set, so the rejection path is unreachable in
+            // practice; landing the field is the prerequisite the ADR
+            // pins for any future capability-gated primitive (paths,
+            // gradients, blur, DrawCanvas) to be added without
+            // discovering the rejection contract during implementation.
+            degradation_policy: super::backend::DegradationPolicy::Reject,
         }
     }
 }

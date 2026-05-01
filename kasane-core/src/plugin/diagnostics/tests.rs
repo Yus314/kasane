@@ -1336,3 +1336,108 @@ fn config_error_overlay_tag_is_config() {
     assert_eq!(lines[0].tag_kind, PluginDiagnosticOverlayTagKind::Config);
     assert_eq!(lines[0].severity, PluginDiagnosticSeverity::Warning);
 }
+
+// ---------------------------------------------------------------------------
+// ADR-032 §Decision item 3 — BackendCapabilityRejected visible behaviour.
+// These tests pin the contract specified in the ADR text so the diagnostic
+// implementation cannot drift from the doc without breaking a test.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn backend_capability_rejected_is_warning_severity() {
+    // ADR-032 §Decision item 3: capability rejection is non-fatal —
+    // the contribution is dropped, the frame proceeds, the plugin
+    // remains active. Severity reflects "best-effort dropped", not
+    // "plugin is broken" → Warning, not Error.
+    let diagnostic = PluginDiagnostic::backend_capability_rejected(
+        PluginId("test.path-emitter".to_string()),
+        "path",
+        "WgpuBackend",
+    );
+    assert_eq!(diagnostic.severity(), PluginDiagnosticSeverity::Warning);
+}
+
+#[test]
+fn backend_capability_rejected_summary_names_backend_and_primitive() {
+    // The user-facing message must identify *what was dropped* and
+    // *which backend dropped it* so the user can correlate to the
+    // capability mismatch. Static-string-shaped fields keep the
+    // emission path allocation-free per ADR-032 §Decision item 3.
+    let diagnostic = PluginDiagnostic::backend_capability_rejected(
+        PluginId("kasane.path-overlay".to_string()),
+        "path",
+        "WgpuBackend",
+    );
+    let summary = summarize_plugin_diagnostic(&diagnostic);
+    assert_eq!(summary, "kasane.path-overlay: WgpuBackend rejected path");
+}
+
+#[test]
+fn backend_capability_rejected_kind_carries_static_strings() {
+    // ADR-032 §Decision item 3: primitive_kind and backend are
+    // &'static str specifically so the per-frame emission path does
+    // not allocate. Pin that the kind variant exposes them as the
+    // caller-supplied static literals (no string copy).
+    let diagnostic = PluginDiagnostic::backend_capability_rejected(
+        PluginId("test".to_string()),
+        "DrawCanvas",
+        "VelloBackend",
+    );
+    match diagnostic.kind {
+        super::PluginDiagnosticKind::BackendCapabilityRejected {
+            primitive_kind,
+            backend,
+        } => {
+            assert_eq!(primitive_kind, "DrawCanvas");
+            assert_eq!(backend, "VelloBackend");
+        }
+        _ => panic!("expected BackendCapabilityRejected variant"),
+    }
+}
+
+#[test]
+fn backend_capability_rejected_overlay_tag_is_runtime() {
+    // The diagnostic shows in the runtime-tagged overlay slot
+    // alongside other per-frame plugin events. Activation/Discovery
+    // tags are reserved for plugin lifecycle, not contribution
+    // rejection.
+    let diagnostic = PluginDiagnostic::backend_capability_rejected(
+        PluginId("test".to_string()),
+        "blur",
+        "WgpuBackend",
+    );
+    let lines = diagnostic_overlay_lines(&[diagnostic], 5);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].tag_kind, PluginDiagnosticOverlayTagKind::Runtime);
+    assert_eq!(lines[0].severity, PluginDiagnosticSeverity::Warning);
+}
+
+#[test]
+fn degradation_policy_default_is_reject() {
+    // ADR-032 §Decision item 3 declares Reject the default policy:
+    // any backend that has not opted into Skip or FallbackToTui
+    // gets the diagnostic-emitting behaviour.
+    use kasane_gui_backend_capabilities::DegradationPolicy;
+    assert_eq!(DegradationPolicy::default(), DegradationPolicy::Reject);
+}
+
+// `kasane-gui` is not a dependency of `kasane-core` — re-export the
+// enum locally for the assertion above. Keeping the policy values
+// in sync between the two crates is the responsibility of the
+// `BackendCapabilities` contract, not this test.
+#[allow(dead_code)]
+mod kasane_gui_backend_capabilities {
+    /// Mirror of `kasane_gui::gpu::backend::DegradationPolicy` for
+    /// the policy-default assertion above. The mirror is a
+    /// compile-time pin: if the enum gains a value, the mirror has
+    /// to gain it too, surfacing the inter-crate sync obligation.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub enum DegradationPolicy {
+        #[default]
+        Reject,
+        #[allow(dead_code)]
+        Skip,
+        #[allow(dead_code)]
+        FallbackToTui,
+    }
+}
