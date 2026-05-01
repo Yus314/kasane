@@ -667,3 +667,32 @@ fn test_atom_style_round_trip_face() {
     let style = Style::from_face(&face_no_final);
     assert_eq!(style.to_face(), face_no_final);
 }
+
+/// `protocol::wire` is the migration target for ADR-031 post-closure
+/// visibility tightening. The submodule must re-export every wire-format
+/// item that external sites currently consume from `protocol::*` so the
+/// migration can proceed import-only without behaviour changes.
+#[test]
+fn wire_submodule_reexports_match_protocol() {
+    use crate::protocol;
+
+    // Type identity check by round-trip — if `protocol::wire::WireFace` and
+    // `protocol::WireFace` resolved to different items, the assignment
+    // wouldn't compile.
+    let face_top: protocol::WireFace = protocol::WireFace::default();
+    let face_wire: protocol::wire::WireFace = face_top;
+    let _: protocol::WireFace = face_wire;
+
+    let _: protocol::wire::Color = protocol::Color::Default;
+    let _: protocol::wire::NamedColor = protocol::NamedColor::Red;
+    let _: protocol::wire::Attributes = protocol::Attributes::empty();
+
+    // resolve_face is a function — same identity check via fn pointer.
+    let f_top: fn(&protocol::WireFace, &protocol::WireFace) -> protocol::WireFace =
+        protocol::resolve_face;
+    let f_wire: fn(
+        &protocol::wire::WireFace,
+        &protocol::wire::WireFace,
+    ) -> protocol::wire::WireFace = protocol::wire::resolve_face;
+    assert!(std::ptr::fn_addr_eq(f_top, f_wire));
+}
