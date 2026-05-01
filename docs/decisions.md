@@ -2630,6 +2630,7 @@ W1, W2, W4 run from day 1. W3 must precede W5. W5 has hard halt gates (see §Dec
 
 1. Land [`BackendCapabilities::supports_paths`](#) (boolean, currently `false` for `WgpuBackend`) as the negotiation surface for callers that may one day emit vector contributions.
 2. Defer the actual `DrawCommand::DrawPath` (or equivalent) variant addition to **the adoption work** that follows a positive W5 spike. This avoids introducing dead code in `kasane-core` and avoids colliding with ADR-031 Phases 2–5, which still churn `DrawCommand`-adjacent types.
+3. Land `BackendCapabilities::degradation_policy` (enum `Reject | Skip | FallbackToTui`) as the contract for plugin contributions whose primitives exceed the active backend's capability set. This is decision-grade independent of Vello: today the rejection path is undefined, so any future capability-gated primitive (paths, blur, gradients) requires this contract to exist *before* the primitive ships, not after.
 
 ### Spike Measurement Matrix
 
@@ -2642,6 +2643,7 @@ The spike (W5) produces the following data points. Each row has a target and a h
 | Color emoji DSSIM vs swash | ≤ 0.01 | > 0.05 |
 | Variable font axis change cost | ≤ 2× swash | > 5× → flag, continue |
 | Resident GPU memory | ≤ 1.5× current atlas | > 3× → flag |
+| Per-frame CPU heap allocations during Scene encode | ≤ 245 (1.5× of 163 baseline @ 80×24 post-CompactString optimisation, see [performance.md §Scene Encoding Allocations](./performance.md#scene-encoding-allocations-adr-032-w5-input)) | > 489 (3×) → flag |
 | Vello + Glifo clean build time | ≤ +60 s | > +180 s → flag |
 
 The 80×24 warm-frame target intentionally matches ADR-031's Phase 11 target (≤ 70 µs) — Vello must clear the same bar Parley + swash already cleared.
@@ -2652,9 +2654,52 @@ The 80×24 warm-frame target intentionally matches ADR-031's Phase 11 target (�
 |---|---|---|
 | W2 Day 3 | Headless wgpu reads back deterministic pixels on CI | Fall back to local-only goldens (`KASANE_GOLDEN=local`); W2 continues |
 | W3 Day 2 | `Path` variant doesn't force >50 changed match sites | Move `Path` to a `BackendCapabilities`-gated extension struct |
-| W5 Day 2 | Frame ≤ 100 µs **and** Glifo accepts Kasane `font_id` keys | **Halt spike.** Write findings; re-evaluate in 6 months |
+| W5 Day 2 | Frame ≤ 100 µs **and** Glifo accepts Kasane `font_id` keys | If 100 < frame ≤ 200 µs, reserve Day 4 for a `vello` (compute) retry against the same matrix before final halt — the hybrid-path failure does not entail compute-path failure (see §Non-Spike Decision Factors / Hybrid vs compute strategic position). Otherwise **halt spike**, write findings, re-evaluate in 6 months |
 | W5 Day 4 | ≤ 2 matrix rows in red | Write `§Spike Findings — Stop`; exit timebox |
 | W5 Day 5 | (regardless) | Finalise `§Spike Findings` — Accepted with adoption plan / Accepted as deferred / Rejected. **No production code change.** |
+
+### Non-Spike Decision Factors
+
+The Spike Measurement Matrix above tests *technical necessity*: can Vello clear the same performance and parity bars as the current stack? It does not test *strategic sufficiency*: should Kasane adopt Vello even when those bars are met. The seven factors below capture the strategic dimension. They are recorded here so the eventual adopt/reject decision can reference them by name regardless of W5 outcome, and so that the spike does not implicitly delegate strategic judgment to a performance number.
+
+#### Plugin wire protocol impact
+
+Vello introduces vector primitives (paths, brushes, strokes) that `kasane:plugin@2.0.0` WIT does not represent. A positive W5 implies `kasane:plugin@3.0.0` with `peniko::Path`-shaped types and a `DrawCommand::DrawPath` variant on the wire, plus recompilation of all bundled (~6) and example (~10) WASM plugins, plus a deprecation cycle for external plugins. The SDK migration path must be co-designed *with* the W5 result, not deferred to after-adoption: the wire-level redesign competes for attention with adoption itself, and undersizing it produces a tail of stabilisation PRs that erodes the adoption-decision rationale.
+
+#### Backend semantic divergence risk
+
+`DrawCommand` is presently a backend-agnostic contract: TUI and GUI both render `DrawBorder` as a "boxed region" with semantically equivalent (if visually different) output — ASCII frame vs pixel border, both communicating the same thing. Vello introduces high-fidelity primitives (true rounded corners, blur, gradient fills) that have no TUI analogue. The choice is binary: either (a) constrain the GUI primitive set to TUI-expressible semantics — limiting Vello's value proposition to "the same picture, antialiased" — or (b) formalise per-backend asymmetry through `BackendCapabilities` and accept that plugin authors must reason about it. This is a *product principle* decision (Kasane has held cross-backend uniformity since ADR-014); it cannot be deferred to post-spike implementation.
+
+#### Salsa compatibility
+
+`kasane-core/src/salsa_sync.rs` and `salsa_views/` invest in incremental computation. Vello's `Scene` is whole-frame re-encoded; it has no `PartialEq` so it cannot be a Salsa query result without bespoke equivalence (which would require freezing Scene's internal layout against future Vello version bumps). The realistic boundary therefore caps Salsa's reach at `query draw_commands(state) -> Vec<DrawCommand>`, with Scene encoding fully recomputed each frame. If the roadmap projects Salsa into the rendering pipeline below the DrawCommand boundary — for instance, "incremental scene patching" as a path to sub-µs partial redraws — that workstream is mutually exclusive with Vello adoption. The mutual exclusion needs to be ratified explicitly, not discovered later.
+
+#### Color management opportunity
+
+`peniko` carries first-class color spaces: sRGB, linear sRGB, display-p3, scRGB, Oklab. Current Kasane is sRGB-only with `colors.rs:srgb_color_to_linear` performing per-frame conversion at GPU upload. On display-p3 native displays — Apple Silicon Macs, the dominant developer hardware in 2026 — sRGB output incurs OS-managed gamut mapping with subtle perceptual-quality loss (saturated highlights desaturate; brand-color hex codes drift). Vello adoption makes display-p3 native rendering a configuration switch instead of a multi-week swap-chain refactor. The W5 spike does *not* measure this — its DSSIM target compares sRGB parity — but it is a non-trivial QoE gain on the dominant developer hardware and a non-zero contributor to the adoption case.
+
+#### Self-optimisation alternative
+
+The current wgpu stack has measurable headroom. Conservative aggregate against `parley_pipeline/frame_warm_24_lines = 56.7 µs` (post-`StyledLineScratch`):
+
+- Persistent vertex buffer + ring allocator: −5 µs
+- swash `font_metrics()` cache: −3 µs
+- Brush palette intern: −2 µs
+- Pipeline state cache (PSO): −2 µs
+- Array-texture atlas consolidation (mask + color in one bind group): −3 µs
+- Drop-shadow SDF replacement of Kawase Dual-Filter: −10 µs
+
+Aggregate floor: −15 to −25 µs, projecting to ~35 µs warm. Self-optimisation requires no API stability dependency, no plugin SDK bump, and no ecosystem-alignment continuous cost. It should run *concurrently* with W2 (golden harness) and W3 (`GpuBackend` trait); whichever reaches its target first re-frames the W5 evaluation. If self-optimisation lands ~35 µs warm before W5 begins, the W5 target shifts from "match the bar" to "outperform a known low-risk path", which is a materially different decision.
+
+**Concrete attack target (2026-05-01 measurement)**: per-frame Scene-encode allocations originally decomposed into 57 (view) + 29 (place) + 497 (scene walk + DrawCommand emit) = 583 total at 80×24, with the scene walk + emission phase accounting for 85 % of the budget. **First self-optimisation landed (2026-05-01)**: converting `ResolvedAtom.contents` from `String` to `CompactString` eliminated the per-atom heap allocation in `resolve_atoms` and reduced the per-frame total to 163 allocs at 80×24 (−72 %) / 271 at 200×60 (−80 %). Remaining scene walk + emit phase is now 77 allocs (47 %), no longer overwhelmingly dominant. The next-tier targets (annotation/inline_box vec sizing, `Atom.style: Arc<UnresolvedStyle>` clone elision via reference threading, transient Vec in `BufferLineAction` processing) require deeper profiling before attempt; the principle of "self-optimisation alternative is real and measurable" is now confirmed by this first −72 % step. See [performance.md §Scene Encoding Allocations](./performance.md#scene-encoding-allocations-adr-032-w5-input).
+
+#### Linebender engagement operating cost
+
+Adoption establishes a continuous upstream dependency on Vello / Glifo / Parley / peniko, where Linebender's primary consumer is Xilem (general-purpose UI), not cell-grid editors. Estimated continuous cost: 2–4 hours/week of issue-tracker monitoring, occasional PR contributions, and proactive coordination on breaking-change windows. This is a recurring maintenance line item that ADR-014's hand-rolled stack does not carry. Three observable post-adoption signals to track: (a) Glifo issue closure latency for cell-grid-specific reports, (b) Vello breaking-change cadence (semver-minor breaks), (c) responsiveness to feature requests outside Xilem's roadmap. A 6-month post-adoption review is warranted; until that review, treat upstream divergence (Linebender pivots, Glifo deprioritised) as the dominant compounding risk.
+
+#### Hybrid vs compute strategic position
+
+The Decision section selects `vello_hybrid` to neutralise ADR-014's compute-shader blocker. This is correct *for the spike*, but not necessarily *for adoption*. Hybrid trades Vello's principal architectural advantage (compute-driven sparse strip rasterisation across a six-stage pipeline: encode → PathTag scan → flatten → binning → coarse → fine) for hardware reach. Kasane's cell-grid + glyph workload exercises only the *coarse* and *fine* stages meaningfully — flatten and binning are largely idle for axis-aligned rectangles and atlas-blitted glyphs. If the hybrid CPU-side rasterisation penalty is < 20 % at the warm-frame target, hybrid is the *durable* choice and ADR-014's compute-shader blocker stays neutralised forever. If > 50 %, hybrid is a stepping-stone and a second migration to full `vello` (compute) follows within 12–18 months — at which point ADR-014's blocker recurs. **The W5 spike must record which regime applies** so post-adoption "should we move to compute" is not an unscoped follow-up arriving at a worse moment.
 
 ### Spike Findings
 
@@ -2686,7 +2731,8 @@ The 80×24 warm-frame target intentionally matches ADR-031's Phase 11 target (�
 
 - **No production code changes** flow from this ADR alone. The current `WgpuBackend` (wrapping `SceneRenderer`) remains the sole production renderer.
 - **Two artefacts ship regardless of outcome:** golden image regression tests (W2) and the `GpuBackend` trait abstraction (W3). Both close existing gaps in the kasane-gui codebase independent of any future Vello decision.
-- **Plugin contribution surface gains a `BackendCapabilities::supports_paths` negotiation field.** No new enum variant ships in this ADR; the actual `DrawPath` primitive is deferred to adoption work, when it can be added to the live boundary (`DrawCommand` in `kasane-core`) rather than to the dormant `GpuPrimitive`. This keeps the door open without introducing dead code.
+- **Plugin contribution surface gains two `BackendCapabilities` fields:** `supports_paths` (negotiation) and `degradation_policy` (rejection contract for capability-exceeding contributions). No new enum variant ships in this ADR; the actual `DrawPath` primitive is deferred to adoption work, when it can be added to the live boundary (`DrawCommand` in `kasane-core`) rather than to the dormant `GpuPrimitive`. This keeps the door open without introducing dead code.
+- **§Non-Spike Decision Factors is a permanent decision frame, not a spike output.** It is recorded *before* W5 begins so the eventual adopt/reject judgment cites strategic considerations by name. The spike does not delegate strategic judgment to a performance number; it produces necessary-condition data that the strategic frame interprets.
 - **ADR-014 §14-1 is *not* superseded by this ADR.** Supersession occurs only if ADR-032 is updated to "Accepted with adoption plan" after a positive spike. Until then, ADR-014's GUI-stack decision (winit + wgpu, with the text portion already updated by ADR-031) remains authoritative.
 - **`docs/roadmap.md` §2.2 Backlog gains a tracked item** for Vello 1.0 / Glifo crates.io publication / spike result. These are the externalised triggers for re-opening this ADR.
 
