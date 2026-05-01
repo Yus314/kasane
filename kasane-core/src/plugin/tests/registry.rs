@@ -30,6 +30,7 @@ impl PluginBackend for TypedLifecyclePlugin {
                 column: 1,
             })],
             scroll_plans: vec![],
+            state_updates: Default::default(),
         }
     }
 }
@@ -56,6 +57,7 @@ impl PluginBackend for TypedRuntimePlugin {
                 curve: ScrollCurve::Linear,
                 accumulation: ScrollAccumulationMode::Add,
             }],
+            state_updates: Default::default(),
         }
     }
 
@@ -74,6 +76,7 @@ impl PluginBackend for TypedRuntimePlugin {
                 curve: ScrollCurve::Linear,
                 accumulation: ScrollAccumulationMode::Add,
             }],
+            state_updates: Default::default(),
         }
     }
 }
@@ -197,6 +200,7 @@ impl PluginBackend for TargetedReadyPlugin {
             redraw: self.redraw,
             commands: vec![],
             scroll_plans: vec![],
+            state_updates: Default::default(),
         }
     }
 }

@@ -136,6 +136,7 @@ mod msg_receiver_plugin {
                     redraw: DirtyFlags::STATUS,
                     commands: vec![],
                     scroll_plans: vec![],
+                    state_updates: Default::default(),
                 }
             }
         }

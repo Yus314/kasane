@@ -61,6 +61,7 @@ impl PluginBackend for RuntimeMessagePlugin {
                 curve: ScrollCurve::Linear,
                 accumulation: ScrollAccumulationMode::Add,
             }],
+            state_updates: Default::default(),
         }
     }
 }

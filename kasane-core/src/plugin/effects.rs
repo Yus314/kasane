@@ -3,7 +3,8 @@ use crate::display::unit::DisplayUnit;
 use crate::element::InteractiveId;
 use crate::input::{DropEvent, KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPlan, ScrollPolicyResult};
-use crate::state::DirtyFlags;
+use crate::state::shadow_cursor::ShadowCursor;
+use crate::state::{DirtyFlags, DragState};
 
 use super::command::Command;
 use super::traits::{KeyPreDispatchResult, MousePreDispatchResult, TextInputPreDispatchResult};
@@ -21,6 +22,46 @@ pub enum LifecyclePhase {
     Runtime,
 }
 
+/// Typed channel for host-internal state updates produced by plugins.
+///
+/// Plugins emit these through [`Effects`] to ask the host to mutate
+/// fields of `AppState.runtime` directly — distinct from
+/// [`Effects::commands`], which carry side effects flowing *out* of the
+/// host (to Kakoune, child processes, the workspace, etc.).
+///
+/// Each field is wrapped in `Option` so a batch can express "no update
+/// from this plugin". Where the underlying value itself is optional
+/// (e.g. `ShadowCursor`), the nested `Option<Option<_>>` shape lets us
+/// distinguish "no update" from "explicit deactivation to `None`".
+///
+/// On merge, later entries overwrite earlier ones — plugins are
+/// expected to coordinate ordering through priority, not by stacking
+/// state-update intents.
+#[derive(Default)]
+pub struct StateUpdates {
+    /// Set the shadow cursor. `Some(None)` deactivates; `Some(Some(sc))`
+    /// activates or replaces. `None` means "no change in this batch".
+    pub shadow_cursor: Option<Option<ShadowCursor>>,
+    /// Set the drag state.
+    pub drag: Option<DragState>,
+}
+
+impl StateUpdates {
+    pub fn is_empty(&self) -> bool {
+        self.shadow_cursor.is_none() && self.drag.is_none()
+    }
+
+    /// Last-writer-wins merge. Fields set in `other` overwrite this.
+    pub fn merge(&mut self, other: StateUpdates) {
+        if let Some(sc) = other.shadow_cursor {
+            self.shadow_cursor = Some(sc);
+        }
+        if let Some(d) = other.drag {
+            self.drag = Some(d);
+        }
+    }
+}
+
 /// Unified plugin effects type used across all lifecycle phases.
 ///
 /// Replaces the previous `BootstrapEffects` / `SessionReadyEffects` /
@@ -30,6 +71,7 @@ pub struct Effects {
     pub redraw: DirtyFlags,
     pub commands: Vec<Command>,
     pub scroll_plans: Vec<ScrollPlan>,
+    pub state_updates: StateUpdates,
 }
 
 impl Default for Effects {
@@ -38,6 +80,7 @@ impl Default for Effects {
             redraw: DirtyFlags::empty(),
             commands: Vec::new(),
             scroll_plans: Vec::new(),
+            state_updates: StateUpdates::default(),
         }
     }
 }
@@ -61,10 +104,24 @@ impl Effects {
         }
     }
 
+    /// Set the shadow cursor on this batch. `None` deactivates.
+    pub fn with_shadow_cursor(mut self, sc: Option<ShadowCursor>) -> Self {
+        self.state_updates.shadow_cursor = Some(sc);
+        self
+    }
+
+    /// Set the drag state on this batch.
+    pub fn with_drag(mut self, drag: DragState) -> Self {
+        self.state_updates.drag = Some(drag);
+        self
+    }
+
     pub fn merge(&mut self, mut other: Self) {
         self.redraw |= other.redraw;
         self.commands.append(&mut other.commands);
         self.scroll_plans.append(&mut other.scroll_plans);
+        self.state_updates
+            .merge(std::mem::take(&mut other.state_updates));
     }
 
     /// Validate and filter commands for the given lifecycle phase.

@@ -605,6 +605,7 @@ fn test_on_state_changed_effects_return_scroll_plans() {
                     curve: ScrollCurve::Linear,
                     accumulation: ScrollAccumulationMode::Add,
                 }],
+                state_updates: Default::default(),
             }
         }
     }

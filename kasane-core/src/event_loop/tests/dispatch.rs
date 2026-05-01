@@ -835,6 +835,7 @@ impl PluginBackend for CascadingMessagePlugin {
                 payload: Box::new(()),
             }],
             scroll_plans: vec![],
+            state_updates: Default::default(),
         }
     }
 }

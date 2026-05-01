@@ -53,7 +53,7 @@ pub use diagnostics::{
 };
 pub use effects::{
     Effects, EffectsBatch, LifecyclePhase, MouseHandleResult, NullEffects, PluginEffects,
-    RecordingEffects, TextInputHandleResult,
+    RecordingEffects, StateUpdates, TextInputHandleResult,
 };
 pub use kasane_plugin_model::{PluginId, SettingValue};
 pub use manager::{AppliedWinnerDelta, PluginApplyResult, PluginManager, ResolvedPluginSnapshot};

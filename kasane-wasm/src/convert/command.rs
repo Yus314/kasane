@@ -198,6 +198,7 @@ pub(crate) fn wit_runtime_effects_to_effects_with(
             .iter()
             .map(wit_scroll_plan_to_scroll_plan)
             .collect(),
+        state_updates: kasane_core::plugin::StateUpdates::default(),
     }
 }
 
@@ -230,6 +231,7 @@ pub(crate) fn wit_session_ready_effects_to_effects(effects: &wit::SessionReadyEf
             .iter()
             .map(wit_scroll_plan_to_scroll_plan)
             .collect(),
+        state_updates: kasane_core::plugin::StateUpdates::default(),
     }
 }
 

@@ -104,6 +104,7 @@ impl PluginBackend for IoHandlerPlugin {
                             curve: ScrollCurve::Linear,
                             accumulation: ScrollAccumulationMode::Add,
                         }],
+                        state_updates: Default::default(),
                     }
                 }
                 ProcessEvent::Stderr { job_id, data } => {

@@ -88,6 +88,7 @@ impl From<KakouneSafeEffects> for Effects {
             redraw: te.redraw,
             commands: te.commands.into_iter().map(Into::into).collect(),
             scroll_plans: te.scroll_plans,
+            state_updates: super::StateUpdates::default(),
         }
     }
 }
