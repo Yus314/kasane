@@ -1,11 +1,108 @@
 use proptest::prelude::*;
 
 use super::*;
-use crate::display::{BufferLine, assert_display_map_invariants};
+use crate::display::{BufferLine, InlineBoxAlignment, assert_display_map_invariants};
 use crate::protocol::{Atom, Style, WireFace};
+use crate::state::shadow_cursor::{EditProjection, EditableSpan};
 
 fn pid(name: &str) -> PluginId {
     PluginId(name.to_string())
+}
+
+#[test]
+fn shadow_cursor_inline_box_disjoint_lines_passes() {
+    let mut set = DirectiveSet::default();
+    let (ib, ib_owner) = inline_box(2, 5, "plugin_a");
+    set.push(ib, 0, ib_owner);
+    let (ed, ed_owner) = editable_with_span(0, 0, 0..10, "plugin_b");
+    set.push(ed, 0, ed_owner);
+    // Inline-box on line 2; editable span anchored on line 0. No collision.
+    let _ = resolve(&set, 10);
+}
+
+#[test]
+fn shadow_cursor_inline_box_anchor_outside_span_passes() {
+    let mut set = DirectiveSet::default();
+    // Inline-box at byte 20 on line 0; editable span covers 0..10 on line 0.
+    // Same line but disjoint byte ranges → no collision.
+    let (ib, ib_owner) = inline_box(0, 20, "plugin_a");
+    set.push(ib, 0, ib_owner);
+    let (ed, ed_owner) = editable_with_span(0, 0, 0..10, "plugin_b");
+    set.push(ed, 0, ed_owner);
+    let _ = resolve(&set, 10);
+}
+
+#[test]
+#[should_panic(expected = "ShadowCursor × InlineBox overlap")]
+fn shadow_cursor_inline_box_anchor_inside_span_panics_in_debug() {
+    let mut set = DirectiveSet::default();
+    // Inline-box anchor at byte 5; span covers 3..8 on the same line.
+    let (ib, ib_owner) = inline_box(0, 5, "plugin_a");
+    set.push(ib, 0, ib_owner);
+    let (ed, ed_owner) = editable_with_span(0, 0, 3..8, "plugin_b");
+    set.push(ed, 0, ed_owner);
+    let _ = resolve(&set, 10);
+}
+
+#[test]
+#[should_panic(expected = "ShadowCursor × InlineBox overlap")]
+fn shadow_cursor_inline_box_anchor_at_span_start_panics_in_debug() {
+    let mut set = DirectiveSet::default();
+    // Boundary case: inline-box anchor coincides with span start.
+    // The check is inclusive, so this must trigger.
+    let (ib, ib_owner) = inline_box(0, 5, "plugin_a");
+    set.push(ib, 0, ib_owner);
+    let (ed, ed_owner) = editable_with_span(0, 0, 5..10, "plugin_b");
+    set.push(ed, 0, ed_owner);
+    let _ = resolve(&set, 10);
+}
+
+#[test]
+#[should_panic(expected = "ShadowCursor × InlineBox overlap")]
+fn shadow_cursor_inline_box_anchor_at_span_end_panics_in_debug() {
+    let mut set = DirectiveSet::default();
+    // Boundary case: inline-box anchor coincides with span end (inclusive
+    // upper bound — the cursor would land on the same cell).
+    let (ib, ib_owner) = inline_box(0, 10, "plugin_a");
+    set.push(ib, 0, ib_owner);
+    let (ed, ed_owner) = editable_with_span(0, 0, 5..10, "plugin_b");
+    set.push(ed, 0, ed_owner);
+    let _ = resolve(&set, 10);
+}
+
+fn inline_box(line: usize, byte_offset: usize, owner: &str) -> (DisplayDirective, PluginId) {
+    (
+        DisplayDirective::InlineBox {
+            line,
+            byte_offset,
+            width_cells: 3.0,
+            height_lines: 1.0,
+            box_id: byte_offset as u64,
+            alignment: InlineBoxAlignment::Center,
+        },
+        pid(owner),
+    )
+}
+
+fn editable_with_span(
+    after: usize,
+    anchor_line: usize,
+    buffer_range: std::ops::Range<usize>,
+    owner: &str,
+) -> (DisplayDirective, PluginId) {
+    (
+        DisplayDirective::EditableVirtualText {
+            after,
+            content: vec![],
+            editable_spans: vec![EditableSpan {
+                display_byte_range: 0..buffer_range.len(),
+                anchor_line,
+                buffer_byte_range: buffer_range,
+                projection: EditProjection::Mirror,
+            }],
+        },
+        pid(owner),
+    )
 }
 
 #[test]
@@ -491,6 +588,29 @@ proptest! {
                 }
             }
         }
+    }
+
+    #[test]
+    fn shadow_cursor_inline_box_no_collision_when_lines_differ(
+        line_a in 0usize..20,
+        line_b in 0usize..20,
+        offset in 0usize..32,
+        span_start in 0usize..32,
+        span_len in 1usize..16,
+    ) {
+        prop_assume!(line_a != line_b);
+        let mut set = DirectiveSet::default();
+        let (ib, ib_owner) = inline_box(line_a, offset, "plugin_a");
+        set.push(ib, 0, ib_owner);
+        let (ed, ed_owner) = editable_with_span(
+            line_b,
+            line_b,
+            span_start..span_start + span_len,
+            "plugin_b",
+        );
+        set.push(ed, 0, ed_owner);
+        // Different anchor lines: must never trigger the assertion.
+        let _ = resolve(&set, 30);
     }
 
     #[test]
