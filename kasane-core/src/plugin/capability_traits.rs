@@ -69,13 +69,17 @@ use super::{
 /// Bootstrap and shutdown hooks plus state-change observation.
 ///
 /// Plugins implement this to react to the framework lifecycle without
-/// interpreting input. `on_state_changed` fires whenever any
+/// interpreting input. `on_state_changed_effects` fires whenever any
 /// [`DirtyFlags`] match the plugin's declared interests.
+///
+/// **Method names match `PluginBackend` exactly** so the blanket impl
+/// below can delegate without translation. Once R1.3 moves the actual
+/// bodies, we can rename the post-`_effects` suffix away.
 pub trait Lifecycle: Any {
-    fn on_init(&mut self, _state: &AppView<'_>) -> Effects {
+    fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
         Effects::default()
     }
-    fn on_active_session_ready(&mut self, _state: &AppView<'_>) -> Effects {
+    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> Effects {
         Effects::default()
     }
     fn on_shutdown(&mut self) {}
@@ -91,8 +95,40 @@ pub trait Lifecycle: Any {
         false
     }
 
-    fn on_state_changed(&mut self, _state: &AppView<'_>, _dirty: DirtyFlags) -> Effects {
+    fn on_state_changed_effects(&mut self, _state: &AppView<'_>, _dirty: DirtyFlags) -> Effects {
         Effects::default()
+    }
+}
+
+/// Blanket impl: every `PluginBackend` automatically satisfies
+/// `Lifecycle` by delegating to the same-named methods on the existing
+/// god trait. Call sites that only need lifecycle hooks can take
+/// `&mut dyn Lifecycle` and benefit from a narrower interface without
+/// churn at any of the 24+ `impl PluginBackend for X` blocks.
+///
+/// R1.3 will start migrating the *bodies* over: handlers will register
+/// `Lifecycle` impls directly through `HandlerRegistry`, the
+/// `PluginBackend::*_effects` methods will delegate the other way
+/// (Lifecycle → PluginBackend), and eventually the methods drop off
+/// `PluginBackend` entirely once R1.9 strips it.
+impl<T: super::PluginBackend + ?Sized> Lifecycle for T {
+    fn on_init_effects(&mut self, state: &AppView<'_>) -> Effects {
+        super::PluginBackend::on_init_effects(self, state)
+    }
+    fn on_active_session_ready_effects(&mut self, state: &AppView<'_>) -> Effects {
+        super::PluginBackend::on_active_session_ready_effects(self, state)
+    }
+    fn on_shutdown(&mut self) {
+        super::PluginBackend::on_shutdown(self)
+    }
+    fn persist_state(&self) -> Option<Vec<u8>> {
+        super::PluginBackend::persist_state(self)
+    }
+    fn restore_state(&mut self, data: &[u8]) -> bool {
+        super::PluginBackend::restore_state(self, data)
+    }
+    fn on_state_changed_effects(&mut self, state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
+        super::PluginBackend::on_state_changed_effects(self, state, dirty)
     }
 }
 
