@@ -387,6 +387,53 @@ fn buffer_scene() -> Vec<Vec<Atom>> {
     ]
 }
 
+/// Construct a CJK-mixed scene. Width=2 East Asian Wide cells must appear in
+/// the snapshot's "non-default widths" section; any regression in display
+/// column accounting (e.g. `cursor_pos.column` interpreted as bytes) shows
+/// up as a per-row text shift or a missing wide-cell entry.
+fn buffer_scene_cjk() -> Vec<Vec<Atom>> {
+    let kw = red_bold();
+    let macro_face = cyan_underline();
+    vec![
+        vec![
+            Atom::with_style("fn", Style::from_face(&kw)),
+            Atom::plain(" メイン() {"),
+        ],
+        vec![Atom::plain("    let 挨拶 = \"こんにちは\";")],
+        vec![],
+        vec![
+            Atom::plain("    "),
+            Atom::with_style("println!", Style::from_face(&macro_face)),
+            Atom::plain("(\"{}\", 挨拶);"),
+        ],
+        vec![Atom::plain("}")],
+    ]
+}
+
+/// Construct a scene with a combining-mark sequence. The voiced sound mark
+/// (U+3099) attaches to the preceding base; the snapshot should keep them
+/// in a single cell with the canonical decomposed pair preserved verbatim.
+fn buffer_scene_combining() -> Vec<Vec<Atom>> {
+    vec![
+        vec![Atom::plain("base: か + ゙ = が")],
+        vec![Atom::plain("decomp: \u{304B}\u{3099}")],
+        vec![Atom::plain("nfc:    \u{304C}")],
+    ]
+}
+
+/// Plain (non-ZWJ, non-VS) emoji scene. Pins the East Asian Wide width=2
+/// classification for typical SMP emoji codepoints. Sequences that need
+/// font shaping to determine width (variation selectors, ZWJ joiners,
+/// regional indicators) are intentionally omitted — they are deferred
+/// until a consumer demands them, since their width depends on the
+/// terminal's Unicode-width interpretation.
+fn buffer_scene_emoji_basic() -> Vec<Vec<Atom>> {
+    vec![
+        vec![Atom::plain("hello 🌍 world")],
+        vec![Atom::plain("👋 こんにちは 🌸")],
+    ]
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -433,6 +480,50 @@ fn ascii_80x24_smoke() {
     assert_grid_snapshot(&grid, "ascii_80x24_smoke");
 }
 
+/// CJK + ASCII mixed scene — full-width Japanese identifiers and string
+/// literals share lines with ASCII syntax. Pins display column accounting
+/// for the East Asian Wide path; a regression that interprets
+/// `cursor_pos.column` as a byte offset would surface as a row text mismatch.
+#[test]
+fn cjk_80x24_smoke() {
+    let mut state = test_state_80x24();
+    let _ = state.apply(KakouneRequest::Draw {
+        lines: buffer_scene_cjk(),
+        cursor_pos: Coord { line: 0, column: 0 },
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
+        widget_columns: 0,
+    });
+    let _ = state.apply(KakouneRequest::DrawStatus {
+        prompt: vec![],
+        content: vec![Atom::plain(" cjk.rs ")],
+        content_cursor_pos: -1,
+        mode_line: vec![Atom::plain("normal")],
+        default_style: kasane_core::protocol::default_unresolved_style(),
+        style: StatusStyle::Status,
+    });
+
+    let registry = kasane_core::plugin::PluginRuntime::default();
+    let grid = render_to_grid(&state, &registry);
+
+    assert_grid_snapshot(&grid, "cjk_80x24_smoke");
+}
+
+// ---------------------------------------------------------------------------
 // Selection rendering tests
 // ---------------------------------------------------------------------------
 //
@@ -599,4 +690,91 @@ fn cursor_past_viewport() {
         column: 0,
     });
     assert_cursor_grid_snapshot(&grid, &result, "cursor_past_viewport");
+}
+
+/// Combining-mark sequence — kana base + voiced sound mark. The dakuten
+/// path (U+304B U+3099) must group into a single grapheme cell rather than
+/// laying out as two separate cells. Decomposed and pre-composed forms
+/// (U+304C) appear on adjacent rows so the snapshot pins both paths.
+#[test]
+fn cjk_combining_marks() {
+    let mut state = test_state_80x24();
+    let _ = state.apply(KakouneRequest::Draw {
+        lines: buffer_scene_combining(),
+        cursor_pos: Coord { line: 0, column: 0 },
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
+        widget_columns: 0,
+    });
+    let _ = state.apply(KakouneRequest::DrawStatus {
+        prompt: vec![],
+        content: vec![Atom::plain(" combining.rs ")],
+        content_cursor_pos: -1,
+        mode_line: vec![Atom::plain("normal")],
+        default_style: kasane_core::protocol::default_unresolved_style(),
+        style: StatusStyle::Status,
+    });
+
+    let registry = kasane_core::plugin::PluginRuntime::default();
+    let grid = render_to_grid(&state, &registry);
+
+    assert_grid_snapshot(&grid, "cjk_combining_marks");
+}
+
+/// Basic emoji scene (no variation selectors, no ZWJ). Pins the standard
+/// SMP wide-cell classification: each emoji codepoint must occupy two
+/// display columns with the trailing column reporting width=0. A
+/// regression in the East Asian Wide path or a `unicode-width` crate
+/// upgrade that re-classifies emoji surfaces here.
+#[test]
+fn cjk_emoji_basic() {
+    let mut state = test_state_80x24();
+    let _ = state.apply(KakouneRequest::Draw {
+        lines: buffer_scene_emoji_basic(),
+        cursor_pos: Coord { line: 0, column: 0 },
+        default_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
+        padding_style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
+            &WireFace {
+                fg: Color::Named(NamedColor::White),
+                bg: Color::Named(NamedColor::Black),
+                underline: Color::Default,
+                attributes: Attributes::empty(),
+            },
+        )),
+        widget_columns: 0,
+    });
+    let _ = state.apply(KakouneRequest::DrawStatus {
+        prompt: vec![],
+        content: vec![Atom::plain(" emoji.rs ")],
+        content_cursor_pos: -1,
+        mode_line: vec![Atom::plain("normal")],
+        default_style: kasane_core::protocol::default_unresolved_style(),
+        style: StatusStyle::Status,
+    });
+
+    let registry = kasane_core::plugin::PluginRuntime::default();
+    let grid = render_to_grid(&state, &registry);
+
+    assert_grid_snapshot(&grid, "cjk_emoji_basic");
 }
