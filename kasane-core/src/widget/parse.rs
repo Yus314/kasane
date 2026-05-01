@@ -1,4 +1,17 @@
 //! KDL document → Vec<WidgetDef> parsing.
+//!
+//! ## Error scopes
+//!
+//! Two error scopes coexist by design:
+//!
+//! - [`WidgetParseError`] — **file-level fatal**: KDL syntax errors, file capacity
+//!   exceeded. Aborts the whole parse.
+//! - `Result<_, String>` on internal helpers — **node-level diagnostic**: invalid
+//!   semantics on a single node. The `String` becomes
+//!   [`WidgetNodeError::message`] verbatim and is shown to the user. The node
+//!   is skipped, parsing continues.
+//!
+//! These are not redundant — they represent distinct recovery semantics.
 
 use compact_str::CompactString;
 

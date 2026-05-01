@@ -258,7 +258,7 @@ Spans are emitted via the `tracing` crate. Use a subscriber like `tracing-subscr
 
 ### GPU line shaping cache (kasane-gui)
 
-The GPU text pipeline caches cosmic-text shaping results per display line.
+The GPU text pipeline caches Parley layout results per display line.
 Hit/miss telemetry is emitted unconditionally (no feature flag) under the
 `kasane::line_cache` target.
 
