@@ -2,6 +2,86 @@
 
 ## [Unreleased]
 
+### Added — ADR-032 W2 bootstrap (2026-05-01)
+
+- (gui) `kasane_gui::gpu::scene_renderer::FrameTarget` enum (`Surface` /
+  `View` variants) abstracts where a frame is rendered. Production paths
+  use `Surface(&gpu.surface)` for the swap chain; headless tests use
+  `View { view, width, height, format }` to render to an offscreen
+  texture. Internally driven by `FrameTarget::acquire(&GpuState) ->
+  AcquiredFrame`, which encapsulates the surface state machine
+  (Outdated, Lost, Suboptimal, Timeout, Occluded, Validation).
+- (gui) `SceneRenderer::render_to_target(gpu, target, commands,
+  resolver, cursor)` — public entry point that takes a `FrameTarget`
+  directly, used by the golden harness. The existing
+  `render_with_cursor` and `render` methods are unchanged behaviourally;
+  they now build a `FrameTarget::Surface` internally.
+- (gui) `tests/golden_render.rs` drives `SceneRenderer` through
+  `FrameTarget::View` against an offscreen Rgba8UnormSrgb texture.
+  First fixture: `monochrome_grid` (full-frame `FillRect`). Sandbox
+  environments without GPU access skip gracefully.
+- (docs) ADR-032 augmented with §Non-Spike Decision Factors covering
+  plugin wire protocol impact, backend semantic divergence, Salsa
+  compatibility, color management opportunity, self-optimisation
+  alternative, Linebender engagement operating cost, and the hybrid-vs-
+  -compute strategic position. Spike Measurement Matrix gains a
+  per-frame CPU heap allocation row (baseline 583 allocs / 89.7 KB at
+  80×24, see `docs/performance.md`).
+- (bench) `cargo bench --bench rendering_pipeline --features
+  bench-alloc` now reports per-scene-encode allocation counts for
+  `scene_full_frame` (80×24 / 200×60), `scene_one_line_changed`, and
+  `scene_menu_visible` scenarios.
+
+### Performance — Self-optimisation step #1 (2026-05-01)
+
+- (core) `render::scene::ResolvedAtom.contents`: `String` → `CompactString`.
+  The previous `atom.contents.to_string()` in `resolve_atoms` forced a
+  heap allocation per atom regardless of size; `CompactString` stores
+  ≤24-byte contents inline in the struct, eliminating the alloc for
+  short atoms (the common case for code lines). Effect on per-frame
+  Scene-encode allocations:
+  - 80×24 typical_state: 583 → 163 allocs (**−72 %**)
+  - 80×24 one_line_changed: 571 → 163 allocs (−71 %)
+  - 200×60 typical_state: 1339 → 271 allocs (**−80 %**)
+
+  Bytes-allocated barely changed (89.7 → 87.5 KB at 80×24) because the
+  string content is the same — the savings materialise as fewer
+  allocator calls, not fewer total bytes touched. ADR-032 §Spike
+  Measurement Matrix's "Per-frame CPU heap allocations" target updated
+  to ≤ 245 (1.5× of new 163 baseline). This is the first concrete
+  validation of ADR-032 §Non-Spike Decision Factors §Self-optimisation
+  alternative.
+
+- (core, gui) Same-pattern follow-up: `DrawCommand::DrawText.text`
+  and `DrawCommand::DrawPaddingRow.ch` switched from `String` to
+  `CompactString`. Construction sites in `walk_scene.rs`, `ime.rs`,
+  `diagnostics_overlay.rs` updated; consumers (`as_str()`, `==
+  &str`, `Deref` to `&str`) are unaffected. The 4-scenario alloc
+  bench shows no delta because `typical_state(23)` does not exercise
+  status-bar / padding-row paths — these primitives matter for real
+  UI workloads with IME, diagnostic overlays, and padding rows
+  (`~`-filled empty buffer rows). The change keeps the
+  `String` → `CompactString` convention consistent across all
+  text-bearing `DrawCommand` variants.
+
+### Changed — ADR-032 W2 prerequisites — **BREAKING (kasane-gui only)**
+
+- (gui) `GpuState::surface` is now `Option<wgpu::Surface<'static>>`.
+  Production callers always carry `Some`; headless paths use `None`.
+  External consumers of `GpuState` need `as_ref().expect(...)` at the
+  three sites that touch the surface directly (`app/render.rs`,
+  `gpu/mod.rs::resize`, internal scene_renderer callers updated).
+- (gui) `SceneRenderer::new` no longer takes an `EventLoopProxy`. The
+  proxy is set separately via `set_event_proxy` (`pub(crate)`) so that
+  integration tests can construct a renderer without observing the
+  internal `GuiEvent` type. Production code in `app/mod.rs` calls
+  `SceneRenderer::new(...)` then `sr.set_event_proxy(self.event_proxy
+  .clone())`.
+- (gui) `TextureCache::get_or_load` now takes
+  `Option<&EventLoopProxy<GuiEvent>>`. When `None` (headless mode), an
+  attempted file load logs a warning and returns `LoadState::Failed`
+  rather than dispatching a thread.
+
 ### Changed — ADR-031 closure cascade (PR-5a..PR-7) — **BREAKING**
 
 ADR-031 closes 2026-04-30. The closure cascade on

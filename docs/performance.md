@@ -267,6 +267,59 @@ Measured with `--features bench-alloc` (debug profile, single frame at 80x24).
 
 **Key finding**: `TuiBackend::present()` performs incremental diff internally (zero allocation for the diff phase). JSON parsing allocates heavily but is amortized by simd_json's speed.
 
+### Scene Encoding Allocations (ADR-032 W5 input)
+
+`scene_render_pipeline` is the boundary that any future GPU renderer (Vello
+or hand-rolled wgpu) consumes. The numbers below are the **baseline that a
+replacement backend must clear without per-frame regression**, satisfying
+ADR-032 §Spike Measurement Matrix's "Per-frame CPU heap allocations during
+Scene encode" row. Captured 2026-05-01 with `--features bench-alloc`.
+
+| Scenario | Alloc Count | Bytes | DrawCommands |
+|---|---|---|---|
+| scene_full_frame (80×24, 0 plugins) | 163 | 87.5 KB | 27 |
+| scene_one_line_changed (80×24, 0 plugins) | 163 | 86.2 KB | 27 |
+| scene_menu_visible (80×24, 0 plugins) | 163 | 87.5 KB | 27 |
+| scene_full_frame (200×60, 0 plugins) | 271 | 178.6 KB | 63 |
+
+**ADR-032 target derivation**: `≤ 1.5× current stack baseline` ⇒ at 80×24
+warm, a Vello-side replacement must hit **≤ 245 allocations / ≤ 131 KB**
+per scene encode. Halt trigger ≥ 3× ⇒ **> 489 allocations / > 263 KB**
+fails the spike.
+
+**Scaling observation**: 200×60 vs 80×24 = 6.25× cell area produces only
+1.66× allocation count — the encoding is sub-linear in cell count, which
+strengthens the case for hybrid (CPU rasterisation cost dominated by
+fixed per-frame overhead, not per-cell encoding) over full compute.
+
+**Optimisation history**: Initial baseline (pre-CompactString) was 583 /
+571 / 583 / 1339 allocs across the four scenarios above. Converting
+`render::scene::ResolvedAtom.contents` from `String` to `CompactString`
+(2026-05-01, ADR-032 §Non-Spike Decision Factors §Self-optimisation
+alternative confirmation) eliminated the per-atom heap allocation that
+`atom.contents.to_string()` forced in `resolve_atoms`, giving a **−72 %
+allocation count reduction at 80×24** (583 → 163) and **−80 % at 200×60**
+(1339 → 271). Bytes barely changed because CompactString stores ≤24-byte
+contents inline in the struct rather than on the heap; the savings
+materialise as fewer allocator calls, not fewer total bytes touched.
+
+**Remaining phase decomposition** (80×24, typical_state, 0 plugins, post-
+CompactString):
+
+| Phase | Alloc Count | Source |
+|---|---|---|
+| `view::view` (Element tree) | 57 | per-phase breakdown above |
+| `flex::place` (layout) | 29 | per-phase breakdown above |
+| `scene_render_pipeline` total | 163 | scene-specific bench |
+| **Scene walk + DrawCommand emit** (derived) | **77** | = 163 − 57 − 29 |
+
+Scene walk + emission now accounts for ~47 % (77 / 163) of allocations
+— still the dominant phase but no longer overwhelmingly so. Further
+optimisation candidates (unprofiled, ordered by speculative impact):
+`Vec<DrawCommand>` annotation/inline_box vec sizing, `Atom.style: Arc<
+UnresolvedStyle>` clone elision via reference threading, transient Vec
+in `BufferLineAction` processing.
+
 ## Allocation Hotspots (Code Analysis)
 
 | Location | What | Frequency |
