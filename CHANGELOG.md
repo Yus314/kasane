@@ -64,6 +64,116 @@
   `String` → `CompactString` convention consistent across all
   text-bearing `DrawCommand` variants.
 
+### Added — ADR-032 W2/W3 expansion + Phase Z plan + BufferParagraph builder (2026-05-02)
+
+Continues the ADR-032 evaluation framework. **No production renderer
+change** — extensions land in places that pay off whether or not
+ADR-032 closes positive (W2 fixture coverage, GpuBackend trait wiring,
+plugin-author-facing builder). The work is sequenced so that
+sandbox-internal preparation for a positive Vello adoption decision is
+exhausted in this round.
+
+- **docs (ADR-032 textual amendments)**: §Decision item 3 expanded
+  with the visible-behaviour table for `DegradationPolicy::Reject`
+  / `Skip` / `FallbackToTui` (so the enum is not dead-code semantics).
+  §Spike Measurement Matrix gains 4 rows: incremental warm frame
+  (Salsa-hit case), hybrid CPU strip share (durable / transitional /
+  stepping-stone classification), actual LOC retired, adapter LOC
+  introduced. §Decision Gates gains W3-closing degradation_policy spec
+  row and pre-W5 baseline-freeze row. §Non-Spike Decision Factors
+  expanded from 7 to 9 sub-sections (parallel-paint future closure,
+  Linebender alignment metric). §Rejected Alternatives expanded from
+  5 to 9 (Forma, custom compute strip, Glifo-only Mode A1, Glifo-only
+  Mode A2 — the last with explicit re-open trigger). §Spike Findings
+  replaced with a 12-required-fields template + verdict-routing rule
+  (mechanical determination of `Accepted with adoption plan` /
+  `Accepted as deferred` / `Rejected`). §Implications gains the
+  dual-stack rule (`WgpuBackend` not deleted until Vello 1.0). New
+  §Adoption Phase Plan (Z0 ABI break prep / Z1 Text path Mode A2 /
+  Z2 Quad-Image / Z3 `WgpuBackend` retirement / Z4 ecosystem,
+  conditional on positive spike) — Z3 is the one-way door, gated on
+  Vello 1.0 + 3-month soak + Linebender alignment metric green. See
+  `docs/decisions.md` ADR-032.
+- **docs (roadmap baseline freeze)**: ADR-031 post-closure perf
+  opportunities item (3) sub-line shape cache reopen triggers
+  (a/b/c) suspended for the duration of the W5 measurement window
+  per `docs/roadmap.md`. Suspension expires automatically when ADR-032
+  §Spike Findings is finalised; cross-referenced from ADR-032
+  §Decision Gates "Pre-W5" row.
+- **core (plugin diagnostics)**: new
+  `PluginDiagnosticKind::BackendCapabilityRejected { primitive_kind:
+  &'static str, backend: &'static str }` variant. Constructor
+  `PluginDiagnostic::backend_capability_rejected(plugin_id,
+  primitive_kind, backend)` keeps the per-frame emission path
+  allocation-free (static-string-shaped fields). Severity: Warning
+  (capability rejection is non-fatal — the contribution is dropped,
+  the frame proceeds, the plugin remains active). Scoring + tag-kind
+  + summarize + tracing report all extended for the new variant. Five
+  unit tests pin the ADR-032 §Decision item 3 contract: Warning
+  severity, summary text shape, static-string carriage, Runtime
+  overlay tag, default `DegradationPolicy::Reject`.
+- **gui (BackendCapabilities)**: new `degradation_policy:
+  DegradationPolicy` field on `BackendCapabilities`. New
+  `DegradationPolicy { Reject, Skip, FallbackToTui }` enum with
+  `Default = Reject`. Both backends (`SceneRenderer` →
+  `WgpuBackend`-equivalent, `kasane_vello_spike::VelloBackend`)
+  advertise `Reject` as their default. The per-frame check is not
+  yet wired at any production site — currently no `DrawCommand`
+  variant exceeds `WgpuBackend`'s capability set, so the rejection
+  path is unreachable in production. Phase Z0 of the Adoption Phase
+  Plan wires the check when `DrawCommand::DrawPath` lands.
+- **gui (tests, W2 Phase 10 fixture skeletons)**:
+  `kasane-gui/tests/golden_render.rs` gains 8 fixtures pinning
+  ADR-031 Phase 10 features. 6 buildable today (snapshot bootstrap on
+  GPU-capable env via `KASANE_GOLDEN_UPDATE=1`):
+  `subpixel_quantisation_4step`, `curly_underline`,
+  `color_emoji_priority`, `inline_box_text_flow`, `rtl_bidi_cursor`,
+  `cjk_cluster_double_width`. 2 deferred behind documented blockers
+  (`#[ignore]` with reason): `variable_font_axes` (waits on
+  `Style.font_weight` public surface, ADR-031 Phase 10 Step C),
+  `font_fallback_chain` (waits on `render_scene_to_image` `FontConfig`
+  override). Each fixture follows the `monochrome_grid` template:
+  graceful-skip on no-GPU sandbox, deterministic input, DSSIM ≤ 0.005
+  threshold against committed snapshot.
+- **core (BufferParagraph builder)**: new public
+  `BufferParagraphBuilder` API (`BufferParagraph::builder().atom(...)
+  .primary_cursor_at(...).inline_box_slot(...).build()`). The builder
+  is the test-and-plugin-author-friendly alternative to going through
+  the full Element pipeline; it keeps `inline_box_slots` and
+  `inline_box_paint_commands` in lock-step by construction (the
+  `len() == len()` invariant cannot be violated through the builder).
+  4 unit tests pin the contract (minimal, cursor annotations,
+  inline-box pairing, `base_face` default). Used by 3 of the W2
+  Phase 10 fixtures above.
+- **kasane-vello-spike (paper-design + skeleton)**: module docstring
+  gains a 13-row §Translation Contract table (DrawCommand → vello
+  Scene mapping per cost class: rect-coarse-only, stroke-coarse, text
+  fast path, image, clip-stack/layer-stack, composed, uncertain
+  (DrawShadow blur), undefined (DrawCanvas)). `DrawCanvas` deliberately
+  resolved as `BackendError::Unsupported` for the spike per
+  §DrawCanvas — pre-spike resolution required (option 1: reject via
+  BackendCapabilities). `render_with_cursor` body filled with a
+  match-arm-exhaustive walk over all 13 `DrawCommand` variants — each
+  arm currently raises `BackendError::Unsupported(<variant_name>
+  (<Day target>: <vello-side mechanism>, pending))`. New variants
+  added to `DrawCommand` produce a compile error in the spike,
+  forcing the §Translation Contract to extend before the variant
+  ships.
+- **kasane-vello-spike (paired bench harness)**:
+  `benches/spike_bench.rs` lifted from a 26-LOC stub to a criterion
+  harness with deterministic fixture builders (`fixture_warm_80x24`,
+  `fixture_warm_200x60`, `fixture_warm_80x24_one_line_changed`).
+  Two GPU-free bench groups: `fixture_build` (input-construction
+  cost) and `translation_walk` (translator dispatch cost — sets a
+  CPU-only floor that real Vello translation must clear). GPU-side
+  benches stubbed as commented-out placeholders for W5 Day 1+
+  fill-in. Runs meaningfully without `with-vello` feature; criterion
+  delta against a future feature-on run characterises Glifo + Vello
+  cost.
+- **core (workspace test deps)**: `kasane-gui` and
+  `kasane-vello-spike` gain `compact_str` as a dev-dependency for
+  test-side `ResolvedAtom.contents` construction.
+
 ### Changed — ADR-032 W2 prerequisites — **BREAKING (kasane-gui only)**
 
 - (gui) `GpuState::surface` is now `Option<wgpu::Surface<'static>>`.
