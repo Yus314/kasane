@@ -172,7 +172,7 @@ fn test_status_left_slot_in_status_bar() {
     };
 
     struct StatusLeftPlugin;
-    crate::impl_pubsub_member_default!(StatusLeftPlugin);
+    crate::impl_migrated_caps_default!(StatusLeftPlugin);
     impl PluginBackend for StatusLeftPlugin {
         fn id(&self) -> PluginId {
             PluginId("status_left".into())
@@ -500,7 +500,7 @@ fn test_buffer_surface_abstract_shape() {
 #[test]
 fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
     struct GutterPlugin;
-    crate::impl_pubsub_member_default!(GutterPlugin);
+    crate::impl_migrated_caps_default!(GutterPlugin);
 
     impl PluginBackend for GutterPlugin {
         fn id(&self) -> PluginId {

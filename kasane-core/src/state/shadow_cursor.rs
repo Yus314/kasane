@@ -1129,7 +1129,7 @@ use crate::plugin::{
 /// `Effects::state_updates.shadow_cursor` (R4 typed channel).
 pub struct BuiltinShadowCursorPlugin;
 
-crate::impl_pubsub_member_default!(BuiltinShadowCursorPlugin);
+crate::impl_migrated_caps_default!(BuiltinShadowCursorPlugin);
 
 impl PluginBackend for BuiltinShadowCursorPlugin {
     fn id(&self) -> PluginId {

@@ -19,7 +19,7 @@ mod dispatch;
 mod session;
 mod surface;
 
-crate::impl_pubsub_member_default!(
+crate::impl_migrated_caps_default!(
     TestPlugin,
     RuntimeMessagePlugin,
     TextInputPlugin,

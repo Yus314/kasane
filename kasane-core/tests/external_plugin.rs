@@ -1,6 +1,6 @@
 use kasane_core::plugin_prelude::*;
 
-kasane_core::impl_pubsub_member_default!(TestExternalPlugin);
+kasane_core::impl_migrated_caps_default!(TestExternalPlugin);
 
 #[kasane_plugin]
 mod test_external {

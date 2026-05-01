@@ -238,7 +238,7 @@ use crate::plugin::{
 /// with the same capability take precedence.
 pub struct BuiltinInfoPlugin;
 
-crate::impl_pubsub_member_default!(BuiltinInfoPlugin);
+crate::impl_migrated_caps_default!(BuiltinInfoPlugin);
 
 impl PluginBackend for BuiltinInfoPlugin {
     fn id(&self) -> PluginId {

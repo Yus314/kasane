@@ -2,7 +2,7 @@ use super::*;
 use crate::plugin::Effects;
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 
-crate::impl_pubsub_member_default!(IoHandlerPlugin);
+crate::impl_migrated_caps_default!(IoHandlerPlugin);
 
 // --- I/O event construction tests ---
 
@@ -263,7 +263,7 @@ fn test_plugin_allows_process_spawn_default_true() {
 #[test]
 fn test_plugin_allows_process_spawn_denied() {
     struct DenySpawnPlugin;
-    crate::impl_pubsub_member_default!(DenySpawnPlugin);
+    crate::impl_migrated_caps_default!(DenySpawnPlugin);
     impl PluginBackend for DenySpawnPlugin {
         fn id(&self) -> PluginId {
             PluginId("deny_spawn".to_string())

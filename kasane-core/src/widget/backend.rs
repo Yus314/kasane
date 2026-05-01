@@ -287,7 +287,7 @@ mod legacy {
         }
     }
 
-    crate::impl_pubsub_member_default!(WidgetBackend);
+    crate::impl_migrated_caps_default!(WidgetBackend);
 
     impl PluginBackend for WidgetBackend {
         fn id(&self) -> PluginId {

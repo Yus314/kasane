@@ -16,7 +16,7 @@ use kasane_core::render::{CursorStyle, cursor_style_default};
 use kasane_core::state::{AppState, DirtyFlags, Msg, update_in_place};
 use kasane_core::test_support::{make_line, render_with_registry, row_text};
 
-kasane_core::impl_pubsub_member_default!(
+kasane_core::impl_migrated_caps_default!(
     VerticalBandsPlugin,
     UnderlineCursorPlugin,
     KeyConsumerPluginPlugin,

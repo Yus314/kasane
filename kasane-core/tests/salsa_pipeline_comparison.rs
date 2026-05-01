@@ -5,14 +5,14 @@
 //! of AppState configurations, including with active plugins.
 
 use kasane_core::element::Element;
-use kasane_core::impl_pubsub_member_default;
+use kasane_core::impl_migrated_caps_default;
 use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, ContribSizeHint, ContributeContext,
     Contribution, LineAnnotation, PluginBackend, PluginCapabilities, PluginId, PluginRuntime,
     SlotId, TransformContext, TransformTarget,
 };
 
-impl_pubsub_member_default!(
+impl_migrated_caps_default!(
     BufferLeftPlugin,
     StatusRightPlugin,
     BufferTransformPlugin,

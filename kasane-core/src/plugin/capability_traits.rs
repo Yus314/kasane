@@ -860,19 +860,7 @@ impl<T: super::PluginBackend + ?Sized> Io for T {
 // for X` block (for overriders) or `impl_pubsub_member_default!(X)`
 // (for non-overriders).
 
-impl<T: super::PluginBackend + ?Sized> ExtensionParticipant for T {
-    fn extension_definitions(&self) -> &[ExtensionDefinition] {
-        super::PluginBackend::extension_definitions(self)
-    }
-    fn evaluate_extension(
-        &self,
-        id: &ExtensionPointId,
-        input: &ChannelValue,
-        state: &AppView<'_>,
-    ) -> Vec<ExtensionOutput> {
-        super::PluginBackend::evaluate_extension(self, id, input, state)
-    }
-}
+// ExtensionParticipant migrated to super-trait of PluginBackend (R1.5).
 
 impl<T: super::PluginBackend + ?Sized> WorkspaceMember for T {
     fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
@@ -925,6 +913,26 @@ impl<T: super::PluginBackend + ?Sized> PluginMeta for T {
 // =============================================================================
 // Macro infrastructure for R1.4+ super-trait migration.
 // =============================================================================
+
+/// Generate empty `impl CapTrait for $type {}` for every capability
+/// trait that has been **migrated** to a super-trait of `PluginBackend`.
+///
+/// Each R1.x sub-phase that finishes migrating a trait's body adds the
+/// corresponding `impl_<cap>_default!` invocation here. Implementer
+/// sites that don't override anything just call
+/// `impl_migrated_caps_default!(MyPlugin)` and never have to be edited
+/// again as the migration progresses.
+///
+/// Currently covers (in migration order):
+/// - R1.4: `PubSubMember`
+/// - R1.5: `ExtensionParticipant`
+#[macro_export]
+macro_rules! impl_migrated_caps_default {
+    ($($t:ty),+ $(,)?) => {
+        $crate::impl_pubsub_member_default!($($t),+);
+        $crate::impl_extension_participant_default!($($t),+);
+    };
+}
 
 /// Generate empty `impl CapabilityTrait for $type {}` blocks for the 11
 /// non-`PluginMeta` capability traits.

@@ -18,7 +18,7 @@ mod io;
 mod projection;
 mod registry;
 
-crate::impl_pubsub_member_default!(TestPlugin, LifecyclePlugin, SurfacePlugin, StatefulPlugin);
+crate::impl_migrated_caps_default!(TestPlugin, LifecyclePlugin, SurfacePlugin, StatefulPlugin);
 
 struct TestPlugin;
 

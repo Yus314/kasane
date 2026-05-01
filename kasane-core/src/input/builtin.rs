@@ -14,7 +14,7 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 /// first-wins priority on these keys and on default scroll policy decisions.
 pub struct BuiltinInputPlugin;
 
-crate::impl_pubsub_member_default!(BuiltinInputPlugin);
+crate::impl_migrated_caps_default!(BuiltinInputPlugin);
 
 impl PluginBackend for BuiltinInputPlugin {
     fn id(&self) -> PluginId {
@@ -133,7 +133,7 @@ mod tests {
         use crate::state::{Msg, update_in_place};
 
         struct CustomPageUpPlugin;
-        crate::impl_pubsub_member_default!(CustomPageUpPlugin);
+        crate::impl_migrated_caps_default!(CustomPageUpPlugin);
         impl PluginBackend for CustomPageUpPlugin {
             fn id(&self) -> PluginId {
                 PluginId("custom_pageup".into())
@@ -176,7 +176,7 @@ mod tests {
 
         // Plugin that doesn't handle PageUp
         struct NoOpPlugin;
-        crate::impl_pubsub_member_default!(NoOpPlugin);
+        crate::impl_migrated_caps_default!(NoOpPlugin);
         impl PluginBackend for NoOpPlugin {
             fn id(&self) -> PluginId {
                 PluginId("noop".into())
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn test_user_scroll_policy_overrides_builtin_production_default() {
         struct OverrideScrollPlugin;
-        crate::impl_pubsub_member_default!(OverrideScrollPlugin);
+        crate::impl_migrated_caps_default!(OverrideScrollPlugin);
 
         impl PluginBackend for OverrideScrollPlugin {
             fn id(&self) -> PluginId {

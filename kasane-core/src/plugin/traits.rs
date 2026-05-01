@@ -6,7 +6,6 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{self, DirtyFlags};
 
 use super::effects::StateUpdates;
-use super::extension_point::{ExtensionOutput, ExtensionPointId};
 use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
 use crate::display::unit::DisplayUnit;
 
@@ -111,7 +110,9 @@ pub enum TextInputPreDispatchResult {
 /// `impl CapTrait for X` block (manually for overriders, via the
 /// `impl_<cap>_default!` macro for non-overriders).
 #[doc(hidden)]
-pub trait PluginBackend: super::capability_traits::PubSubMember + Any {
+pub trait PluginBackend:
+    super::capability_traits::PubSubMember + super::capability_traits::ExtensionParticipant + Any
+{
     fn id(&self) -> PluginId;
 
     /// Inject the framework-assigned plugin tag for interactive ID ownership.
@@ -702,21 +703,7 @@ pub trait PluginBackend: super::capability_traits::PubSubMember + Any {
     // `impl_pubsub_member_default!(X)` (non-overriders).
 
     // --- Extension Points ---
-
-    /// Return extension point definitions from this plugin.
-    fn extension_definitions(&self) -> &[super::extension_point::ExtensionDefinition] {
-        &[]
-    }
-
-    /// Evaluate extension contributions from this plugin for a given extension point.
-    fn evaluate_extension(
-        &self,
-        _id: &ExtensionPointId,
-        _input: &super::channel::ChannelValue,
-        _state: &AppView<'_>,
-    ) -> Vec<ExtensionOutput> {
-        vec![]
-    }
+    // Migrated to `capability_traits::ExtensionParticipant` (R1.5).
 
     // --- Capability Descriptor ---
 

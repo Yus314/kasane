@@ -892,7 +892,7 @@ mod tests {
         seen: Rc<RefCell<Vec<ContributeContext>>>,
     }
 
-    crate::impl_pubsub_member_default!(RecordingPlugin);
+    crate::impl_migrated_caps_default!(RecordingPlugin);
 
     impl PluginBackend for RecordingPlugin {
         fn id(&self) -> PluginId {

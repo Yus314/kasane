@@ -831,6 +831,38 @@ impl PluginBackend for PluginBridge {
         Some(self.table.capability_descriptor())
     }
 
+    fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
+        std::mem::take(&mut self.pending_diagnostics)
+    }
+}
+
+impl super::capability_traits::PubSubMember for PluginBridge {
+    fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
+        let plugin_id = self.id.clone();
+        for entry in &self.table.publishers {
+            let value = (entry.handler)(&*self.state, state);
+            bus.publish(entry.topic.clone(), plugin_id.clone(), value);
+        }
+    }
+
+    fn deliver_subscriptions(&mut self, bus: &TopicBus) -> bool {
+        let mut changed = false;
+        for entry in &self.table.subscribers {
+            if let Some(publications) = bus.get_publications(&entry.topic) {
+                for pub_value in publications {
+                    self.state = (entry.handler)(&*self.state, &pub_value.value);
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.check_state_change();
+        }
+        changed
+    }
+}
+
+impl super::capability_traits::ExtensionParticipant for PluginBridge {
     fn extension_definitions(&self) -> &[ExtensionDefinition] {
         &self.table.extension_definitions
     }
@@ -863,36 +895,6 @@ impl PluginBackend for PluginBridge {
             }
         }
         outputs
-    }
-
-    fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
-        std::mem::take(&mut self.pending_diagnostics)
-    }
-}
-
-impl super::capability_traits::PubSubMember for PluginBridge {
-    fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
-        let plugin_id = self.id.clone();
-        for entry in &self.table.publishers {
-            let value = (entry.handler)(&*self.state, state);
-            bus.publish(entry.topic.clone(), plugin_id.clone(), value);
-        }
-    }
-
-    fn deliver_subscriptions(&mut self, bus: &TopicBus) -> bool {
-        let mut changed = false;
-        for entry in &self.table.subscribers {
-            if let Some(publications) = bus.get_publications(&entry.topic) {
-                for pub_value in publications {
-                    self.state = (entry.handler)(&*self.state, &pub_value.value);
-                    changed = true;
-                }
-            }
-        }
-        if changed {
-            self.check_state_change();
-        }
-        changed
     }
 }
 

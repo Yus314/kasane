@@ -157,7 +157,7 @@ fn default_surface_rect() -> Rect {
 
 struct SurfaceProbeContributor;
 
-kasane_core::impl_pubsub_member_default!(SurfaceProbeContributor);
+kasane_core::impl_migrated_caps_default!(SurfaceProbeContributor);
 
 impl PluginBackend for SurfaceProbeContributor {
     fn id(&self) -> PluginId {

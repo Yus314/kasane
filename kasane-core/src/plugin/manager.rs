@@ -454,7 +454,7 @@ mod tests {
     }
 
     struct DemoPlugin;
-    crate::impl_pubsub_member_default!(DemoPlugin);
+    crate::impl_migrated_caps_default!(DemoPlugin);
 
     impl PluginBackend for DemoPlugin {
         fn id(&self) -> PluginId {

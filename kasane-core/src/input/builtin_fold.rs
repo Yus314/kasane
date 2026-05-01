@@ -16,7 +16,7 @@ use crate::plugin::{PluginBackend, PluginCapabilities, PluginId};
 /// making it overridable by user plugins registered at higher priority.
 pub struct BuiltinFoldPlugin;
 
-crate::impl_pubsub_member_default!(BuiltinFoldPlugin);
+crate::impl_migrated_caps_default!(BuiltinFoldPlugin);
 
 impl PluginBackend for BuiltinFoldPlugin {
     fn id(&self) -> PluginId {
