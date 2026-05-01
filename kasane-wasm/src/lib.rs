@@ -73,6 +73,13 @@ pub struct WasmPluginLoader {
 
 impl WasmPluginLoader {
     pub fn new() -> Result<Self, WasmPluginError> {
+        // Tests opt into panic-on-trap so a WASM call failure surfaces as a
+        // loud panic instead of an empty default that masquerades as a
+        // legitimate "no contribution" result. Production keeps the default
+        // (graceful degradation) so a buggy plugin can't crash the editor.
+        #[cfg(test)]
+        adapter::set_panic_on_trap(true);
+
         let (engine, linker) =
             Self::create_engine_and_linker().map_err(WasmPluginError::EngineInit)?;
         let cache = cache::ComponentCache::new(&engine);
