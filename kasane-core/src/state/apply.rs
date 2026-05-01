@@ -130,7 +130,7 @@ pub(crate) fn apply_protocol(
 
             observed.widget_columns = widget_columns;
 
-            observed.lines = lines;
+            observed.lines = std::sync::Arc::new(lines);
             observed.default_style = default_style.style.clone();
             observed.padding_style = padding_style.style.clone();
 

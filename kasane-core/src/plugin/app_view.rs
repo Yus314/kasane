@@ -483,7 +483,7 @@ mod tests {
     #[test]
     fn buffer_accessors() {
         let mut state = AppState::default();
-        state.observed.lines = vec![vec![], vec![], vec![]];
+        state.observed.lines = (vec![vec![], vec![], vec![]]).into();
         state.inference.lines_dirty = vec![false, true, false];
         let view = AppView::new(&state);
         assert_eq!(view.lines().len(), 3);
@@ -526,7 +526,7 @@ mod tests {
     #[test]
     fn derived_methods() {
         let mut state = AppState::default();
-        state.observed.lines = vec![vec![], vec![]];
+        state.observed.lines = (vec![vec![], vec![]]).into();
         let view = AppView::new(&state);
         assert_eq!(view.visible_line_range(), 0..2);
     }

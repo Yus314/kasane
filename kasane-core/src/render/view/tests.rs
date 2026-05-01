@@ -51,7 +51,7 @@ fn test_view_with_menu() {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.lines = vec![make_line("hello")];
+    state.observed.lines = vec![make_line("hello")].into();
     state.apply(crate::protocol::KakouneRequest::MenuShow {
         items: vec![make_line("item1"), make_line("item2")],
         anchor: Coord { line: 1, column: 0 },
@@ -425,7 +425,7 @@ fn test_status_surface_abstract_shape() {
 #[test]
 fn test_buffer_surface_abstract_shape() {
     let mut state = AppState::default();
-    state.observed.lines = vec![make_line("buffer")];
+    state.observed.lines = vec![make_line("buffer")].into();
 
     let registry = PluginRuntime::new();
     let element = build_buffer_surface_abstract(&state, &registry.view());
@@ -527,7 +527,7 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
     }
 
     let mut state = AppState::default();
-    state.observed.lines = vec![make_line("buffer")];
+    state.observed.lines = vec![make_line("buffer")].into();
 
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(GutterPlugin));
@@ -577,7 +577,7 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
 #[test]
 fn test_surface_view_sections_preserves_surface_reports() {
     let mut state = AppState::default();
-    state.observed.lines = vec![make_line("buffer")];
+    state.observed.lines = vec![make_line("buffer")].into();
     state.inference.status_line = make_line("status");
     state.observed.status_mode_line = make_line("normal");
 

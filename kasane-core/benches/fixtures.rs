@@ -112,7 +112,7 @@ pub fn typical_state(line_count: usize) -> AppState {
         ..WireFace::default()
     }
     .into();
-    state.observed.lines = (0..line_count).map(make_colored_line).collect();
+    state.observed.lines = std::sync::Arc::new((0..line_count).map(make_colored_line).collect());
     state.inference.status_line = vec![Atom {
         style: kasane_core::protocol::default_unresolved_style(),
         contents: " NORMAL ".into(),
@@ -345,7 +345,7 @@ pub fn realistic_state(line_count: usize) -> AppState {
         ..WireFace::default()
     }
     .into();
-    state.observed.lines = (0..line_count).map(make_realistic_line).collect();
+    state.observed.lines = std::sync::Arc::new((0..line_count).map(make_realistic_line).collect());
     state.inference.status_line = vec![Atom {
         style: kasane_core::protocol::default_unresolved_style(),
         contents: " NORMAL ".into(),
@@ -384,7 +384,7 @@ pub fn draw_realistic_json(line_count: usize) -> Vec<u8> {
 pub fn state_with_edit(base: &AppState, start_line: usize, n: usize) -> AppState {
     let mut state = base.clone();
     for i in start_line..(start_line + n).min(state.observed.lines.len()) {
-        state.observed.lines[i] = vec![
+        std::sync::Arc::make_mut(&mut state.observed.lines)[i] = vec![
             Atom::from_wire(
                 WireFace {
                     fg: Color::Rgb { r: 255, g: 0, b: 0 },

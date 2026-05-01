@@ -386,7 +386,7 @@ fn menu_memoization_across_buffer_changes() {
     let m1 = salsa_views::pure_menu_overlay(&db, handles.menu, handles.config);
 
     // Change buffer content only — menu should use cached result
-    state.observed.lines = vec![vec![make_atom("hello world")]];
+    state.observed.lines = (vec![vec![make_atom("hello world")]]).into();
     sync_inputs_from_state(&mut db, &state, &handles);
 
     let m2 = salsa_views::pure_menu_overlay(&db, handles.menu, handles.config);

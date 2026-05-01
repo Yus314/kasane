@@ -102,7 +102,7 @@ fn sync_buffer_only_when_dirty() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![make_atom("hello")]];
+    state.observed.lines = (vec![vec![make_atom("hello")]]).into();
     state.observed.cursor_pos = Coord { line: 0, column: 3 };
 
     // Sync with BUFFER flag
@@ -222,14 +222,14 @@ fn selective_dirty_preserves_unrelated_inputs() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![make_atom("hello")]];
+    state.observed.lines = (vec![vec![make_atom("hello")]]).into();
     state.inference.status_line = vec![make_atom("status")];
 
     // Sync everything first
     sync_inputs_from_state(&mut db, &state, &handles);
 
     // Now change only buffer, sync with BUFFER flag only
-    state.observed.lines = vec![vec![make_atom("world")]];
+    state.observed.lines = (vec![vec![make_atom("world")]]).into();
     sync_inputs_from_state(&mut db, &state, &handles);
 
     // Buffer should reflect new value

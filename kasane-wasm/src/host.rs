@@ -24,8 +24,9 @@ pub(crate) struct HostState {
     pub cols: u16,
     pub rows: u16,
     pub focused: bool,
-    /// Buffer lines from AppState (cloned on sync for get-line-text).
-    pub lines: Vec<Line>,
+    /// Buffer lines from AppState. Shared with `ObservedState::lines` via
+    /// `Arc::clone` so per-call sync is an O(1) reference bump.
+    pub lines: std::sync::Arc<Vec<Line>>,
     /// Per-line dirty flags.
     pub lines_dirty: Vec<bool>,
 
@@ -128,7 +129,7 @@ impl Default for HostState {
             cols: 80,
             rows: 24,
             focused: true,
-            lines: Vec::new(),
+            lines: std::sync::Arc::new(Vec::new()),
             lines_dirty: Vec::new(),
             status_prompt: Vec::new(),
             status_content: Vec::new(),

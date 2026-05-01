@@ -32,13 +32,13 @@ fn setup_two_session_states() -> (AppState, AppState) {
     let mut state_a = AppState::default();
     state_a.runtime.cols = 80;
     state_a.runtime.rows = 24;
-    state_a.observed.lines = vec![make_line("hello")];
+    state_a.observed.lines = vec![make_line("hello")].into();
     state_a.inference.lines_dirty = vec![true];
 
     let mut state_b = AppState::default();
     state_b.runtime.cols = 80;
     state_b.runtime.rows = 24;
-    state_b.observed.lines = vec![make_line("world")];
+    state_b.observed.lines = vec![make_line("world")].into();
     state_b.inference.lines_dirty = vec![true];
     state_b.observed.menu = Some(make_test_menu());
 
@@ -219,7 +219,7 @@ fn test_session_close_and_promote_preserves_surface_composition() {
     let mut state_c = AppState::default();
     state_c.runtime.cols = 80;
     state_c.runtime.rows = 24;
-    state_c.observed.lines = vec![make_line("third")];
+    state_c.observed.lines = vec![make_line("third")].into();
     state_c.inference.lines_dirty = vec![true];
 
     store.sync_from_active(id_a, &state_a);

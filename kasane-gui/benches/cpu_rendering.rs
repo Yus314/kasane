@@ -58,18 +58,20 @@ fn setup_grid() -> (CellGrid, ColorResolver) {
         bg: Color::Default,
         ..WireFace::default()
     };
-    state.observed.lines = (0..23)
-        .map(|i| {
-            vec![
-                Atom::with_style("let", Style::from_face(&kw_face)),
-                Atom::plain(" "),
-                Atom::with_style(format!("var_{i}"), Style::from_face(&var_face)),
-                Atom::plain(" = "),
-                Atom::with_style(format!("\"{i}_value\""), Style::from_face(&str_face)),
-                Atom::plain(";"),
-            ]
-        })
-        .collect();
+    state.observed.lines = std::sync::Arc::new(
+        (0..23)
+            .map(|i| {
+                vec![
+                    Atom::with_style("let", Style::from_face(&kw_face)),
+                    Atom::plain(" "),
+                    Atom::with_style(format!("var_{i}"), Style::from_face(&var_face)),
+                    Atom::plain(" = "),
+                    Atom::with_style(format!("\"{i}_value\""), Style::from_face(&str_face)),
+                    Atom::plain(";"),
+                ]
+            })
+            .collect(),
+    );
     state.inference.status_line = vec![Atom::plain(" NORMAL ")];
     state.observed.status_mode_line = vec![Atom::plain("normal")];
 

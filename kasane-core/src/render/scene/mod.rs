@@ -368,7 +368,7 @@ mod tests {
         let mut state = default_state();
         state.runtime.cols = 20;
         state.runtime.rows = 5;
-        state.observed.lines = vec![make_line("hello"), make_line("world")];
+        state.observed.lines = vec![make_line("hello"), make_line("world")].into();
         state.inference.status_line = make_line(" test ");
         state.observed.status_mode_line = make_line("normal");
 
@@ -399,7 +399,7 @@ mod tests {
         let mut state = default_state();
         state.runtime.cols = 20;
         state.runtime.rows = 5;
-        state.observed.lines = vec![];
+        state.observed.lines = vec![].into();
         state.inference.status_line = make_line(" test ");
         state.observed.status_mode_line = make_line("normal");
 
@@ -421,7 +421,7 @@ mod tests {
         let mut state = default_state();
         state.runtime.cols = 20;
         state.runtime.rows = 3;
-        state.observed.lines = vec![make_line("line1")];
+        state.observed.lines = vec![make_line("line1")].into();
         state.inference.status_line = make_line(" main.rs ");
         state.observed.status_mode_line = make_line("normal");
 

@@ -14,7 +14,7 @@ fn test_render_buffer_resolves_default_face() {
     let line = vec![Atom::plain("x")];
 
     let mut state = AppState::default();
-    state.observed.lines = vec![line];
+    state.observed.lines = vec![line].into();
     state.observed.default_style = default_face.into();
 
     let mut grid = CellGrid::new(10, 2);

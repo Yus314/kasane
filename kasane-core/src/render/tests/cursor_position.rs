@@ -76,7 +76,7 @@ fn render_full(state: &AppState) -> (CellGrid, RenderResult, DisplayMapRef) {
 fn buffer_cursor_ascii_mid_line() {
     let mut state = buffer_state(40, 5);
     state.observed.cursor_pos = Coord { line: 0, column: 6 };
-    state.observed.lines = vec![make_cursor_line("hello ", "w", "orld\n")];
+    state.observed.lines = vec![make_cursor_line("hello ", "w", "orld\n")].into();
 
     let (grid, result, _) = render_full(&state);
 
@@ -91,7 +91,7 @@ fn buffer_cursor_ascii_mid_line() {
 fn buffer_cursor_ascii_start_of_line() {
     let mut state = buffer_state(40, 5);
     state.observed.cursor_pos = Coord { line: 0, column: 0 };
-    state.observed.lines = vec![make_cursor_line("", "h", "ello world\n")];
+    state.observed.lines = vec![make_cursor_line("", "h", "ello world\n")].into();
 
     let (grid, result, _) = render_full(&state);
 
@@ -106,10 +106,10 @@ fn buffer_cursor_ascii_start_of_line() {
 fn buffer_cursor_multiline() {
     let mut state = buffer_state(40, 5);
     state.observed.cursor_pos = Coord { line: 1, column: 3 };
-    state.observed.lines = vec![
+    state.observed.lines = std::sync::Arc::new(vec![
         make_line("first line\n"),
         make_cursor_line("sec", "o", "nd line\n"),
-    ];
+    ]);
 
     let (grid, result, _) = render_full(&state);
 
@@ -124,7 +124,7 @@ fn buffer_cursor_multiline() {
 fn buffer_cursor_end_of_line() {
     let mut state = buffer_state(40, 5);
     state.observed.cursor_pos = Coord { line: 0, column: 2 };
-    state.observed.lines = vec![make_cursor_line("ab", "c", "\n")];
+    state.observed.lines = vec![make_cursor_line("ab", "c", "\n")].into();
 
     let (grid, result, _) = render_full(&state);
 
@@ -144,7 +144,7 @@ fn buffer_cursor_cjk_on_wide_char() {
     let mut state = buffer_state(40, 5);
     // "hi世" = 4 display columns, cursor on "界" at column 4
     state.observed.cursor_pos = Coord { line: 0, column: 4 };
-    state.observed.lines = vec![make_cursor_line("hi世", "界", "\n")];
+    state.observed.lines = vec![make_cursor_line("hi世", "界", "\n")].into();
 
     let (grid, result, _) = render_full(&state);
 
@@ -159,7 +159,7 @@ fn buffer_cursor_cjk_on_wide_char() {
 fn buffer_cursor_ascii_after_cjk() {
     let mut state = buffer_state(40, 5);
     state.observed.cursor_pos = Coord { line: 0, column: 6 };
-    state.observed.lines = vec![make_cursor_line("hi世界", "o", "k\n")];
+    state.observed.lines = vec![make_cursor_line("hi世界", "o", "k\n")].into();
 
     let (grid, result, _) = render_full(&state);
 
@@ -187,13 +187,14 @@ fn buffer_cursor_with_widget_columns() {
         ..WireFace::default()
     };
     let normal = WireFace::default();
-    state.observed.lines = vec![vec![
+    state.observed.lines = (vec![vec![
         Atom::from_wire(gutter_face, " 1│"),
         Atom::from_wire(normal, "hello "),
         // Wire-aware (cursor_face has FINAL_FG/REVERSE): see Style::from_face docstring.
         Atom::from_wire(cursor_face(), "w"),
         Atom::from_wire(normal, "orld\n"),
-    ]];
+    ]])
+    .into();
 
     let (grid, result, _) = render_full(&state);
 
@@ -284,11 +285,12 @@ fn extract_cursor_color_ascii() {
         underline: Color::Default,
         attributes: Attributes::REVERSE | Attributes::FINAL_FG | Attributes::FINAL_BG,
     };
-    state.observed.lines = vec![vec![
+    state.observed.lines = (vec![vec![
         Atom::plain("hello"),
         Atom::from_wire(cf, "w"),
         Atom::plain("orld\n"),
-    ]];
+    ]])
+    .into();
 
     let (_, result, _) = render_full(&state);
 
@@ -316,11 +318,12 @@ fn extract_cursor_color_after_cjk() {
         underline: Color::Default,
         attributes: Attributes::REVERSE | Attributes::FINAL_FG | Attributes::FINAL_BG,
     };
-    state.observed.lines = vec![vec![
+    state.observed.lines = (vec![vec![
         Atom::plain("hi世"),
         Atom::from_wire(cf, "w"),
         Atom::plain("orld\n"),
-    ]];
+    ]])
+    .into();
 
     let (_, result, _) = render_full(&state);
 
@@ -351,10 +354,11 @@ fn extract_cursor_color_after_cjk() {
 fn tui_gpu_cursor_position_consistent() {
     let mut state = buffer_state(40, 5);
     state.observed.cursor_pos = Coord { line: 1, column: 7 };
-    state.observed.lines = vec![
+    state.observed.lines = (vec![
         make_line("first line\n"),
         make_cursor_line("second ", "l", "ine\n"),
-    ];
+    ])
+    .into();
 
     // TUI path
     let (_, tui_result, _) = render_full(&state);

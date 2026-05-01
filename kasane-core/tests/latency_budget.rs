@@ -62,18 +62,20 @@ fn typical_state(line_count: usize) -> AppState {
         bg: Color::Default,
         ..WireFace::default()
     };
-    state.observed.lines = (0..line_count)
-        .map(|i| {
-            vec![
-                Atom::with_style("let", Style::from_face(&keyword_face)),
-                Atom::plain(" "),
-                Atom::with_style(format!("var_{i}"), Style::from_face(&ident_face)),
-                Atom::plain(" = "),
-                Atom::with_style(format!("\"{i}_value\""), Style::from_face(&literal_face)),
-                Atom::plain(";"),
-            ]
-        })
-        .collect();
+    state.observed.lines = std::sync::Arc::new(
+        (0..line_count)
+            .map(|i| {
+                vec![
+                    Atom::with_style("let", Style::from_face(&keyword_face)),
+                    Atom::plain(" "),
+                    Atom::with_style(format!("var_{i}"), Style::from_face(&ident_face)),
+                    Atom::plain(" = "),
+                    Atom::with_style(format!("\"{i}_value\""), Style::from_face(&literal_face)),
+                    Atom::plain(";"),
+                ]
+            })
+            .collect(),
+    );
     state.inference.status_line = vec![Atom::plain(" NORMAL ")];
     state.observed.status_mode_line = vec![Atom::plain("normal")];
     state

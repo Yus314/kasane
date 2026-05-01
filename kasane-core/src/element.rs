@@ -450,9 +450,12 @@ impl FlexChild {
 
 /// Embedded state for multi-pane BufferRef rendering.
 /// When present, `paint_buffer_ref` uses this instead of the walk context state.
+///
+/// `lines` is shared with [`crate::state::ObservedState::lines`] via `Arc::clone`
+/// so embedding the buffer view in the element tree is an O(1) reference bump.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BufferRefState {
-    pub lines: Vec<Vec<crate::protocol::Atom>>,
+    pub lines: std::sync::Arc<Vec<Vec<crate::protocol::Atom>>>,
     pub lines_dirty: Vec<bool>,
     pub default_style: crate::protocol::Style,
     pub padding_style: crate::protocol::Style,

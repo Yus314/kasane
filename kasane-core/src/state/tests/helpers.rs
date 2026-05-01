@@ -10,7 +10,7 @@ fn test_visible_line_range_empty() {
 #[test]
 fn test_visible_line_range_with_lines() {
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![], vec![]]).into();
     assert_eq!(state.visible_line_range(), 0..3);
 }
 
@@ -18,7 +18,7 @@ fn test_visible_line_range_with_lines() {
 fn test_buffer_line_count() {
     let mut state = AppState::default();
     assert_eq!(state.buffer_line_count(), 0);
-    state.observed.lines = vec![vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![]]).into();
     assert_eq!(state.buffer_line_count(), 2);
 }
 

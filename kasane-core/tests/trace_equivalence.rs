@@ -74,7 +74,7 @@ fn apply_mutation(state: &mut AppState, mutation: &Mutation) -> DirtyFlags {
         Mutation::ChangeLines(lines) => {
             let new_lines: Vec<_> = lines.iter().map(|s| make_line(s)).collect();
             state.inference.lines_dirty = vec![true; new_lines.len()];
-            state.observed.lines = new_lines;
+            state.observed.lines = (new_lines).into();
             DirtyFlags::BUFFER
         }
         Mutation::ChangeStatusLine(s) => {
@@ -148,11 +148,11 @@ fn apply_mutation(state: &mut AppState, mutation: &Mutation) -> DirtyFlags {
 /// Build a rich AppState with buffer, menu, and info.
 fn rich_state() -> AppState {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![
+    state.observed.lines = std::sync::Arc::new(vec![
         make_line("fn main() {"),
         make_line("    println!(\"hello\");"),
         make_line("}"),
-    ];
+    ]);
     state.inference.status_line = make_line(" main.rs ");
     state.observed.status_mode_line = make_line("normal");
     state.observed.status_default_style = WireFace {
@@ -202,7 +202,7 @@ fn rich_state() -> AppState {
 /// Empty buffer state.
 fn empty_state() -> AppState {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![make_line("")];
+    state.observed.lines = vec![make_line("")].into();
     state.inference.status_line = make_line("");
     state
 }
@@ -210,7 +210,7 @@ fn empty_state() -> AppState {
 /// Prompt mode state.
 fn prompt_state() -> AppState {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![make_line("hello world")];
+    state.observed.lines = vec![make_line("hello world")].into();
     state.apply(KakouneRequest::DrawStatus {
         prompt: make_line(":"),
         content: make_line("write"),
@@ -225,9 +225,11 @@ fn prompt_state() -> AppState {
 /// Large buffer state.
 fn large_buffer_state() -> AppState {
     let mut state = test_state_80x24();
-    state.observed.lines = (0..23)
-        .map(|i| make_line(&format!("line {i}: some content here")))
-        .collect();
+    state.observed.lines = std::sync::Arc::new(
+        (0..23)
+            .map(|i| make_line(&format!("line {i}: some content here")))
+            .collect(),
+    );
     state.inference.status_line = make_line(" large.rs ");
     state.observed.status_mode_line = make_line("normal");
     state

@@ -542,7 +542,7 @@ mod tests {
     #[test]
     fn test_paint_buffer_ref() {
         let mut state = default_state();
-        state.observed.lines = vec![make_line("line1"), make_line("line2")];
+        state.observed.lines = vec![make_line("line1"), make_line("line2")].into();
         state.runtime.cols = 10;
         state.runtime.rows = 4;
 
@@ -610,7 +610,7 @@ mod tests {
     #[test]
     fn test_paint_buffer_ref_custom_padding_char() {
         let mut state = default_state();
-        state.observed.lines = vec![make_line("line1")];
+        state.observed.lines = vec![make_line("line1")].into();
         state.runtime.cols = 10;
         state.runtime.rows = 4;
         state.config.padding_char = "@".to_string();
@@ -996,7 +996,7 @@ mod tests {
     #[test]
     fn paint_buffer_ref_with_virtual_text() {
         let mut state = default_state();
-        state.observed.lines = vec![make_line("hello")];
+        state.observed.lines = vec![make_line("hello")].into();
         state.runtime.cols = 20;
         state.runtime.rows = 3;
 
@@ -1042,7 +1042,7 @@ mod tests {
     fn paint_buffer_ref_virtual_text_clipped_when_full_width() {
         let mut state = default_state();
         // "hello" is 5 chars, width is 5 → no room for VT
-        state.observed.lines = vec![make_line("hello")];
+        state.observed.lines = vec![make_line("hello")].into();
         state.runtime.cols = 5;
         state.runtime.rows = 1;
 
@@ -1078,7 +1078,7 @@ mod tests {
         use crate::render::inline_decoration::InlineOp;
 
         let mut state = default_state();
-        state.observed.lines = vec![make_line("hello")];
+        state.observed.lines = vec![make_line("hello")].into();
         state.runtime.cols = 20;
         state.runtime.rows = 1;
 
@@ -1132,7 +1132,7 @@ mod tests {
     #[test]
     fn paint_buffer_ref_no_virtual_text_matches_baseline() {
         let mut state = default_state();
-        state.observed.lines = vec![make_line("hello"), make_line("world")];
+        state.observed.lines = vec![make_line("hello"), make_line("world")].into();
         state.runtime.cols = 10;
         state.runtime.rows = 3;
 

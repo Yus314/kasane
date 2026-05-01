@@ -378,7 +378,7 @@ fn test_collect_display_directives_composes_multi_plugin() {
     }));
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![], vec![], vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![], vec![], vec![], vec![], vec![]]).into();
 
     let directives = registry
         .view()
@@ -406,7 +406,7 @@ fn test_collect_display_map_composes_multi_plugin() {
     }));
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![], vec![], vec![]]).into();
 
     let display_map = registry.view().collect_display_map(&AppView::new(&state));
     // 4 lines - 2 hidden = 2 display lines
@@ -450,7 +450,7 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
     }));
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![], vec![], vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![], vec![], vec![], vec![], vec![]]).into();
 
     let directives = registry
         .view()
@@ -475,7 +475,7 @@ fn test_collect_display_directives_single_plugin_unchanged() {
     }));
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![], vec![], vec![]]).into();
 
     let directives = registry
         .view()
@@ -921,7 +921,7 @@ fn test_decomposed_annotator_produces_gutter_and_background() {
     registry.register(DecomposedAnnotatorPlugin);
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![], vec![]]).into();
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 
@@ -953,7 +953,7 @@ fn test_mixed_decomposed_and_legacy_annotators() {
     registry.register_backend(Box::new(LegacyAnnotatorPlugin));
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![]]).into();
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 
@@ -1539,7 +1539,7 @@ fn unified_display_spatial_routed_to_display_directives() {
     registry.register(UnifiedDisplayPlugin);
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![], vec![], vec![]]).into();
 
     registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
@@ -1565,7 +1565,7 @@ fn unified_display_decoration_routed_to_annotations() {
     registry.register(UnifiedDisplayPlugin);
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![], vec![], vec![]]).into();
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 
@@ -1607,7 +1607,7 @@ fn unified_display_interline_routed_to_content_annotations() {
     registry.register(UnifiedDisplayPlugin);
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![], vec![], vec![]]).into();
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 
@@ -1640,7 +1640,7 @@ fn unified_display_cache_called_once() {
     registry.register(UnifiedDisplayPlugin);
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![], vec![]]).into();
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 
@@ -1673,7 +1673,7 @@ fn unified_and_legacy_annotators_coexist() {
     registry.register_backend(Box::new(LegacyAnnotatorPlugin));
 
     let mut state = AppState::default();
-    state.observed.lines = vec![vec![], vec![], vec![]];
+    state.observed.lines = (vec![vec![], vec![], vec![]]).into();
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 

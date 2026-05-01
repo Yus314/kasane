@@ -68,7 +68,7 @@ fn make_additive_descriptor(name: &str) -> ProjectionDescriptor {
 
 fn state_with_lines(n: usize) -> AppState {
     let mut state = AppState::default();
-    state.observed.lines = (0..n).map(|_| vec![]).collect();
+    state.observed.lines = std::sync::Arc::new((0..n).map(|_| Vec::new()).collect());
     state
 }
 

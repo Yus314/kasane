@@ -19,7 +19,7 @@ use kasane_core::plugin::semantic_zoom::SemanticZoomPlugin;
 
 fn setup_state(lines: Vec<kasane_core::protocol::Line>) -> AppState {
     let mut state = kasane_core::test_support::test_state_80x24();
-    state.observed.lines = lines;
+    state.observed.lines = (lines).into();
     state.observed.status_default_style = state.observed.default_style.clone();
     state.inference.status_line = make_line(" main.rs ");
     state.observed.status_mode_line = make_line("normal");

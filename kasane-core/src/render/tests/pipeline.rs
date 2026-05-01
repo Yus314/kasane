@@ -47,7 +47,7 @@ fn test_treesitter_rgb_colors_preserved() {
         Atom::plain(" "),
         Atom::with_style("main", Style::from_face(&string_face)),
     ];
-    state.observed.lines = vec![ts_line];
+    state.observed.lines = vec![ts_line].into();
     state.inference.status_line = make_line("status");
 
     // Old pipeline
@@ -164,10 +164,10 @@ fn test_treesitter_colors_persist_across_frames() {
         bg: Color::Default,
         ..WireFace::default()
     };
-    state.observed.lines = vec![vec![Atom::with_style(
+    state.observed.lines = std::sync::Arc::new(vec![vec![Atom::with_style(
         "let",
         Style::from_face(&keyword_face),
-    )]];
+    )]]);
     state.inference.status_line = make_line("st");
 
     let registry = PluginRuntime::new();
@@ -224,7 +224,8 @@ fn test_treesitter_colors_persist_across_frames() {
         bg: Color::Default,
         ..WireFace::default()
     };
-    state.observed.lines = vec![vec![Atom::with_style("let", Style::from_face(&new_face))]];
+    state.observed.lines =
+        (vec![vec![Atom::with_style("let", Style::from_face(&new_face))]]).into();
 
     grid.clear(&crate::render::TerminalStyle::from_style(
         &state.observed.default_style,
@@ -263,12 +264,12 @@ fn test_line_dirty_buffer_and_status() {
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
     state.observed.status_default_style = state.observed.default_style.clone();
-    state.observed.lines = vec![
+    state.observed.lines = std::sync::Arc::new(vec![
         make_line("line0"),
         make_line("line1"),
         make_line("line2"),
         make_line("line3"),
-    ];
+    ]);
     state.inference.status_line = make_line("status");
 
     let registry = PluginRuntime::new();
@@ -284,7 +285,7 @@ fn test_line_dirty_buffer_and_status() {
     // Now swap_with_dirty preserved current (it has content from frame 2)
 
     // Frame 3: change only line 1 and status, with BUFFER|STATUS dirty
-    state.observed.lines[1] = make_line("CHANGED");
+    std::sync::Arc::make_mut(&mut state.observed.lines)[1] = make_line("CHANGED");
     state.inference.status_line = make_line("new_st");
     state.inference.lines_dirty = vec![false, true, false, false];
 
@@ -323,12 +324,12 @@ fn test_line_dirty_buffer_only_regression() {
     .into();
     state.observed.padding_style = state.observed.default_style.clone();
     state.observed.status_default_style = state.observed.default_style.clone();
-    state.observed.lines = vec![
+    state.observed.lines = std::sync::Arc::new(vec![
         make_line("line0"),
         make_line("line1"),
         make_line("line2"),
         make_line("line3"),
-    ];
+    ]);
     state.inference.status_line = make_line("status");
 
     let registry = PluginRuntime::new();
@@ -343,7 +344,7 @@ fn test_line_dirty_buffer_only_regression() {
     grid.swap_with_dirty();
 
     // Frame 3: change only line 2, BUFFER dirty only
-    state.observed.lines[2] = make_line("EDIT2");
+    std::sync::Arc::make_mut(&mut state.observed.lines)[2] = make_line("EDIT2");
     state.inference.lines_dirty = vec![false, false, true, false];
 
     render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::BUFFER);
@@ -376,11 +377,11 @@ fn test_declarative_matches_imperative_buffer_status() {
         ..WireFace::default()
     }
     .into();
-    state.observed.lines = vec![
+    state.observed.lines = std::sync::Arc::new(vec![
         make_line("first line"),
         make_line("second line"),
         make_line("third line with more text"),
-    ];
+    ]);
     state.inference.status_line = make_line("status text");
     state.observed.status_mode_line = make_line("normal");
     state.observed.status_default_style = WireFace {

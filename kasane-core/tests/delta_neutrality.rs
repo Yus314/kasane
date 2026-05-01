@@ -138,7 +138,7 @@ fn arb_non_protocol_msg_spec() -> impl Strategy<Value = NonProtocolMsgSpec> {
 
 fn rich_state() -> Box<AppState> {
     let mut state = Box::new(test_state_80x24());
-    state.observed.lines = vec![make_line("hello"), make_line("world"), make_line("!")];
+    state.observed.lines = vec![make_line("hello"), make_line("world"), make_line("!")].into();
     state.inference.lines_dirty = vec![true; 3];
     state.observed.cursor_pos = Coord { line: 1, column: 2 };
     state.observed.status_prompt = make_line(":");

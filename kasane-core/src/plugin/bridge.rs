@@ -1066,7 +1066,7 @@ mod tests {
 
         let mut app = AppState::default();
         app.observed.cursor_pos.line = 2;
-        app.observed.lines = vec![vec![], vec![], vec![], vec![], vec![]];
+        app.observed.lines = (vec![vec![], vec![], vec![], vec![], vec![]]).into();
         app.runtime.cols = 80;
         app.runtime.rows = 24;
 
@@ -1092,7 +1092,7 @@ mod tests {
 
         let mut app = AppState::default();
         app.observed.cursor_pos.line = 1;
-        app.observed.lines = vec![vec![], vec![], vec![]];
+        app.observed.lines = (vec![vec![], vec![], vec![]]).into();
         app.runtime.cols = 80;
         app.runtime.rows = 24;
 

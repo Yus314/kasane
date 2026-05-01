@@ -275,7 +275,7 @@ fn test_session_fields_preserved_on_reset() {
         mode_line: None,
     }];
     state.session.active_session_key = Some("work".into());
-    state.observed.lines = vec![vec![]]; // session-owned data
+    state.observed.lines = (vec![vec![]]).into(); // session-owned data
 
     state.reset_for_session_switch();
 
@@ -321,7 +321,7 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     state.session.active_session_key = Some("work".into());
 
     // Set some protocol fields to non-default values
-    state.observed.lines = vec![vec![]];
+    state.observed.lines = (vec![vec![]]).into();
     state.inference.cursor_count = 3;
     state.observed.cursor_pos = Coord {
         line: 5,

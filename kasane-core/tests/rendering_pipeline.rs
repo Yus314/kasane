@@ -23,7 +23,7 @@ use kasane_core::test_support::{make_line, render_with_registry, row_text};
 /// Set up a standard 80x24 state with given buffer lines.
 fn setup_state(lines: Vec<Line>) -> AppState {
     let mut state = kasane_core::test_support::test_state_80x24();
-    state.observed.lines = lines;
+    state.observed.lines = (lines).into();
     state.observed.status_default_style = state.observed.default_style.clone();
     state.inference.status_line = make_line(" main.rs ");
     state.observed.status_mode_line = make_line("normal");
@@ -485,7 +485,7 @@ fn small_terminal_1x1() {
     let mut state = AppState::default();
     state.runtime.cols = 1;
     state.runtime.rows = 1;
-    state.observed.lines = vec![make_line("x")];
+    state.observed.lines = vec![make_line("x")].into();
     state.observed.default_style = WireFace::default().into();
     state.observed.padding_style = WireFace::default().into();
     state.observed.status_default_style = WireFace::default().into();
@@ -610,7 +610,7 @@ fn test_line_dirty_consecutive_edits() {
     state.inference.lines_dirty.clear();
 
     // Frame 3: edit line 10
-    let mut lines: Vec<Line> = state.observed.lines.clone();
+    let mut lines: Vec<Line> = (*state.observed.lines).clone();
     lines[10] = make_line("EDITED_10");
     state.apply(KakouneRequest::Draw {
         lines,

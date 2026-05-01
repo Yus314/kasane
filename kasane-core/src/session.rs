@@ -498,7 +498,7 @@ mod tests {
         template.runtime.focused = true;
         template.config.shadow_enabled = true;
         template.config.status_at_top = true;
-        template.observed.lines = vec![vec![]];
+        template.observed.lines = (vec![vec![]]).into();
         template.inference.lines_dirty = vec![true];
         template.inference.cursor_count = 3;
 
@@ -523,7 +523,7 @@ mod tests {
         let mut source = AppState::default();
         source.runtime.cols = 90;
         source.runtime.rows = 25;
-        source.observed.lines = vec![vec![]];
+        source.observed.lines = (vec![vec![]]).into();
         source.inference.cursor_count = 2;
         store.sync_from_active(id, &source);
 

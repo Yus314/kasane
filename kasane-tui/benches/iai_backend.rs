@@ -198,7 +198,7 @@ fn typical_state(line_count: usize) -> kasane_core::state::AppState {
         ..WireFace::default()
     }
     .into();
-    state.observed.lines = (0..line_count).map(make_colored_line).collect();
+    state.observed.lines = std::sync::Arc::new((0..line_count).map(make_colored_line).collect());
     state.inference.status_line = vec![Atom::from_wire(WireFace::default(), " NORMAL ")];
     state.observed.status_mode_line = vec![Atom::from_wire(WireFace::default(), "normal")];
     state
@@ -248,7 +248,7 @@ fn generate_incremental_grid() -> CellGrid {
 
     // "after": modify 1 line
     let mut edited = state.clone();
-    edited.observed.lines[10] = vec![
+    std::sync::Arc::make_mut(&mut edited.observed.lines)[10] = vec![
         Atom::from_wire(
             WireFace {
                 fg: Color::Rgb { r: 255, g: 0, b: 0 },

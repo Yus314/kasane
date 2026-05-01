@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn construction_roundtrips_buffer() {
         let mut state = AppState::default();
-        state.observed.lines = vec![vec![], vec![], vec![]];
+        state.observed.lines = (vec![vec![], vec![], vec![]]).into();
         state.observed.widget_columns = 4;
         let truth = state.truth();
         assert_eq!(truth.lines().len(), 3);

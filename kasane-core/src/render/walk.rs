@@ -401,7 +401,7 @@ mod tests {
     #[test]
     fn cross_validate_grid_buffer() {
         let mut state = default_state();
-        state.observed.lines = vec![make_line("line1"), make_line("line2")];
+        state.observed.lines = vec![make_line("line1"), make_line("line2")].into();
         state.runtime.cols = 10;
         state.runtime.rows = 4;
         let theme = Theme::default_theme();
@@ -651,7 +651,7 @@ mod tests {
         let mut state = default_state();
         state.runtime.cols = 20;
         state.runtime.rows = 5;
-        state.observed.lines = vec![make_line("hello"), make_line("world")];
+        state.observed.lines = vec![make_line("hello"), make_line("world")].into();
         state.inference.status_line = make_line(" test ");
         state.observed.status_mode_line = make_line("normal");
         let theme = Theme::default_theme();
@@ -688,7 +688,7 @@ mod tests {
         let mut state = default_state();
         state.runtime.cols = 20;
         state.runtime.rows = 5;
-        state.observed.lines = vec![make_line("hello"), make_line("world")];
+        state.observed.lines = vec![make_line("hello"), make_line("world")].into();
         state.inference.status_line = make_line(" test ");
         state.observed.status_mode_line = make_line("normal");
 
@@ -787,7 +787,7 @@ mod tests {
     #[test]
     fn cross_validate_scene_buffer() {
         let mut state = default_state();
-        state.observed.lines = vec![make_line("line1"), make_line("line2")];
+        state.observed.lines = vec![make_line("line1"), make_line("line2")].into();
         state.runtime.cols = 10;
         state.runtime.rows = 4;
         let theme = Theme::default_theme();

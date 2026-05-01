@@ -258,10 +258,11 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
 
     // Now simulate editing 1 line with BUFFER|STATUS dirty
     let mut edited = state.clone();
-    edited.observed.lines[10] = vec![kasane_core::protocol::Atom::from_wire(
-        kasane_core::protocol::WireFace::default(),
-        "EDITED_LINE",
-    )];
+    std::sync::Arc::make_mut(&mut edited.observed.lines)[10] =
+        vec![kasane_core::protocol::Atom::from_wire(
+            kasane_core::protocol::WireFace::default(),
+            "EDITED_LINE",
+        )];
     edited.inference.lines_dirty = vec![false; 23];
     edited.inference.lines_dirty[10] = true;
 
@@ -872,7 +873,7 @@ fn bench_line_dirty_single_edit(c: &mut Criterion) {
     let edited_state = state_with_edit(&state, 10, 1);
     // Simulate apply(Draw) to get lines_dirty
     let mut state_after = state.clone();
-    let edited_lines = edited_state.observed.lines.clone();
+    let edited_lines = (*edited_state.observed.lines).clone();
     state_after.apply(kasane_core::protocol::KakouneRequest::Draw {
         lines: edited_lines,
         cursor_pos: kasane_core::protocol::Coord::default(),
@@ -964,7 +965,7 @@ fn bench_detect_cursors_incremental(c: &mut Criterion) {
         attributes: Attributes::FINAL_FG | Attributes::REVERSE,
         ..WireFace::default()
     };
-    state.observed.lines[5] = vec![
+    std::sync::Arc::make_mut(&mut state.observed.lines)[5] = vec![
         Atom {
             style: kasane_core::protocol::default_unresolved_style(),
             contents: "hel".into(),

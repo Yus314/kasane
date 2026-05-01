@@ -6,7 +6,7 @@ type Line = Vec<Atom>;
 
 fn make_host_with_lines(lines: &[&str]) -> HostState {
     let mut host = HostState::default();
-    host.lines = lines.iter().map(|s| vec![Atom::plain(*s)]).collect();
+    host.lines = std::sync::Arc::new(lines.iter().map(|s| vec![Atom::plain(*s)]).collect());
     host.line_count = lines.len() as u32;
     host
 }
@@ -14,7 +14,7 @@ fn make_host_with_lines(lines: &[&str]) -> HostState {
 fn make_host_with_raw_lines(lines: Vec<Line>) -> HostState {
     let mut host = HostState::default();
     host.line_count = lines.len() as u32;
-    host.lines = lines;
+    host.lines = std::sync::Arc::new(lines);
     host
 }
 

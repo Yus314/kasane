@@ -40,7 +40,7 @@ impl SalsaInputHandles {
         Self {
             buffer: BufferInput::new(
                 db,
-                vec![],
+                std::sync::Arc::new(vec![]),
                 crate::protocol::Style::default(),
                 crate::protocol::Style::default(),
                 crate::protocol::Coord::default(),

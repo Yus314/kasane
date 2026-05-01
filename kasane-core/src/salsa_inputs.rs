@@ -3,6 +3,8 @@
 //! These structs are set once per frame from `AppState` via `sync_inputs_from_state()`.
 //! They follow the protocol message boundary grouping from `apply.rs`.
 
+use std::sync::Arc;
+
 use crate::config::MenuPosition;
 use crate::plugin::element_patch::ElementPatch;
 use crate::protocol::{Coord, CursorMode, Line, StatusStyle, Style};
@@ -11,8 +13,10 @@ use crate::state::snapshot::{InfoSnapshot, MenuSnapshot};
 /// Buffer content from `KakouneRequest::Draw`.
 #[salsa::input]
 pub struct BufferInput {
+    /// Buffer lines, shared with [`crate::state::ObservedState::lines`] via
+    /// `Arc::clone` so per-frame Salsa input sync is O(1) reference bumps.
     #[returns(ref)]
-    pub lines: Vec<Line>,
+    pub lines: Arc<Vec<Line>>,
     pub default_style: Style,
     pub padding_style: Style,
     pub cursor_pos: Coord,

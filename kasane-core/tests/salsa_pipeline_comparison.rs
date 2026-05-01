@@ -103,11 +103,11 @@ fn compare_empty_state() {
 #[test]
 fn compare_with_buffer_content() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![
+    state.observed.lines = std::sync::Arc::new(vec![
         vec![make_atom("fn main() {")],
         vec![make_atom("    println!(\"hello\");")],
         vec![make_atom("}")],
-    ];
+    ]);
     state.observed.cursor_pos = Coord { line: 1, column: 4 };
     let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
@@ -135,7 +135,7 @@ fn compare_with_status_line() {
 #[test]
 fn compare_with_inline_menu() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![vec![make_atom("hello")]];
+    state.observed.lines = (vec![vec![make_atom("hello")]]).into();
     state.observed.menu = Some(MenuState::new(
         vec![
             vec![make_atom("item_one")],
@@ -257,7 +257,7 @@ fn compare_with_multiple_infos() {
 #[test]
 fn compare_memoization_consistency() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![vec![make_atom("hello")]];
+    state.observed.lines = (vec![vec![make_atom("hello")]]).into();
     state.inference.status_line = vec![make_atom("status")];
     state.observed.status_mode_line = vec![make_atom("normal")];
     let registry = PluginRuntime::new();
@@ -267,7 +267,7 @@ fn compare_memoization_consistency() {
     let salsa1 = render_salsa(&state, &registry, &db, &handles);
 
     // Change only buffer, re-sync, render again
-    state.observed.lines = vec![vec![make_atom("world")]];
+    state.observed.lines = (vec![vec![make_atom("world")]]).into();
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
@@ -461,7 +461,7 @@ impl PluginBackend for GutterPlugin {
 #[test]
 fn compare_with_buffer_left_plugin() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![vec![make_atom("hello world")]];
+    state.observed.lines = (vec![vec![make_atom("hello world")]]).into();
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(BufferLeftPlugin));
     registry.init_all(&AppView::new(&state));
@@ -494,7 +494,7 @@ fn compare_with_status_right_plugin() {
 #[test]
 fn compare_with_buffer_transform_plugin() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![vec![make_atom("line 0")], vec![make_atom("line 1")]];
+    state.observed.lines = (vec![vec![make_atom("line 0")], vec![make_atom("line 1")]]).into();
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(BufferTransformPlugin));
     registry.init_all(&AppView::new(&state));
@@ -510,10 +510,11 @@ fn compare_with_buffer_transform_plugin() {
 #[test]
 fn compare_with_line_highlight_plugin() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![
+    state.observed.lines = (vec![
         vec![make_atom("highlighted line")],
         vec![make_atom("normal line")],
-    ];
+    ])
+    .into();
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(LineHighlightPlugin));
     registry.init_all(&AppView::new(&state));
@@ -529,11 +530,11 @@ fn compare_with_line_highlight_plugin() {
 #[test]
 fn compare_with_gutter_plugin() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![
+    state.observed.lines = std::sync::Arc::new(vec![
         vec![make_atom("fn main() {")],
         vec![make_atom("    println!(\"hello\");")],
         vec![make_atom("}")],
-    ];
+    ]);
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(GutterPlugin));
     registry.init_all(&AppView::new(&state));
@@ -549,11 +550,11 @@ fn compare_with_gutter_plugin() {
 #[test]
 fn compare_with_multiple_plugins() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![
+    state.observed.lines = std::sync::Arc::new(vec![
         vec![make_atom("fn main() {")],
         vec![make_atom("    println!(\"hello\");")],
         vec![make_atom("}")],
-    ];
+    ]);
     state.inference.status_line = vec![make_atom("main.rs")];
     state.observed.status_mode_line = vec![make_atom("normal")];
     let mut registry = PluginRuntime::new();
@@ -574,7 +575,7 @@ fn compare_with_multiple_plugins() {
 #[test]
 fn compare_with_plugins_and_menu() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![vec![make_atom("hello")]];
+    state.observed.lines = (vec![vec![make_atom("hello")]]).into();
     state.observed.menu = Some(MenuState::new(
         vec![vec![make_atom("item_one")], vec![make_atom("item_two")]],
         MenuParams {
@@ -647,7 +648,7 @@ fn make_menu_state() -> MenuState {
 #[test]
 fn compare_menu_and_info_simultaneous() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![vec![make_atom("hello world")]];
+    state.observed.lines = (vec![vec![make_atom("hello world")]]).into();
     state.observed.menu = Some(make_menu_state());
     state
         .observed
@@ -665,7 +666,7 @@ fn compare_menu_and_info_simultaneous() {
 #[test]
 fn compare_menu_appears_while_info_visible() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![vec![make_atom("hello world")]];
+    state.observed.lines = (vec![vec![make_atom("hello world")]]).into();
     state
         .observed
         .infos
@@ -698,7 +699,7 @@ fn compare_menu_appears_while_info_visible() {
 #[test]
 fn compare_menu_disappears_while_info_visible() {
     let mut state = test_state_80x24();
-    state.observed.lines = vec![vec![make_atom("hello world")]];
+    state.observed.lines = (vec![vec![make_atom("hello world")]]).into();
     state.observed.menu = Some(make_menu_state());
     state
         .observed

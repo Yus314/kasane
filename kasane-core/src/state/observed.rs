@@ -4,6 +4,7 @@
 //! No transformation is applied; values are stored exactly as received.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::protocol::{Coord, Line, StatusStyle, Style};
 
@@ -16,7 +17,11 @@ use super::{InfoState, MenuState};
 #[derive(Debug, Clone)]
 pub struct ObservedState {
     /// Buffer lines from `draw`.
-    pub lines: Vec<Line>,
+    ///
+    /// Wrapped in `Arc<Vec<_>>` so per-frame Salsa input cloning and session
+    /// snapshots are O(1) reference bumps. In-place mutation goes through
+    /// `Arc::make_mut`, which performs a clone only when the buffer is shared.
+    pub lines: Arc<Vec<Line>>,
     /// Default style from `draw` (formerly `default_face`).
     pub default_style: Style,
     /// Padding style from `draw` (formerly `padding_face`).
@@ -49,7 +54,7 @@ pub struct ObservedState {
 impl Default for ObservedState {
     fn default() -> Self {
         Self {
-            lines: Vec::new(),
+            lines: Arc::new(Vec::new()),
             default_style: Style::default(),
             padding_style: Style::default(),
             cursor_pos: Coord::default(),

@@ -158,7 +158,7 @@ fn test_scene_render_pipeline_deterministic() {
 
     let mut state = test_state_80x24();
     state.observed.status_default_style = state.observed.default_style.clone();
-    state.observed.lines = vec![make_line("hello"), make_line("world")];
+    state.observed.lines = vec![make_line("hello"), make_line("world")].into();
     state.inference.status_line = make_line("status");
 
     let registry = PluginRuntime::new();
@@ -182,7 +182,7 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
 
     let mut state = test_state_80x24();
     state.observed.status_default_style = state.observed.default_style.clone();
-    state.observed.lines = vec![make_line("hello"), make_line("world")];
+    state.observed.lines = vec![make_line("hello"), make_line("world")].into();
     state.inference.status_line = make_line("status");
 
     state.apply(crate::protocol::KakouneRequest::MenuShow {
