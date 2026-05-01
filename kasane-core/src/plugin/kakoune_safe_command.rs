@@ -68,8 +68,6 @@ impl KakouneSafeCommand {
         "UnbindSurfaceSession",
         "UnregisterSurface",
         "UnregisterSurfaceKey",
-        "UpdateDragState",
-        "UpdateShadowCursor",
         "Workspace",
         "WriteToProcess",
     ];

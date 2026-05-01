@@ -3,8 +3,7 @@ use crate::input::{DropEvent, InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{
     AppView, Command, KeyDispatchResult, KeyPreDispatchResult, MouseHandleResult,
     MousePreDispatchResult, PluginEffects, PluginId, TextInputHandleResult,
-    TextInputPreDispatchResult, extract_drag_state_update, extract_redraw_flags,
-    extract_shadow_cursor_update,
+    TextInputPreDispatchResult, extract_redraw_flags,
 };
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::scroll::{LegacyScrollDispatch, ScrollPlan};
@@ -135,11 +134,6 @@ fn update_inner<E: PluginEffects>(
                 if let Some(drag) = batch.effects.state_updates.drag.take() {
                     state.runtime.drag = drag;
                 }
-                // Legacy peek path — still active for callers that emit
-                // Command::Update* directly. Removed in R4.4.
-                if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
-                    state.runtime.shadow_cursor = sc;
-                }
                 let effect_flags = batch.effects.redraw;
                 let extra_flags = effect_flags | extract_redraw_flags(&mut commands);
                 return UpdateResult {
@@ -171,9 +165,6 @@ fn update_inner<E: PluginEffects>(
                     if let Some(drag) = state_updates.drag.take() {
                         state.runtime.drag = drag;
                     }
-                    if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
-                        state.runtime.shadow_cursor = sc;
-                    }
                     let extra_flags = extract_redraw_flags(&mut commands);
                     return UpdateResult {
                         flags: flags | extra_flags,
@@ -182,7 +173,7 @@ fn update_inner<E: PluginEffects>(
                     };
                 }
                 KeyPreDispatchResult::Pass {
-                    mut commands,
+                    commands: _,
                     mut state_updates,
                 } => {
                     if let Some(sc) = state_updates.shadow_cursor.take() {
@@ -190,9 +181,6 @@ fn update_inner<E: PluginEffects>(
                     }
                     if let Some(drag) = state_updates.drag.take() {
                         state.runtime.drag = drag;
-                    }
-                    if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
-                        state.runtime.shadow_cursor = sc;
                     }
                     // Fall through to normal key handling
                 }
@@ -241,9 +229,6 @@ fn update_inner<E: PluginEffects>(
                     }
                     if let Some(drag) = state_updates.drag.take() {
                         state.runtime.drag = drag;
-                    }
-                    if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
-                        state.runtime.shadow_cursor = sc;
                     }
                     let extra_flags = extract_redraw_flags(&mut commands);
                     return UpdateResult {
@@ -372,12 +357,6 @@ fn dispatch_mouse_event<E: PluginEffects>(
             if let Some(drag) = state_updates.drag.take() {
                 state.runtime.drag = drag;
             }
-            if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
-                state.runtime.shadow_cursor = sc;
-            }
-            if let Some(drag) = extract_drag_state_update(&mut commands) {
-                state.runtime.drag = drag;
-            }
             let extra_flags = extract_redraw_flags(&mut commands);
             return UpdateResult {
                 flags: flags | extra_flags,
@@ -386,19 +365,13 @@ fn dispatch_mouse_event<E: PluginEffects>(
             };
         }
         MousePreDispatchResult::Pass {
-            mut commands,
+            commands: _,
             mut state_updates,
         } => {
             if let Some(sc) = state_updates.shadow_cursor.take() {
                 state.runtime.shadow_cursor = sc;
             }
             if let Some(drag) = state_updates.drag.take() {
-                state.runtime.drag = drag;
-            }
-            if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
-                state.runtime.shadow_cursor = sc;
-            }
-            if let Some(drag) = extract_drag_state_update(&mut commands) {
                 state.runtime.drag = drag;
             }
         }

@@ -44,8 +44,7 @@ use compact_str::CompactString;
 // Re-export command module
 pub use command::{
     BufferEdit, BufferPosition, Command, CommandResult, edits_to_keys, escape_kakoune_insert_text,
-    execute_commands, extract_drag_state_update, extract_redraw_flags,
-    extract_shadow_cursor_update, partition_commands,
+    execute_commands, extract_redraw_flags, partition_commands,
 };
 pub use diagnostics::{
     PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticOverlayState, PluginDiagnosticSeverity,
