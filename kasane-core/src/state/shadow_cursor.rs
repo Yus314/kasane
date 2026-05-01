@@ -667,8 +667,8 @@ use crate::plugin::{
 /// Builtin plugin that implements the shadow cursor key/text pre-dispatch.
 ///
 /// Reads the shadow cursor state from `RuntimeState` (via `FrameworkAccess`),
-/// handles key events and text input, and returns `UpdateShadowCursor` commands
-/// to synchronize state changes back to the framework.
+/// handles key events and text input, and writes the updated cursor back via
+/// `Effects::state_updates.shadow_cursor` (R4 typed channel).
 pub struct BuiltinShadowCursorPlugin;
 
 impl PluginBackend for BuiltinShadowCursorPlugin {

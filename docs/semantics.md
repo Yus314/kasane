@@ -330,7 +330,7 @@ Commands fall into the following categories.
 - Process management: `SpawnProcess`, `WriteToProcess`, `CloseProcessStdin`, `KillProcess`, `ResizePty`
 - Surface management: `RegisterSurface`, `UnregisterSurface`, `RegisterSurfaceRequested`, `UnregisterSurfaceKey`
 - Structural commands: `Session(SessionCommand)`, `Workspace(WorkspaceCommand)`, `SpawnPaneClient`, `ClosePaneClient`
-- Framework-internal commands: `UpdateShadowCursor`, `UpdateDragState` — extracted by the framework during `update()`, never forwarded to `execute_commands`. These are emitted by builtin plugins to synchronize state changes back to `RuntimeState`. Stage 2 (state migration) will remove them by moving the owned state into the plugins themselves.
+- Framework-internal state mutations from builtin plugins flow through `Effects::state_updates` (a typed channel inside `Effects`), not through `Vec<Command>`. `state_updates.shadow_cursor` and `state_updates.drag` carry `BuiltinShadowCursorPlugin` / `BuiltinDragPlugin` mutations directly back to `RuntimeState` without traversing the command stream. Stage 2 (state migration) will further reduce these by moving the owned state into the plugins themselves.
 
 The runtime receives Commands and executes them as side effects. The important invariant is that Command generation is deterministic given the same state and input, even though Command execution may involve I/O.
 
