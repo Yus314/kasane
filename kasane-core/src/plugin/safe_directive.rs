@@ -1,6 +1,6 @@
 //! Non-destructive display directive projection (ADR-030 Level 4).
 //!
-//! `SafeDisplayDirective` is to `DisplayDirective` what `TransparentCommand`
+//! `SafeDisplayDirective` is to `DisplayDirective` what `KakouneSafeCommand`
 //! is to `Command`: a newtype restricting construction to the non-destructive
 //! subset. There is no constructor for `Hide`, making non-destructiveness a
 //! compile-time property.

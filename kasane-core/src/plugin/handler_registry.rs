@@ -47,15 +47,15 @@ use super::extension_point::{
 use super::handler_table::{
     ContributeEntry, GutterHandlerEntry, GutterSide, HandlerTable, TransformEntry,
 };
+use super::kakoune_safe_effects::KakouneSafeEffects;
 use super::process_task::{ProcessTaskEntry, ProcessTaskResult, ProcessTaskSpec};
 use super::pubsub::{PublishEntry, SubscribeEntry, Topic, TopicId};
 use super::traits::KeyHandleResult;
-use super::transparent_effects::TransparentEffects;
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
-    DisplayDirective, Effects, IoEvent, OrnamentBatch, OverlayContext, OverlayContribution,
-    PluginState, RenderOrnamentContext, SlotId, TransformContext, TransformTarget,
-    TransparentCommand, VirtualTextItem,
+    DisplayDirective, Effects, IoEvent, KakouneSafeCommand, OrnamentBatch, OverlayContext,
+    OverlayContribution, PluginState, RenderOrnamentContext, SlotId, TransformContext,
+    TransformTarget, VirtualTextItem,
 };
 
 /// Marker trait for handler return types that carry transparency metadata.
@@ -72,7 +72,7 @@ impl Transparency for Effects {
     const IS_TRANSPARENT: bool = false;
 }
 
-impl Transparency for TransparentEffects {
+impl Transparency for KakouneSafeEffects {
     const IS_TRANSPARENT: bool = true;
 }
 
@@ -80,7 +80,7 @@ impl Transparency for Command {
     const IS_TRANSPARENT: bool = false;
 }
 
-impl Transparency for TransparentCommand {
+impl Transparency for KakouneSafeCommand {
     const IS_TRANSPARENT: bool = true;
 }
 
@@ -88,7 +88,7 @@ impl Transparency for KeyHandleResult {
     const IS_TRANSPARENT: bool = false;
 }
 
-impl Transparency for super::TransparentKeyResult {
+impl Transparency for super::KakouneSafeKeyResult {
     const IS_TRANSPARENT: bool = true;
 }
 
@@ -202,8 +202,8 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
 
     /// Register an initialization handler.
     ///
-    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
-    /// Using `TransparentEffects` provides a compile-time guarantee of no
+    /// Accepts closures returning `(S, Effects)` or `(S, KakouneSafeEffects)`.
+    /// Using `KakouneSafeEffects` provides a compile-time guarantee of no
     /// Kakoune writes (ADR-030 Level 5).
     pub fn on_init<E: Into<Effects> + Transparency + 'static>(
         &mut self,
@@ -217,7 +217,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
 
     /// Register a session-ready handler.
     ///
-    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    /// Accepts closures returning `(S, Effects)` or `(S, KakouneSafeEffects)`.
     pub fn on_session_ready<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
@@ -230,7 +230,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
 
     /// Register a state-changed handler.
     ///
-    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    /// Accepts closures returning `(S, Effects)` or `(S, KakouneSafeEffects)`.
     pub fn on_state_changed<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &AppView<'_>, DirtyFlags) -> (S, E) + Send + Sync + 'static,
@@ -243,7 +243,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
 
     /// Register an I/O event handler.
     ///
-    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    /// Accepts closures returning `(S, Effects)` or `(S, KakouneSafeEffects)`.
     pub fn on_io_event<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &IoEvent, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
@@ -263,7 +263,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     ///
     /// The task is started by calling [`start_process_task`] on the plugin bridge.
     ///
-    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    /// Accepts closures returning `(S, Effects)` or `(S, KakouneSafeEffects)`.
     ///
     /// ```ignore
     /// r.on_process_task(
@@ -305,7 +305,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// chunks incrementally via [`ProcessTaskResult::Stdout`] instead of
     /// accumulating them until process exit.
     ///
-    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    /// Accepts closures returning `(S, Effects)` or `(S, KakouneSafeEffects)`.
     pub fn on_process_task_streaming<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         name: &'static str,
@@ -378,7 +378,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
 
     /// Register an update (message) handler.
     ///
-    /// Accepts closures returning `(S, Effects)` or `(S, TransparentEffects)`.
+    /// Accepts closures returning `(S, Effects)` or `(S, KakouneSafeEffects)`.
     pub fn on_update<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &mut dyn Any, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
@@ -396,7 +396,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Register a key handler (consumes keys, returns commands).
     ///
     /// Accepts closures returning `Option<(S, Vec<Command>)>` or
-    /// `Option<(S, Vec<TransparentCommand>)>` for compile-time transparency.
+    /// `Option<(S, Vec<KakouneSafeCommand>)>` for compile-time transparency.
     pub fn on_key<C: Into<Command> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> Option<(S, Vec<C>)> + Send + Sync + 'static,
@@ -421,7 +421,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Register a key middleware handler.
     ///
     /// Accepts closures returning `(S, KeyHandleResult)` or
-    /// `(S, TransparentKeyResult)` for compile-time transparency.
+    /// `(S, KakouneSafeKeyResult)` for compile-time transparency.
     pub fn on_key_middleware<R: Into<KeyHandleResult> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> (S, R) + Send + Sync + 'static,
@@ -456,7 +456,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Register a committed text input handler (consumes text, returns commands).
     ///
     /// Accepts closures returning `Option<(S, Vec<Command>)>` or
-    /// `Option<(S, Vec<TransparentCommand>)>` for compile-time transparency.
+    /// `Option<(S, Vec<KakouneSafeCommand>)>` for compile-time transparency.
     pub fn on_text_input<C: Into<Command> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &str, &AppView<'_>) -> Option<(S, Vec<C>)> + Send + Sync + 'static,
@@ -509,7 +509,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Register a mouse handler (interactive element click).
     ///
     /// Accepts closures returning `Option<(S, Vec<Command>)>` or
-    /// `Option<(S, Vec<TransparentCommand>)>` for compile-time transparency.
+    /// `Option<(S, Vec<KakouneSafeCommand>)>` for compile-time transparency.
     pub fn on_handle_mouse<C: Into<Command> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &MouseEvent, InteractiveId, &AppView<'_>) -> Option<(S, Vec<C>)>
@@ -551,7 +551,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Register a drop handler (interactive element drop target).
     ///
     /// Accepts closures returning `Option<(S, Vec<Command>)>` or
-    /// `Option<(S, Vec<TransparentCommand>)>` for compile-time transparency.
+    /// `Option<(S, Vec<KakouneSafeCommand>)>` for compile-time transparency.
     pub fn on_drop<C: Into<Command> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &DropEvent, InteractiveId, &AppView<'_>) -> Option<(S, Vec<C>)>
@@ -1605,8 +1605,8 @@ impl ChordConfig {
 mod tests {
     use super::*;
     use crate::plugin::PluginCapabilities;
+    use crate::plugin::kakoune_safe_command::KakouneSafeCommand;
     use crate::plugin::traits::PluginBackend;
-    use crate::plugin::transparent_command::TransparentCommand;
     use crate::state::DirtyFlags;
 
     #[derive(Clone, Debug, PartialEq, Hash, Default)]
@@ -1970,7 +1970,7 @@ mod tests {
     fn on_key_transparent_sets_input_handler_and_transparency() {
         let mut registry = HandlerRegistry::<TestState>::new();
         registry.on_key(
-            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<TransparentCommand>)> {
+            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<KakouneSafeCommand>)> {
                 None
             },
         );
@@ -1995,7 +1995,7 @@ mod tests {
     fn mixed_transparent_and_non_transparent_is_not_transparent() {
         let mut registry = HandlerRegistry::<TestState>::new();
         registry.on_key(
-            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<TransparentCommand>)> {
+            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<KakouneSafeCommand>)> {
                 None
             },
         );
@@ -2007,12 +2007,12 @@ mod tests {
     fn all_transparent_handlers_means_input_transparent() {
         let mut registry = HandlerRegistry::<TestState>::new();
         registry.on_key(
-            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<TransparentCommand>)> {
+            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<KakouneSafeCommand>)> {
                 None
             },
         );
         registry.on_text_input(
-            |_state: &TestState, _text, _app| -> Option<(TestState, Vec<TransparentCommand>)> {
+            |_state: &TestState, _text, _app| -> Option<(TestState, Vec<KakouneSafeCommand>)> {
                 None
             },
         );

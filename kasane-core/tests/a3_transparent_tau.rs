@@ -11,26 +11,26 @@
 //! transparent command variants.
 
 use kasane_core::clipboard::SystemClipboard;
-use kasane_core::plugin::{TransparentCommand, execute_commands};
+use kasane_core::plugin::{KakouneSafeCommand, execute_commands};
 use kasane_core::state::DirtyFlags;
 use proptest::prelude::*;
 
-/// Strategy that generates arbitrary `TransparentCommand` instances
+/// Strategy that generates arbitrary `KakouneSafeCommand` instances
 /// restricted to the two non-deferred variants that reach `execute_commands`:
 /// `RequestRedraw` and `Quit`.
-fn arb_transparent_command() -> impl Strategy<Value = TransparentCommand> {
+fn arb_transparent_command() -> impl Strategy<Value = KakouneSafeCommand> {
     prop_oneof![
         any::<u16>().prop_map(|bits| {
-            TransparentCommand::request_redraw(DirtyFlags::from_bits_truncate(bits))
+            KakouneSafeCommand::request_redraw(DirtyFlags::from_bits_truncate(bits))
         }),
-        any::<bool>().prop_map(|_| TransparentCommand::quit()),
+        any::<bool>().prop_map(|_| KakouneSafeCommand::quit()),
     ]
 }
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// Every TransparentCommand, when executed as an immediate command,
+    /// Every KakouneSafeCommand, when executed as an immediate command,
     /// produces zero bytes of Kakoune output. This witnesses the A3
     /// τ-transition property for transparent commands.
     #[test]
@@ -54,19 +54,19 @@ proptest! {
 
 #[test]
 fn transparent_command_is_never_kakoune_writing() {
-    // Verify the structural invariant: every TransparentCommand variant
+    // Verify the structural invariant: every KakouneSafeCommand variant
     // maps to a non-writing Command variant.
     let samples = vec![
-        TransparentCommand::request_redraw(DirtyFlags::ALL),
-        TransparentCommand::quit(),
-        TransparentCommand::paste_clipboard(),
-        TransparentCommand::set_config("k".into(), "v".into()),
+        KakouneSafeCommand::request_redraw(DirtyFlags::ALL),
+        KakouneSafeCommand::quit(),
+        KakouneSafeCommand::paste_clipboard(),
+        KakouneSafeCommand::set_config("k".into(), "v".into()),
     ];
     for tc in samples {
         let cmd = tc.into_command();
         assert!(
             !cmd.is_kakoune_writing(),
-            "TransparentCommand should never be Kakoune-writing, but {} is",
+            "KakouneSafeCommand should never be Kakoune-writing, but {} is",
             cmd.variant_name()
         );
     }

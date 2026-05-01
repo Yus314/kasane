@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::input::{InputEvent, Key, KeyEvent, Modifiers};
 use crate::plugin::command::Command;
 use crate::plugin::io::StdinMode;
-use crate::plugin::transparent_command::TransparentCommand;
+use crate::plugin::kakoune_safe_command::KakouneSafeCommand;
 use crate::plugin::{BufferEdit, BufferPosition, PluginId};
 use crate::protocol::KasaneRequest;
 use crate::session::SessionCommand;
@@ -172,7 +172,7 @@ fn writing_set_matches_semantics() {
 
 #[test]
 fn transparent_covers_exactly_non_writing() {
-    let transparent: BTreeSet<_> = TransparentCommand::VARIANT_NAMES.iter().copied().collect();
+    let transparent: BTreeSet<_> = KakouneSafeCommand::VARIANT_NAMES.iter().copied().collect();
     let writing: BTreeSet<_> = Command::KAKOUNE_WRITING_VARIANTS.iter().copied().collect();
     let all: BTreeSet<_> = Command::ALL_VARIANT_NAMES.iter().copied().collect();
     assert_eq!(transparent, &all - &writing);

@@ -16,6 +16,8 @@ pub mod extension_point;
 pub mod handler_registry;
 pub(crate) mod handler_table;
 pub mod io;
+pub mod kakoune_safe_command;
+pub mod kakoune_safe_effects;
 pub mod manager;
 pub mod process_task;
 pub mod projection_status;
@@ -29,8 +31,6 @@ pub mod semantic_zoom;
 pub mod setting;
 pub mod state;
 pub mod traits;
-pub mod transparent_command;
-pub mod transparent_effects;
 pub mod variable_store;
 
 #[cfg(test)]
@@ -108,10 +108,10 @@ pub use traits::{
 pub use projection_status::ProjectionStatusPlugin;
 
 // Re-export transparent command types (ADR-030 Level 3)
-pub use transparent_command::{TransparentCommand, TransparentKeyResult};
+pub use kakoune_safe_command::{KakouneSafeCommand, KakouneSafeKeyResult};
 
 // Re-export transparent effects types (ADR-030 Level 5)
-pub use transparent_effects::TransparentEffects;
+pub use kakoune_safe_effects::KakouneSafeEffects;
 
 // Re-export effect footprint types (ADR-030 Level 5)
 pub use command::EffectCategory;

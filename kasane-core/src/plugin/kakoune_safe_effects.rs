@@ -1,32 +1,32 @@
 //! Kakoune-transparent effects projection.
 //!
-//! `TransparentEffects` is the Level 5 enforcement of ADR-030.
-//! Where `TransparentCommand` restricts construction to non-writing variants,
-//! `TransparentEffects` restricts an entire `Effects` return value to contain
-//! only transparent commands. A handler returning `(S, TransparentEffects)`
+//! `KakouneSafeEffects` is the Level 5 enforcement of ADR-030.
+//! Where `KakouneSafeCommand` restricts construction to non-writing variants,
+//! `KakouneSafeEffects` restricts an entire `Effects` return value to contain
+//! only transparent commands. A handler returning `(S, KakouneSafeEffects)`
 //! provides a compile-time witness that it cannot emit Kakoune-writing effects.
 
 use crate::scroll::ScrollPlan;
 use crate::state::DirtyFlags;
 
 use super::Effects;
-use super::transparent_command::TransparentCommand;
+use super::kakoune_safe_command::KakouneSafeCommand;
 
 /// An effects value guaranteed not to contain Kakoune-writing commands.
 ///
 /// Construction is restricted: commands can only be added via
-/// [`TransparentCommand`], which statically excludes `SendToKakoune`,
+/// [`KakouneSafeCommand`], which statically excludes `SendToKakoune`,
 /// `InsertText`, and `EditBuffer`. Converts to [`Effects`] before the
 /// type erasure boundary in `HandlerTable`.
-pub struct TransparentEffects {
+pub struct KakouneSafeEffects {
     redraw: DirtyFlags,
-    commands: Vec<TransparentCommand>,
+    commands: Vec<KakouneSafeCommand>,
     scroll_plans: Vec<ScrollPlan>,
 }
 
-impl std::fmt::Debug for TransparentEffects {
+impl std::fmt::Debug for KakouneSafeEffects {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TransparentEffects")
+        f.debug_struct("KakouneSafeEffects")
             .field("redraw", &self.redraw)
             .field("commands", &self.commands)
             .field("scroll_plans_len", &self.scroll_plans.len())
@@ -34,7 +34,7 @@ impl std::fmt::Debug for TransparentEffects {
     }
 }
 
-impl Default for TransparentEffects {
+impl Default for KakouneSafeEffects {
     fn default() -> Self {
         Self {
             redraw: DirtyFlags::empty(),
@@ -44,7 +44,7 @@ impl Default for TransparentEffects {
     }
 }
 
-impl TransparentEffects {
+impl KakouneSafeEffects {
     /// No effects.
     pub fn none() -> Self {
         Self::default()
@@ -59,7 +59,7 @@ impl TransparentEffects {
     }
 
     /// Effects with transparent commands.
-    pub fn with(commands: Vec<TransparentCommand>) -> Self {
+    pub fn with(commands: Vec<KakouneSafeCommand>) -> Self {
         Self {
             commands,
             ..Self::default()
@@ -72,7 +72,7 @@ impl TransparentEffects {
     }
 
     /// Add a transparent command.
-    pub fn push(&mut self, cmd: TransparentCommand) {
+    pub fn push(&mut self, cmd: KakouneSafeCommand) {
         self.commands.push(cmd);
     }
 
@@ -82,8 +82,8 @@ impl TransparentEffects {
     }
 }
 
-impl From<TransparentEffects> for Effects {
-    fn from(te: TransparentEffects) -> Self {
+impl From<KakouneSafeEffects> for Effects {
+    fn from(te: KakouneSafeEffects) -> Self {
         Effects {
             redraw: te.redraw,
             commands: te.commands.into_iter().map(Into::into).collect(),
