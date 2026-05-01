@@ -5,7 +5,6 @@
 //! This enables deterministic rendering and future Salsa memoization of plugin contributions.
 
 use std::any::Any;
-use std::hash::{Hash, Hasher};
 
 use dyn_clone::DynClone;
 
@@ -16,15 +15,14 @@ use dyn_clone::DynClone;
 /// Marker trait for externalized plugin state.
 ///
 /// Framework owns `Box<dyn PluginState>` for each `Plugin`.
-/// Implements `Clone`, `PartialEq`, `Debug`, and `Hash` on trait objects via
-/// blanket impl: any `T: Clone + PartialEq + Debug + Hash + Send + 'static`
+/// Implements `Clone`, `PartialEq`, and `Debug` on trait objects via
+/// blanket impl: any `T: Clone + PartialEq + Debug + Send + 'static`
 /// automatically satisfies this trait.
 ///
-/// `state_hash()` is used by [`PluginBridge`](super::bridge::PluginBridge) to
-/// detect state changes without holding a `prev_state` clone — the previous
-/// hash (one `u64`) is compared against the current hash. Hash collisions risk
-/// missing a generation bump, but the 1/2^64 probability is acceptable in this
-/// path.
+/// Change detection in [`PluginBridge`](super::bridge::PluginBridge) uses
+/// [`dyn_eq`](Self::dyn_eq) against a clone of the previous state. There
+/// is no longer a hash-based fast path, so plugin-state types are free to
+/// contain `HashMap` or other non-`Hash` collections without boilerplate.
 pub trait PluginState: DynClone + std::fmt::Debug + Send + 'static {
     /// Downcast to concrete type (immutable).
     fn as_any(&self) -> &dyn Any;
@@ -32,9 +30,6 @@ pub trait PluginState: DynClone + std::fmt::Debug + Send + 'static {
     fn as_any_mut(&mut self) -> &mut dyn Any;
     /// Dynamic equality comparison across trait objects.
     fn dyn_eq(&self, other: &dyn PluginState) -> bool;
-    /// Compute a 64-bit hash of the state. Used for change detection in the
-    /// plugin bridge without retaining a `prev_state` clone.
-    fn state_hash(&self) -> u64;
 }
 
 // Enable Box<dyn PluginState>.clone()
@@ -47,13 +42,11 @@ impl PartialEq for dyn PluginState {
     }
 }
 
-/// Blanket implementation: any `Clone + PartialEq + Debug + Hash + Send + 'static`
-/// type can be used as plugin state with zero boilerplate. Plugin-state types
-/// containing non-`Hash` collections (e.g. `HashMap`) need to switch to
-/// `BTreeMap` or implement `Hash` manually.
+/// Blanket implementation: any `Clone + PartialEq + Debug + Send + 'static`
+/// type can be used as plugin state with zero boilerplate.
 impl<T> PluginState for T
 where
-    T: Clone + PartialEq + std::fmt::Debug + Hash + Send + 'static,
+    T: Clone + PartialEq + std::fmt::Debug + Send + 'static,
 {
     fn as_any(&self) -> &dyn Any {
         self
@@ -66,11 +59,6 @@ where
             .as_any()
             .downcast_ref::<T>()
             .is_some_and(|o| self == o)
-    }
-    fn state_hash(&self) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish()
     }
 }
 

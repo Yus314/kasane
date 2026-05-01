@@ -39,10 +39,12 @@ pub struct PluginBridge {
     table: HandlerTable,
     state: Box<dyn PluginState>,
     generation: u64,
-    /// Hash of the last state observed by `check_state_change`. Replaces a
-    /// `Box<dyn PluginState>` clone with a single `u64`; relies on `Hash`
-    /// being deterministic for the concrete plugin state type.
-    prev_state_hash: u64,
+    /// Snapshot of the last state observed by `check_state_change`.
+    /// Cloned via `dyn_clone` whenever a change is detected. Pays one
+    /// state-clone per real mutation in exchange for not requiring
+    /// `Hash` on plugin-state types — `HashMap` and other non-`Hash`
+    /// collections become legal as plugin state without boilerplate.
+    prev_state: Box<dyn PluginState>,
     plugin_tag: PluginTag,
     /// Active process tasks managed by the framework.
     active_process_tasks: Vec<ProcessTaskHandle>,
@@ -67,13 +69,13 @@ impl PluginBridge {
             .map(|e| e.descriptor.clone())
             .collect();
         let state: Box<dyn PluginState> = Box::new(P::State::default());
-        let prev_state_hash = state.state_hash();
+        let prev_state = state.clone();
         PluginBridge {
             id,
             table,
             state,
             generation: 0,
-            prev_state_hash,
+            prev_state,
             plugin_tag: PluginTag::UNASSIGNED,
             active_process_tasks: Vec::new(),
             // Start at a high offset to avoid collisions with manually managed job IDs.
@@ -89,16 +91,21 @@ impl PluginBridge {
         self
     }
 
-    /// Compare current state hash with previous snapshot; bump generation if changed.
+    /// Compare current state with the previous snapshot; bump generation if
+    /// changed and refresh the snapshot.
     ///
-    /// Hash collisions (1/2^64) would cause a missed generation bump and a
-    /// stale L1 contribution cache. This is acceptable for the change-detection
-    /// fast path; correctness-critical comparisons should use `PartialEq`.
+    /// Uses [`PluginState::dyn_eq`] for an exact compare — no false negatives
+    /// from hash collisions. Pays one state-clone per real mutation.
     fn check_state_change(&mut self) {
-        let cur_hash = self.state.state_hash();
-        if cur_hash != self.prev_state_hash {
+        // Deref through the trait object so dispatch goes via the inner
+        // type's vtable. `self.state.dyn_eq(...)` would otherwise resolve
+        // to the blanket `impl<T> PluginState for T` on `Box<dyn
+        // PluginState>` itself (which now satisfies the relaxed bound),
+        // causing the downcast to fail and every comparison to report
+        // "not equal".
+        if !(*self.state).dyn_eq(&*self.prev_state) {
             self.generation += 1;
-            self.prev_state_hash = cur_hash;
+            self.prev_state = self.state.clone();
         }
     }
 
