@@ -170,7 +170,7 @@ impl TextureCache {
     pub(crate) fn get_or_load(
         &mut self,
         key: &TextureKey,
-        proxy: &winit::event_loop::EventLoopProxy<crate::GuiEvent>,
+        proxy: Option<&winit::event_loop::EventLoopProxy<crate::GuiEvent>>,
     ) -> LoadState {
         // Already cached
         if let Some(entry) = self.entries.get_mut(key) {
@@ -191,6 +191,14 @@ impl TextureCache {
         // Dispatch based on key type
         match key {
             TextureKey::FilePath(path) => {
+                let Some(proxy) = proxy else {
+                    tracing::warn!(
+                        "texture_cache: async file load requested but no event proxy \
+                         (headless mode); returning Failed"
+                    );
+                    self.failed.insert(key.clone());
+                    return LoadState::Failed;
+                };
                 let key_clone = key.clone();
                 let path_clone = path.clone();
                 let proxy = proxy.clone();

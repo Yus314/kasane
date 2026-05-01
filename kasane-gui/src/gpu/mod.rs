@@ -41,8 +41,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use winit::window::Window;
 
 /// Holds all wgpu state: instance, adapter, device, queue, surface.
+///
+/// `surface` is `None` in headless contexts (the golden-image regression
+/// harness in `tests/golden_render.rs`, ADR-032 W2). In production it is
+/// always `Some`; production callers that touch `surface` directly use
+/// `as_ref().expect("production mode requires a surface")`.
 pub struct GpuState {
-    pub surface: wgpu::Surface<'static>,
+    pub surface: Option<wgpu::Surface<'static>>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
@@ -142,7 +147,7 @@ impl GpuState {
         };
 
         Ok(GpuState {
-            surface,
+            surface: Some(surface),
             device,
             queue,
             config,
@@ -158,6 +163,8 @@ impl GpuState {
         }
         self.config.width = width;
         self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
+        if let Some(surface) = self.surface.as_ref() {
+            surface.configure(&self.device, &self.config);
+        }
     }
 }

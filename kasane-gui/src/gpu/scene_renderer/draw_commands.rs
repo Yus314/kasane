@@ -283,7 +283,10 @@ impl SceneRenderer {
                     }
                 };
                 // Look up or dispatch async load
-                match self.texture_cache.get_or_load(&key, &self.event_proxy) {
+                match self
+                    .texture_cache
+                    .get_or_load(&key, self.event_proxy.as_ref())
+                {
                     LoadState::Ready(tex_w, tex_h) => {
                         let bind_group = self.texture_cache.get_bind_group(&key).unwrap().clone();
                         self.image.push_textured_quad(

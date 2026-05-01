@@ -339,13 +339,8 @@ where
         // Initialize GPU
         match GpuState::new(window.clone(), self.config.window.present_mode.as_deref()) {
             Ok(gpu) => {
-                let mut sr = SceneRenderer::new(
-                    &gpu,
-                    &self.config.font,
-                    scale_factor,
-                    phys_size,
-                    self.event_proxy.clone(),
-                );
+                let mut sr = SceneRenderer::new(&gpu, &self.config.font, scale_factor, phys_size);
+                sr.set_event_proxy(self.event_proxy.clone());
                 sr.set_effects(self.config.effects.clone());
                 let metrics = sr.metrics().clone();
 

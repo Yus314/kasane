@@ -33,7 +33,9 @@ where
             .swap(false, std::sync::atomic::Ordering::Relaxed)
         {
             tracing::warn!("[app] device error detected, reconfiguring surface");
-            gpu.surface.configure(&gpu.device, &gpu.config);
+            if let Some(surface) = gpu.surface.as_ref() {
+                surface.configure(&gpu.device, &gpu.config);
+            }
         }
         let gpu = self.gpu.as_ref().unwrap();
         let Some(_) = self.color_resolver.as_ref() else {

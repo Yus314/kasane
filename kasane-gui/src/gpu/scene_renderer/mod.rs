@@ -18,6 +18,90 @@ use super::texture_cache::TextureCache;
 use super::timing::GpuTimingState;
 use crate::colors::ColorResolver;
 
+/// Where a frame is rendered.
+///
+/// `Surface` drives the production swap-chain path with full state-machine
+/// handling (Outdated, Lost, Suboptimal, Timeout, Occluded). `View` accepts
+/// a caller-provided render-to-texture target — used by the golden-image
+/// regression harness in `tests/golden_render.rs` (ADR-032 W2). The two
+/// variants share `render_inner`'s pixel-emitting logic; only acquisition
+/// and presentation differ.
+pub enum FrameTarget<'a> {
+    Surface(&'a wgpu::Surface<'static>),
+    View {
+        view: &'a wgpu::TextureView,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    },
+}
+
+/// An acquired frame ready for rendering. Returned by [`FrameTarget::acquire`].
+///
+/// `surface_texture` is `Some` only for the Surface variant; `render_inner`
+/// presents it after `queue.submit`. Headless frames carry `None`.
+pub struct AcquiredFrame {
+    pub view: wgpu::TextureView,
+    pub width: u32,
+    pub height: u32,
+    pub format: wgpu::TextureFormat,
+    surface_texture: Option<wgpu::SurfaceTexture>,
+}
+
+impl<'a> FrameTarget<'a> {
+    /// Acquire a frame from the target. Returns `Ok(None)` when the frame
+    /// should be skipped (Surface variant only — Timeout/Occluded). Returns
+    /// `Err` on unrecoverable surface errors.
+    pub fn acquire(&self, gpu: &super::GpuState) -> anyhow::Result<Option<AcquiredFrame>> {
+        match self {
+            FrameTarget::Surface(surface) => {
+                let frame = match surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(f) => f,
+                    wgpu::CurrentSurfaceTexture::Suboptimal(f) => {
+                        surface.configure(&gpu.device, &gpu.config);
+                        f
+                    }
+                    wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                        surface.configure(&gpu.device, &gpu.config);
+                        match surface.get_current_texture() {
+                            wgpu::CurrentSurfaceTexture::Success(f)
+                            | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
+                            other => anyhow::bail!(
+                                "failed to acquire surface texture after reconfigure: {other:?}"
+                            ),
+                        }
+                    }
+                    wgpu::CurrentSurfaceTexture::Timeout
+                    | wgpu::CurrentSurfaceTexture::Occluded => return Ok(None),
+                    wgpu::CurrentSurfaceTexture::Validation => {
+                        anyhow::bail!("surface texture validation error");
+                    }
+                };
+                let view = frame.texture.create_view(&Default::default());
+                Ok(Some(AcquiredFrame {
+                    view,
+                    width: gpu.config.width,
+                    height: gpu.config.height,
+                    format: gpu.config.format,
+                    surface_texture: Some(frame),
+                }))
+            }
+            FrameTarget::View {
+                view,
+                width,
+                height,
+                format,
+            } => Ok(Some(AcquiredFrame {
+                view: (*view).clone(),
+                width: *width,
+                height: *height,
+                format: *format,
+                surface_texture: None,
+            })),
+        }
+    }
+}
+
 /// Scene-based GPU renderer that processes DrawCommands directly,
 /// bypassing the CellGrid intermediate representation.
 pub struct SceneRenderer {
@@ -44,7 +128,10 @@ pub struct SceneRenderer {
     frame_screen_h: f32,
 
     /// Event loop proxy for dispatching async image load completions.
-    event_proxy: winit::event_loop::EventLoopProxy<crate::GuiEvent>,
+    /// `None` in headless test contexts (the golden harness) — async image
+    /// loads are not exercised there and any attempt produces a Failed
+    /// LoadState with a warning, see `TextureCache::get_or_load`.
+    event_proxy: Option<winit::event_loop::EventLoopProxy<crate::GuiEvent>>,
 
     /// GPU effects configuration.
     effects: kasane_core::config::EffectsConfig,
@@ -119,12 +206,17 @@ pub(crate) fn parley_cache_disabled() -> bool {
 }
 
 impl SceneRenderer {
-    pub(crate) fn new(
+    /// Construct a renderer. `event_proxy` is set separately via
+    /// [`Self::set_event_proxy`] so that integration tests (which cannot
+    /// observe the internal `GuiEvent` type) can construct a renderer
+    /// without one. Renderers without an event proxy log a warning and
+    /// return `LoadState::Failed` for any async file-load attempt; sync
+    /// rendering paths are unaffected.
+    pub fn new(
         gpu: &super::GpuState,
         font_config: &FontConfig,
         scale_factor: f64,
         window_size: PhysicalSize<u32>,
-        event_proxy: winit::event_loop::EventLoopProxy<crate::GuiEvent>,
     ) -> Self {
         if !font_config.fallback_list.is_empty() {
             tracing::info!(
@@ -213,7 +305,7 @@ impl SceneRenderer {
             clip_stack: Vec::new(),
             frame_screen_w: 0.0,
             frame_screen_h: 0.0,
-            event_proxy,
+            event_proxy: None,
             effects: kasane_core::config::EffectsConfig::default(),
             blit,
             blur,
@@ -237,6 +329,17 @@ impl SceneRenderer {
 
     pub fn metrics(&self) -> &CellMetrics {
         &self.metrics
+    }
+
+    /// Wire the event-loop proxy used by `texture_cache` to dispatch
+    /// async image-load completion events. `pub(crate)` because the
+    /// `GuiEvent` type is internal — integration tests construct a
+    /// renderer without one.
+    pub(crate) fn set_event_proxy(
+        &mut self,
+        proxy: winit::event_loop::EventLoopProxy<crate::GuiEvent>,
+    ) {
+        self.event_proxy = Some(proxy);
     }
 
     /// Read access to the Parley state. Currently only used by the
@@ -610,6 +713,11 @@ impl SceneRenderer {
     ) -> anyhow::Result<()> {
         self.render_inner(
             gpu,
+            FrameTarget::Surface(
+                gpu.surface
+                    .as_ref()
+                    .expect("production rendering requires a surface"),
+            ),
             commands,
             color_resolver,
             Some((
@@ -621,6 +729,40 @@ impl SceneRenderer {
             )),
             overlay_opacities,
             visual_hints,
+        )
+    }
+
+    /// Render a frame to a caller-supplied target (production swap-chain
+    /// surface or headless render-to-texture). Used by the golden-image
+    /// regression harness in `tests/golden_render.rs` (ADR-032 W2). The
+    /// non-animated cursor variant matches [`Self::render`]'s contract.
+    pub fn render_to_target(
+        &mut self,
+        gpu: &super::GpuState,
+        target: FrameTarget<'_>,
+        commands: &[DrawCommand],
+        color_resolver: &ColorResolver,
+        cursor: Option<(u16, u16, CursorStyle)>,
+    ) -> anyhow::Result<()> {
+        let animated = cursor.map(|(cx, cy, style)| {
+            let cell_w = self.metrics.cell_width;
+            let cell_h = self.metrics.cell_height;
+            (
+                cx as f32 * cell_w,
+                cy as f32 * cell_h,
+                1.0f32,
+                style,
+                kasane_core::protocol::Color::Default,
+            )
+        });
+        self.render_inner(
+            gpu,
+            target,
+            commands,
+            color_resolver,
+            animated,
+            &[],
+            &Default::default(),
         )
     }
 
@@ -645,6 +787,11 @@ impl SceneRenderer {
         });
         self.render_inner(
             gpu,
+            FrameTarget::Surface(
+                gpu.surface
+                    .as_ref()
+                    .expect("production rendering requires a surface"),
+            ),
             commands,
             color_resolver,
             animated,
@@ -662,6 +809,7 @@ impl SceneRenderer {
     fn render_inner(
         &mut self,
         gpu: &super::GpuState,
+        target: FrameTarget<'_>,
         commands: &[DrawCommand],
         color_resolver: &ColorResolver,
         cursor: Option<(f32, f32, f32, CursorStyle, kasane_core::protocol::Color)>,
@@ -669,35 +817,20 @@ impl SceneRenderer {
         visual_hints: &kasane_core::render::VisualHints,
     ) -> anyhow::Result<()> {
         let _frame_span = tracing::info_span!("gpu_frame", commands = commands.len()).entered();
-        let output = match gpu.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(frame) => frame,
-            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
-                gpu.surface.configure(&gpu.device, &gpu.config);
-                frame
-            }
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                gpu.surface.configure(&gpu.device, &gpu.config);
-                match gpu.surface.get_current_texture() {
-                    wgpu::CurrentSurfaceTexture::Success(frame)
-                    | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
-                    other => {
-                        anyhow::bail!(
-                            "failed to acquire surface texture after reconfigure: {other:?}"
-                        )
-                    }
-                }
-            }
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                return Ok(());
-            }
-            wgpu::CurrentSurfaceTexture::Validation => {
-                anyhow::bail!("surface texture validation error");
-            }
+        let acquired = match target.acquire(gpu)? {
+            Some(f) => f,
+            None => return Ok(()),
         };
-        let view = output.texture.create_view(&Default::default());
+        let AcquiredFrame {
+            view,
+            width: target_width,
+            height: target_height,
+            format: target_format,
+            surface_texture,
+        } = acquired;
 
-        let screen_w = gpu.config.width as f32;
-        let screen_h = gpu.config.height as f32;
+        let screen_w = target_width as f32;
+        let screen_h = target_height as f32;
         self.frame_screen_w = screen_w;
         self.frame_screen_h = screen_h;
 
@@ -738,8 +871,8 @@ impl SceneRenderer {
         self.viewport.update(
             &gpu.queue,
             Resolution {
-                width: gpu.config.width,
-                height: gpu.config.height,
+                width: target_width,
+                height: target_height,
             },
         );
 
@@ -749,9 +882,9 @@ impl SceneRenderer {
 
         // Ensure base render target exists at correct size
         if use_compositor {
-            let w = gpu.config.width;
-            let h = gpu.config.height;
-            let format = gpu.config.format;
+            let w = target_width;
+            let h = target_height;
+            let format = target_format;
             if let Some(ref mut target) = self.base_target {
                 target.resize(&gpu.device, w, h, format, "base_target");
             } else {
@@ -921,9 +1054,9 @@ impl SceneRenderer {
             if self.effects.text_effects.is_active() {
                 self.text_effects.ensure_target(
                     &gpu.device,
-                    gpu.config.width,
-                    gpu.config.height,
-                    gpu.config.format,
+                    target_width,
+                    target_height,
+                    target_format,
                 );
                 let text_target_view = &self.text_effects.text_target.as_ref().unwrap().view;
 
@@ -985,7 +1118,7 @@ impl SceneRenderer {
             // After layer 0: apply blur and blit base_target to swapchain
             if use_compositor && layer_idx == 0 {
                 let base = self.base_target.as_ref().unwrap();
-                let format = gpu.config.format;
+                let format = target_format;
 
                 // Blur the base target
                 let mut blur_encoder =
@@ -1066,7 +1199,9 @@ impl SceneRenderer {
             }
         }
 
-        output.present();
+        if let Some(tex) = surface_texture {
+            tex.present();
+        }
 
         self.texture_cache.evict_to_budget();
 

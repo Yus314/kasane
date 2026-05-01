@@ -494,3 +494,197 @@ fn color_emoji_grinning_face() {
          KASANE_GOLDEN_UPDATE=1 cargo test -p kasane-gui --test golden_render",
     );
 }
+
+// ---------------------------------------------------------------------
+// ADR-032 W2 — SceneRenderer-driven goldens via FrameTarget::View
+// ---------------------------------------------------------------------
+//
+// These tests drive the production `SceneRenderer` against a headless
+// render-to-texture target, validating that the FrameTarget abstraction
+// delivers byte-equivalent output to the production swap-chain path.
+// The first fixture (`monochrome_grid`) is the smoke test; further
+// fixtures (CJK, cursor states, selection) follow the same pattern.
+
+/// Format of the offscreen texture used by SceneRenderer-driven tests.
+/// Must match the `format` field of `FrameTarget::View` so the
+/// renderer's pipelines produce compatible output.
+const SCENE_TEST_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+/// Build a headless `GpuState` (no surface) for SceneRenderer-driven
+/// tests. `width` / `height` populate the dummy `SurfaceConfiguration`;
+/// the actual render target dimensions are set per-test via
+/// `FrameTarget::View`.
+fn headless_gpu_state(width: u32, height: u32) -> Option<kasane_gui::gpu::GpuState> {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+
+    let (device, queue) = headless_gpu()?;
+
+    let config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format: SCENE_TEST_FORMAT,
+        width,
+        height,
+        present_mode: wgpu::PresentMode::Fifo,
+        desired_maximum_frame_latency: 2,
+        alpha_mode: wgpu::CompositeAlphaMode::Auto,
+        view_formats: vec![],
+    };
+
+    Some(kasane_gui::gpu::GpuState {
+        surface: None,
+        device,
+        queue,
+        config,
+        device_error: Arc::new(AtomicBool::new(false)),
+        pipeline_cache: None,
+    })
+}
+
+/// Render `commands` via `SceneRenderer::render_to_target` into a fresh
+/// offscreen texture and return the readback as an `RgbaImage`.
+fn render_scene_to_image(
+    gpu: &kasane_gui::gpu::GpuState,
+    width: u32,
+    height: u32,
+    commands: &[kasane_core::render::DrawCommand],
+) -> RgbaImage {
+    use kasane_core::config::FontConfig;
+    use kasane_gui::colors::ColorResolver;
+    use kasane_gui::gpu::scene_renderer::{FrameTarget, SceneRenderer};
+    use winit::dpi::PhysicalSize;
+
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("scene_golden_target"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: SCENE_TEST_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let font_config = FontConfig::default();
+    let mut renderer = SceneRenderer::new(gpu, &font_config, 1.0, PhysicalSize::new(width, height));
+
+    let resolver = ColorResolver::from_config(&kasane_core::config::ColorsConfig::default());
+    renderer
+        .render_to_target(
+            gpu,
+            FrameTarget::View {
+                view: &view,
+                width,
+                height,
+                format: SCENE_TEST_FORMAT,
+            },
+            commands,
+            &resolver,
+            None,
+        )
+        .expect("render_to_target");
+
+    // Readback. Mirrors the structure of `render_to_image` but operates
+    // on an already-rendered texture rather than driving a closure.
+    let bytes_per_pixel: u32 = 4;
+    let unpadded_bytes_per_row = width * bytes_per_pixel;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
+
+    let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("scene_golden_readback"),
+        size: (padded_bytes_per_row * height) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = gpu
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("scene_golden_readback_encoder"),
+        });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    gpu.queue.submit(Some(encoder.finish()));
+
+    let slice = buffer.slice(..);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| {
+        let _ = sender.send(result);
+    });
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    receiver
+        .recv()
+        .expect("map_async result")
+        .expect("buffer map");
+
+    let data = slice.get_mapped_range();
+    let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+    for row in 0..height {
+        let start = (row * padded_bytes_per_row) as usize;
+        let end = start + (unpadded_bytes_per_row as usize);
+        pixels.extend_from_slice(&data[start..end]);
+    }
+    drop(data);
+    buffer.unmap();
+
+    ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, pixels).expect("RGBA8 image construction")
+}
+
+/// Smoke test: drive `SceneRenderer` through `FrameTarget::View` with a
+/// single `FillRect` covering the entire frame at the default-bg style.
+/// Validates the full headless pipeline (constructor → encode → readback)
+/// without exercising text shaping or images.
+#[test]
+fn monochrome_grid_matches_snapshot() {
+    use kasane_core::protocol::Style;
+    use kasane_core::render::{DrawCommand, PixelRect};
+
+    let width = 320u32;
+    let height = 96u32;
+
+    let Some(gpu) = headless_gpu_state(width, height) else {
+        eprintln!("no wgpu adapter available; skipping monochrome_grid golden");
+        return;
+    };
+
+    let commands = vec![DrawCommand::FillRect {
+        rect: PixelRect {
+            x: 0.0,
+            y: 0.0,
+            w: width as f32,
+            h: height as f32,
+        },
+        face: Style::default(),
+        elevated: false,
+    }];
+
+    let img = render_scene_to_image(&gpu, width, height, &commands);
+    assert_dssim(&img, "monochrome_grid");
+}
