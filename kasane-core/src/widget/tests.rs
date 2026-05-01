@@ -569,9 +569,9 @@ fn backend_background_annotation() {
     };
 
     // Line 5 should match cursor line
-    assert!(backend.annotate_background(5, &view, &ctx).is_some());
+    assert!(backend.decorate_background(5, &view, &ctx).is_some());
     // Line 3 should not match
-    assert!(backend.annotate_background(3, &view, &ctx).is_none());
+    assert!(backend.decorate_background(3, &view, &ctx).is_none());
 }
 
 #[test]
@@ -807,12 +807,12 @@ fn backend_selection_background_annotation() {
     };
 
     // Lines within selection range should match
-    assert!(backend.annotate_background(3, &view, &ctx).is_some());
-    assert!(backend.annotate_background(4, &view, &ctx).is_some());
-    assert!(backend.annotate_background(5, &view, &ctx).is_some());
+    assert!(backend.decorate_background(3, &view, &ctx).is_some());
+    assert!(backend.decorate_background(4, &view, &ctx).is_some());
+    assert!(backend.decorate_background(5, &view, &ctx).is_some());
     // Lines outside should not match
-    assert!(backend.annotate_background(2, &view, &ctx).is_none());
-    assert!(backend.annotate_background(6, &view, &ctx).is_none());
+    assert!(backend.decorate_background(2, &view, &ctx).is_none());
+    assert!(backend.decorate_background(6, &view, &ctx).is_none());
 }
 
 #[test]
@@ -830,7 +830,7 @@ fn backend_selection_empty_selections() {
         pane_focused: true,
     };
 
-    assert!(backend.annotate_background(0, &view, &ctx).is_none());
+    assert!(backend.decorate_background(0, &view, &ctx).is_none());
 }
 
 #[test]
@@ -1130,10 +1130,10 @@ fn backend_gutter_annotation() {
     };
 
     // Left gutter should return element
-    let result = backend.annotate_gutter(GutterSide::Left, 9, &view, &ctx);
+    let result = backend.decorate_gutter(GutterSide::Left, 9, &view, &ctx);
     assert!(result.is_some());
     // Right gutter should not (widget is left)
-    let result = backend.annotate_gutter(GutterSide::Right, 9, &view, &ctx);
+    let result = backend.decorate_gutter(GutterSide::Right, 9, &view, &ctx);
     assert!(result.is_none());
 }
 
@@ -1158,13 +1158,13 @@ abs kind="gutter" side="left" text="{line_number:3} " face="rgb:ffffff+b" line-w
     // Cursor line (5) should match
     assert!(
         backend
-            .annotate_gutter(GutterSide::Left, 5, &view, &ctx)
+            .decorate_gutter(GutterSide::Left, 5, &view, &ctx)
             .is_some()
     );
     // Other lines should not
     assert!(
         backend
-            .annotate_gutter(GutterSide::Left, 4, &view, &ctx)
+            .decorate_gutter(GutterSide::Left, 4, &view, &ctx)
             .is_none()
     );
 }
@@ -1203,7 +1203,7 @@ fn backend_gutter_global_when_disabled() {
     // Global when disabled → None for all lines
     assert!(
         backend
-            .annotate_gutter(GutterSide::Left, 0, &view, &ctx)
+            .decorate_gutter(GutterSide::Left, 0, &view, &ctx)
             .is_none()
     );
 }

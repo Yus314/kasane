@@ -604,9 +604,9 @@ struct PluginDefV2 {
     observe_key: bool,
     observe_mouse: bool,
     handle_mouse: bool,
-    annotate_background: bool,
-    annotate_gutter: Vec<GutterBinding>,
-    annotate_inline: bool,
+    decorate_background: bool,
+    decorate_gutter: Vec<GutterBinding>,
+    decorate_inline: bool,
     virtual_text: bool,
     contributes: Vec<ContributeBinding>,
     transforms: Vec<TransformBinding>,
@@ -650,9 +650,9 @@ pub fn expand_kasane_plugin_v2(input: TokenStream) -> syn::Result<TokenStream> {
         observe_key: false,
         observe_mouse: false,
         handle_mouse: false,
-        annotate_background: false,
-        annotate_gutter: Vec::new(),
-        annotate_inline: false,
+        decorate_background: false,
+        decorate_gutter: Vec::new(),
+        decorate_inline: false,
         virtual_text: false,
         contributes: Vec::new(),
         transforms: Vec::new(),
@@ -688,8 +688,8 @@ pub fn expand_kasane_plugin_v2(input: TokenStream) -> syn::Result<TokenStream> {
                     "observe_key" => def.observe_key = true,
                     "observe_mouse" => def.observe_mouse = true,
                     "handle_mouse" => def.handle_mouse = true,
-                    "annotate_background" => def.annotate_background = true,
-                    "annotate_inline" => def.annotate_inline = true,
+                    "decorate_background" => def.decorate_background = true,
+                    "decorate_inline" => def.decorate_inline = true,
                     "virtual_text" => def.virtual_text = true,
                     "transform_menu_item" => def.transform_menu_item = true,
                     "contribute_overlay" => def.overlay = true,
@@ -709,9 +709,9 @@ pub fn expand_kasane_plugin_v2(input: TokenStream) -> syn::Result<TokenStream> {
                     }
                 }
 
-                // Check for #[annotate_gutter(Left, 10)]
+                // Check for #[decorate_gutter(Left, 10)]
                 for attr in &f.attrs {
-                    if attr.path().is_ident("annotate_gutter") {
+                    if attr.path().is_ident("decorate_gutter") {
                         let args: syn::punctuated::Punctuated<Expr, syn::Token![,]> =
                             attr.parse_args_with(syn::punctuated::Punctuated::parse_terminated)?;
                         let mut side = quote! { kasane_core::plugin::GutterSide::Left };
@@ -725,7 +725,7 @@ pub fn expand_kasane_plugin_v2(input: TokenStream) -> syn::Result<TokenStream> {
                                 priority = int_lit.base10_parse()?;
                             }
                         }
-                        def.annotate_gutter.push(GutterBinding {
+                        def.decorate_gutter.push(GutterBinding {
                             side,
                             priority,
                             fn_name: f.sig.ident.clone(),
@@ -852,22 +852,22 @@ fn generate_v2_plugin(def: &PluginDefV2, module: &ItemMod) -> syn::Result<TokenS
     }
 
     // Annotation handlers
-    for gb in &def.annotate_gutter {
+    for gb in &def.decorate_gutter {
         let side = &gb.side;
         let priority = gb.priority;
         let fn_name = &gb.fn_name;
         register_body.push(quote! {
-            r.on_annotate_gutter(#side, #priority, |state, line, app, ctx| #mod_ident::#fn_name(state, line, app, ctx));
+            r.on_decorate_gutter(#side, #priority, |state, line, app, ctx| #mod_ident::#fn_name(state, line, app, ctx));
         });
     }
-    if def.annotate_background {
+    if def.decorate_background {
         register_body.push(quote! {
-            r.on_annotate_background(|state, line, app, ctx| #mod_ident::annotate_background(state, line, app, ctx));
+            r.on_decorate_background(|state, line, app, ctx| #mod_ident::decorate_background(state, line, app, ctx));
         });
     }
-    if def.annotate_inline {
+    if def.decorate_inline {
         register_body.push(quote! {
-            r.on_annotate_inline(|state, line, app, ctx| #mod_ident::annotate_inline(state, line, app, ctx));
+            r.on_decorate_inline(|state, line, app, ctx| #mod_ident::decorate_inline(state, line, app, ctx));
         });
     }
     if def.virtual_text {
@@ -916,7 +916,7 @@ fn generate_v2_plugin(def: &PluginDefV2, module: &ItemMod) -> syn::Result<TokenS
     })
 }
 
-/// Strip custom attributes for v2 (includes additional attrs like #[contribute], #[annotate_gutter]).
+/// Strip custom attributes for v2 (includes additional attrs like #[contribute], #[decorate_gutter]).
 fn strip_custom_attrs_v2(module: &ItemMod) -> TokenStream {
     let vis = &module.vis;
     let ident = &module.ident;
@@ -945,9 +945,9 @@ const V2_CUSTOM_ATTRS: &[&str] = &[
     "input",
     "dirty",
     "contribute",
-    "annotate_gutter",
-    "annotate_background",
-    "annotate_inline",
+    "decorate_gutter",
+    "decorate_background",
+    "decorate_inline",
     "virtual_text",
     "handle_key",
     "overlay",

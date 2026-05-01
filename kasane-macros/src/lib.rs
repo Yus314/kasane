@@ -24,8 +24,8 @@ use proc_macro::TokenStream;
 /// using the `HandlerRegistry` pattern:
 /// - `#[state] struct State { ... }` — `type State = State`
 /// - `#[contribute("slot.name")]` functions → `r.on_contribute(...)`
-/// - `#[annotate_background]` functions → `r.on_annotate_background(...)`
-/// - `#[annotate_gutter(Left, priority)]` functions → `r.on_annotate_gutter(...)`
+/// - `#[decorate_background]` functions → `r.on_decorate_background(...)`
+/// - `#[decorate_gutter(Left, priority)]` functions → `r.on_decorate_gutter(...)`
 /// - `#[handle_key]` functions → `r.on_key(...)`
 /// - `fn on_state_changed(...)` → `r.on_state_changed(...)`
 /// - `#[dirty(FLAGS)]` on `#[state]` struct → `r.declare_interests(FLAGS)`

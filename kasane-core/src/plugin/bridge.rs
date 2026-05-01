@@ -613,7 +613,7 @@ impl PluginBackend for PluginBridge {
         true
     }
 
-    fn annotate_gutter(
+    fn decorate_gutter(
         &self,
         side: GutterSide,
         line: usize,
@@ -631,7 +631,7 @@ impl PluginBackend for PluginBridge {
         None
     }
 
-    fn annotate_background(
+    fn decorate_background(
         &self,
         line: usize,
         app: &AppView<'_>,
@@ -640,7 +640,7 @@ impl PluginBackend for PluginBridge {
         dispatch_view_option!(self, background_handler, line, app, ctx)
     }
 
-    fn annotate_inline(
+    fn decorate_inline(
         &self,
         line: usize,
         app: &AppView<'_>,
@@ -1580,19 +1580,19 @@ mod tests {
                 });
 
                 let inv = self.invoked.clone();
-                r.on_annotate_gutter(GutterSide::Left, 0, move |_s, _line, _app, _ctx| {
+                r.on_decorate_gutter(GutterSide::Left, 0, move |_s, _line, _app, _ctx| {
                     inv.lock().unwrap().insert("gutter");
                     None
                 });
 
                 let inv = self.invoked.clone();
-                r.on_annotate_background(move |_s, _line, _app, _ctx| {
+                r.on_decorate_background(move |_s, _line, _app, _ctx| {
                     inv.lock().unwrap().insert("background");
                     None
                 });
 
                 let inv = self.invoked.clone();
-                r.on_annotate_inline(move |_s, _line, _app, _ctx| {
+                r.on_decorate_inline(move |_s, _line, _app, _ctx| {
                     inv.lock().unwrap().insert("inline");
                     None
                 });
@@ -1734,9 +1734,9 @@ mod tests {
         // View
         bridge.contribute_to(&SlotId::STATUS_LEFT, &app, &contribute_ctx);
         bridge.transform_patch(&TransformTarget::BUFFER, &app, &transform_ctx);
-        bridge.annotate_gutter(GutterSide::Left, 0, &app, &annotate_ctx);
-        bridge.annotate_background(0, &app, &annotate_ctx);
-        bridge.annotate_inline(0, &app, &annotate_ctx);
+        bridge.decorate_gutter(GutterSide::Left, 0, &app, &annotate_ctx);
+        bridge.decorate_background(0, &app, &annotate_ctx);
+        bridge.decorate_inline(0, &app, &annotate_ctx);
         bridge.annotate_virtual_text(0, &app, &annotate_ctx);
         bridge.contribute_overlay_with_ctx(&app, &overlay_ctx);
         bridge.display_directives(&app);

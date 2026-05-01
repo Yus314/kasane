@@ -131,7 +131,7 @@ pub(in crate::plugin) mod tests {
                     (state.clone(), Effects::default())
                 }
             });
-            r.on_annotate_background(|state, line, _app, _ctx| {
+            r.on_decorate_background(|state, line, _app, _ctx| {
                 if line as i32 == state.active_line {
                     Some(BackgroundLayer {
                         style: crate::protocol::Style::from_face(&WireFace {
@@ -188,7 +188,7 @@ pub(in crate::plugin) mod tests {
                     (state.clone(), Effects::default())
                 }
             });
-            r.on_annotate_background(|state, line, _app, _ctx| {
+            r.on_decorate_background(|state, line, _app, _ctx| {
                 if state.color_lines.contains_key(&line) {
                     Some(BackgroundLayer {
                         style: crate::protocol::Style::from_face(&WireFace {

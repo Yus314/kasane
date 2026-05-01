@@ -117,7 +117,7 @@ impl Plugin for WidgetPlugin {
             WidgetKind::Background(bg) => {
                 let bg = bg.clone();
                 let shared_when = shared_when.clone();
-                r.on_annotate_background(move |_state, line, app, _ctx| {
+                r.on_decorate_background(move |_state, line, app, _ctx| {
                     let resolver = AppViewResolver::new(app);
                     if let Some(ref cond) = shared_when
                         && !cond.evaluate_with_resolver(&resolver)
@@ -198,7 +198,7 @@ impl Plugin for WidgetPlugin {
             WidgetKind::Gutter(gutter) => {
                 let gutter = gutter.clone();
                 let shared_when = shared_when.clone();
-                r.on_annotate_gutter(gutter.side, priority, move |_state, line, app, _ctx| {
+                r.on_decorate_gutter(gutter.side, priority, move |_state, line, app, _ctx| {
                     let app_resolver = AppViewResolver::new(app);
                     if let Some(ref cond) = shared_when
                         && !cond.evaluate_with_resolver(&app_resolver)
@@ -234,7 +234,7 @@ impl Plugin for WidgetPlugin {
             WidgetKind::Inline(inline) => {
                 let inline = inline.clone();
                 let shared_when = shared_when.clone();
-                r.on_annotate_inline(move |_state, line, app, _ctx| {
+                r.on_decorate_inline(move |_state, line, app, _ctx| {
                     let resolver = AppViewResolver::new(app);
                     if let Some(ref cond) = shared_when
                         && !cond.evaluate_with_resolver(&resolver)

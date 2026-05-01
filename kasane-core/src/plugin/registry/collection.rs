@@ -676,22 +676,22 @@ impl<'a> PluginView<'a> {
                     // Native (HandlerTable) path: call per-concern methods directly
                     if let Some((prio, el)) =
                         slot.backend
-                            .annotate_gutter(GutterSide::Left, line, state, ctx)
+                            .decorate_gutter(GutterSide::Left, line, state, ctx)
                     {
                         left_parts.push((prio, pid.clone(), el));
                         has_left = true;
                     }
                     if let Some((prio, el)) =
                         slot.backend
-                            .annotate_gutter(GutterSide::Right, line, state, ctx)
+                            .decorate_gutter(GutterSide::Right, line, state, ctx)
                     {
                         right_parts.push((prio, pid.clone(), el));
                         has_right = true;
                     }
-                    if let Some(bg) = slot.backend.annotate_background(line, state, ctx) {
+                    if let Some(bg) = slot.backend.decorate_background(line, state, ctx) {
                         bg_layers.push((bg, pid.clone()));
                     }
-                    if let Some(inline) = slot.backend.annotate_inline(line, state, ctx) {
+                    if let Some(inline) = slot.backend.decorate_inline(line, state, ctx) {
                         if inline_decorations[line].is_some() {
                             tracing::warn!(
                                 line,

@@ -14,7 +14,7 @@
 //!         // ...
 //!         (new_state, Effects::default())
 //!     });
-//!     r.on_annotate_background(|state, line, app, ctx| {
+//!     r.on_decorate_background(|state, line, app, ctx| {
 //!         // ...
 //!         Some(BackgroundLayer { ... })
 //!     });
@@ -877,7 +877,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     ///
     /// `side` determines left or right gutter placement. `priority` controls
     /// sort ordering (lower = further left within the same side).
-    pub fn on_annotate_gutter(
+    pub fn on_decorate_gutter(
         &mut self,
         side: GutterSide,
         priority: i16,
@@ -907,7 +907,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     /// Register a background annotation handler.
-    pub fn on_annotate_background(
+    pub fn on_decorate_background(
         &mut self,
         handler: impl Fn(&S, usize, &AppView<'_>, &AnnotateContext) -> Option<BackgroundLayer>
         + Send
@@ -918,7 +918,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     /// Register an inline decoration handler.
-    pub fn on_annotate_inline(
+    pub fn on_decorate_inline(
         &mut self,
         handler: impl Fn(&S, usize, &AppView<'_>, &AnnotateContext) -> Option<InlineDecoration>
         + Send
@@ -1630,9 +1630,9 @@ mod tests {
     }
 
     #[test]
-    fn on_annotate_background_sets_annotator_capability() {
+    fn on_decorate_background_sets_annotator_capability() {
         let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_annotate_background(|_state, _line, _app, _ctx| None);
+        registry.on_decorate_background(|_state, _line, _app, _ctx| None);
         let table = registry.into_table();
         assert!(table.capabilities().contains(PluginCapabilities::ANNOTATOR));
     }
@@ -1832,8 +1832,8 @@ mod tests {
     #[test]
     fn multiple_gutter_handlers() {
         let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_annotate_gutter(GutterSide::Left, 0, |_s, _l, _a, _c| None);
-        registry.on_annotate_gutter(GutterSide::Right, 10, |_s, _l, _a, _c| None);
+        registry.on_decorate_gutter(GutterSide::Left, 0, |_s, _l, _a, _c| None);
+        registry.on_decorate_gutter(GutterSide::Right, 10, |_s, _l, _a, _c| None);
         let table = registry.into_table();
         assert_eq!(table.gutter_handlers.len(), 2);
         assert_eq!(table.gutter_handlers[0].side, GutterSide::Left);
@@ -1854,7 +1854,7 @@ mod tests {
     #[test]
     fn combined_capabilities() {
         let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_annotate_background(|_s, _l, _a, _c| None);
+        registry.on_decorate_background(|_s, _l, _a, _c| None);
         registry.on_overlay(|_s, _a, _c| None);
         registry.on_key(|_s, _k, _a| None::<(TestState, Vec<Command>)>);
         let table = registry.into_table();
@@ -1868,7 +1868,7 @@ mod tests {
     #[test]
     fn has_annotation_handlers_with_background() {
         let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_annotate_background(|_s, _l, _a, _c| None);
+        registry.on_decorate_background(|_s, _l, _a, _c| None);
         let table = registry.into_table();
         assert!(table.has_annotation_handlers());
     }
@@ -1876,7 +1876,7 @@ mod tests {
     #[test]
     fn has_annotation_handlers_with_gutter() {
         let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_annotate_gutter(GutterSide::Left, 0, |_s, _l, _a, _c| None);
+        registry.on_decorate_gutter(GutterSide::Left, 0, |_s, _l, _a, _c| None);
         let table = registry.into_table();
         assert!(table.has_annotation_handlers());
     }

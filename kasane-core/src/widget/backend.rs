@@ -383,7 +383,7 @@ mod legacy {
             }
         }
 
-        fn annotate_background(
+        fn decorate_background(
             &self,
             line: usize,
             state: &AppView<'_>,
@@ -497,7 +497,7 @@ mod legacy {
             None
         }
 
-        fn annotate_gutter(
+        fn decorate_gutter(
             &self,
             side: GutterSide,
             line: usize,

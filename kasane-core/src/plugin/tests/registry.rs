@@ -860,13 +860,13 @@ impl Plugin for DecomposedAnnotatorPlugin {
         PluginId("decomposed-annotator".to_string())
     }
     fn register(&self, r: &mut HandlerRegistry<()>) {
-        r.on_annotate_gutter(GutterSide::Left, 10, |_state, line, _app, _ctx| {
+        r.on_decorate_gutter(GutterSide::Left, 10, |_state, line, _app, _ctx| {
             Some(crate::element::Element::text(
                 format!("{}", line + 1),
                 WireFace::default(),
             ))
         });
-        r.on_annotate_background(|_state, line, _app, _ctx| {
+        r.on_decorate_background(|_state, line, _app, _ctx| {
             if line == 0 {
                 Some(BackgroundLayer {
                     style: crate::protocol::Style::from_face(&WireFace {

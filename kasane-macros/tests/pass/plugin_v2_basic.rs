@@ -28,7 +28,7 @@ mod highlight {
         )
     }
 
-    pub fn annotate_background(
+    pub fn decorate_background(
         state: &State,
         line: usize,
         _app: &AppView<'_>,

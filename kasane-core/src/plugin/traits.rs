@@ -437,7 +437,7 @@ pub trait PluginBackend: Any {
     /// Annotate a buffer line with gutter elements and/or background layer.
     ///
     /// **Deprecated** — prefer the decomposed annotation methods
-    /// ([`annotate_gutter`], [`annotate_background`], [`annotate_inline`],
+    /// ([`decorate_gutter`], [`decorate_background`], [`decorate_inline`],
     /// [`annotate_virtual_text`]) which allow per-concern caching and avoid
     /// bundling unrelated annotation types. Legacy (WASM) plugins still use
     /// this method; native plugins should register individual handlers via
@@ -461,7 +461,7 @@ pub trait PluginBackend: Any {
     }
 
     /// Return a gutter element for the given line and side.
-    fn annotate_gutter(
+    fn decorate_gutter(
         &self,
         _side: GutterSide,
         _line: usize,
@@ -472,7 +472,7 @@ pub trait PluginBackend: Any {
     }
 
     /// Return a background layer for the given line.
-    fn annotate_background(
+    fn decorate_background(
         &self,
         _line: usize,
         _state: &AppView<'_>,
@@ -482,7 +482,7 @@ pub trait PluginBackend: Any {
     }
 
     /// Return an inline decoration for the given line.
-    fn annotate_inline(
+    fn decorate_inline(
         &self,
         _line: usize,
         _state: &AppView<'_>,
