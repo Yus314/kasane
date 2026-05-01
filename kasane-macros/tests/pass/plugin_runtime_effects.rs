@@ -40,6 +40,7 @@ mod runtime_effects_plugin {
                 curve: ScrollCurve::Linear,
                 accumulation: ScrollAccumulationMode::Add,
             }],
+            state_updates: Default::default(),
         }
     }
 
@@ -53,6 +54,7 @@ mod runtime_effects_plugin {
             redraw: DirtyFlags::BUFFER,
             commands: vec![],
             scroll_plans: vec![],
+            state_updates: Default::default(),
         }
     }
 }

@@ -32,6 +32,7 @@ mod lifecycle_effects_plugin {
                 column: 1,
             })],
             scroll_plans: vec![],
+            state_updates: Default::default(),
         }
     }
 }
