@@ -924,3 +924,121 @@ impl<T: super::PluginBackend + ?Sized> PluginMeta for T {
         super::PluginBackend::drain_diagnostics(self)
     }
 }
+
+// =============================================================================
+// Macro infrastructure for R1.4+ super-trait migration.
+// =============================================================================
+
+/// Generate empty `impl CapabilityTrait for $type {}` blocks for the 11
+/// non-`PluginMeta` capability traits.
+///
+/// Use this once per `PluginBackend` implementer that doesn't override
+/// any capability methods. Implementers that *do* override one or more
+/// traits should write those impls manually and call the *narrower*
+/// macros (`impl_lifecycle_default!`, etc.) for the rest.
+///
+/// `PluginMeta` is intentionally excluded — it owns the required
+/// `fn id()` plus other introspection that varies per plugin, so it
+/// can't be defaulted blindly.
+///
+/// Once R1.4-R1.9 finish migrating method bodies into the capability
+/// traits, every `PluginBackend` implementer will need either this
+/// macro or explicit per-trait impls. Until then, the existing blanket
+/// `impl<T: PluginBackend + ?Sized> CapTrait for T` provides a
+/// no-conflict default — so adopting these macros early is safe but
+/// unnecessary.
+#[macro_export]
+macro_rules! plugin_capabilities_default {
+    ($t:ty) => {
+        $crate::impl_lifecycle_default!($t);
+        $crate::impl_input_handler_default!($t);
+        $crate::impl_contributor_default!($t);
+        $crate::impl_transformer_default!($t);
+        $crate::impl_annotator_default!($t);
+        $crate::impl_display_transform_default!($t);
+        $crate::impl_renderer_default!($t);
+        $crate::impl_io_default!($t);
+        $crate::impl_pubsub_member_default!($t);
+        $crate::impl_extension_participant_default!($t);
+        $crate::impl_workspace_member_default!($t);
+    };
+}
+
+/// Empty `impl Lifecycle for $type {}`. Use when the implementer does
+/// not override any lifecycle method.
+#[macro_export]
+macro_rules! impl_lifecycle_default {
+    ($t:ty) => {
+        impl $crate::plugin::capability_traits::Lifecycle for $t {}
+    };
+}
+
+#[macro_export]
+macro_rules! impl_input_handler_default {
+    ($t:ty) => {
+        impl $crate::plugin::capability_traits::InputHandler for $t {}
+    };
+}
+
+#[macro_export]
+macro_rules! impl_contributor_default {
+    ($t:ty) => {
+        impl $crate::plugin::capability_traits::Contributor for $t {}
+    };
+}
+
+#[macro_export]
+macro_rules! impl_transformer_default {
+    ($t:ty) => {
+        impl $crate::plugin::capability_traits::Transformer for $t {}
+    };
+}
+
+#[macro_export]
+macro_rules! impl_annotator_default {
+    ($t:ty) => {
+        impl $crate::plugin::capability_traits::Annotator for $t {}
+    };
+}
+
+#[macro_export]
+macro_rules! impl_display_transform_default {
+    ($t:ty) => {
+        impl $crate::plugin::capability_traits::DisplayTransform for $t {}
+    };
+}
+
+#[macro_export]
+macro_rules! impl_renderer_default {
+    ($t:ty) => {
+        impl $crate::plugin::capability_traits::Renderer for $t {}
+    };
+}
+
+#[macro_export]
+macro_rules! impl_io_default {
+    ($t:ty) => {
+        impl $crate::plugin::capability_traits::Io for $t {}
+    };
+}
+
+#[macro_export]
+macro_rules! impl_pubsub_member_default {
+    ($t:ty) => {
+        impl $crate::plugin::capability_traits::PubSubMember for $t {}
+    };
+}
+
+#[macro_export]
+macro_rules! impl_extension_participant_default {
+    ($t:ty) => {
+        impl $crate::plugin::capability_traits::ExtensionParticipant for $t {}
+    };
+}
+
+#[macro_export]
+macro_rules! impl_workspace_member_default {
+    ($t:ty) => {
+        impl $crate::plugin::capability_traits::WorkspaceMember for $t {}
+    };
+}
