@@ -12,7 +12,9 @@ use kasane_core::render::{
 
 use super::super::quad_pipeline;
 use super::super::texture_cache::{LoadState, TextureKey};
-use super::super::{CURSOR_BAR_WIDTH, CURSOR_OUTLINE_THICKNESS, CURSOR_UNDERLINE_HEIGHT};
+use super::super::{
+    CURSOR_BAR_WIDTH, CURSOR_BLOCK_MIN_RATIO, CURSOR_OUTLINE_THICKNESS, CURSOR_UNDERLINE_HEIGHT,
+};
 use crate::colors::ColorResolver;
 
 use super::SceneRenderer;
@@ -488,15 +490,12 @@ impl SceneRenderer {
         let Some((cell_x, y, opacity, style, cursor_color)) = cursor else {
             return;
         };
-        let (x, w) = self
-            .paragraph_cursor
-            .map(|(gx, gw)| (gx, gw.max(CURSOR_BAR_WIDTH)))
-            .unwrap_or((cell_x, cell_w));
+        let (x, block_w) = block_cursor_geometry(self.paragraph_cursor, cell_x, cell_w);
         let mut cc = color_resolver.resolve_linear(cursor_color, true);
         cc[3] = opacity;
         match style {
             CursorStyle::Block => {
-                self.quad.push_solid(x, y, w, cell_h, cc);
+                self.quad.push_solid(x, y, block_w, cell_h, cc);
             }
             CursorStyle::Bar => {
                 self.quad.push_solid(x, y, CURSOR_BAR_WIDTH, cell_h, cc);
@@ -505,17 +504,17 @@ impl SceneRenderer {
                 self.quad.push_solid(
                     x,
                     y + cell_h - CURSOR_UNDERLINE_HEIGHT,
-                    w,
+                    block_w,
                     CURSOR_UNDERLINE_HEIGHT,
                     cc,
                 );
             }
             CursorStyle::Outline => {
                 let t = CURSOR_OUTLINE_THICKNESS;
-                self.quad.push_solid(x, y, w, t, cc);
-                self.quad.push_solid(x, y + cell_h - t, w, t, cc);
+                self.quad.push_solid(x, y, block_w, t, cc);
+                self.quad.push_solid(x, y + cell_h - t, block_w, t, cc);
                 self.quad.push_solid(x, y, t, cell_h, cc);
-                self.quad.push_solid(x + w - t, y, t, cell_h, cc);
+                self.quad.push_solid(x + block_w - t, y, t, cell_h, cc);
             }
         }
     }
@@ -930,11 +929,16 @@ impl SceneRenderer {
             }
             None
         };
+        // A cluster covering an "ignorable" position (empty line, lone newline,
+        // EOL placeholder) returns Some(0.0) from `cursor_width_at`. Treating
+        // that as a real glyph width would collapse the Block cursor to Bar
+        // width downstream — `resolve_cursor_glyph_width` filters that case
+        // out so the fallback (cell_w) wins.
         for ann in &para.annotations {
             match ann {
                 ParagraphAnnotation::PrimaryCursor { byte_offset, .. } => {
                     if let Some(advance) = byte_to_advance(&layout, *byte_offset) {
-                        let cw = cursor_width_at(*byte_offset).unwrap_or(cell_w);
+                        let cw = resolve_cursor_glyph_width(cursor_width_at(*byte_offset), cell_w);
                         self.paragraph_cursor = Some((px + advance, cw));
                     }
                 }
@@ -943,7 +947,7 @@ impl SceneRenderer {
                     blend_ratio,
                 } => {
                     if let Some(advance) = byte_to_advance(&layout, *byte_offset) {
-                        let cw = cursor_width_at(*byte_offset).unwrap_or(cell_w);
+                        let cw = resolve_cursor_glyph_width(cursor_width_at(*byte_offset), cell_w);
                         let cursor_color = [1.0_f32, 1.0, 1.0, 1.0];
                         let blended = [
                             cursor_color[0] * blend_ratio + base_bg[0] * (1.0 - blend_ratio),
@@ -1135,5 +1139,168 @@ fn border_style_params(style: BorderLineStyle, cell_height: f32) -> (f32, f32) {
         BorderLineStyle::Heavy => (0.0, base * 2.0),
         BorderLineStyle::Ascii => (0.0, base),
         BorderLineStyle::Custom(_) => (0.0, base),
+    }
+}
+
+/// Final `(x, w)` for Block-family cursors (Block / Outline / Underline).
+///
+/// Pulls from `paragraph_cursor` when the buffer line went through the
+/// glyph-accurate Parley path; falls back to `(fallback_x, cell_w)` for cells
+/// painted via the cell-based grid path. Always enforces a `cell_w *
+/// CURSOR_BLOCK_MIN_RATIO` floor so the cursor stays visually distinct from
+/// the Insert-mode Bar at empty/zero-advance positions.
+pub(super) fn block_cursor_geometry(
+    paragraph_cursor: Option<(f32, f32)>,
+    fallback_x: f32,
+    cell_w: f32,
+) -> (f32, f32) {
+    let (x, w) = paragraph_cursor.unwrap_or((fallback_x, cell_w));
+    let block_min = (cell_w * CURSOR_BLOCK_MIN_RATIO).max(CURSOR_BAR_WIDTH * 2.0);
+    (x, w.max(block_min))
+}
+
+/// Resolve the per-glyph cursor width from `cursor_width_at(byte_offset)`.
+///
+/// `Some(0.0)` means the offset hit an "ignorable" cluster (lone newline,
+/// EOL placeholder, control character) — we treat this the same as `None`
+/// (no cluster) and fall back to `cell_w`. Positive advances are honoured so
+/// narrow proportional glyphs still produce narrow cursors (4d48bbd intent).
+pub(super) fn resolve_cursor_glyph_width(advance: Option<f32>, cell_w: f32) -> f32 {
+    advance.filter(|&w| w > 0.0).unwrap_or(cell_w)
+}
+
+#[cfg(test)]
+mod cursor_width_tests {
+    use super::*;
+
+    const CELL_W: f32 = 10.0;
+    const FALLBACK_X: f32 = 100.0;
+
+    fn block_min(cell_w: f32) -> f32 {
+        (cell_w * CURSOR_BLOCK_MIN_RATIO).max(CURSOR_BAR_WIDTH * 2.0)
+    }
+
+    // -- resolve_cursor_glyph_width -----------------------------------
+
+    #[test]
+    fn ignorable_cluster_falls_back_to_cell_w() {
+        // Lone-newline cluster reports advance = 0 — treat as "no glyph".
+        assert_eq!(resolve_cursor_glyph_width(Some(0.0), CELL_W), CELL_W);
+    }
+
+    #[test]
+    fn missing_cluster_falls_back_to_cell_w() {
+        assert_eq!(resolve_cursor_glyph_width(None, CELL_W), CELL_W);
+    }
+
+    #[test]
+    fn positive_advance_is_passed_through() {
+        // Narrow proportional glyph (e.g. 'i') keeps its narrow width.
+        assert_eq!(resolve_cursor_glyph_width(Some(3.0), CELL_W), 3.0);
+    }
+
+    // -- block_cursor_geometry ----------------------------------------
+
+    #[test]
+    fn no_paragraph_cursor_uses_cell_fallback() {
+        let (x, w) = block_cursor_geometry(None, FALLBACK_X, CELL_W);
+        assert_eq!(x, FALLBACK_X);
+        assert_eq!(w, CELL_W); // cell_w >= block_min, no clamp needed
+    }
+
+    #[test]
+    fn paragraph_cursor_with_full_width_passes_through() {
+        let (x, w) = block_cursor_geometry(Some((42.0, CELL_W)), FALLBACK_X, CELL_W);
+        assert_eq!(x, 42.0);
+        assert_eq!(w, CELL_W);
+    }
+
+    #[test]
+    fn zero_width_paragraph_cursor_clamps_to_block_min() {
+        // The exact regression: paragraph_cursor = Some((px, 0.0)) used to
+        // collapse to CURSOR_BAR_WIDTH and shadow the Insert-mode Bar.
+        let (_, w) = block_cursor_geometry(Some((42.0, 0.0)), FALLBACK_X, CELL_W);
+        assert!(
+            w >= block_min(CELL_W),
+            "expected block_min floor, got w={w}"
+        );
+        assert!(w >= CURSOR_BAR_WIDTH * 2.0, "must be ≥ 2× bar width");
+    }
+
+    #[test]
+    fn narrow_proportional_glyph_clamps_to_block_min() {
+        // 30% of cell_w (an 'i' in a wide proportional font) — should be
+        // bumped up to the block floor so it still reads as a block.
+        let narrow = CELL_W * 0.3;
+        let (_, w) = block_cursor_geometry(Some((42.0, narrow)), FALLBACK_X, CELL_W);
+        assert_eq!(w, block_min(CELL_W));
+    }
+
+    #[test]
+    fn wide_glyph_above_floor_passes_through() {
+        // CJK glyph 2× the cell width — must not be capped.
+        let (_, w) = block_cursor_geometry(Some((42.0, CELL_W * 2.0)), FALLBACK_X, CELL_W);
+        assert_eq!(w, CELL_W * 2.0);
+    }
+
+    #[test]
+    fn block_floor_always_at_least_double_bar_width() {
+        // For tiny cell_w (extreme zoom-out), the floor never collapses to
+        // bar width — preserves visual contrast with Insert mode.
+        let tiny_cell = 1.0;
+        let (_, w) = block_cursor_geometry(Some((0.0, 0.0)), 0.0, tiny_cell);
+        assert!(
+            w >= CURSOR_BAR_WIDTH * 2.0,
+            "tiny cells must still be 2× bar width, got {w}"
+        );
+    }
+
+    // -- end-to-end pipeline (Parley shape → resolve_cursor_glyph_width) --
+
+    #[test]
+    fn newline_only_layout_yields_full_cell_width() {
+        use super::super::super::text::Brush;
+        use super::super::super::text::ParleyText;
+        use super::super::super::text::hit_test::byte_to_advance;
+        use super::super::super::text::styled_line::StyledLine;
+        use kasane_core::config::FontConfig;
+        use kasane_core::protocol::{Atom, Style};
+        use parley::PositionedLayoutItem;
+
+        let mut text = ParleyText::new(&FontConfig::default());
+        let atoms = vec![Atom::plain("\n")];
+        let line = StyledLine::from_atoms(
+            &atoms,
+            &Style::default(),
+            Brush::opaque(255, 255, 255),
+            14.0,
+            None,
+        );
+        let layout = text.shape(&line);
+
+        // Replicate the production resolution: byte_to_advance + cluster scan.
+        let advance = byte_to_advance(&layout, 0);
+        let mut cw_at = None;
+        for layout_line in layout.layout.lines() {
+            for item in layout_line.items() {
+                if let PositionedLayoutItem::GlyphRun(run) = item {
+                    for c in run.run().clusters() {
+                        let r = c.text_range();
+                        if r.start == 0 && 0 < r.end {
+                            cw_at = Some(c.advance());
+                        }
+                    }
+                }
+            }
+        }
+
+        // The "\n" cluster is ignorable: byte_to_advance returns Some(0.0)
+        // (so the if-let branch in production fires) but cw_at stays None.
+        assert_eq!(advance, Some(0.0));
+        assert_eq!(cw_at, None);
+
+        let cw = resolve_cursor_glyph_width(cw_at, CELL_W);
+        let (_, w) = block_cursor_geometry(Some((0.0, cw)), 0.0, CELL_W);
+        assert_eq!(w, CELL_W);
     }
 }
