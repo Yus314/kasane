@@ -5,9 +5,20 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use kasane_plugin_model::SettingValue;
 
+pub mod colors;
+pub mod effects;
+pub mod gui;
 pub mod kdl_parser;
 pub mod kdl_writer;
+pub mod plugins;
+pub mod theme;
 pub mod unified;
+
+pub use colors::ColorsConfig;
+pub use effects::{CursorLineHighlightMode, EffectsConfig, TextEffectsConfig};
+pub use gui::{FontConfig, WindowConfig};
+pub use plugins::{PluginSelection, PluginsConfig};
+pub use theme::{ThemeConfig, ThemeValue};
 
 #[derive(Debug, Default, Clone)]
 pub struct Config {
@@ -58,40 +69,6 @@ pub enum MenuPosition {
 pub struct SearchConfig {
     /// When true, show search completions as a vertical dropdown instead of inline.
     pub dropdown: bool,
-}
-
-/// A theme value: either a direct face spec or a reference to another token.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ThemeValue {
-    /// A direct face specification (e.g., `"cyan,blue+b"`).
-    FaceSpec(String),
-    /// A reference to another theme token (the `@` prefix is stripped).
-    TokenRef(String),
-}
-
-/// Theme configuration: maps style token names to face specs or token references.
-///
-/// Supports `@token_name` references and dark/light variants.
-///
-/// Example in kasane.kdl:
-/// ```kdl
-/// theme {
-///     accent "green"
-///     status_line "white,rgb:303030"
-///     status_mode "@accent"
-///
-///     variant "dark" {
-///         accent "cyan"
-///     }
-///     variant "light" {
-///         accent "blue"
-///     }
-/// }
-/// ```
-#[derive(Debug, Default, Clone)]
-pub struct ThemeConfig {
-    pub faces: HashMap<String, ThemeValue>,
-    pub variants: HashMap<String, HashMap<String, ThemeValue>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -214,250 +191,6 @@ impl Default for LogConfig {
             level: "warn".to_string(),
             file: None,
         }
-    }
-}
-
-/// Window configuration for the GUI backend.
-#[derive(Debug, Clone, PartialEq)]
-pub struct WindowConfig {
-    pub initial_cols: u16,
-    pub initial_rows: u16,
-    pub fullscreen: bool,
-    pub maximized: bool,
-    /// Override GPU present mode (e.g. "Fifo", "Mailbox", "AutoVsync", "AutoNoVsync").
-    pub present_mode: Option<String>,
-}
-
-impl Default for WindowConfig {
-    fn default() -> Self {
-        WindowConfig {
-            initial_cols: 80,
-            initial_rows: 24,
-            fullscreen: false,
-            maximized: false,
-            present_mode: None,
-        }
-    }
-}
-
-/// Font configuration for the GUI backend.
-#[derive(Debug, Clone, PartialEq)]
-pub struct FontConfig {
-    pub family: String,
-    pub size: f32,
-    pub style: String,
-    pub fallback_list: Vec<String>,
-    pub line_height: f32,
-    pub letter_spacing: f32,
-}
-
-impl Default for FontConfig {
-    fn default() -> Self {
-        FontConfig {
-            family: "monospace".to_string(),
-            size: 14.0,
-            style: "Regular".to_string(),
-            fallback_list: Vec::new(),
-            line_height: 1.2,
-            letter_spacing: 0.0,
-        }
-    }
-}
-
-/// Color palette for the GUI backend.
-/// Kakoune's terminal UI uses `Color::Default` to mean "terminal default",
-/// but the GUI has no terminal — these values define the concrete RGB fallback.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ColorsConfig {
-    pub default_fg: String,
-    pub default_bg: String,
-    pub black: String,
-    pub red: String,
-    pub green: String,
-    pub yellow: String,
-    pub blue: String,
-    pub magenta: String,
-    pub cyan: String,
-    pub white: String,
-    pub bright_black: String,
-    pub bright_red: String,
-    pub bright_green: String,
-    pub bright_yellow: String,
-    pub bright_blue: String,
-    pub bright_magenta: String,
-    pub bright_cyan: String,
-    pub bright_white: String,
-}
-
-impl Default for ColorsConfig {
-    fn default() -> Self {
-        // VS Code Dark+ inspired defaults
-        ColorsConfig {
-            default_fg: "#d4d4d4".to_string(),
-            default_bg: "#1e1e1e".to_string(),
-            black: "#000000".to_string(),
-            red: "#cd3131".to_string(),
-            green: "#0dbc79".to_string(),
-            yellow: "#e5e510".to_string(),
-            blue: "#2472c8".to_string(),
-            magenta: "#bc3fbc".to_string(),
-            cyan: "#11a8cd".to_string(),
-            white: "#cccccc".to_string(),
-            bright_black: "#666666".to_string(),
-            bright_red: "#f14c4c".to_string(),
-            bright_green: "#23d18b".to_string(),
-            bright_yellow: "#f5f543".to_string(),
-            bright_blue: "#3b8eea".to_string(),
-            bright_magenta: "#d670d6".to_string(),
-            bright_cyan: "#29b8db".to_string(),
-            bright_white: "#e5e5e5".to_string(),
-        }
-    }
-}
-
-/// GPU visual effects configuration.
-#[derive(Debug, Clone, PartialEq)]
-pub struct EffectsConfig {
-    /// Background gradient start color (top). `None` = disabled.
-    pub gradient_start: Option<[f32; 4]>,
-    /// Background gradient end color (bottom). `None` = disabled.
-    pub gradient_end: Option<[f32; 4]>,
-    /// Cursor line highlight mode.
-    pub cursor_line_highlight: CursorLineHighlightMode,
-    /// Overlay transition duration in milliseconds.
-    pub overlay_transition_ms: u16,
-    /// Enable backdrop blur (frosted glass) behind floating overlays.
-    pub backdrop_blur: bool,
-    /// Text post-processing effects (shadow, glow, outline).
-    pub text_effects: TextEffectsConfig,
-}
-
-impl Default for EffectsConfig {
-    fn default() -> Self {
-        EffectsConfig {
-            gradient_start: None,
-            gradient_end: None,
-            cursor_line_highlight: CursorLineHighlightMode::Off,
-            overlay_transition_ms: 150,
-            backdrop_blur: false,
-            text_effects: TextEffectsConfig::default(),
-        }
-    }
-}
-
-/// Text post-processing effects: shadow, glow, outline.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TextEffectsConfig {
-    /// Shadow offset in pixels (dx, dy). `None` = shadow disabled.
-    pub shadow_offset: Option<(f32, f32)>,
-    /// Shadow color (linear RGBA).
-    pub shadow_color: [f32; 4],
-    /// Shadow blur radius in pixels.
-    pub shadow_blur: f32,
-    /// Glow radius in pixels. 0.0 = disabled.
-    pub glow_radius: f32,
-    /// Glow color (linear RGBA).
-    pub glow_color: [f32; 4],
-}
-
-impl Default for TextEffectsConfig {
-    fn default() -> Self {
-        Self {
-            shadow_offset: None,
-            shadow_color: [0.0, 0.0, 0.0, 0.6],
-            shadow_blur: 2.0,
-            glow_radius: 0.0,
-            glow_color: [1.0, 1.0, 1.0, 0.3],
-        }
-    }
-}
-
-impl TextEffectsConfig {
-    /// Returns `true` if any text effect is enabled.
-    pub fn is_active(&self) -> bool {
-        self.shadow_offset.is_some() || self.glow_radius > 0.0
-    }
-}
-
-/// Cursor line highlight rendering mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CursorLineHighlightMode {
-    /// No cursor line highlight.
-    #[default]
-    Off,
-    /// Subtle foreground-tinted highlight (alpha=0.03).
-    Subtle,
-}
-
-/// Plugin configuration.
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct PluginsConfig {
-    /// Custom path to the plugins directory. Defaults to XDG_DATA_HOME/kasane/plugins/.
-    pub path: Option<String>,
-    /// Bundled plugin IDs to enable (opt-in). Bundled plugins are NOT loaded unless
-    /// listed here, except for default-enabled plugins (e.g. "pane_manager").
-    /// Available: "cursor_line", "color_preview", "sel_badge", "fuzzy_finder", "pane_manager".
-    pub enabled: Vec<String>,
-    /// Plugin IDs to disable (by plugin ID, e.g. "cursor_line").
-    /// Applies to filesystem-discovered and user-registered plugins.
-    pub disabled: Vec<String>,
-    /// Per-plugin capability denials. Key: plugin ID, Value: list of denied capability names.
-    /// Valid capability names: "filesystem", "environment", "monotonic-clock", "process".
-    pub deny_capabilities: HashMap<String, Vec<String>>,
-    /// Per-plugin authority denials. Key: plugin ID, Value: list of denied authority names.
-    /// Valid authority names: "dynamic-surface", "pty-process".
-    pub deny_authorities: HashMap<String, Vec<String>>,
-    /// Per-plugin active-set selection policy.
-    pub selection: HashMap<String, PluginSelection>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum PluginSelection {
-    #[default]
-    Auto,
-    PinDigest {
-        digest: String,
-    },
-    PinPackage {
-        package: String,
-        version: Option<String>,
-    },
-}
-
-impl PluginsConfig {
-    /// Check if a bundled plugin should be loaded (opt-in via `enabled` list).
-    pub fn is_bundled_enabled(&self, id: &str) -> bool {
-        self.enabled.iter().any(|s| s == id)
-    }
-
-    pub fn is_disabled(&self, id: &str) -> bool {
-        self.disabled.iter().any(|s| s == id)
-    }
-
-    pub fn selection_for(&self, id: &str) -> PluginSelection {
-        self.selection.get(id).cloned().unwrap_or_default()
-    }
-
-    /// Resolve the plugins directory path.
-    pub fn plugins_dir(&self) -> PathBuf {
-        if let Some(ref p) = self.path {
-            PathBuf::from(p)
-        } else {
-            dirs_data_path().join("plugins")
-        }
-    }
-}
-
-fn dirs_data_path() -> PathBuf {
-    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-        PathBuf::from(xdg).join("kasane")
-    } else if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join("kasane")
-    } else {
-        PathBuf::from("kasane-data")
     }
 }
 
