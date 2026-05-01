@@ -6,6 +6,7 @@ mod parse;
 mod style;
 #[cfg(test)]
 mod tests;
+pub mod wire;
 
 pub use color::*;
 pub use message::*;
