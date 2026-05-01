@@ -180,7 +180,7 @@ pub trait InputHandler: Any {
     }
 
     // --- Update / dispatch (consuming) ---
-    fn update(&mut self, _msg: &mut dyn Any, _state: &AppView<'_>) -> Effects {
+    fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppView<'_>) -> Effects {
         Effects::default()
     }
     fn handle_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
@@ -460,7 +460,7 @@ pub trait Renderer: Any {
 
 /// I/O event handling and declarative process tasks.
 pub trait Io: Any {
-    fn on_io_event(&mut self, _event: &IoEvent, _state: &AppView<'_>) -> Effects {
+    fn on_io_event_effects(&mut self, _event: &IoEvent, _state: &AppView<'_>) -> Effects {
         Effects::default()
     }
 
@@ -576,5 +576,351 @@ pub trait PluginMeta: Any {
 
     fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
         Vec::new()
+    }
+}
+
+// =============================================================================
+// Blanket impls — every PluginBackend automatically satisfies each
+// capability trait by delegating to its same-named method. Call sites
+// can opt into the narrower trait surface as `&dyn TraitName` when
+// they only need that capability, without forcing impl-site churn.
+// =============================================================================
+
+impl<T: super::PluginBackend + ?Sized> InputHandler for T {
+    fn observe_key(&mut self, key: &KeyEvent, state: &AppView<'_>) {
+        super::PluginBackend::observe_key(self, key, state)
+    }
+    fn observe_text_input(&mut self, text: &str, state: &AppView<'_>) {
+        super::PluginBackend::observe_text_input(self, text, state)
+    }
+    fn observe_mouse(&mut self, event: &MouseEvent, state: &AppView<'_>) {
+        super::PluginBackend::observe_mouse(self, event, state)
+    }
+    fn observe_drop(&mut self, event: &DropEvent, state: &AppView<'_>) {
+        super::PluginBackend::observe_drop(self, event, state)
+    }
+    fn handle_key_pre_dispatch(
+        &mut self,
+        key: &KeyEvent,
+        state: &AppView<'_>,
+    ) -> KeyPreDispatchResult {
+        super::PluginBackend::handle_key_pre_dispatch(self, key, state)
+    }
+    fn handle_mouse_pre_dispatch(
+        &mut self,
+        event: &MouseEvent,
+        state: &AppView<'_>,
+    ) -> MousePreDispatchResult {
+        super::PluginBackend::handle_mouse_pre_dispatch(self, event, state)
+    }
+    fn handle_text_input_pre_dispatch(
+        &mut self,
+        text: &str,
+        state: &AppView<'_>,
+    ) -> TextInputPreDispatchResult {
+        super::PluginBackend::handle_text_input_pre_dispatch(self, text, state)
+    }
+    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppView<'_>) -> Effects {
+        super::PluginBackend::update_effects(self, msg, state)
+    }
+    fn handle_key(&mut self, key: &KeyEvent, state: &AppView<'_>) -> Option<Vec<Command>> {
+        super::PluginBackend::handle_key(self, key, state)
+    }
+    fn handle_text_input(&mut self, text: &str, state: &AppView<'_>) -> Option<Vec<Command>> {
+        super::PluginBackend::handle_text_input(self, text, state)
+    }
+    fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppView<'_>) -> KeyHandleResult {
+        super::PluginBackend::handle_key_middleware(self, key, state)
+    }
+    fn handle_mouse(
+        &mut self,
+        event: &MouseEvent,
+        id: InteractiveId,
+        state: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        super::PluginBackend::handle_mouse(self, event, id, state)
+    }
+    fn handle_drop(
+        &mut self,
+        event: &DropEvent,
+        id: InteractiveId,
+        state: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        super::PluginBackend::handle_drop(self, event, id, state)
+    }
+    fn handle_mouse_fallback(
+        &mut self,
+        event: &MouseEvent,
+        scroll_amount: i32,
+        state: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        super::PluginBackend::handle_mouse_fallback(self, event, scroll_amount, state)
+    }
+    fn handle_default_scroll(
+        &mut self,
+        candidate: DefaultScrollCandidate,
+        state: &AppView<'_>,
+    ) -> Option<ScrollPolicyResult> {
+        super::PluginBackend::handle_default_scroll(self, candidate, state)
+    }
+}
+
+impl<T: super::PluginBackend + ?Sized> Contributor for T {
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        state: &AppView<'_>,
+        ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        super::PluginBackend::contribute_to(self, region, state, ctx)
+    }
+    fn contribute_overlay_with_ctx(
+        &self,
+        state: &AppView<'_>,
+        ctx: &OverlayContext,
+    ) -> Option<OverlayContribution> {
+        super::PluginBackend::contribute_overlay_with_ctx(self, state, ctx)
+    }
+}
+
+impl<T: super::PluginBackend + ?Sized> Transformer for T {
+    fn transform(
+        &self,
+        target: &TransformTarget,
+        subject: TransformSubject,
+        state: &AppView<'_>,
+        ctx: &TransformContext,
+    ) -> TransformSubject {
+        super::PluginBackend::transform(self, target, subject, state, ctx)
+    }
+    fn transform_priority(&self) -> i16 {
+        super::PluginBackend::transform_priority(self)
+    }
+    fn transform_descriptor(&self) -> Option<TransformDescriptor> {
+        super::PluginBackend::transform_descriptor(self)
+    }
+    fn transform_patch(
+        &self,
+        target: &TransformTarget,
+        state: &AppView<'_>,
+        ctx: &TransformContext,
+    ) -> Option<ElementPatch> {
+        super::PluginBackend::transform_patch(self, target, state, ctx)
+    }
+    fn transform_menu_item(
+        &self,
+        item: &[crate::protocol::Atom],
+        index: usize,
+        selected: bool,
+        state: &AppView<'_>,
+    ) -> Option<Vec<crate::protocol::Atom>> {
+        super::PluginBackend::transform_menu_item(self, item, index, selected, state)
+    }
+}
+
+impl<T: super::PluginBackend + ?Sized> Annotator for T {
+    fn annotate_line_with_ctx(
+        &self,
+        line: usize,
+        state: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> Option<LineAnnotation> {
+        super::PluginBackend::annotate_line_with_ctx(self, line, state, ctx)
+    }
+    fn has_decomposed_annotations(&self) -> bool {
+        super::PluginBackend::has_decomposed_annotations(self)
+    }
+    fn decorate_gutter(
+        &self,
+        side: GutterSide,
+        line: usize,
+        state: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> Option<(i16, Element)> {
+        super::PluginBackend::decorate_gutter(self, side, line, state, ctx)
+    }
+    fn decorate_background(
+        &self,
+        line: usize,
+        state: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> Option<BackgroundLayer> {
+        super::PluginBackend::decorate_background(self, line, state, ctx)
+    }
+    fn decorate_inline(
+        &self,
+        line: usize,
+        state: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> Option<crate::render::InlineDecoration> {
+        super::PluginBackend::decorate_inline(self, line, state, ctx)
+    }
+    fn annotate_virtual_text(
+        &self,
+        line: usize,
+        state: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> Vec<VirtualTextItem> {
+        super::PluginBackend::annotate_virtual_text(self, line, state, ctx)
+    }
+    fn content_annotations(
+        &self,
+        state: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> Vec<ContentAnnotation> {
+        super::PluginBackend::content_annotations(self, state, ctx)
+    }
+}
+
+impl<T: super::PluginBackend + ?Sized> DisplayTransform for T {
+    fn display_directive_priority(&self) -> i16 {
+        super::PluginBackend::display_directive_priority(self)
+    }
+    fn display_directives(&self, state: &AppView<'_>) -> Vec<DisplayDirective> {
+        super::PluginBackend::display_directives(self, state)
+    }
+    fn has_unified_display(&self) -> bool {
+        super::PluginBackend::has_unified_display(self)
+    }
+    fn unified_display(&self, state: &AppView<'_>) -> Vec<DisplayDirective> {
+        super::PluginBackend::unified_display(self, state)
+    }
+    fn projection_descriptors(&self) -> &[ProjectionDescriptor] {
+        super::PluginBackend::projection_descriptors(self)
+    }
+    fn projection_directives(
+        &self,
+        id: &ProjectionId,
+        state: &AppView<'_>,
+    ) -> Vec<DisplayDirective> {
+        super::PluginBackend::projection_directives(self, id, state)
+    }
+    fn navigation_policy(&self, unit: &DisplayUnit) -> Option<NavigationPolicy> {
+        super::PluginBackend::navigation_policy(self, unit)
+    }
+    fn navigation_action(
+        &mut self,
+        unit: &DisplayUnit,
+        action: NavigationAction,
+    ) -> Option<ActionResult> {
+        super::PluginBackend::navigation_action(self, unit, action)
+    }
+    fn compute_display_scroll_offset(
+        &self,
+        cursor_display_y: usize,
+        viewport_height: usize,
+        default_offset: usize,
+        state: &AppView<'_>,
+    ) -> Option<usize> {
+        super::PluginBackend::compute_display_scroll_offset(
+            self,
+            cursor_display_y,
+            viewport_height,
+            default_offset,
+            state,
+        )
+    }
+}
+
+impl<T: super::PluginBackend + ?Sized> Renderer for T {
+    fn render_ornaments(&self, state: &AppView<'_>, ctx: &RenderOrnamentContext) -> OrnamentBatch {
+        super::PluginBackend::render_ornaments(self, state, ctx)
+    }
+    fn paint_inline_box(&self, box_id: u64, state: &AppView<'_>) -> Option<Element> {
+        super::PluginBackend::paint_inline_box(self, box_id, state)
+    }
+    fn render_menu_overlay(&self, state: &AppView<'_>, view: &PluginView<'_>) -> Option<Overlay> {
+        super::PluginBackend::render_menu_overlay(self, state, view)
+    }
+    fn render_info_overlays(
+        &self,
+        state: &AppView<'_>,
+        avoid: &[Rect],
+        view: &PluginView<'_>,
+    ) -> Option<Vec<Overlay>> {
+        super::PluginBackend::render_info_overlays(self, state, avoid, view)
+    }
+}
+
+impl<T: super::PluginBackend + ?Sized> Io for T {
+    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppView<'_>) -> Effects {
+        super::PluginBackend::on_io_event_effects(self, event, state)
+    }
+    fn start_process_task(&mut self, name: &str) -> Vec<Command> {
+        super::PluginBackend::start_process_task(self, name)
+    }
+    fn allows_process_spawn(&self) -> bool {
+        super::PluginBackend::allows_process_spawn(self)
+    }
+}
+
+impl<T: super::PluginBackend + ?Sized> PubSubMember for T {
+    fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
+        super::PluginBackend::collect_publications(self, bus, state)
+    }
+    fn deliver_subscriptions(&mut self, bus: &TopicBus) -> bool {
+        super::PluginBackend::deliver_subscriptions(self, bus)
+    }
+}
+
+impl<T: super::PluginBackend + ?Sized> ExtensionParticipant for T {
+    fn extension_definitions(&self) -> &[ExtensionDefinition] {
+        super::PluginBackend::extension_definitions(self)
+    }
+    fn evaluate_extension(
+        &self,
+        id: &ExtensionPointId,
+        input: &ChannelValue,
+        state: &AppView<'_>,
+    ) -> Vec<ExtensionOutput> {
+        super::PluginBackend::evaluate_extension(self, id, input, state)
+    }
+}
+
+impl<T: super::PluginBackend + ?Sized> WorkspaceMember for T {
+    fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
+        super::PluginBackend::surfaces(self)
+    }
+    fn workspace_request(&self) -> Option<crate::workspace::Placement> {
+        super::PluginBackend::workspace_request(self)
+    }
+    fn on_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
+        super::PluginBackend::on_workspace_changed(self, query)
+    }
+    fn workspace_save(&self) -> Option<serde_json::Value> {
+        super::PluginBackend::workspace_save(self)
+    }
+    fn workspace_restore(&mut self, data: &serde_json::Value) {
+        super::PluginBackend::workspace_restore(self, data)
+    }
+}
+
+impl<T: super::PluginBackend + ?Sized> PluginMeta for T {
+    fn id(&self) -> PluginId {
+        super::PluginBackend::id(self)
+    }
+    fn set_plugin_tag(&mut self, tag: crate::element::PluginTag) {
+        super::PluginBackend::set_plugin_tag(self, tag)
+    }
+    fn state_hash(&self) -> u64 {
+        super::PluginBackend::state_hash(self)
+    }
+    fn view_deps(&self) -> DirtyFlags {
+        super::PluginBackend::view_deps(self)
+    }
+    fn capabilities(&self) -> super::PluginCapabilities {
+        super::PluginBackend::capabilities(self)
+    }
+    fn authorities(&self) -> PluginAuthorities {
+        super::PluginBackend::authorities(self)
+    }
+    fn suppressed_builtins(&self) -> &HashSet<BuiltinTarget> {
+        super::PluginBackend::suppressed_builtins(self)
+    }
+    fn capability_descriptor(&self) -> Option<super::CapabilityDescriptor> {
+        super::PluginBackend::capability_descriptor(self)
+    }
+    fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
+        super::PluginBackend::drain_diagnostics(self)
     }
 }
