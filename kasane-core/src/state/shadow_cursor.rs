@@ -701,15 +701,15 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
                         .copied()
                         .unwrap_or(true)
                     {
-                        return Effects::with(vec![Command::UpdateShadowCursor(None)]);
+                        return Effects::default().with_shadow_cursor(None);
                     }
                 } else {
                     // Display unit no longer projected -> deactivate
-                    return Effects::with(vec![Command::UpdateShadowCursor(None)]);
+                    return Effects::default().with_shadow_cursor(None);
                 }
             } else {
                 // Display line no longer exists -> deactivate
-                return Effects::with(vec![Command::UpdateShadowCursor(None)]);
+                return Effects::default().with_shadow_cursor(None);
             }
         }
         Effects::default()

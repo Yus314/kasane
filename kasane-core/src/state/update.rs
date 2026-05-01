@@ -128,6 +128,15 @@ fn update_inner<E: PluginEffects>(
                 let mut batch = effects.notify_state_changed(&AppView::new(state), flags);
                 scroll_plans.append(&mut batch.effects.scroll_plans);
                 commands.append(&mut batch.effects.commands);
+                // Apply typed state updates (R4: typed channel — preferred).
+                if let Some(sc) = batch.effects.state_updates.shadow_cursor.take() {
+                    state.runtime.shadow_cursor = sc;
+                }
+                if let Some(drag) = batch.effects.state_updates.drag.take() {
+                    state.runtime.drag = drag;
+                }
+                // Legacy peek path — still active for callers that emit
+                // Command::Update* directly. Removed in R4.4.
                 if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
                     state.runtime.shadow_cursor = sc;
                 }
