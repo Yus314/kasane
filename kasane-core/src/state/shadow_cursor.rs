@@ -723,7 +723,12 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
         let app_state = state.as_app_state();
         let shadow = match app_state.runtime.shadow_cursor.as_ref() {
             Some(s) => s,
-            None => return KeyPreDispatchResult::Pass { commands: vec![] },
+            None => {
+                return KeyPreDispatchResult::Pass {
+                    commands: vec![],
+                    state_updates: crate::plugin::StateUpdates::default(),
+                };
+            }
         };
 
         let display_line = shadow.display_line;
@@ -745,14 +750,22 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
         match handle_shadow_cursor_key(&mut shadow_mut, key, &span_text) {
             ShadowKeyResult::Consumed(flags) => KeyPreDispatchResult::Consumed {
                 flags,
-                commands: vec![Command::UpdateShadowCursor(Some(shadow_mut))],
+                commands: vec![],
+                state_updates: crate::plugin::StateUpdates {
+                    shadow_cursor: Some(Some(shadow_mut)),
+                    ..Default::default()
+                },
             },
             ShadowKeyResult::Deactivate => KeyPreDispatchResult::Pass {
-                commands: vec![Command::UpdateShadowCursor(None)],
+                commands: vec![],
+                state_updates: crate::plugin::StateUpdates {
+                    shadow_cursor: Some(None),
+                    ..Default::default()
+                },
             },
             ShadowKeyResult::Commit(_) => {
                 // Resolve the editable span and build mirror commit commands
-                let commands = app_state
+                let commit_commands = app_state
                     .runtime
                     .display_map
                     .as_ref()
@@ -772,11 +785,13 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
                         }
                     })
                     .unwrap_or_default();
-                let mut cmds = vec![Command::UpdateShadowCursor(None)];
-                cmds.extend(commands);
                 KeyPreDispatchResult::Consumed {
                     flags: DirtyFlags::BUFFER_CONTENT,
-                    commands: cmds,
+                    commands: commit_commands,
+                    state_updates: crate::plugin::StateUpdates {
+                        shadow_cursor: Some(None),
+                        ..Default::default()
+                    },
                 }
             }
         }
@@ -810,7 +825,11 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
             *cursor_grapheme_offset += text.graphemes(true).count();
             TextInputPreDispatchResult::Consumed {
                 flags: DirtyFlags::BUFFER_CONTENT,
-                commands: vec![Command::UpdateShadowCursor(Some(shadow_mut))],
+                commands: vec![],
+                state_updates: crate::plugin::StateUpdates {
+                    shadow_cursor: Some(Some(shadow_mut)),
+                    ..Default::default()
+                },
             }
         } else {
             TextInputPreDispatchResult::Pass
@@ -824,17 +843,26 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
     ) -> MousePreDispatchResult {
         let app = state.as_app_state();
         if app.runtime.shadow_cursor.is_none() {
-            return MousePreDispatchResult::Pass { commands: vec![] };
+            return MousePreDispatchResult::Pass {
+                commands: vec![],
+                state_updates: crate::plugin::StateUpdates::default(),
+            };
         }
         if !matches!(event.kind, crate::input::MouseEventKind::Press(_)) {
-            return MousePreDispatchResult::Pass { commands: vec![] };
+            return MousePreDispatchResult::Pass {
+                commands: vec![],
+                state_updates: crate::plugin::StateUpdates::default(),
+            };
         }
         if app
             .runtime
             .suppressed_builtins
             .contains(&BuiltinTarget::ShadowCursor)
         {
-            return MousePreDispatchResult::Pass { commands: vec![] };
+            return MousePreDispatchResult::Pass {
+                commands: vec![],
+                state_updates: crate::plugin::StateUpdates::default(),
+            };
         }
         let hit_editable = app
             .runtime
@@ -844,10 +872,17 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
             .is_some_and(|u| u.interaction == InteractionPolicy::Editable);
         if !hit_editable {
             MousePreDispatchResult::Pass {
-                commands: vec![Command::UpdateShadowCursor(None)],
+                commands: vec![],
+                state_updates: crate::plugin::StateUpdates {
+                    shadow_cursor: Some(None),
+                    ..Default::default()
+                },
             }
         } else {
-            MousePreDispatchResult::Pass { commands: vec![] }
+            MousePreDispatchResult::Pass {
+                commands: vec![],
+                state_updates: crate::plugin::StateUpdates::default(),
+            }
         }
     }
 

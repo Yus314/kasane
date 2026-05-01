@@ -6,7 +6,7 @@ use crate::element::{InteractiveId, PluginTag};
 use crate::input::{DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::state::DirtyFlags;
 
-use crate::plugin::effects::{MouseHandleResult, TextInputHandleResult};
+use crate::plugin::effects::{MouseHandleResult, StateUpdates, TextInputHandleResult};
 use crate::plugin::traits::MousePreDispatchResult;
 use crate::plugin::{
     AppView, Command, KeyHandleResult, KeyPreDispatchResult, PluginCapabilities, PluginId,
@@ -192,13 +192,19 @@ impl PluginRuntime {
             let result = slot.backend.handle_key_pre_dispatch(key, app);
             match result {
                 KeyPreDispatchResult::Consumed { .. } => return result,
-                KeyPreDispatchResult::Pass { ref commands } if !commands.is_empty() => {
+                KeyPreDispatchResult::Pass {
+                    ref commands,
+                    ref state_updates,
+                } if !commands.is_empty() || !state_updates.is_empty() => {
                     return result;
                 }
                 KeyPreDispatchResult::Pass { .. } => continue,
             }
         }
-        KeyPreDispatchResult::Pass { commands: vec![] }
+        KeyPreDispatchResult::Pass {
+            commands: vec![],
+            state_updates: StateUpdates::default(),
+        }
     }
 
     /// Dispatch text input pre-dispatch to plugins with KEY_PRE_DISPATCH capability.
@@ -231,6 +237,7 @@ impl PluginRuntime {
         app: &AppView<'_>,
     ) -> MousePreDispatchResult {
         let mut pass_commands = Vec::new();
+        let mut pass_state_updates = StateUpdates::default();
         for slot in &mut self.slots {
             if !slot
                 .capabilities
@@ -243,17 +250,29 @@ impl PluginRuntime {
                 MousePreDispatchResult::Consumed {
                     flags,
                     mut commands,
+                    state_updates,
                 } => {
                     commands.splice(0..0, pass_commands);
-                    return MousePreDispatchResult::Consumed { flags, commands };
+                    let mut merged = pass_state_updates;
+                    merged.merge(state_updates);
+                    return MousePreDispatchResult::Consumed {
+                        flags,
+                        commands,
+                        state_updates: merged,
+                    };
                 }
-                MousePreDispatchResult::Pass { commands } => {
+                MousePreDispatchResult::Pass {
+                    commands,
+                    state_updates,
+                } => {
                     pass_commands.extend(commands);
+                    pass_state_updates.merge(state_updates);
                 }
             }
         }
         MousePreDispatchResult::Pass {
             commands: pass_commands,
+            state_updates: pass_state_updates,
         }
     }
 

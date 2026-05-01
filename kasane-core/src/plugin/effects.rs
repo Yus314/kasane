@@ -388,7 +388,10 @@ impl PluginEffects for NullEffects {
         EffectsBatch::default()
     }
     fn dispatch_key_pre_dispatch(&mut self, _: &KeyEvent, _: &AppView<'_>) -> KeyPreDispatchResult {
-        KeyPreDispatchResult::Pass { commands: vec![] }
+        KeyPreDispatchResult::Pass {
+            commands: vec![],
+            state_updates: StateUpdates::default(),
+        }
     }
     fn dispatch_text_input_pre_dispatch(
         &mut self,
@@ -410,7 +413,10 @@ impl PluginEffects for NullEffects {
         _: &MouseEvent,
         _: &AppView<'_>,
     ) -> MousePreDispatchResult {
-        MousePreDispatchResult::Pass { commands: vec![] }
+        MousePreDispatchResult::Pass {
+            commands: vec![],
+            state_updates: StateUpdates::default(),
+        }
     }
     fn dispatch_mouse_fallback(
         &mut self,
@@ -475,7 +481,10 @@ impl PluginEffects for RecordingEffects {
         EffectsBatch::default()
     }
     fn dispatch_key_pre_dispatch(&mut self, _: &KeyEvent, _: &AppView<'_>) -> KeyPreDispatchResult {
-        KeyPreDispatchResult::Pass { commands: vec![] }
+        KeyPreDispatchResult::Pass {
+            commands: vec![],
+            state_updates: StateUpdates::default(),
+        }
     }
     fn dispatch_text_input_pre_dispatch(
         &mut self,
@@ -507,7 +516,10 @@ impl PluginEffects for RecordingEffects {
         _: &MouseEvent,
         _: &AppView<'_>,
     ) -> MousePreDispatchResult {
-        MousePreDispatchResult::Pass { commands: vec![] }
+        MousePreDispatchResult::Pass {
+            commands: vec![],
+            state_updates: StateUpdates::default(),
+        }
     }
     fn dispatch_mouse_fallback(
         &mut self,

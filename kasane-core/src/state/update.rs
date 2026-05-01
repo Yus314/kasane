@@ -163,7 +163,14 @@ fn update_inner<E: PluginEffects>(
                 KeyPreDispatchResult::Consumed {
                     flags,
                     mut commands,
+                    mut state_updates,
                 } => {
+                    if let Some(sc) = state_updates.shadow_cursor.take() {
+                        state.runtime.shadow_cursor = sc;
+                    }
+                    if let Some(drag) = state_updates.drag.take() {
+                        state.runtime.drag = drag;
+                    }
                     if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
                         state.runtime.shadow_cursor = sc;
                     }
@@ -174,7 +181,16 @@ fn update_inner<E: PluginEffects>(
                         ..Default::default()
                     };
                 }
-                KeyPreDispatchResult::Pass { mut commands } => {
+                KeyPreDispatchResult::Pass {
+                    mut commands,
+                    mut state_updates,
+                } => {
+                    if let Some(sc) = state_updates.shadow_cursor.take() {
+                        state.runtime.shadow_cursor = sc;
+                    }
+                    if let Some(drag) = state_updates.drag.take() {
+                        state.runtime.drag = drag;
+                    }
                     if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
                         state.runtime.shadow_cursor = sc;
                     }
@@ -218,7 +234,14 @@ fn update_inner<E: PluginEffects>(
                 TextInputPreDispatchResult::Consumed {
                     flags,
                     mut commands,
+                    mut state_updates,
                 } => {
+                    if let Some(sc) = state_updates.shadow_cursor.take() {
+                        state.runtime.shadow_cursor = sc;
+                    }
+                    if let Some(drag) = state_updates.drag.take() {
+                        state.runtime.drag = drag;
+                    }
                     if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
                         state.runtime.shadow_cursor = sc;
                     }
@@ -341,7 +364,14 @@ fn dispatch_mouse_event<E: PluginEffects>(
         MousePreDispatchResult::Consumed {
             flags,
             mut commands,
+            mut state_updates,
         } => {
+            if let Some(sc) = state_updates.shadow_cursor.take() {
+                state.runtime.shadow_cursor = sc;
+            }
+            if let Some(drag) = state_updates.drag.take() {
+                state.runtime.drag = drag;
+            }
             if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
                 state.runtime.shadow_cursor = sc;
             }
@@ -355,7 +385,16 @@ fn dispatch_mouse_event<E: PluginEffects>(
                 ..Default::default()
             };
         }
-        MousePreDispatchResult::Pass { mut commands } => {
+        MousePreDispatchResult::Pass {
+            mut commands,
+            mut state_updates,
+        } => {
+            if let Some(sc) = state_updates.shadow_cursor.take() {
+                state.runtime.shadow_cursor = sc;
+            }
+            if let Some(drag) = state_updates.drag.take() {
+                state.runtime.drag = drag;
+            }
             if let Some(sc) = extract_shadow_cursor_update(&mut commands) {
                 state.runtime.shadow_cursor = sc;
             }

@@ -5,6 +5,7 @@ use crate::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent}
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{self, DirtyFlags};
 
+use super::effects::StateUpdates;
 use super::extension_point::{ExtensionOutput, ExtensionPointId};
 use super::pubsub::TopicBus;
 use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
@@ -50,11 +51,15 @@ pub enum KeyPreDispatchResult {
     Consumed {
         flags: DirtyFlags,
         commands: Vec<Command>,
+        state_updates: StateUpdates,
     },
     /// Pass through to normal key dispatch. Commands (if any) are applied first.
     /// This allows pre-dispatch handlers to update state (e.g., deactivate shadow cursor)
     /// while still letting the key proceed through normal dispatch.
-    Pass { commands: Vec<Command> },
+    Pass {
+        commands: Vec<Command>,
+        state_updates: StateUpdates,
+    },
 }
 
 /// Result of mouse pre-dispatch (before observation and hit-test dispatch).
@@ -67,9 +72,13 @@ pub enum MousePreDispatchResult {
     Consumed {
         flags: DirtyFlags,
         commands: Vec<Command>,
+        state_updates: StateUpdates,
     },
     /// Pass through to normal mouse dispatch. Commands (if any) are applied first.
-    Pass { commands: Vec<Command> },
+    Pass {
+        commands: Vec<Command>,
+        state_updates: StateUpdates,
+    },
 }
 
 /// Result of text input pre-dispatch (before the text input handler chain).
@@ -78,6 +87,7 @@ pub enum TextInputPreDispatchResult {
     Consumed {
         flags: DirtyFlags,
         commands: Vec<Command>,
+        state_updates: StateUpdates,
     },
     /// Pass through to normal text input dispatch.
     Pass,
@@ -144,7 +154,10 @@ pub trait PluginBackend: Any {
         _key: &KeyEvent,
         _state: &AppView<'_>,
     ) -> KeyPreDispatchResult {
-        KeyPreDispatchResult::Pass { commands: vec![] }
+        KeyPreDispatchResult::Pass {
+            commands: vec![],
+            state_updates: StateUpdates::default(),
+        }
     }
 
     /// Handle a mouse event before observation and hit-test dispatch.
@@ -157,7 +170,10 @@ pub trait PluginBackend: Any {
         _event: &MouseEvent,
         _state: &AppView<'_>,
     ) -> MousePreDispatchResult {
-        MousePreDispatchResult::Pass { commands: vec![] }
+        MousePreDispatchResult::Pass {
+            commands: vec![],
+            state_updates: StateUpdates::default(),
+        }
     }
 
     /// Handle committed text input before the text input handler chain.

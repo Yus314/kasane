@@ -5,9 +5,7 @@
 //! rather than hardcoded logic in `update.rs`.
 
 use crate::input::{MouseEvent, MouseEventKind};
-use crate::plugin::{
-    AppView, Command, MousePreDispatchResult, PluginBackend, PluginCapabilities, PluginId,
-};
+use crate::plugin::{AppView, MousePreDispatchResult, PluginBackend, PluginCapabilities, PluginId};
 use crate::state::DragState;
 
 /// Built-in plugin that tracks mouse drag state.
@@ -33,16 +31,27 @@ impl PluginBackend for BuiltinDragPlugin {
     ) -> MousePreDispatchResult {
         match event.kind {
             MouseEventKind::Press(button) => MousePreDispatchResult::Pass {
-                commands: vec![Command::UpdateDragState(DragState::Active {
-                    button,
-                    start_line: event.line,
-                    start_column: event.column,
-                })],
+                commands: vec![],
+                state_updates: crate::plugin::StateUpdates {
+                    drag: Some(DragState::Active {
+                        button,
+                        start_line: event.line,
+                        start_column: event.column,
+                    }),
+                    ..Default::default()
+                },
             },
             MouseEventKind::Release(_) => MousePreDispatchResult::Pass {
-                commands: vec![Command::UpdateDragState(DragState::None)],
+                commands: vec![],
+                state_updates: crate::plugin::StateUpdates {
+                    drag: Some(DragState::None),
+                    ..Default::default()
+                },
             },
-            _ => MousePreDispatchResult::Pass { commands: vec![] },
+            _ => MousePreDispatchResult::Pass {
+                commands: vec![],
+                state_updates: crate::plugin::StateUpdates::default(),
+            },
         }
     }
 }
