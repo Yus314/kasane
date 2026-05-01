@@ -15,6 +15,7 @@ pub mod element_patch;
 pub mod extension_point;
 pub mod handler_registry;
 pub(crate) mod handler_table;
+pub(crate) mod inline_box;
 pub mod io;
 pub mod kakoune_safe_command;
 pub mod kakoune_safe_effects;
