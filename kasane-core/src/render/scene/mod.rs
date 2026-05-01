@@ -105,6 +105,147 @@ pub struct BufferParagraph {
     pub inline_box_paint_commands: Vec<Vec<DrawCommand>>,
 }
 
+impl BufferParagraph {
+    /// Start a [`BufferParagraphBuilder`] for ergonomic paragraph
+    /// construction.
+    ///
+    /// Production-side paragraphs are produced by the render pipeline
+    /// from `Atom`s + `InlineDecoration`; the builder is the
+    /// test-and-plugin-author-friendly path that constructs the same
+    /// shape directly. ADR-032 W2 Phase 10 fixture skeletons in
+    /// `kasane-gui/tests/golden_render.rs` use the builder to pin
+    /// inline-box / RTL / CJK behaviour without going through the
+    /// full Element pipeline.
+    pub fn builder() -> BufferParagraphBuilder {
+        BufferParagraphBuilder::default()
+    }
+}
+
+/// Ergonomic builder for [`BufferParagraph`].
+///
+/// Construct one paragraph by chaining `atom` / `base_face` /
+/// `primary_cursor_at` / `secondary_cursor_at` / `inline_box_slot`
+/// calls and finishing with [`build`](Self::build).
+///
+/// ## Invariants checked at `build` time
+///
+/// - **inline-box slot pairing.** Each call to
+///   [`inline_box_slot`](Self::inline_box_slot) appends both a
+///   [`InlineBoxSlotMeta`](crate::render::inline_decoration::InlineBoxSlotMeta)
+///   *and* its paint commands; the two vectors stay in lock-step by
+///   construction. The `BufferParagraph::inline_box_paint_commands`
+///   `len() == inline_box_slots.len()` invariant therefore cannot be
+///   violated through the builder.
+///
+/// ## Out of scope
+///
+/// The builder produces a `BufferParagraph` value; it does *not*
+/// shape, layout, or render. Tests that need a rendered image
+/// continue to feed the result into `SceneRenderer` (see ADR-032 W2
+/// `tests/golden_render.rs`).
+#[derive(Debug, Default, Clone)]
+pub struct BufferParagraphBuilder {
+    atoms: Vec<ResolvedAtom>,
+    base_face: Option<Style>,
+    annotations: Vec<ParagraphAnnotation>,
+    inline_box_slots: Vec<crate::render::inline_decoration::InlineBoxSlotMeta>,
+    inline_box_paint_commands: Vec<Vec<DrawCommand>>,
+}
+
+impl BufferParagraphBuilder {
+    /// Append a styled atom. Convenience wrapper around constructing a
+    /// [`ResolvedAtom`] inline.
+    pub fn atom(mut self, contents: impl Into<compact_str::CompactString>, style: Style) -> Self {
+        self.atoms.push(ResolvedAtom {
+            contents: contents.into(),
+            style,
+        });
+        self
+    }
+
+    /// Append an already-built [`ResolvedAtom`]. Use this when the
+    /// caller has a pre-resolved atom (for example from a fixture
+    /// constant); use [`atom`](Self::atom) for the common
+    /// `(text, style)` case.
+    pub fn push_atom(mut self, atom: ResolvedAtom) -> Self {
+        self.atoms.push(atom);
+        self
+    }
+
+    /// Set the paragraph's base style. The base style controls the
+    /// background fill behind the line and the inherited style for
+    /// atoms that opt into inheritance. Defaults to
+    /// [`Style::default()`] if not set.
+    pub fn base_face(mut self, style: Style) -> Self {
+        self.base_face = Some(style);
+        self
+    }
+
+    /// Append a primary-cursor annotation at the given buffer-byte
+    /// offset. Multiple primary cursors in one paragraph are not
+    /// invalid at the data layer (the renderer treats the *last* one
+    /// as primary), but typical fixtures push at most one.
+    pub fn primary_cursor_at(mut self, byte_offset: usize, style: super::CursorStyle) -> Self {
+        self.annotations
+            .push(ParagraphAnnotation::PrimaryCursor { byte_offset, style });
+        self
+    }
+
+    /// Append a secondary-cursor annotation. `blend_ratio` is the
+    /// blend factor between primary and secondary cursor colours
+    /// (1.0 = pure primary, 0.0 = pure secondary).
+    pub fn secondary_cursor_at(mut self, byte_offset: usize, blend_ratio: f32) -> Self {
+        self.annotations.push(ParagraphAnnotation::SecondaryCursor {
+            byte_offset,
+            blend_ratio,
+        });
+        self
+    }
+
+    /// Reserve an inline-box slot at `byte_offset`. The `paint_commands`
+    /// argument is the pre-painted contribution that the renderer
+    /// translates by the Parley-reported box rect at paint time.
+    /// Pass an empty `Vec` to model the "owner plugin returned `None`
+    /// from `paint_inline_box`" case (the renderer paints a
+    /// placeholder).
+    #[allow(clippy::too_many_arguments)]
+    pub fn inline_box_slot(
+        mut self,
+        byte_offset: usize,
+        width_cells: f32,
+        height_lines: f32,
+        box_id: u64,
+        alignment: crate::display::InlineBoxAlignment,
+        owner: crate::plugin::PluginId,
+        paint_commands: Vec<DrawCommand>,
+    ) -> Self {
+        self.inline_box_slots
+            .push(crate::render::inline_decoration::InlineBoxSlotMeta {
+                byte_offset,
+                width_cells,
+                height_lines,
+                box_id,
+                alignment,
+                owner,
+            });
+        self.inline_box_paint_commands.push(paint_commands);
+        self
+    }
+
+    /// Finish construction. Always succeeds — the inline-box pairing
+    /// invariant is preserved by `inline_box_slot` keeping both
+    /// vectors in lock-step.
+    pub fn build(self) -> BufferParagraph {
+        BufferParagraph {
+            atoms: self.atoms,
+            base_face: self.base_face.unwrap_or_default(),
+            annotations: self.annotations,
+            inline_box_slots: self.inline_box_slots,
+            inline_box_paint_commands: self.inline_box_paint_commands,
+        }
+    }
+}
+
 /// GPU draw command produced by `scene_paint`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawCommand {
@@ -630,5 +771,106 @@ mod tests {
         assert_eq!(line_display_width_str("hello"), 5);
         assert_eq!(line_display_width_str("abc\ndef"), 6);
         assert_eq!(line_display_width_str("漢字"), 4);
+    }
+
+    #[test]
+    fn buffer_paragraph_builder_minimal() {
+        let para = BufferParagraph::builder()
+            .atom("hello", Style::default())
+            .build();
+        assert_eq!(para.atoms.len(), 1);
+        assert_eq!(para.atoms[0].contents, "hello");
+        assert_eq!(para.base_face, Style::default());
+        assert!(para.annotations.is_empty());
+        assert!(para.inline_box_slots.is_empty());
+        assert!(para.inline_box_paint_commands.is_empty());
+    }
+
+    #[test]
+    fn buffer_paragraph_builder_cursor_annotations() {
+        let para = BufferParagraph::builder()
+            .atom("hello world", Style::default())
+            .primary_cursor_at(6, super::super::CursorStyle::Block)
+            .secondary_cursor_at(0, 0.5)
+            .build();
+        assert_eq!(para.annotations.len(), 2);
+        match &para.annotations[0] {
+            ParagraphAnnotation::PrimaryCursor { byte_offset, style } => {
+                assert_eq!(*byte_offset, 6);
+                assert_eq!(*style, super::super::CursorStyle::Block);
+            }
+            other => panic!("expected PrimaryCursor, got {other:?}"),
+        }
+        match &para.annotations[1] {
+            ParagraphAnnotation::SecondaryCursor {
+                byte_offset,
+                blend_ratio,
+            } => {
+                assert_eq!(*byte_offset, 0);
+                assert!((blend_ratio - 0.5).abs() < f32::EPSILON);
+            }
+            other => panic!("expected SecondaryCursor, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn buffer_paragraph_builder_inline_box_pairs_lockstep() {
+        // Pin the invariant: after any sequence of inline_box_slot
+        // calls, the slots and paint_commands vecs have equal length.
+        // This invariant is what frees plugin / fixture authors from
+        // managing the two vectors by hand.
+        use crate::display::InlineBoxAlignment;
+        use crate::plugin::PluginId;
+        let owner = PluginId("test.plugin".to_string());
+        let para = BufferParagraph::builder()
+            .atom("a", Style::default())
+            .inline_box_slot(
+                0,
+                1.0,
+                1.0,
+                0,
+                InlineBoxAlignment::Center,
+                owner.clone(),
+                vec![],
+            )
+            .inline_box_slot(
+                1,
+                2.0,
+                1.0,
+                1,
+                InlineBoxAlignment::Top,
+                owner,
+                vec![DrawCommand::FillRect {
+                    rect: PixelRect {
+                        x: 0.0,
+                        y: 0.0,
+                        w: 8.0,
+                        h: 16.0,
+                    },
+                    face: Style::default(),
+                    elevated: false,
+                }],
+            )
+            .build();
+        assert_eq!(para.inline_box_slots.len(), 2);
+        assert_eq!(para.inline_box_paint_commands.len(), 2);
+        // First slot opted out (empty paint_commands → renderer
+        // placeholder fallback).
+        assert!(para.inline_box_paint_commands[0].is_empty());
+        // Second slot has one DrawCommand.
+        assert_eq!(para.inline_box_paint_commands[1].len(), 1);
+        assert_eq!(para.inline_box_slots[0].box_id, 0);
+        assert_eq!(para.inline_box_slots[1].box_id, 1);
+    }
+
+    #[test]
+    fn buffer_paragraph_builder_base_face_default_is_style_default() {
+        // When the caller does not call .base_face(), the produced
+        // paragraph carries Style::default(). Pinned because plugin
+        // authors writing fixtures rely on this behaviour.
+        let para = BufferParagraph::builder()
+            .atom("x", Style::default())
+            .build();
+        assert_eq!(para.base_face, Style::default());
     }
 }
