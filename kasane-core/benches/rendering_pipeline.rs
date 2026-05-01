@@ -1649,6 +1649,82 @@ fn bench_allocations(c: &mut Criterion) {
             total_b as f64 / 1024.0
         );
     }
+
+    // ADR-032 §Spike Measurement Matrix — "Per-frame CPU heap allocations
+    // during Scene encode" baseline. Scene encoding is the boundary that
+    // Vello (or any future GPU renderer) consumes; the alloc count here
+    // is the lower bound any replacement must clear without regression.
+    {
+        let cs = CellSize {
+            width: 10.0,
+            height: 20.0,
+        };
+
+        // Scenario 1 — typical state, single full-frame encode.
+        let state = typical_state(23);
+        let registry = PluginRuntime::new();
+        alloc_counter::reset();
+        let (cmds, _result, _) = scene_render_pipeline(&state, &registry.view(), cs);
+        let (sc, sb) = alloc_counter::snapshot();
+        let cmd_count = cmds.len();
+        std::hint::black_box(cmds);
+
+        eprintln!(
+            "\n[alloc] scene_full_frame (80x24, 0 plugins): \
+             {sc} allocations, {sb} bytes ({:.1} KB), {cmd_count} DrawCommands",
+            sb as f64 / 1024.0
+        );
+
+        // Scenario 2 — typing pattern (one line edited).
+        let base = typical_state(23);
+        let state = state_with_edit(&base, 12, 1);
+        let registry = PluginRuntime::new();
+        alloc_counter::reset();
+        let (cmds, _result, _) = scene_render_pipeline(&state, &registry.view(), cs);
+        let (sc, sb) = alloc_counter::snapshot();
+        let cmd_count = cmds.len();
+        std::hint::black_box(cmds);
+
+        eprintln!(
+            "[alloc] scene_one_line_changed (80x24, 0 plugins): \
+             {sc} allocations, {sb} bytes ({:.1} KB), {cmd_count} DrawCommands",
+            sb as f64 / 1024.0
+        );
+
+        // Scenario 3 — menu visible (overlay path).
+        let state = state_with_menu(50);
+        let registry = PluginRuntime::new();
+        alloc_counter::reset();
+        let (cmds, _result, _) = scene_render_pipeline(&state, &registry.view(), cs);
+        let (sc, sb) = alloc_counter::snapshot();
+        let cmd_count = cmds.len();
+        std::hint::black_box(cmds);
+
+        eprintln!(
+            "[alloc] scene_menu_visible (80x24, 0 plugins): \
+             {sc} allocations, {sb} bytes ({:.1} KB), {cmd_count} DrawCommands",
+            sb as f64 / 1024.0
+        );
+
+        // Scenario 4 — 200x60 (scaling check; informs ADR-032 hybrid-vs-
+        // -compute regime determination — if the stack-encode alloc count
+        // grows superlinearly, the warm-frame target shifts).
+        let mut state = typical_state(59);
+        state.runtime.cols = 200;
+        state.runtime.rows = 60;
+        let registry = PluginRuntime::new();
+        alloc_counter::reset();
+        let (cmds, _result, _) = scene_render_pipeline(&state, &registry.view(), cs);
+        let (sc, sb) = alloc_counter::snapshot();
+        let cmd_count = cmds.len();
+        std::hint::black_box(cmds);
+
+        eprintln!(
+            "[alloc] scene_full_frame (200x60, 0 plugins): \
+             {sc} allocations, {sb} bytes ({:.1} KB), {cmd_count} DrawCommands",
+            sb as f64 / 1024.0
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
