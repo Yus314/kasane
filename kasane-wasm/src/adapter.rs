@@ -47,6 +47,31 @@ const MAX_PENDING_DIAGNOSTICS: usize = 10;
 /// Sentinel value for state_hash that forces recollection on the next frame.
 const HASH_SENTINEL: u64 = u64::MAX;
 
+/// Per-WASM-call epoch budget. The engine ticker increments every 10ms, so
+/// this is approximately the wall-clock budget for a single plugin call.
+/// Production target is perceptual imperceptibility (sub-frame); 100ms is
+/// well outside that, so a real runaway plugin still traps, but legitimate
+/// calls don't trip on CI scheduler jitter.
+const RUNTIME_CALL_EPOCH_BUDGET: u64 = 10;
+
+/// When true, WASM plugin call failures panic immediately instead of
+/// silently substituting `R::default()`. Tests opt in via
+/// [`set_panic_on_trap`] so that a trap surfaces as a loud panic rather
+/// than as an empty-result false negative. Production keeps the default
+/// (graceful degradation) so a buggy plugin never crashes the editor.
+static PANIC_ON_TRAP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Toggle the global panic-on-trap mode. Intended for test setup.
+#[doc(hidden)]
+#[allow(dead_code)] // only invoked from `#[cfg(test)]` paths in this crate
+pub fn set_panic_on_trap(enabled: bool) {
+    PANIC_ON_TRAP.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn panic_on_trap_enabled() -> bool {
+    PANIC_ON_TRAP.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 struct WasmPluginShared {
     runtime: Mutex<WasmPluginRuntime>,
     plugin_id: PluginId,
@@ -74,8 +99,23 @@ impl WasmPluginShared {
 
     fn with_runtime<R>(&self, f: impl FnOnce(&mut WasmPluginRuntime) -> R) -> R {
         let mut runtime = self.runtime.lock().unwrap();
-        runtime.store.set_epoch_deadline(1);
+        runtime.store.set_epoch_deadline(RUNTIME_CALL_EPOCH_BUDGET);
         f(&mut runtime)
+    }
+
+    /// Centralized error handler for WASM plugin call failures. Emits the
+    /// standard tracing log + diagnostic record + cache-poison sentinel,
+    /// or panics if [`PANIC_ON_TRAP`] is enabled (test mode).
+    fn handle_call_error(&self, method: &str, error: &anyhow::Error) {
+        if panic_on_trap_enabled() {
+            panic!(
+                "WASM plugin {}.{method} trapped: {error:#}",
+                self.plugin_id.0
+            );
+        }
+        tracing::error!("WASM plugin {}.{method} failed: {error}", self.plugin_id.0);
+        self.record_diagnostic(method, error);
+        self.set_state_hash(HASH_SENTINEL);
     }
 
     fn record_diagnostic(&self, method: &str, error: &anyhow::Error) {
@@ -109,9 +149,7 @@ impl WasmPluginShared {
             let result = match f(runtime) {
                 Ok(result) => result,
                 Err(e) => {
-                    tracing::error!("WASM plugin {}.{method} failed: {e}", self.plugin_id.0);
-                    self.record_diagnostic(method, &e);
-                    self.set_state_hash(HASH_SENTINEL);
+                    self.handle_call_error(method, &e);
                     return R::default();
                 }
             };
