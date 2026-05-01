@@ -148,7 +148,7 @@ impl Plugin for MyPlugin {
                 (state.clone(), Effects::default())
             }
         });
-        r.on_annotate_background(|state, line, _app, _ctx| {
+        r.on_decorate_background(|state, line, _app, _ctx| {
             // ... return Option<BackgroundLayer>
             None
         });

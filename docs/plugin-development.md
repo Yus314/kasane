@@ -514,7 +514,7 @@ impl Plugin for CursorLinePlugin {
                 (state.clone(), Effects::default())
             }
         });
-        r.on_annotate_background(|state, line, _app, _ctx| {
+        r.on_decorate_background(|state, line, _app, _ctx| {
             if line as i32 == state.active_line {
                 Some(BackgroundLayer {
                     face: Face { bg: Color::Named(NamedColor::Blue), ..Face::default() },
