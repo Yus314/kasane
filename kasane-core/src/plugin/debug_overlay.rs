@@ -21,7 +21,7 @@ use crate::protocol::{Atom, Color, NamedColor, Style, WireFace};
 use crate::state::DirtyFlags;
 
 /// Debug overlay plugin state.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Hash, Default)]
 pub struct DebugOverlayState {
     /// Whether the overlay is currently visible.
     pub visible: bool,

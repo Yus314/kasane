@@ -1001,13 +1001,13 @@ fn test_decomposed_annotator_has_decomposed_annotations_flag() {
 use crate::plugin::pubsub::{TopicBus, TopicId};
 
 /// Plugin state for pub/sub publisher: tracks a counter.
-#[derive(Clone, Default, PartialEq, Debug)]
+#[derive(Clone, Default, PartialEq, Hash, Debug)]
 struct PubState {
     counter: u32,
 }
 
 /// Plugin state for pub/sub subscriber: tracks received value.
-#[derive(Clone, Default, PartialEq, Debug)]
+#[derive(Clone, Default, PartialEq, Hash, Debug)]
 struct SubState {
     received: u32,
 }

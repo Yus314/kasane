@@ -279,7 +279,7 @@ fn inline_box_is_safe_constructible() {
 // Recovery flag auto-derivation tests (Step 9)
 // =========================================================================
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Hash)]
 struct S;
 
 #[test]

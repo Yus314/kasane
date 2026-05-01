@@ -1609,7 +1609,7 @@ mod tests {
     use crate::plugin::transparent_command::TransparentCommand;
     use crate::state::DirtyFlags;
 
-    #[derive(Clone, Debug, PartialEq, Default)]
+    #[derive(Clone, Debug, PartialEq, Hash, Default)]
     struct TestState {
         counter: u32,
     }
@@ -1919,7 +1919,7 @@ mod tests {
         use crate::plugin::PluginBridge;
         use crate::plugin::state::Plugin;
 
-        #[derive(Clone, Debug, PartialEq, Default)]
+        #[derive(Clone, Debug, PartialEq, Hash, Default)]
         struct NavTestState {
             counter: u32,
         }

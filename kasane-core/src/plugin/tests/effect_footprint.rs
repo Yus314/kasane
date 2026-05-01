@@ -136,7 +136,7 @@ fn transparent_effects_push_accumulates() {
 // Lifecycle transparency flags
 // =============================================================================
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Hash)]
 struct TestState {
     counter: u32,
 }

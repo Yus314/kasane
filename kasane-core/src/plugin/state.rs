@@ -5,6 +5,7 @@
 //! This enables deterministic rendering and future Salsa memoization of plugin contributions.
 
 use std::any::Any;
+use std::hash::{Hash, Hasher};
 
 use dyn_clone::DynClone;
 
@@ -15,8 +16,15 @@ use dyn_clone::DynClone;
 /// Marker trait for externalized plugin state.
 ///
 /// Framework owns `Box<dyn PluginState>` for each `Plugin`.
-/// Implements `Clone`, `PartialEq`, `Debug` on trait objects via blanket impl:
-/// any `T: Clone + PartialEq + Debug + Send + 'static` automatically satisfies this trait.
+/// Implements `Clone`, `PartialEq`, `Debug`, and `Hash` on trait objects via
+/// blanket impl: any `T: Clone + PartialEq + Debug + Hash + Send + 'static`
+/// automatically satisfies this trait.
+///
+/// `state_hash()` is used by [`PluginBridge`](super::bridge::PluginBridge) to
+/// detect state changes without holding a `prev_state` clone — the previous
+/// hash (one `u64`) is compared against the current hash. Hash collisions risk
+/// missing a generation bump, but the 1/2^64 probability is acceptable in this
+/// path.
 pub trait PluginState: DynClone + std::fmt::Debug + Send + 'static {
     /// Downcast to concrete type (immutable).
     fn as_any(&self) -> &dyn Any;
@@ -24,6 +32,9 @@ pub trait PluginState: DynClone + std::fmt::Debug + Send + 'static {
     fn as_any_mut(&mut self) -> &mut dyn Any;
     /// Dynamic equality comparison across trait objects.
     fn dyn_eq(&self, other: &dyn PluginState) -> bool;
+    /// Compute a 64-bit hash of the state. Used for change detection in the
+    /// plugin bridge without retaining a `prev_state` clone.
+    fn state_hash(&self) -> u64;
 }
 
 // Enable Box<dyn PluginState>.clone()
@@ -36,11 +47,13 @@ impl PartialEq for dyn PluginState {
     }
 }
 
-/// Blanket implementation: any `Clone + PartialEq + Debug + Send + 'static` type
-/// can be used as plugin state with zero boilerplate.
+/// Blanket implementation: any `Clone + PartialEq + Debug + Hash + Send + 'static`
+/// type can be used as plugin state with zero boilerplate. Plugin-state types
+/// containing non-`Hash` collections (e.g. `HashMap`) need to switch to
+/// `BTreeMap` or implement `Hash` manually.
 impl<T> PluginState for T
 where
-    T: Clone + PartialEq + std::fmt::Debug + Send + 'static,
+    T: Clone + PartialEq + std::fmt::Debug + Hash + Send + 'static,
 {
     fn as_any(&self) -> &dyn Any {
         self
@@ -53,6 +66,11 @@ where
             .as_any()
             .downcast_ref::<T>()
             .is_some_and(|o| self == o)
+    }
+    fn state_hash(&self) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
 }
 
@@ -87,7 +105,7 @@ pub(in crate::plugin) mod tests {
 
     // ---- CursorLinePure test double ----
 
-    #[derive(Clone, Debug, PartialEq, Default)]
+    #[derive(Clone, Debug, PartialEq, Hash, Default)]
     pub(in crate::plugin) struct CursorLineState {
         pub(in crate::plugin) active_line: i32,
     }
@@ -132,7 +150,7 @@ pub(in crate::plugin) mod tests {
 
     // ---- ColorPreviewPure test double (complex state) ----
 
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Hash)]
     pub(in crate::plugin) struct ColorEntry {
         pub(in crate::plugin) r: u8,
         pub(in crate::plugin) g: u8,
@@ -140,9 +158,11 @@ pub(in crate::plugin) mod tests {
         pub(in crate::plugin) byte_offset: usize,
     }
 
-    #[derive(Clone, Debug, PartialEq, Default)]
+    /// `color_lines` uses `BTreeMap` (not `HashMap`) so the derived `Hash` is
+    /// deterministic — required by the `PluginState::state_hash` contract.
+    #[derive(Clone, Debug, PartialEq, Hash, Default)]
     pub(in crate::plugin) struct ColorPreviewState {
-        pub(in crate::plugin) color_lines: std::collections::HashMap<usize, Vec<ColorEntry>>,
+        pub(in crate::plugin) color_lines: std::collections::BTreeMap<usize, Vec<ColorEntry>>,
         pub(in crate::plugin) active_line: i32,
         pub(in crate::plugin) generation: u64,
     }

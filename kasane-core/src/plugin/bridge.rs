@@ -39,7 +39,10 @@ pub struct PluginBridge {
     table: HandlerTable,
     state: Box<dyn PluginState>,
     generation: u64,
-    prev_state: Box<dyn PluginState>,
+    /// Hash of the last state observed by `check_state_change`. Replaces a
+    /// `Box<dyn PluginState>` clone with a single `u64`; relies on `Hash`
+    /// being deterministic for the concrete plugin state type.
+    prev_state_hash: u64,
     plugin_tag: PluginTag,
     /// Active process tasks managed by the framework.
     active_process_tasks: Vec<ProcessTaskHandle>,
@@ -64,13 +67,13 @@ impl PluginBridge {
             .map(|e| e.descriptor.clone())
             .collect();
         let state: Box<dyn PluginState> = Box::new(P::State::default());
-        let prev_state = state.clone();
+        let prev_state_hash = state.state_hash();
         PluginBridge {
             id,
             table,
             state,
             generation: 0,
-            prev_state,
+            prev_state_hash,
             plugin_tag: PluginTag::UNASSIGNED,
             active_process_tasks: Vec::new(),
             // Start at a high offset to avoid collisions with manually managed job IDs.
@@ -86,11 +89,16 @@ impl PluginBridge {
         self
     }
 
-    /// Compare current state with previous snapshot; bump generation if changed.
+    /// Compare current state hash with previous snapshot; bump generation if changed.
+    ///
+    /// Hash collisions (1/2^64) would cause a missed generation bump and a
+    /// stale L1 contribution cache. This is acceptable for the change-detection
+    /// fast path; correctness-critical comparisons should use `PartialEq`.
     fn check_state_change(&mut self) {
-        if *self.state != *self.prev_state {
+        let cur_hash = self.state.state_hash();
+        if cur_hash != self.prev_state_hash {
             self.generation += 1;
-            self.prev_state = self.state.clone();
+            self.prev_state_hash = cur_hash;
         }
     }
 

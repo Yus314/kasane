@@ -83,7 +83,7 @@ impl fmt::Display for ZoomLevel {
 // =============================================================================
 
 /// Externalized state for the Semantic Zoom plugin.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Hash, Default)]
 pub struct SemanticZoomState {
     pub level: ZoomLevel,
 }

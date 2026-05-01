@@ -79,51 +79,53 @@ fn main() {
         ..WireFace::default()
     }
     .into();
-    state.observed.lines = (0..23)
-        .map(|i| {
-            vec![
-                Atom::from_wire(
-                    WireFace {
-                        fg: Color::Rgb {
-                            r: 255,
-                            g: 100,
-                            b: 0,
+    state.observed.lines = std::sync::Arc::new(
+        (0..23)
+            .map(|i| {
+                vec![
+                    Atom::from_wire(
+                        WireFace {
+                            fg: Color::Rgb {
+                                r: 255,
+                                g: 100,
+                                b: 0,
+                            },
+                            bg: Color::Default,
+                            ..WireFace::default()
                         },
-                        bg: Color::Default,
-                        ..WireFace::default()
-                    },
-                    "let",
-                ),
-                Atom::plain(" "),
-                Atom::from_wire(
-                    WireFace {
-                        fg: Color::Rgb {
-                            r: 0,
-                            g: 200,
-                            b: 100,
+                        "let",
+                    ),
+                    Atom::plain(" "),
+                    Atom::from_wire(
+                        WireFace {
+                            fg: Color::Rgb {
+                                r: 0,
+                                g: 200,
+                                b: 100,
+                            },
+                            bg: Color::Default,
+                            ..WireFace::default()
                         },
-                        bg: Color::Default,
-                        ..WireFace::default()
-                    },
-                    format!("var_{i}"),
-                ),
-                Atom::plain(" = "),
-                Atom::from_wire(
-                    WireFace {
-                        fg: Color::Rgb {
-                            r: 100,
-                            g: 100,
-                            b: 255,
+                        format!("var_{i}"),
+                    ),
+                    Atom::plain(" = "),
+                    Atom::from_wire(
+                        WireFace {
+                            fg: Color::Rgb {
+                                r: 100,
+                                g: 100,
+                                b: 255,
+                            },
+                            bg: Color::Default,
+                            ..WireFace::default()
                         },
-                        bg: Color::Default,
-                        ..WireFace::default()
-                    },
-                    format!("\"{i}_value\""),
-                ),
-                Atom::plain(";"),
-            ]
-        })
-        .collect();
+                        format!("\"{i}_value\""),
+                    ),
+                    Atom::plain(";"),
+                ]
+            })
+            .collect(),
+    );
     state.inference.status_line = vec![Atom::plain(" NORMAL ")];
     state.observed.status_mode_line = vec![Atom::plain("normal")];
 

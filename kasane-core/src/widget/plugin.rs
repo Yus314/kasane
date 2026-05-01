@@ -24,7 +24,7 @@ use super::variables::{AppViewResolver, LineContextResolver};
 const PLUGIN_PREFIX: &str = "kasane.widget.";
 
 /// Widget state — stateless (all data comes from the widget definition).
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Hash, Default)]
 pub struct WidgetState;
 
 /// A declarative widget effect registered as a Plugin.
