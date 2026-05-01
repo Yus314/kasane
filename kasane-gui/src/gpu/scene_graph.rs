@@ -179,7 +179,7 @@ impl SceneBuilder {
                     .map(|atom| {
                         let (fg, _, _) = resolve_style(&atom.style);
                         TextSpan {
-                            text: atom.contents.clone(),
+                            text: atom.contents.to_string(),
                             color: fg,
                         }
                     })
@@ -203,7 +203,7 @@ impl SceneBuilder {
                     x: pos.x,
                     y: pos.y,
                     spans: vec![TextSpan {
-                        text: text.clone(),
+                        text: text.to_string(),
                         color: fg,
                     }],
                     max_width: *max_width,
@@ -216,7 +216,7 @@ impl SceneBuilder {
                     x: pos.x,
                     y: pos.y,
                     spans: vec![TextSpan {
-                        text: ch.clone(),
+                        text: ch.to_string(),
                         color: fg,
                     }],
                     max_width: f32::MAX,

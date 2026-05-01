@@ -94,7 +94,7 @@ fn push_preedit_text(
 
     commands.push(DrawCommand::DrawText {
         pos: PixelPos { x, y },
-        text: text.to_string(),
+        text: text.into(),
         face: face.into(),
         max_width: line_display_width_str(text).max(1) as f32 * cell_size.width,
     });

@@ -45,7 +45,7 @@ pub struct CellSize {
 /// `WireFace` for consumers that still expect it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedAtom {
-    pub contents: String,
+    pub contents: compact_str::CompactString,
     pub style: Style,
 }
 
@@ -136,7 +136,7 @@ pub enum DrawCommand {
     /// Draw plain text (Element::Text).
     DrawText {
         pos: PixelPos,
-        text: String,
+        text: compact_str::CompactString,
         /// ADR-031 Phase A.3: Style.
         face: Style,
         max_width: f32,
@@ -174,7 +174,7 @@ pub enum DrawCommand {
     DrawPaddingRow {
         pos: PixelPos,
         width: f32,
-        ch: String,
+        ch: compact_str::CompactString,
         /// ADR-031 Phase A.3: Style.
         face: Style,
     },
@@ -312,7 +312,10 @@ pub(crate) fn resolve_atoms(atoms: &[Atom], base_style: Option<&Style>) -> Vec<R
     atoms
         .iter()
         .map(|atom| ResolvedAtom {
-            contents: atom.contents.to_string(),
+            // Atom.contents is CompactString; cloning is a memcpy (no
+            // heap alloc) for atoms ≤24 bytes. The previous to_string()
+            // forced a heap alloc per atom regardless of size.
+            contents: atom.contents.clone(),
             style: super::super::protocol::resolve_style(&atom.style, base),
         })
         .collect()

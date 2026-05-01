@@ -66,7 +66,7 @@ impl PluginDiagnosticOverlayPainter for SceneOverlayPainter<'_> {
     fn draw_text_run(&mut self, run: &PluginDiagnosticOverlayTextRun) {
         self.commands.push(DrawCommand::DrawText {
             pos: pixel_pos(run.x, run.y, self.cell_size),
-            text: run.text.clone(),
+            text: run.text.as_str().into(),
             face: run.face.into(),
             max_width: run.max_width as f32 * self.cell_size.width,
         });

@@ -70,7 +70,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         let pr = to_pixel_rect(&area, self.cell_size);
         self.out.push(DrawCommand::DrawText {
             pos: PixelPos { x: pr.x, y: pr.y },
-            text: text.to_string(),
+            text: text.into(),
             face: (*face).into(),
             max_width: pr.w,
         });
@@ -225,7 +225,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     self.out.push(DrawCommand::DrawPaddingRow {
                         pos: PixelPos { x: px, y: py },
                         width: row_w,
-                        ch: params.padding_char.to_string(),
+                        ch: params.padding_char.into(),
                         face: char_style,
                     });
                 }
@@ -314,7 +314,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             x: info.area.x as f32 * cs.width,
                             y: (info.area.y + row) as f32 * cs.height,
                         },
-                        text: info.divider_vertical.to_string(),
+                        text: info.divider_vertical.into(),
                         face: info.face.into(),
                         max_width: cs.width,
                     });
@@ -325,7 +325,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         x: info.area.x as f32 * cs.width,
                         y: info.area.y as f32 * cs.height,
                     },
-                    text: info.divider_horizontal.repeat(info.area.w as usize),
+                    text: info.divider_horizontal.repeat(info.area.w as usize).into(),
                     face: info.face.into(),
                     max_width: info.area.w as f32 * cs.width,
                 });
