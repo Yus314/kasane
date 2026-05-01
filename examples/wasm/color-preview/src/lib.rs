@@ -1,3 +1,31 @@
+//! Color preview — Phase 10 paint_inline_box worked example.
+//!
+//! Detects color literals (`#rrggbb`, `#rgb`, `rgb:rrggbb`) on each
+//! buffer line and reserves a one-cell `InlineBox` slot immediately
+//! after every literal. The host queries `paint_inline_box(box_id)`
+//! when it actually needs to draw the slot, at which point the plugin
+//! decodes `(line_idx, color_idx)` from the `box_id` and returns a
+//! styled swatch atom.
+//!
+//! This is the bundled reference for the Phase 10 InlineBox extension
+//! point (see `docs/roadmap.md` Phase 10 row and `docs/decisions.md`
+//! ADR-031 §Phase 10 Step 2). The pattern that's worth copying:
+//!
+//! - `display()` only emits geometry (`inline_box(line, byte_offset,
+//!   width_cells, height_lines, box_id, alignment)`). It does not
+//!   build the swatch element itself.
+//! - `box_id` is built from the plugin's own state shape via
+//!   [`encode_inline_box_id`] / [`decode_inline_box_id`] so the host
+//!   round-trip is reversible without a side-table lookup. The high
+//!   byte tag (`0xCB`) lets `paint_inline_box` reject foreign ids.
+//! - `paint_inline_box(box_id)` is the only place that touches paint
+//!   state; the host caches layout independently of paint, and may
+//!   call paint repeatedly per layout (e.g. on hover) without
+//!   re-running `display()`.
+//! - Returning `None` from `paint_inline_box` is fine — the host
+//!   leaves the reserved slot blank rather than panicking. Stale
+//!   `box_id`s after a buffer edit naturally hit this path.
+
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
