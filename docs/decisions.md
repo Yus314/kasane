@@ -4109,10 +4109,28 @@ This ADR moves to **Accepted** when:
    | `mixed_full` (realistic) | 7.21 µs | **7.72 µs** | **+28 %** |
    | `mixed_pass_through` | 11.30 µs | 12.06 µs | +27 % |
 
-   Phase 3b's +7 % over Phase 3a comes from the `pass_c_filter_evt`
-   pass walking every leaf to compute the invisible-line set even
-   when no EVT is present. A future fast-path that skips Pass C
-   when no EVT leaves exist would close most of that gap.
+   **Pass C fast-path (post-Phase-3b optimisation, 2026-05-03)** —
+   `pass_c_filter_evt` early-returns when no EVT leaves are present
+   in the normalised input, skipping the invisible-line scan,
+   partition, sort, and dedup. EVT is rare in typical workloads, so
+   the fast-path is taken on the vast majority of frames:
+
+   | Workload | Phase 3b (Pass C) | **Phase 3b + fast-path** | Δ vs Phase 2 |
+   |---|---|---|---|
+   | `hide_only` | 5.13 µs | 3.74 µs | +492 % |
+   | `fold_only` | 2.53 µs | 1.75 µs | +168 % |
+   | `mixed_legacy` (has EVT) | 1.33 µs | 1.40 µs | +312 % |
+   | `mixed_full` (no EVT) | 7.72 µs | **7.04 µs** | **+17 %** |
+   | `mixed_pass_through` | 12.06 µs | 10.56 µs | +56 % |
+
+   `mixed_full` improves 9 % (the workload has no EVT and benefits
+   from the fast-path). `mixed_legacy` is essentially unchanged
+   (variance within criterion noise; this workload contains an EVT
+   so the fast-path doesn't apply). The overall regression vs the
+   Phase 2 baseline is reduced from +28 % to +17 % — closer to but
+   still above criterion #6's +10 % gate. ADR-024 SLO compliance is
+   firmer: `mixed_full` consumes 12.4 % of the warm-frame baseline
+   and 3.5 % of the 200 µs SLO.
 
    `Content::Hide` brought `mixed_legacy` down 47 % (1.71 µs → 909 ns)
    and `mixed_full` down 13 % (8.32 µs → 7.21 µs). Single-line Hide

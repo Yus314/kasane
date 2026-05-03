@@ -329,6 +329,16 @@ fn position_key(d: &Display) -> (usize, usize, u8) {
 pub fn pass_c_filter_evt(normalized: NormalizedDisplay, line_count: usize) -> NormalizedDisplay {
     use std::collections::HashMap;
 
+    // Fast-path: if no EVT leaves are present, none of the filter's
+    // work matters — skip the invisible-line scan, partition, sort,
+    // and dedup. EVT is rare in typical workloads (most plugin
+    // displays don't emit EditableVirtualText), so this branch is
+    // taken on the vast majority of frames.
+    let has_evt = normalized.leaves.iter().any(|l| is_evt_leaf(&l.display));
+    if !has_evt {
+        return normalized;
+    }
+
     // Step 1: build the invisible-line set from surviving Hide and
     // Fold leaves.
     let mut invisible: std::collections::HashSet<usize> = std::collections::HashSet::new();
