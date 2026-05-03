@@ -159,6 +159,15 @@
 //! without the warm-frame budget moving; conversely, a row inside
 //! these three red-flagging is grounds for halt at Day 2.
 
+// Day-1 translation surface against the real `vello_hybrid` 0.0.7
+// API. Recorded as a separate module so the paper-design contract
+// in this file remains the documented reference and the working
+// rewrite is co-located but not entangled. See
+// `scene_translate.rs` module docstring for three pre-spike findings
+// that diverge from the paper-design.
+#[cfg(feature = "with-vello")]
+mod scene_translate;
+
 use kasane_core::config::FontConfig;
 use kasane_core::protocol::Color;
 use kasane_core::render::{CursorStyle, DrawCommand, VisualHints};
@@ -209,7 +218,7 @@ impl GpuBackend for VelloBackend {
         &mut self,
         _gpu: &GpuState,
         commands: &[DrawCommand],
-        _color_resolver: &ColorResolver,
+        color_resolver: &ColorResolver,
         _cursor_style: CursorStyle,
         _cursor_state: &CursorRenderState,
         _cursor_color: Color,
@@ -222,7 +231,7 @@ impl GpuBackend for VelloBackend {
             // The match-arm-exhaustive walk below still runs in feature-on
             // builds; this branch keeps the no-default-features build
             // green.
-            let _ = commands;
+            let _ = (commands, color_resolver);
             Err(BackendError::Unsupported(
                 "VelloBackend compiled without 'with-vello' feature",
             ))
@@ -265,84 +274,114 @@ impl GpuBackend for VelloBackend {
             // through `degradation_policy::Reject` →
             // `BackendCapabilityRejected` diagnostic before any
             // DrawCanvas reaches this match.
+            //
+            // **State (post-Day-1+2 land):** the rect-coarse + clip
+            // arms are wired to `scene_translate::translate_*`. The
+            // text/image/stroke/blur arms remain `Unsupported` —
+            // their per-variant messages encode whether the deferral
+            // is on a fixture (Day-2 needs TTF), a paper-design
+            // rewrite (Finding 4 for DrawImage), or external upstream
+            // (Finding 1 for renderer wiring). The spike still
+            // returns `Unsupported` at the bottom because no
+            // `vello_hybrid::Renderer` is constructed: its
+            // `Renderer::new(device, ...)` requires `wgpu_28::Device`
+            // and `GpuState::device` is `wgpu_29::Device`
+            // (`scene_translate.rs` Finding 1). Until that resolves,
+            // even a Day-1-only command list cannot be presented.
+            let mut scene = vello_hybrid::Scene::new(self.width as u16, self.height as u16);
             for cmd in commands {
                 match cmd {
-                    DrawCommand::FillRect { .. } => {
-                        return Err(BackendError::Unsupported(
-                            "FillRect (Day 1: Scene::fill rect-coarse, pending)",
-                        ));
+                    DrawCommand::FillRect {
+                        rect,
+                        face,
+                        elevated,
+                    } => {
+                        scene_translate::translate_fill_rect(
+                            &mut scene,
+                            rect,
+                            face,
+                            *elevated,
+                            color_resolver,
+                        );
+                    }
+                    DrawCommand::PushClip(rect) => {
+                        scene_translate::translate_push_clip(&mut scene, rect);
+                    }
+                    DrawCommand::PopClip => {
+                        scene_translate::translate_pop_clip(&mut scene);
+                    }
+                    DrawCommand::BeginOverlay => {
+                        // Layer-pop only — the `_overlay_opacities`-driven
+                        // `push_opacity_layer(α)` is intentionally not
+                        // wired here because tracking the overlay index
+                        // requires per-call counter state the Day-1
+                        // helper does not own. Recorded as a known
+                        // gap until the spike grows an overlay-index
+                        // counter (Day-3 image work touches the same
+                        // surface and is the natural place to wire it).
+                        scene_translate::translate_begin_overlay(&mut scene);
                     }
                     DrawCommand::DrawAtoms { .. } => {
                         return Err(BackendError::Unsupported(
-                            "DrawAtoms (Day 2: Glifo render_to_atlas + Scene::draw_glyphs, pending)",
+                            "DrawAtoms (Day-2: needs ParleyText shaping in spike; raw + parley adapter compile-validated in scene_translate::translate_*_glyph_run)",
                         ));
                     }
                     DrawCommand::DrawText { .. } => {
                         return Err(BackendError::Unsupported(
-                            "DrawText (Day 2: shape-with-Parley + Glifo, pending)",
+                            "DrawText (Day-2: needs shape pipeline in spike)",
                         ));
                     }
                     DrawCommand::DrawBorder { .. } => {
                         return Err(BackendError::Unsupported(
-                            "DrawBorder (Day 4: Scene::stroke + optional Scene::fill, pending)",
+                            "DrawBorder (Day-4: stroke_path / stroke_rect, not yet translated)",
                         ));
                     }
                     DrawCommand::DrawBorderTitle { .. } => {
                         return Err(BackendError::Unsupported(
-                            "DrawBorderTitle (Day 4: composed DrawBorder + DrawAtoms, pending)",
+                            "DrawBorderTitle (Day-4: composed DrawBorder + DrawAtoms)",
                         ));
                     }
                     DrawCommand::DrawShadow { .. } => {
                         return Err(BackendError::Unsupported(
-                            "DrawShadow (Day 4: Scene::fill+blur or compositor/blur.rs fallback, uncertain)",
+                            "DrawShadow (Day-4: Vello hybrid blur API uncertain; compositor/blur.rs fallback per paper-design)",
                         ));
                     }
                     DrawCommand::DrawPaddingRow { .. } => {
                         return Err(BackendError::Unsupported(
-                            "DrawPaddingRow (Day 2: DrawText with single-char repeat, pending)",
-                        ));
-                    }
-                    DrawCommand::PushClip(_) => {
-                        return Err(BackendError::Unsupported(
-                            "PushClip (Day 1: Scene::push_layer Mix::Clip, pending)",
-                        ));
-                    }
-                    DrawCommand::PopClip => {
-                        return Err(BackendError::Unsupported(
-                            "PopClip (Day 1: Scene::pop_layer, pending)",
+                            "DrawPaddingRow (Day-2: shaped repeat-glyph; same path as DrawText)",
                         ));
                     }
                     DrawCommand::DrawImage { .. } => {
                         return Err(BackendError::Unsupported(
-                            "DrawImage (Day 3: Scene::draw_image + texture_cache, pending)",
+                            "DrawImage (Day-3: Scene::set_paint(Brush::Image) + fill_rect; paper-design rewrite per Finding 4)",
                         ));
                     }
                     DrawCommand::RenderParagraph { .. } => {
                         return Err(BackendError::Unsupported(
-                            "RenderParagraph (Day 2: multi-line DrawAtoms decomposition, pending)",
+                            "RenderParagraph (Day-2: multi-line decomposition; needs shape pipeline)",
                         ));
                     }
                     DrawCommand::DrawCanvas { .. } => {
                         // Deliberately unsupported per paper-design
                         // §DrawCanvas — pre-spike resolution required.
-                        // The production path emits
-                        // `BackendCapabilityRejected` diagnostic via
-                        // `degradation_policy::Reject` before reaching
-                        // here; this arm exists so the match remains
-                        // exhaustive against future variant additions.
                         return Err(BackendError::Unsupported("DrawCanvas"));
-                    }
-                    DrawCommand::BeginOverlay => {
-                        return Err(BackendError::Unsupported(
-                            "BeginOverlay (Day 1: Scene::pop_layer + push_layer Mix::Normal, pending)",
-                        ));
                     }
                 }
             }
-            // Empty command list — unreachable in production but
-            // valid type-wise. Spike fixtures may pass an empty
-            // slice; treat as a no-op render.
-            Ok(())
+            // The Scene now holds the Day-1 fills and clip-stack
+            // operations from `commands`. Submission requires a
+            // `vello_hybrid::Renderer` and a wgpu_28 device; neither
+            // is currently constructed (see §Status / Finding 1 in
+            // `scene_translate.rs`). The function returns
+            // `Unsupported` so callers do not mistake a translated
+            // scene for a presented frame. The translated `scene`
+            // value is dropped at end-of-function — a future commit
+            // wiring `vello_hybrid::Renderer` will replace this
+            // return with a real `render` call.
+            let _ = scene;
+            Err(BackendError::Unsupported(
+                "VelloBackend: scene built but Renderer not wired (Finding 1: wgpu v28/v29 mismatch)",
+            ))
         }
     }
 
