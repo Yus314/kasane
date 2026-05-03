@@ -76,6 +76,23 @@ impl SelectionSet {
         }
     }
 
+    /// Default-constructed empty set anchored to an unnamed buffer
+    /// at the initial generation. Used by `Default` impls of state
+    /// containers; replace via `set_selection_set`-style updates as
+    /// soon as the actual buffer identity is known (e.g. on the
+    /// first protocol echo).
+    pub fn default_empty() -> Self {
+        Self::empty(BufferId::new(""), BufferVersion::INITIAL)
+    }
+}
+
+impl Default for SelectionSet {
+    fn default() -> Self {
+        Self::default_empty()
+    }
+}
+
+impl SelectionSet {
     /// A set containing exactly one selection.
     pub fn singleton(sel: Selection, buffer: BufferId, generation: BufferVersion) -> Self {
         Self {

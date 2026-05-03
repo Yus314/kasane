@@ -3613,6 +3613,23 @@ state). Acceptance is gated on the wiring step below.
   unit tests.
 
 **Pending for Accepted status**:
+- ✅ **Canonical SelectionSet field on `InferenceState` (2026-05-03)**
+  — `InferenceState` gains a `pub selection_set: SelectionSet` field
+  populated by `AppState::apply` from the heuristic detector's
+  output via `selections_to_set`. The projection runs once per
+  protocol echo with a `BufferVersion` matching the simultaneous
+  history commit, so `AppView::current_selection_set()` (new direct
+  accessor) and `AppView::selection_at(Time::Now)` agree on the
+  active SelectionSet without history-lookup overhead. `SelectionSet`
+  gained `Default::default()` (empty set, unnamed buffer, INITIAL
+  generation) to support the field's default value. 3 new
+  integration tests pin the empty-state baseline, the apply →
+  current consistency, and the clear-on-restyle behaviour. Replaces
+  the original §Migration line "Replace state::observed selection
+  fields with SelectionSet" — there is no observed selection field
+  to replace (Kakoune's `draw` only carries the primary
+  `cursor_pos`); the canonical SelectionSet is derived state and
+  belongs in `InferenceState`, not `ObservedState`.
 - ✅ **`AppState.history` wiring (2026-05-03)** — `Arc<InMemoryRing>`
   field added to `AppState`; `commit_snapshot` and `text_at(Time)`
   methods landed; 9-test integration suite (`tests/history_roundtrip.rs`)

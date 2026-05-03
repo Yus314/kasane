@@ -7,6 +7,7 @@ use crate::protocol::{Coord, CursorMode, Line};
 use crate::render::color_context::ColorContext;
 
 use super::derived::{EditorMode, Selection};
+use super::selection_set::SelectionSet;
 
 /// Derived and heuristic state inferred from protocol observations.
 ///
@@ -31,6 +32,13 @@ pub struct InferenceState {
     pub secondary_cursors: Vec<Coord>,
     /// Detected selection ranges from buffer atoms (I-7).
     pub selections: Vec<Selection>,
+    /// Canonical `SelectionSet` projected from `selections` (ADR-035 §1).
+    /// Populated by `apply_protocol` whenever it recomputes the heuristic
+    /// detection. Plugins should prefer this over the legacy `selections`
+    /// field, which carries a different shape (`derived::Selection` with
+    /// `Coord` i32 / `is_primary` flag) and is retained for backward
+    /// compatibility until its consumers migrate.
+    pub selection_set: SelectionSet,
 }
 
 impl Default for InferenceState {
@@ -44,6 +52,7 @@ impl Default for InferenceState {
             cursor_count: 0,
             secondary_cursors: Vec::new(),
             selections: Vec::new(),
+            selection_set: SelectionSet::default_empty(),
         }
     }
 }

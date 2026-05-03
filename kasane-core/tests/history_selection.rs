@@ -208,6 +208,101 @@ fn auto_commit_via_apply_pairs_text_with_projected_selection() {
 }
 
 #[test]
+fn empty_state_has_empty_current_selection_set() {
+    let state = AppState::default();
+    let view = AppView::new(&state);
+    assert!(view.current_selection_set().is_empty());
+}
+
+#[test]
+fn current_selection_set_consistent_with_history_after_apply() {
+    // After apply(), AppView::current_selection_set() and
+    // AppView::selection_at(Time::Now) should agree on the projected
+    // SelectionSet — both are populated from the same heuristic
+    // detector output.
+    use compact_str::CompactString;
+    use kasane_core::protocol::{
+        Atom, Brush, Coord, KakouneRequest, NamedColor, Style, UnresolvedStyle,
+    };
+
+    let mut state = AppState::default();
+    state.runtime.rows = 5;
+    state.runtime.cols = 80;
+
+    let selection_bg_style = Style {
+        bg: Brush::Named(NamedColor::Blue),
+        ..Style::default()
+    };
+    let selected = |s: &str| Atom::with_style(CompactString::from(s), selection_bg_style.clone());
+
+    state.apply(KakouneRequest::Draw {
+        lines: vec![vec![selected("hello"), selected(" "), selected("world")]],
+        cursor_pos: Coord { line: 0, column: 5 },
+        default_style: Arc::new(UnresolvedStyle::default()),
+        padding_style: Arc::new(UnresolvedStyle::default()),
+        widget_columns: 0,
+    });
+
+    let view = AppView::new(&state);
+    let current = view.current_selection_set().clone();
+    let from_history = view.selection_at(Time::Now).expect("Time::Now");
+
+    assert_eq!(
+        current, from_history,
+        "current_selection_set must match the latest history snapshot",
+    );
+    assert!(
+        !current.is_empty(),
+        "heuristic should detect a selection from styled atoms",
+    );
+}
+
+#[test]
+fn current_selection_set_clears_when_styling_disappears() {
+    use compact_str::CompactString;
+    use kasane_core::protocol::{
+        Atom, Brush, Coord, KakouneRequest, NamedColor, Style, UnresolvedStyle,
+    };
+
+    let mut state = AppState::default();
+    state.runtime.rows = 5;
+    state.runtime.cols = 80;
+
+    // First apply: styled selection present.
+    let selection_bg_style = Style {
+        bg: Brush::Named(NamedColor::Blue),
+        ..Style::default()
+    };
+    let selected = |s: &str| Atom::with_style(CompactString::from(s), selection_bg_style.clone());
+
+    state.apply(KakouneRequest::Draw {
+        lines: vec![vec![selected("hi")]],
+        cursor_pos: Coord { line: 0, column: 1 },
+        default_style: Arc::new(UnresolvedStyle::default()),
+        padding_style: Arc::new(UnresolvedStyle::default()),
+        widget_columns: 0,
+    });
+
+    assert!(!AppView::new(&state).current_selection_set().is_empty());
+
+    // Second apply: plain atoms, no selection styling.
+    let plain = |s: &str| Atom::with_style(CompactString::from(s), Style::default());
+    state.apply(KakouneRequest::Draw {
+        lines: vec![vec![plain("hi")]],
+        cursor_pos: Coord { line: 0, column: 1 },
+        default_style: Arc::new(UnresolvedStyle::default()),
+        padding_style: Arc::new(UnresolvedStyle::default()),
+        widget_columns: 0,
+    });
+
+    let view = AppView::new(&state);
+    assert!(
+        view.current_selection_set().is_empty(),
+        "current_selection_set should clear when heuristic finds no styled atoms",
+    );
+}
+
+#[test]
 fn auto_commit_apply_with_styled_atoms_projects_selection() {
     // When the heuristic detector finds a selection (atoms with a
     // non-default bg adjacent to the cursor), the apply auto-commit

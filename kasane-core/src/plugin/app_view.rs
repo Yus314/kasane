@@ -111,6 +111,20 @@ impl<'a> AppView<'a> {
         self.state.selection_at(t)
     }
 
+    /// Direct read of the *current* canonical `SelectionSet`, without
+    /// going through history. Populated by `AppState::apply()` from
+    /// the heuristic detector's projection (ADR-035 §1). Equivalent
+    /// to `selection_set(buffer, Time::Now)` for the active buffer,
+    /// but avoids the history backend lookup.
+    ///
+    /// Most plugins that just want "what's selected right now" should
+    /// reach for this accessor; time-travel queries use
+    /// [`AppView::selection_set`] with a `Time::At(v)` coordinate.
+    #[inline]
+    pub fn current_selection_set(&self) -> &crate::state::selection_set::SelectionSet {
+        &self.state.inference.selection_set
+    }
+
     /// ADR-035 §Migration target — buffer-scoped, Time-aware
     /// `SelectionSet` read. Returns `Some(set)` only when the snapshot
     /// at `at` references `buffer`; otherwise `None`.

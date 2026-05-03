@@ -127,6 +127,9 @@ pub(crate) fn apply_protocol(
             inference.selections =
                 strategy.detect_selections(&lines, cursor_pos, &secondary_cursors, &default_face);
             inference.secondary_cursors = secondary_cursors;
+            // `inference.selection_set` is populated by `AppState::apply`
+            // (the wrapper) so its `BufferVersion` matches the
+            // simultaneously-committed history snapshot — see ADR-035 §1.
 
             observed.widget_columns = widget_columns;
 
@@ -326,8 +329,13 @@ impl AppState {
             // by `apply_protocol` above) into the canonical
             // `SelectionSet` so the history snapshot pairs text with
             // the selection state visible at the same protocol echo.
+            // We compute it once and store it both in
+            // `inference.selection_set` (the canonical "current"
+            // accessor) and the history snapshot, so they share the
+            // same `BufferVersion`.
             let selection =
                 selections_to_set(&self.inference.selections, buffer.clone(), next_buf_ver);
+            self.inference.selection_set = selection.clone();
             self.commit_snapshot(buffer, next_buf_ver, text, selection);
         }
 
