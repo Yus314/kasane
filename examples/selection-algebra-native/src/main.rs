@@ -8,6 +8,9 @@
 //!
 //! Run with `cargo run` from `examples/selection-algebra-native/`.
 
+use std::sync::Arc;
+
+use kasane_core::history::{HistoryBackend, InMemoryRing, Time, VersionId};
 use kasane_core::state::selection::{BufferId, BufferPos, BufferVersion, Selection};
 use kasane_core::state::selection_set::SelectionSet;
 use kasane_plugin_model::PluginId;
@@ -145,6 +148,82 @@ fn main() {
         "a ∩ (b ∪ c) == (a∩b)∪(a∩c)",
         a.intersect(&b.union(&single)) == a.intersect(&b).union(&a.intersect(&single)),
     );
+
+    println!();
+
+    // --- Time-aware history (ADR-035 §2) -----------------------------------
+    println!("Time-aware history (InMemoryRing):");
+    let ring = InMemoryRing::with_capacity(3);
+
+    // Commit 4 snapshots; the ring's capacity-3 should evict the first.
+    let v0 = ring.commit(
+        Arc::from("alpha"),
+        SelectionSet::singleton(line_sel(0, 0, 5), buf(), BufferVersion(0)),
+        buf(),
+        BufferVersion(0),
+    );
+    let v1 = ring.commit(
+        Arc::from("beta"),
+        SelectionSet::singleton(line_sel(1, 0, 5), buf(), BufferVersion(1)),
+        buf(),
+        BufferVersion(1),
+    );
+    let v2 = ring.commit(
+        Arc::from("gamma"),
+        SelectionSet::singleton(line_sel(2, 0, 5), buf(), BufferVersion(2)),
+        buf(),
+        BufferVersion(2),
+    );
+    let v3 = ring.commit(
+        Arc::from("delta"),
+        SelectionSet::singleton(line_sel(3, 0, 5), buf(), BufferVersion(3)),
+        buf(),
+        BufferVersion(3),
+    );
+
+    println!(
+        "  earliest = {:?}, current = {:?}",
+        ring.earliest_version(),
+        ring.current_version()
+    );
+
+    // Query each version. v0 evicted by FIFO at capacity 3.
+    let lookup = |v: VersionId| match ring.snapshot(v) {
+        Ok(snap) => format!(
+            "text=\"{}\", sel @ L{}",
+            snap.text,
+            snap.selection.primary().unwrap().min().line
+        ),
+        Err(e) => format!("Err({:?})", e),
+    };
+    println!("  v0 ({}) = {}", v0.0, lookup(v0));
+    println!("  v1 ({}) = {}", v1.0, lookup(v1));
+    println!("  v2 ({}) = {}", v2.0, lookup(v2));
+    println!("  v3 ({}) = {}", v3.0, lookup(v3));
+
+    // Time::Now → latest version.
+    let now_v = match Time::Now {
+        Time::Now => ring.current_version(),
+        Time::At(v) => v,
+    };
+    println!("  Time::Now resolves to v{} → {}", now_v.0, lookup(now_v));
+
+    // Plugin pattern: walk versions to inspect selection history.
+    println!("  walking earliest..current:");
+    let mut v = ring.earliest_version();
+    while v <= ring.current_version() {
+        if let Ok(snap) = ring.snapshot(v) {
+            println!(
+                "    v{}: text={:?}, primary L{}[{}..{}]",
+                v.0,
+                &*snap.text,
+                snap.selection.primary().unwrap().min().line,
+                snap.selection.primary().unwrap().min().column,
+                snap.selection.primary().unwrap().max().column,
+            );
+        }
+        v.0 += 1;
+    }
 
     println!("\n=== Done ===");
 }
