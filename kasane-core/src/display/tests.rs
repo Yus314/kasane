@@ -1,7 +1,12 @@
+// ADR-037 Phase 5: legacy `display::resolve` was deleted; these
+// tests now drive `DisplayMap::build` through
+// `display_algebra::bridge::resolve_via_algebra` instead.
+
 use proptest::prelude::*;
 
 use super::*;
-use crate::display::{BufferLine, DisplayLine, InverseResult, resolve};
+use crate::display::{BufferLine, DisplayLine, InverseResult};
+use crate::display_algebra::bridge::resolve_via_algebra;
 use crate::plugin::PluginId;
 use crate::protocol::Atom;
 
@@ -224,13 +229,13 @@ fn different_line_count_not_equal() {
 fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirective> {
     let m = max_line.max(1);
     prop_oneof![
-        (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
+        (0usize..m, 1usize..m.clamp(1, 8) + 1).prop_map(move |(s, len)| {
             DisplayDirective::Fold {
                 range: s..(s + len).min(m),
                 summary: vec![Atom::plain("...")],
             }
         }),
-        (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
+        (0usize..m, 1usize..m.clamp(1, 8) + 1).prop_map(move |(s, len)| {
             DisplayDirective::Hide {
                 range: s..(s + len).min(m),
             }
@@ -262,7 +267,7 @@ proptest! {
         for (i, d) in directives.into_iter().enumerate() {
             set.push(d, 0, PluginId(format!("p{i}")));
         }
-        let resolved = resolve::resolve(&set, line_count);
+        let resolved = resolve_via_algebra(&set, line_count);
         let dm = DisplayMap::build(line_count, &resolved);
         assert_display_map_invariants(&dm, line_count);
     }
@@ -288,7 +293,7 @@ proptest! {
         for (i, d) in directives.into_iter().enumerate() {
             set.push(d, 0, PluginId(format!("p{i}")));
         }
-        let resolved = resolve::resolve(&set, line_count);
+        let resolved = resolve_via_algebra(&set, line_count);
         let dm = DisplayMap::build(line_count, &resolved);
 
         for dl in 0..dm.display_line_count() {
@@ -327,7 +332,7 @@ proptest! {
         for (i, d) in directives.into_iter().enumerate() {
             set.push(d, 0, PluginId(format!("p{i}")));
         }
-        let resolved = resolve::resolve(&set, line_count);
+        let resolved = resolve_via_algebra(&set, line_count);
         let dm = DisplayMap::build(line_count, &resolved);
 
         for dl in 0..dm.display_line_count() {

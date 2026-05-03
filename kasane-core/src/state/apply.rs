@@ -305,6 +305,85 @@ impl AppState {
             self.config.theme.apply_color_context(&ctx);
         }
 
+        // ADR-035 §2 auto-commit: when buffer content changed, snapshot
+        // the projected text into the history backend. Time::Now then
+        // reflects the latest Kakoune protocol echo.
+        //
+        // BufferId is fixed to "active" for now — multi-buffer routing
+        // (a per-session BufferId) will refine this when ADR-035's
+        // SelectionSet anchor takes Time-parameterised queries through
+        // the Salsa layer. BufferVersion is derived from the history
+        // backend's monotonic VersionId so external observers can
+        // correlate Time::At(v) with a specific edit.
+        if flags.contains(DirtyFlags::BUFFER_CONTENT) {
+            use crate::history::HistoryBackend;
+            let text = lines_to_text(&self.observed.lines);
+            let next_buf_ver = crate::state::selection::BufferVersion(
+                self.history.current_version().0.wrapping_add(1),
+            );
+            let buffer = crate::state::selection::BufferId::new("active");
+            // Project the heuristic-derived selection list (recomputed
+            // by `apply_protocol` above) into the canonical
+            // `SelectionSet` so the history snapshot pairs text with
+            // the selection state visible at the same protocol echo.
+            let selection =
+                selections_to_set(&self.inference.selections, buffer.clone(), next_buf_ver);
+            self.commit_snapshot(buffer, next_buf_ver, text, selection);
+        }
+
         flags
     }
+}
+
+/// Project Kakoune-protocol-derived `lines` into a plain `Arc<str>` for
+/// history snapshotting (ADR-035 §2).
+///
+/// Lossy by design: drops style payloads (the snapshot is for *content*
+/// recall, not visual reproduction; consumers that need styled history
+/// should snapshot at a higher layer). Lines are joined with `'\n'`; an
+/// empty buffer produces `""`.
+fn lines_to_text(lines: &[Vec<crate::protocol::Atom>]) -> std::sync::Arc<str> {
+    let mut out = String::new();
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        for atom in line {
+            out.push_str(&atom.contents);
+        }
+    }
+    out.into()
+}
+
+/// Project the heuristic selection-detection output
+/// (`inference.selections`) into the canonical `SelectionSet` for
+/// history snapshotting (ADR-035 §2).
+///
+/// `Coord` carries `i32` line/column; the new `BufferPos` is `u32`. We
+/// clamp negative values to zero — these only arise as transient
+/// "empty buffer / pre-init" states where the column index can be -1.
+/// Per-cursor `is_primary` does not have a direct representation in
+/// the canonical `SelectionSet` (which is order-independent); the
+/// primary cursor surfaces through `SelectionSet::primary()` once the
+/// set is sorted.
+fn selections_to_set(
+    inference_sels: &[crate::state::derived::Selection],
+    buffer: crate::state::selection::BufferId,
+    buffer_version: crate::state::selection::BufferVersion,
+) -> crate::state::selection_set::SelectionSet {
+    let sels: Vec<crate::state::selection::Selection> = inference_sels
+        .iter()
+        .map(|s| {
+            let anchor = crate::state::selection::BufferPos::new(
+                s.anchor.line.max(0) as u32,
+                s.anchor.column.max(0) as u32,
+            );
+            let cursor = crate::state::selection::BufferPos::new(
+                s.cursor.line.max(0) as u32,
+                s.cursor.column.max(0) as u32,
+            );
+            crate::state::selection::Selection::new(anchor, cursor)
+        })
+        .collect();
+    crate::state::selection_set::SelectionSet::from_iter(sels, buffer, buffer_version)
 }

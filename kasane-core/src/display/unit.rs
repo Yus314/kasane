@@ -482,8 +482,9 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::display::resolve::{self, DirectiveSet};
+    use crate::display::DirectiveSet;
     use crate::display::{DisplayDirective, DisplayMap};
+    use crate::display_algebra::bridge::resolve_via_algebra;
     use crate::plugin::PluginId;
     use crate::protocol::Atom;
 
@@ -757,13 +758,13 @@ mod tests {
     fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirective> {
         let m = max_line.max(1);
         prop_oneof![
-            (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
+            (0usize..m, 1usize..m.clamp(1, 8) + 1).prop_map(move |(s, len)| {
                 DisplayDirective::Fold {
                     range: s..(s + len).min(m),
                     summary: vec![Atom::plain("...")],
                 }
             }),
-            (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
+            (0usize..m, 1usize..m.clamp(1, 8) + 1).prop_map(move |(s, len)| {
                 DisplayDirective::Hide {
                     range: s..(s + len).min(m),
                 }
@@ -784,7 +785,7 @@ mod tests {
             for (i, d) in directives.into_iter().enumerate() {
                 set.push(d, 0, PluginId(format!("p{i}")));
             }
-            let resolved = resolve::resolve(&set, line_count);
+            let resolved = resolve_via_algebra(&set, line_count);
             let dm = DisplayMap::build(line_count, &resolved);
             if !dm.is_identity() {
                 let dum = DisplayUnitMap::build(&dm);
@@ -802,7 +803,7 @@ mod tests {
             for (i, d) in directives.into_iter().enumerate() {
                 set.push(d, 0, PluginId(format!("p{i}")));
             }
-            let resolved = resolve::resolve(&set, line_count);
+            let resolved = resolve_via_algebra(&set, line_count);
             let dm = DisplayMap::build(line_count, &resolved);
             if !dm.is_identity() {
                 let dum = DisplayUnitMap::build(&dm);
@@ -828,7 +829,7 @@ mod tests {
             for (i, d) in directives.iter().enumerate() {
                 set.push(d.clone(), 0, PluginId(format!("p{i}")));
             }
-            let resolved = resolve::resolve(&set, line_count);
+            let resolved = resolve_via_algebra(&set, line_count);
             let dm = DisplayMap::build(line_count, &resolved);
             if !dm.is_identity() {
                 let dum1 = DisplayUnitMap::build(&dm);

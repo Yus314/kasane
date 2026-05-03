@@ -1,0 +1,9 @@
+[package]
+name = "kasane-example-selection-algebra-native"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+kasane-core = { path = "../../kasane-core" }
+kasane-plugin-model = { path = "../../kasane-plugin-model" }

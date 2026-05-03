@@ -2,6 +2,262 @@
 
 ## [Unreleased]
 
+### Added — ADR-037 Fold-in-Algebra Accepted (2026-05-03)
+
+The hybrid bridge introduced by ADR-034 is retired. Every directive
+— `Hide`, `Fold`, `EditableVirtualText`, and the other 9 variants —
+now flows through a single `algebra_normalize` + `pass_c_filter_evt`
+path. Legacy `display::resolve` is `#[deprecated]` and slated for
+deletion in the next release. Status: **Accepted**
+(`docs/decisions.md` ADR-037 §Acceptance criteria).
+
+- (core) `kasane-core/src/display_algebra/primitives.rs`
+  - `Content::Fold { range, summary }` (Phase 1) — multi-line fold as
+    a `Replace` payload anchored at `range.start`. Replaces
+    `derived::fold`'s old multi-line decomposition (1 summary `Replace`
+    + N-1 `Empty` `Replace`s) with a single leaf.
+  - `Content::Hide { range }` (§6 — added 2026-05-03 to mitigate the
+    Phase 3a perf regression) — multi-line hide as a single leaf,
+    with `Hide`-`Hide` overlaps treated as commutative (set-union
+    idempotent, matching legacy `hidden_set` semantics).
+- (core) `kasane-core/src/display_algebra/normalize.rs`
+  - **Pass B** (Phase 2) — `replace_conflicts(a, b)` extends Pass A's
+    Span overlap with Fold/Hide range coverage cross-check via
+    `content_range()`. `Hide`-`Hide` overlap is explicitly
+    non-conflicting (commutative).
+  - **Pass C** (Phase 3b) — `pass_c_filter_evt(normalized, line_count)`
+    filters EditableVirtualText leaves: drops out-of-bounds anchors,
+    anchors on Hide/Fold-covered lines, and same-anchor duplicates
+    (legacy-compat dedup: ascending-priority retain-first ⇒ lowest
+    priority survives). Mirrors legacy `display::resolve` Rules 8-10.
+- (core) `kasane-core/src/display_algebra/bridge.rs`
+  - `resolve_via_algebra` is now a thin wrapper:
+    `forward translate → algebra_normalize → pass_c_filter_evt →
+    reverse translate → coalesce_legacy_directives`. No call to
+    `display::resolve` from production paths.
+  - `coalesce_legacy_directives` reactivated to re-condense per-line
+    decompositions back into multi-line legacy enum shapes for
+    `DisplayMap::build` consumers. Fold-vs-hide adjacency rule
+    tightened to **strict overlap** (touching at a half-open
+    boundary does not absorb).
+- (core) `kasane-core/src/display/resolve.rs` — `pub fn resolve` and
+  `pub fn resolve_incremental` carry `#[deprecated(since = "0.5.0",
+  note = "...")]` pointing at `bridge::resolve_via_algebra`. The
+  deprecation notes spell out the conflict-semantic differences
+  (fold-vs-hide partial overlap now resolves by L6 priority instead
+  of conservative fold-drop). All in-tree callers — tests in
+  `display/resolve/tests.rs`, `display/tests.rs`, `display/unit.rs`
+  test mod, the `bridge_overhead` bench, and `bridge/proptests.rs` /
+  `bridge/tests.rs` — opt out via `#![allow(deprecated)]`
+  (intentional comparison workloads).
+- (test) 7 Pass B unit tests + 7 Pass C unit tests in
+  `display_algebra/tests.rs`. Proptest L1–L6 strategy extended with
+  `arb_fold` (weight 2 in `arb_leaf`); all six laws still hold under
+  the extended distribution. 22 bridge tests updated for Phase 3a/3b
+  semantics.
+- (bench) `bridge_overhead` bench re-run across the four phases.
+  `mixed_full` (realistic workload) progression:
+
+  | Phase | bridge time | Δ vs Phase 2 |
+  |---|---|---|
+  | Phase 2 (hybrid baseline) | 6.02 µs | — |
+  | Phase 3a (no opt) | 8.32 µs | +38 % |
+  | Phase 3a + `Content::Hide` | 7.21 µs | +20 % |
+  | **Phase 3b (Pass C)** | **7.72 µs** | **+28 %** |
+
+  ADR-037 acceptance criterion #6 (`< +10 %`) is honestly marked as
+  not satisfied. ADR-024 SLO (200 µs) impact is +3.9 % and the
+  240 Hz scanout impact is +0.18 % — well within the production
+  perceptual-imperceptibility budget. The criterion gap is
+  documented as a follow-up optimisation surface (Pass C fast-path
+  for EVT-empty inputs is the largest remaining lever).
+- (docs) `docs/decisions.md` ADR-037 (~330 lines after Phase 4
+  amendments, ~390 after Phase 5) — design (Content::Fold +
+  Content::Hide), conflict semantics tables, migration plan,
+  five-phase acceptance evidence with bench numbers, deprecation
+  rationale, deletion inventory.
+
+### Removed — ADR-037 Phase 5 legacy resolve deletion (2026-05-03)
+
+The deprecation cycle was collapsed and the legacy resolver was
+deleted the same day Phases 1–4 landed. The "next release"
+schedule given in the Phase 4 deprecation note was overtaken by
+the in-tree migration audit surfacing zero remaining production
+callers. **Net cleanup: −1,900 LOC** (vs ADR-037 §Implications
+prediction of −1,200; surplus from also dropping
+`bridge/proptests.rs`, which was wholly legacy-comparison
+material).
+
+- (core) `kasane-core/src/display/resolve.rs` — shrunk from 798 to
+  129 LOC. Removed: `pub fn resolve()`, `pub fn resolve_incremental()`,
+  `pub fn check_editable_inline_box_overlap()`,
+  `pub fn partition_directives()`, `pub fn resolve_inline()`,
+  `pub struct DirectiveGroup`, `pub struct ResolveCache`. Retained
+  the input boundary types (`TaggedDirective`, `DirectiveSet`) and
+  the production-routing helpers
+  (`CategorizedDirectives`, `partition_by_category`) consumed by
+  `plugin/registry/mod.rs`.
+- (test) `kasane-core/src/display/resolve/tests.rs` deleted (645 LOC)
+  along with the now-empty `display/resolve/` directory.
+- (test) `kasane-core/src/display_algebra/bridge/proptests.rs`
+  deleted (~470 LOC) — the file's purpose was legacy-vs-algebra
+  equivalence proptesting, which is moot now that legacy is gone.
+  Algebra correctness remains pinned by `display_algebra/proptests.rs`
+  (L1–L6 with `arb_fold` weight 2) and the rewritten
+  `display_algebra/bridge/tests.rs` (algebra-only round-trip
+  scenarios).
+- (test) `kasane-core/src/display_algebra/bridge/tests.rs` rewritten
+  as algebra-only round-trip tests (12 tests covering single-
+  directive variants, multi-directive scenarios, and Pass C
+  invariants exercised end-to-end through the bridge).
+- (test) `kasane-core/src/display/tests.rs` and
+  `kasane-core/src/display/unit.rs` (test mod) — `resolve::resolve`
+  callsites rewired to `display_algebra::bridge::resolve_via_algebra`;
+  file-level `#![allow(deprecated)]` shims removed.
+- (bench) `kasane-core/benches/bridge_overhead.rs` — legacy
+  benchmark group removed; only the bridge-side timings remain.
+  Historical comparison numbers preserved in `docs/decisions.md`
+  ADR-037 §Acceptance criteria #6.
+- (core) `kasane-core/src/display/mod.rs` — `pub use` purged of
+  deleted names; the `#[allow(deprecated)]` shim is gone.
+- Workspace test count: **2452 → 2440** (only legacy / comparison
+  tests removed; no functional coverage loss). All remaining
+  tests green.
+
+### Added — ADR-034 Display Algebra Accepted (2026-05-03)
+
+`DisplayDirective` (the 12-variant enum in `kasane-core/src/display/`)
+now has a parallel algebraic representation: `Display` with five
+primitives (`Identity`, `Replace`, `Decorate`, `Anchor`) plus `Then` /
+`Merge` composition operators. Plugin-emitted directives travel through
+the production Salsa pipeline via a hybrid bridge that legacy-forwards
+`Hide` / `Fold` / `EditableVirtualText` and routes the remaining nine
+variants through `display_algebra::normalize`. Status: **Accepted**
+(decisions.md ADR-034 §Acceptance Evidence).
+
+- (core) `kasane-core/src/display_algebra/`
+  - `primitives.rs` — `Display`, `Span`, `Content`, `AnchorPosition`,
+    `Side`, `Style`, `EditSpec`, `SegmentRef`, `support()`.
+  - `derived.rs` — smart constructors recovering the legacy 12 variants
+    (`hide_lines`, `fold`, `insert_after`, `gutter`, `style_inline`,
+    `editable_virtual_text`, etc.).
+  - `normalize.rs` — `TaggedDisplay`, `MergeConflict`,
+    `NormalizedDisplay`, `normalize()`, `disjoint()`. Conflict
+    resolution is total-order deterministic via
+    `(priority, plugin_id, seq, position_key)`.
+  - `apply.rs` — `LineRender`, `BufferLine::Real(usize)` /
+    `Virtual { host_line, side, order }`, `Replacement`,
+    `Decoration`, `Anchor`. `apply(&NormalizedDisplay, &[usize])`
+    projects normalised leaves into a per-line render plan.
+  - `bridge.rs` — `directive_to_display`, `display_to_directive`,
+    `tagged_directive_to_tagged_display`, `resolve_via_algebra`. The
+    last is the public drop-in companion to legacy `display::resolve`.
+- (core) `kasane-core/src/plugin/registry/collection.rs:852, 893` —
+  both production callsites switched from `display::resolve` to
+  `bridge::resolve_via_algebra`.
+- (test) 23 algebra unit tests, 7 proptest fixtures (L1–L6 over
+  randomised `Display` trees), 22 bridge tests (17 hand-built + 4
+  proptest equivalence properties + 1 hybrid-invariant case). All
+  green.
+- (bench) `kasane-core/benches/bridge_overhead.rs` — criterion bench
+  comparing legacy `resolve()` against `resolve_via_algebra` across
+  five workloads (`hide_only`, `fold_only`, `mixed_legacy`,
+  `mixed_pass_through`, `mixed_full`). Post-zero-clone-optimisation
+  results (median):
+
+  | Workload | Legacy | Bridge |
+  |---|---|---|
+  | `hide_only` (24 plugins × Hide) | 635 ns | 631 ns |
+  | `fold_only` (8 plugins × Fold) | 684 ns | 653 ns |
+  | `mixed_legacy` (Hide+Fold+EVT) | 340 ns | 371 ns |
+  | `mixed_full` (realistic) | 209 ns | 6.02 µs |
+  | `mixed_pass_through` (extreme) | 68 ns | 9.46 µs |
+
+  `mixed_full` adds 5.81 µs over legacy — within ADR-024 perceptual
+  imperceptibility budget (+10.2 % vs `frame_warm_24_lines = 56.7 µs`,
+  +2.9 % vs the 200 µs SLO; 240 Hz scanout impact < 0.25 %). The
+  zero-clone optimisation (passing the full `DirectiveSet` to legacy
+  `resolve()`, which already filters by variant) cut legacy-heavy
+  workloads by 48–66 %.
+- (docs) `docs/decisions.md` ADR-034 (255 lines) — primitive design,
+  L1–L6 algebraic laws, derived constructor mapping, hybrid bridge
+  rationale, performance table, follow-up notes (ShadowCursor on
+  algebra, eventual Fold-in-algebra ADR, partition zero-clone analysis).
+
+### Added — ADR-035 Selection / Time foundation (2026-05-03)
+
+`SelectionSet` is now a first-class algebraic type, and `Time` is a
+new query coordinate that lets buffer state be read at any past
+version. The full end-to-end loop is wired — Kakoune protocol echoes
+land in a history backend, plugins read past states via
+`AppView::text_at(Time)` / `AppView::selection_at(Time)`. Status:
+**Proposed** (6/11 milestones complete); see
+`docs/decisions.md` ADR-035 §Implementation Status.
+
+- (core) `kasane-core/src/state/selection.rs` — `Selection` (anchor /
+  cursor / direction), `Direction { Forward, Backward }`, `BufferPos`
+  (line: u32, column: u32), `BufferId`, `BufferVersion`.
+- (core) `kasane-core/src/state/selection_set.rs` — `SelectionSet`
+  with the full set algebra (union / intersect / difference /
+  symmetric_difference), pointwise transformation (map / filter /
+  flat_map), pattern operations (extend_to_pattern stub for the
+  follow-up SyntaxProvider integration), and per-(plugin, name) save /
+  load store. Half-open `[min, max)` ranges; adjacent selections
+  coalesce in `from_iter` (point selections — `anchor == cursor` —
+  are not first-class set members; documented in the type's rustdoc).
+- (core) `kasane-core/src/history/`
+  - `mod.rs` — `Time { Now, At(VersionId) }`, `VersionId`, `Snapshot`
+    (text + selection + version / buffer metadata), `HistoryBackend`
+    trait, `HistoryError { Evicted, Unknown }`.
+  - `in_memory.rs` — `InMemoryRing` default backend with FIFO
+    eviction at `DEFAULT_CAPACITY = 256`.
+- (core) `AppState`
+  - `pub history: Arc<InMemoryRing>` field added (default: fresh ring).
+  - `commit_snapshot(buffer, version, text, selection) -> VersionId`.
+  - `text_at(Time) -> Option<Arc<str>>`,
+    `selection_at(Time) -> Option<SelectionSet>`.
+- (core) `AppState::apply()` — auto-commit hook: when a protocol
+  message sets `DirtyFlags::BUFFER_CONTENT`, projects `observed.lines`
+  to plain text via `lines_to_text` and `inference.selections`
+  (heuristic detector) via `selections_to_set`, then calls
+  `commit_snapshot`. Lossy by design (drops style payloads).
+- (core) `AppView` — `text_at(Time)`, `selection_at(Time)`,
+  `history() -> &dyn HistoryBackend` accessors. Plugin-facing entry
+  points for time-travel queries.
+- (test) Five integration test files:
+  - `history_roundtrip.rs` — 9 tests (commit, text_at, FIFO
+    eviction, Arc-shared history, bounded Debug).
+  - `history_apply_hook.rs` — 5 tests (Draw round-trip, multi-version
+    monotonicity, empty buffer, `\n`-joined multi-line, DrawStatus
+    does-not-commit).
+  - `history_app_view.rs` — 5 tests (current text, past version,
+    history metadata, version-range iteration, empty None).
+  - `history_selection.rs` — 7 tests (round-trip via AppState +
+    AppView, Time::Now is latest, paired text+selection, empty None,
+    apply auto-commit empty for default-style atoms, projection
+    populates set for styled atoms).
+- (test) `kasane-core/src/display_algebra/proptests.rs`,
+  `state/selection_set_proptests.rs` — proptest fixtures (idempotency,
+  commutativity, associativity, identity, absorption, distributive,
+  difference characterisation, symmetric difference, disjointness ↔
+  intersect-empty), 64 cases per property.
+- (example) `examples/selection-algebra-native/` — runnable binary
+  demonstrating `SelectionSet` from a workspace-external crate;
+  exercises every operation and witnesses 7 algebraic laws at runtime.
+- (docs) `docs/decisions.md` ADR-035 (~290 lines) — Selection /
+  SelectionSet / Time / HistoryBackend type design, Salsa
+  integration plan, pluggable backend strategy (InMemoryRing /
+  GitBacked / RocksDb), risk register, §Implementation Status
+  tracking 6/11 completed milestones with dates.
+
+### Total test impact (2026-05-03)
+
+- `cargo test --workspace --lib`: **2463 tests, 0 failed** (was 2350
+  pre-ADR-034 baseline at 2026-05-01).
+- `kasane-core` lib + integration tests: 1815 (was 1763 baseline).
+- New test code: ~2,510 LOC.
+- New implementation code: ~2,530 LOC.
+
 ### Added — ADR-032 W2 bootstrap (2026-05-01)
 
 - (gui) `kasane_gui::gpu::scene_renderer::FrameTarget` enum (`Surface` /

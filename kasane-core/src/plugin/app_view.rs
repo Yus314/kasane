@@ -68,6 +68,76 @@ impl<'a> AppView<'a> {
     }
 
     // =========================================================================
+    // ADR-035 §2: Time-aware accessors
+    // =========================================================================
+
+    /// Read buffer text at a given `Time` coordinate (ADR-035 §2).
+    ///
+    /// `Time::Now` returns the most recent text snapshot committed by
+    /// `AppState::apply()`; `Time::At(v)` returns the snapshot for a
+    /// specific `VersionId`, or `None` if it was evicted or never
+    /// observed.
+    ///
+    /// This is the plugin-facing entry point for time-travel queries.
+    /// The text is the lossy `lines_to_text` projection (style payloads
+    /// dropped) — plugins that need styled history should snapshot at
+    /// a higher layer.
+    #[inline]
+    pub fn text_at(&self, t: crate::history::Time) -> Option<std::sync::Arc<str>> {
+        self.state.text_at(t)
+    }
+
+    /// Direct access to the configured `HistoryBackend` for advanced
+    /// consumers that need to enumerate versions, query the earliest
+    /// retained snapshot, or inspect backend metadata.
+    ///
+    /// Most plugins should prefer [`AppView::text_at`] over this raw
+    /// trait object.
+    #[inline]
+    pub fn history(&self) -> &dyn crate::history::HistoryBackend {
+        self.state.history.as_ref()
+    }
+
+    /// Read the `SelectionSet` at a given `Time` coordinate
+    /// (ADR-035 §2). Same `Time` semantics as [`AppView::text_at`].
+    /// Returns whatever buffer's snapshot is at that version,
+    /// regardless of identity — use [`AppView::selection_set`] for
+    /// the buffer-filtered variant.
+    #[inline]
+    pub fn selection_at(
+        &self,
+        t: crate::history::Time,
+    ) -> Option<crate::state::selection_set::SelectionSet> {
+        self.state.selection_at(t)
+    }
+
+    /// ADR-035 §Migration target — buffer-scoped, Time-aware
+    /// `SelectionSet` read. Returns `Some(set)` only when the snapshot
+    /// at `at` references `buffer`; otherwise `None`.
+    ///
+    /// This is the canonical plugin-facing accessor for selection
+    /// state. The legacy heuristic-based [`AppView::selections`]
+    /// remains in place for now (returning a different
+    /// [`crate::state::derived::Selection`] type from the I-7
+    /// inference path); a follow-up milestone retires it once the
+    /// auto-commit projection covers all the heuristic's recall
+    /// cases.
+    ///
+    /// `at = Time::Now` returns the latest committed `SelectionSet`
+    /// (populated by `AppState::apply()`'s auto-commit hook from the
+    /// heuristic projection); `at = Time::At(v)` returns the
+    /// snapshot for that specific `VersionId`. In both cases the
+    /// returned set's buffer must match the supplied `buffer`.
+    #[inline]
+    pub fn selection_set(
+        &self,
+        buffer: &crate::state::selection::BufferId,
+        at: crate::history::Time,
+    ) -> Option<crate::state::selection_set::SelectionSet> {
+        self.state.selection_at(at).filter(|s| s.buffer() == buffer)
+    }
+
+    // =========================================================================
     // Tier 0: Core buffer state
     // =========================================================================
 

@@ -10,6 +10,12 @@ mod menu;
 pub mod observed;
 pub mod policy;
 pub mod runtime_state;
+pub mod selection;
+pub mod selection_set;
+#[cfg(test)]
+mod selection_set_proptests;
+#[cfg(test)]
+mod selection_set_tests;
 pub mod session_state;
 pub(crate) mod setting_registry;
 pub mod shadow_cursor;
@@ -115,6 +121,17 @@ pub struct AppState {
     pub session: SessionState,
     pub runtime: RuntimeState,
     pub(crate) cursor_cache: derived::CursorCache,
+
+    /// ADR-035 §2 history backend. Populated as the embedder commits
+    /// buffer snapshots; queried via `text_at(Time)`. Default is a
+    /// fresh `InMemoryRing` with `DEFAULT_CAPACITY` (256) slots.
+    ///
+    /// Cloned `AppState`s share the same `Arc`, so a clone-and-mutate
+    /// of the wrapper state still appends to the same history — the
+    /// rationale being that history is *session-scoped*, not state-
+    /// snapshot-scoped (`commit` happens on Kakoune protocol echoes,
+    /// not on speculative state copies).
+    pub history: std::sync::Arc<crate::history::InMemoryRing>,
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +402,53 @@ impl AppState {
 }
 
 impl AppState {
+    /// ADR-035 §2 — query the history backend for buffer text at a
+    /// given `Time` coordinate.
+    ///
+    /// `Time::Now` returns the most recently committed snapshot's
+    /// text, or `None` if no commits have been made.
+    /// `Time::At(v)` returns the snapshot for that specific
+    /// `VersionId`, or `None` if it was evicted / never observed.
+    pub fn text_at(&self, t: crate::history::Time) -> Option<std::sync::Arc<str>> {
+        use crate::history::{HistoryBackend, Time};
+        let v = match t {
+            Time::At(v) => v,
+            Time::Now => self.history.current_version(),
+        };
+        self.history.snapshot(v).ok().map(|s| s.text)
+    }
+
+    /// ADR-035 §2 — query the history backend for the `SelectionSet`
+    /// at a given `Time` coordinate. Same `Time` semantics as
+    /// [`AppState::text_at`].
+    pub fn selection_at(
+        &self,
+        t: crate::history::Time,
+    ) -> Option<crate::state::selection_set::SelectionSet> {
+        use crate::history::{HistoryBackend, Time};
+        let v = match t {
+            Time::At(v) => v,
+            Time::Now => self.history.current_version(),
+        };
+        self.history.snapshot(v).ok().map(|s| s.selection)
+    }
+
+    /// ADR-035 §2 — convenience: commit a buffer snapshot to history,
+    /// returning the assigned `VersionId`. Embedders that want auto-
+    /// snapshotting on protocol echo should call this from their
+    /// `apply()` hook; the helper is provided here so the round-trip
+    /// path is testable without forcing the auto-hook.
+    pub fn commit_snapshot(
+        &self,
+        buffer: crate::state::selection::BufferId,
+        buffer_version: crate::state::selection::BufferVersion,
+        text: std::sync::Arc<str>,
+        selection: crate::state::selection_set::SelectionSet,
+    ) -> crate::history::VersionId {
+        use crate::history::HistoryBackend;
+        self.history.commit(text, selection, buffer, buffer_version)
+    }
+
     /// Available height (rows minus status bar).
     pub fn available_height(&self) -> u16 {
         self.runtime.rows.saturating_sub(1)

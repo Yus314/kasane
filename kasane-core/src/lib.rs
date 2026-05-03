@@ -1,8 +1,10 @@
 pub mod clipboard;
 pub mod config;
 pub mod display;
+pub mod display_algebra;
 pub mod element;
 pub mod event_loop;
+pub mod history;
 pub mod input;
 pub mod io;
 pub mod layout;
