@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777868812088,
+  "lastUpdate": 1777885741935,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -124973,6 +124973,822 @@ window.BENCHMARK_DATA = {
             "name": "native_baseline/native_gutter_24",
             "value": 1334,
             "range": "± 38",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "210750ca227a1070f5b36aeceb9f6477b54acbaa",
+          "message": "feat(core): bundled LongLineLens (Composable Lenses follow-up)\n\nSecond built-in `Lens` implementation. Highlights characters\npast a configurable column threshold — typical use is flagging\ncode that exceeds a style-guide line-length limit (80, 100,\nor 120 columns).\n\nThe lens demonstrates the parameterised-config pattern the\ntrailing-whitespace lens didn't exercise: the threshold is a\nconstructor argument; distinct values yield distinct default\n`LensId` names (`long-line-80` vs `long-line-120`) so multiple\ninstances coexist in the registry without manual\ndisambiguation.\n\nAPI:\n- `LongLineLens::new(column: u32, style: WireFace)`.\n- `with_name(name)` for semantic naming\n  (`style-guide-warning` / `style-guide-error`).\n- `threshold()` accessor.\n- `id()`, `label()` (= \"Long line (> N)\"), `priority()` (= 0).\n- Internal `past_threshold_byte_range` pure helper counts\n  characters as Unicode scalar values; CJK / double-width\n  chars count as one column each (matches \"100 chars\" style\n  guide convention, not display cells; documented caveat).\n\n18 new tests (lib 2501 → 2519):\n- 7 range computation (shorter / at / one past / many past /\n  CJK counting / threshold-zero / mixed ASCII+CJK byte\n  offset).\n- 5 display integration (empty / short / long / mixed /\n  multi-atom).\n- 6 trait surface (id namespace / with_name / label / accessor\n  / priority / multi-instance coexistence).\n\nThe bundled-lens menu now covers two complementary\nvisualisation patterns — trailing whitespace (suffix\ndetection) and long lines (column-threshold detection). Both\nfollow the same authoring template (constructor + Lens impl +\npure range helper + comprehensive tests) and document the\nlens API by example.\n\nValidation: 2519 lib + 2776 integration tests pass; clippy +\nfmt clean across `gui,syntax`.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-04T17:30:50+09:00",
+          "tree_id": "7aae21060e16157ae8e16d02792cd10a88c0b56d",
+          "url": "https://github.com/Yus314/kasane/commit/210750ca227a1070f5b36aeceb9f6477b54acbaa"
+        },
+        "date": 1777885740576,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 6314,
+            "range": "± 133",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 11763,
+            "range": "± 276",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 969,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 36272,
+            "range": "± 203",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 135864,
+            "range": "± 3945",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24_realistic",
+            "value": 39842,
+            "range": "± 246",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 34394,
+            "range": "± 2211",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 13983,
+            "range": "± 44",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/full_redraw",
+            "value": 32912,
+            "range": "± 1852",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/incremental",
+            "value": 13786,
+            "range": "± 36",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/80x24",
+            "value": 3649,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/200x60",
+            "value": 22762,
+            "range": "± 288",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 61633,
+            "range": "± 170",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 68321,
+            "range": "± 656",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 62259,
+            "range": "± 417",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 62242,
+            "range": "± 2952",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 62218,
+            "range": "± 330",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/1",
+            "value": 58790,
+            "range": "± 234",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/5",
+            "value": 60326,
+            "range": "± 1880",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "message_sequence",
+            "value": 68375,
+            "range": "± 1300",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 73191,
+            "range": "± 4910",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 642958,
+            "range": "± 27284",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 3172623,
+            "range": "± 154740",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 3627,
+            "range": "± 39",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 66364,
+            "range": "± 569",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 32359,
+            "range": "± 174",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 126777,
+            "range": "± 522",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 662685,
+            "range": "± 1258",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 486,
+            "range": "± 1003",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 5411,
+            "range": "± 152",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 62379,
+            "range": "± 129",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 255689,
+            "range": "± 3981",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 465765,
+            "range": "± 1498",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 3830419,
+            "range": "± 13152",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 7623291,
+            "range": "± 29501",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 13962,
+            "range": "± 82",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 85184,
+            "range": "± 419",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 169668,
+            "range": "± 369",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cached_pipeline_dirty_flags/all_dirty",
+            "value": 46108,
+            "range": "± 124",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cached_pipeline_dirty_flags/menu_select_only",
+            "value": 46161,
+            "range": "± 136",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_cold",
+            "value": 25734,
+            "range": "± 653",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_warm",
+            "value": 25683,
+            "range": "± 140",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_menu_select",
+            "value": 25670,
+            "range": "± 130",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_status_only",
+            "value": 46015,
+            "range": "± 201",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_menu_select",
+            "value": 45930,
+            "range": "± 192",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_single_edit",
+            "value": 13014,
+            "range": "± 62",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_all_changed",
+            "value": 10728,
+            "range": "± 303",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "apply_draw_line_comparison",
+            "value": 32259,
+            "range": "± 170",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_buffer_status/1_line_changed",
+            "value": 14432,
+            "range": "± 273",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "detect_cursors/full_scan_23_lines",
+            "value": 12714,
+            "range": "± 42",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "detect_cursors/incremental_2_dirty",
+            "value": 923,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "detect_cursors/incremental_all_dirty",
+            "value": 12784,
+            "range": "± 113",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/23_lines",
+            "value": 2009,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/59_lines",
+            "value": 1998,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/79_lines",
+            "value": 2008,
+            "range": "± 16",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/realistic_23",
+            "value": 1996,
+            "range": "± 20",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_cursor_only",
+            "value": 2004,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/status",
+            "value": 2001,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/menu/100_items",
+            "value": 6106,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/all_flags/80x24",
+            "value": 2001,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/all_flags/300x80",
+            "value": 2011,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/full_cold/salsa",
+            "value": 51599,
+            "range": "± 596848",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/full_cold/legacy",
+            "value": 47957,
+            "range": "± 563",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/menu_select_warm/salsa",
+            "value": 48717,
+            "range": "± 339",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/menu_select_warm/legacy",
+            "value": 46395,
+            "range": "± 110",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/incremental_edit/salsa",
+            "value": 53813,
+            "range": "± 3036",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/incremental_edit/legacy",
+            "value": 49565,
+            "range": "± 2665",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scene/cold",
+            "value": 25330,
+            "range": "± 117938",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scene/warm",
+            "value": 6119,
+            "range": "± 54",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/80x24",
+            "value": 53285,
+            "range": "± 1552",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/200x60",
+            "value": 166664,
+            "range": "± 3533",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/300x80",
+            "value": 276705,
+            "range": "± 365899",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/full_redraw/80x24",
+            "value": 54795,
+            "range": "± 1496",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/full_redraw/200x60",
+            "value": 295831,
+            "range": "± 6173",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/incremental_1line",
+            "value": 21358,
+            "range": "± 3408",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/full_redraw_realistic/80x24",
+            "value": 54235,
+            "range": "± 961",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 210138,
+            "range": "± 1795",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 151825,
+            "range": "± 3071",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 5490714,
+            "range": "± 88076",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 20713771,
+            "range": "± 192860",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1746514,
+            "range": "± 6277",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 22297110,
+            "range": "± 115834",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 4115,
+            "range": "± 109",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 50628,
+            "range": "± 241",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 494,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 2203,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_instantiation/component_new",
+            "value": 20814209,
+            "range": "± 2302767",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_instantiation/component_instantiate",
+            "value": 30558,
+            "range": "± 574",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/noop",
+            "value": 530,
+            "range": "± 23",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/add",
+            "value": 517,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/echo_string_100",
+            "value": 688,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/echo_string_10",
+            "value": 679,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/build_gutter_24",
+            "value": 5531,
+            "range": "± 84",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/on_state_changed",
+            "value": 899,
+            "range": "± 23",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/contribute_lines_24",
+            "value": 908,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/full_cycle",
+            "value": 1890,
+            "range": "± 49",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/write_echo/10",
+            "value": 49,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/write_echo/100",
+            "value": 55,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/write_echo/1000",
+            "value": 101,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/guest_build_read/10",
+            "value": 48,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/guest_build_read/100",
+            "value": 192,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/guest_build_read/1000",
+            "value": 1607,
+            "range": "± 27",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/single_text",
+            "value": 92,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/gutter_24",
+            "value": 1410,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/nested_3x8",
+            "value": 1489,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/nested_3x24",
+            "value": 4252,
+            "range": "± 23",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/decode_only_gutter_24",
+            "value": 930,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/state_changed_3calls",
+            "value": 34,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/state_changed_6calls",
+            "value": 45,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/contribute_lines_24",
+            "value": 70,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/full_cycle_state_lines",
+            "value": 98,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation/engine_new",
+            "value": 1536,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation/module_new_noop",
+            "value": 295251,
+            "range": "± 4692",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation/instance_new_noop",
+            "value": 784,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "empty_call/wasm_noop",
+            "value": 20,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "empty_call/native_noop",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "integer_call/wasm_add",
+            "value": 22,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "integer_call/native_add",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_import/1x",
+            "value": 25,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_import/10x",
+            "value": 71,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cursor_line_plugin/full_cycle",
+            "value": 1845,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cursor_line_plugin/cache_hit_no_call",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_numbers_gutter_24",
+            "value": 5433,
+            "range": "± 205",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/1",
+            "value": 1820,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/3",
+            "value": 5498,
+            "range": "± 62",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/5",
+            "value": 9092,
+            "range": "± 152",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/10",
+            "value": 18223,
+            "range": "± 173",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation_scaling/instantiate_n/1",
+            "value": 29106,
+            "range": "± 309",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation_scaling/instantiate_n/5",
+            "value": 128936,
+            "range": "± 1363",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation_scaling/instantiate_n/10",
+            "value": 253762,
+            "range": "± 2196",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "native_baseline/native_cursor_line_full",
+            "value": 7,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "native_baseline/native_gutter_24",
+            "value": 1277,
+            "range": "± 7",
             "unit": "ns/iter"
           }
         ]
