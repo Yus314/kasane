@@ -2,6 +2,90 @@
 
 ## [Unreleased]
 
+### Added — `CacheStrategy::PerLine` for finer-grained lens caching (2026-05-04)
+
+Composable Lenses follow-up: complement `PerBuffer` caching with
+a finer-grained per-line strategy. A single-line edit now
+invalidates **one cache entry per lens** instead of the
+whole-buffer entry — matches the granularity originally
+hinted at in ADR-035 §"Salsa input shape" (`(file_id, line,
+lens_stack) -> Display`).
+
+- (core) `kasane_core::lens::CacheStrategy::PerLine` — new
+  variant. Cache key is `(LensId, line_idx)`; entry stores
+  `(line_content_hash, output)`. The dispatcher iterates
+  visible lines, hashes each, and either returns the cached
+  output or invokes `Lens::display_line(view, line)` and
+  stores the result.
+- (core) `Lens::display_line(view, line) -> Vec<DisplayDirective>`
+  — new trait method with a default impl that filters
+  `display(view)` by anchor line. Lens authors who declare
+  `PerLine` should override with line-specific logic for
+  actual savings; the default impl is correct but pays the
+  whole-buffer cost on every line.
+- (core) `kasane_core::lens::cache::anchor_line(directive)`
+  — exhaustive helper covering all 12 `DisplayDirective`
+  variants. Multi-line directives (`Hide` / `Fold`) anchor at
+  `range.start`; single-line directives at their `line`
+  field; `EditableVirtualText` at its `after` field.
+- (core) `kasane_core::lens::cache::hash_line_text(atoms)` —
+  per-line hash function paralleling `hash_buffer_text` but
+  for one line. Used by the per-line dispatcher.
+- (core) `LensCache` extended with `per_line_entries:
+  HashMap<(LensId, usize), CacheEntry>` alongside the existing
+  `per_buffer_entries`. A lens lives in exactly one map (its
+  current `cache_strategy` decides which); `invalidate(lens_id)`
+  drops from both maps so a strategy change between calls
+  doesn't leave stale entries. `LensCache::len()` reports the
+  combined count.
+- (core) `LensRegistry::collect_directives` extended to handle
+  `CacheStrategy::PerLine`: per visible line — hash, look up
+  cache, invoke `display_line` on miss, extend output. The
+  cache lock is dropped across the lens invocation (same
+  re-entrancy rationale as the `PerBuffer` arm).
+- (core) **Bundled lenses opt in to `PerLine`** with
+  optimised `display_line` overrides:
+  - `TrailingWhitespaceLens::display_line` computes the
+    trailing-whitespace directive for one line directly.
+  - `LongLineLens::display_line` computes the past-threshold
+    directive for one line directly.
+  - `IndentGuidesLens::display_line` computes the indent-guide
+    column directives for one line directly.
+- (test) 5 new PerLine tests in `lens::tests` (lib 2563 →
+  2568):
+  - `perline_lens_invokes_each_line_once_then_caches_all`
+    (3 lines, 3 invocations on first call, 0 on subsequent
+    unchanged-buffer calls).
+  - `perline_invalidates_only_changed_line` (3 lines, edit
+    line 1 → exactly 1 re-invocation; lines 0 and 2 hit cache).
+  - `perline_default_display_line_filters_whole_buffer_by_anchor_line`
+    (a `WholeBufferLens` that overrides only `display()` —
+    the default `display_line` correctly buckets directives
+    by anchor line; 3 cache entries for 3 lines, two with
+    output, one empty).
+  - `perline_cache_length_grows_with_line_count` (5 lines →
+    5 cache entries; disable drops them all).
+  - `invalidate_drops_per_line_entries_too` (unregister
+    drops per-line entries for the lens).
+
+The cache module docstring now covers both strategies and
+their soundness contracts. The lens module docstring removed
+the prior "MVP doesn't implement caching" note (already done
+in the PerBuffer commit).
+
+For a typical interactive edit (single-line change in a
+1000-line buffer with 3 PerLine bundled lenses enabled): old
+PerBuffer behaviour re-invoked each lens for the entire
+buffer (3 × O(1000-line whole-buffer cost)); new PerLine
+behaviour re-invokes each lens for ONE line (3 × O(1-line
+cost)). The savings are O(N) where N is the number of visible
+lines.
+
+Validation: 2568 workspace lib tests pass; 2825 workspace
+integration tests pass; clippy + fmt clean across
+`gui,syntax`. Roadmap §2.2 entry updated to record both
+caching strategies.
+
 ### Added — Lens output caching (`CacheStrategy::PerBuffer`) (2026-05-04)
 
 Composable Lenses follow-up: the registry can now skip a lens's

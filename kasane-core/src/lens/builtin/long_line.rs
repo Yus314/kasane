@@ -98,8 +98,8 @@ impl Lens for LongLineLens {
     }
 
     fn cache_strategy(&self) -> CacheStrategy {
-        // Output depends on line text only.
-        CacheStrategy::PerBuffer
+        // Per-line output depends on that one line's text only.
+        CacheStrategy::PerLine
     }
 
     fn display(&self, view: &AppView<'_>) -> Vec<DisplayDirective> {
@@ -117,6 +117,21 @@ impl Lens for LongLineLens {
             });
         }
         out
+    }
+
+    fn display_line(&self, view: &AppView<'_>, line: usize) -> Vec<DisplayDirective> {
+        let Some(atoms) = view.lines().get(line) else {
+            return Vec::new();
+        };
+        let text: String = atoms.iter().map(|a| a.contents.as_str()).collect();
+        let Some(byte_range) = past_threshold_byte_range(&text, self.threshold_chars) else {
+            return Vec::new();
+        };
+        vec![DisplayDirective::StyleInline {
+            line,
+            byte_range,
+            face: self.style,
+        }]
     }
 }
 

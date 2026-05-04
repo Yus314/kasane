@@ -119,6 +119,33 @@ pub trait Lens: Send + Sync {
     /// the rendering pipeline when the lens is enabled.
     /// Disabled lenses' `display` is never called.
     fn display(&self, view: &AppView<'_>) -> Vec<DisplayDirective>;
+
+    /// Emit directives anchored to a single buffer line.
+    ///
+    /// Required for `CacheStrategy::PerLine`; the dispatcher
+    /// invokes this once per line on cache miss. The default
+    /// impl filters `display(view)` by anchor line — correct
+    /// for any lens but pays the whole-buffer cost on every
+    /// line, defeating the cache. Lens authors who declare
+    /// `PerLine` should override with line-specific logic.
+    ///
+    /// "Anchor line" follows
+    /// `crate::lens::cache::anchor_line` — multi-line
+    /// directives (`Hide` / `Fold`) anchor at `range.start`;
+    /// single-line directives at their `line` field;
+    /// `EditableVirtualText` at its `after` field.
+    ///
+    /// **Soundness contract for `PerLine`**: this method must
+    /// depend on `view.lines()[line]` only — not on adjacent
+    /// lines, cursor, selection, syntax tree, or any other
+    /// state. A lens that violates this contract should keep
+    /// `CacheStrategy::PerBuffer` or `None`.
+    fn display_line(&self, view: &AppView<'_>, line: usize) -> Vec<DisplayDirective> {
+        self.display(view)
+            .into_iter()
+            .filter(|d| cache::anchor_line(d) == line)
+            .collect()
+    }
 }
 
 /// Process-local registry of `Lens` instances and their enable /
@@ -315,6 +342,31 @@ impl LensRegistry {
                             .put(id.clone(), hash, output.clone());
                         output
                     }
+                }
+                CacheStrategy::PerLine => {
+                    let lines = view.lines();
+                    let mut all = Vec::new();
+                    for (line_idx, atoms) in lines.iter().enumerate() {
+                        let line_hash = cache::hash_line_text(atoms);
+                        let cached = self.cache.lock().unwrap().get_line(id, line_idx, line_hash);
+                        let line_dirs = if let Some(output) = cached {
+                            output
+                        } else {
+                            // Drop the lock across the lens
+                            // invocation; same re-entrancy
+                            // rationale as the PerBuffer arm.
+                            let output = lens.display_line(view, line_idx);
+                            self.cache.lock().unwrap().put_line(
+                                id.clone(),
+                                line_idx,
+                                line_hash,
+                                output.clone(),
+                            );
+                            output
+                        };
+                        all.extend(line_dirs);
+                    }
+                    all
                 }
             };
             for d in directives {

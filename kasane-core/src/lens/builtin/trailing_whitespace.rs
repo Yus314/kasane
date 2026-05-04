@@ -78,9 +78,9 @@ impl Lens for TrailingWhitespaceLens {
     }
 
     fn cache_strategy(&self) -> CacheStrategy {
-        // Output depends on line text only — no cursor / selection
-        // / syntax reads.
-        CacheStrategy::PerBuffer
+        // Per-line output depends on that one line's text only —
+        // each line's directive is independent.
+        CacheStrategy::PerLine
     }
 
     fn display(&self, view: &AppView<'_>) -> Vec<DisplayDirective> {
@@ -98,6 +98,24 @@ impl Lens for TrailingWhitespaceLens {
             });
         }
         out
+    }
+
+    /// Per-line override: avoid the whole-buffer scan the
+    /// default impl would do. Computes the trailing-whitespace
+    /// directive for `line` directly.
+    fn display_line(&self, view: &AppView<'_>, line: usize) -> Vec<DisplayDirective> {
+        let Some(atoms) = view.lines().get(line) else {
+            return Vec::new();
+        };
+        let text: String = atoms.iter().map(|a| a.contents.as_str()).collect();
+        let Some(byte_range) = trailing_whitespace_byte_range(&text) else {
+            return Vec::new();
+        };
+        vec![DisplayDirective::StyleInline {
+            line,
+            byte_range,
+            face: self.style,
+        }]
     }
 }
 

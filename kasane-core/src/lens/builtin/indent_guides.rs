@@ -106,8 +106,8 @@ impl Lens for IndentGuidesLens {
     }
 
     fn cache_strategy(&self) -> CacheStrategy {
-        // Output depends on line text only.
-        CacheStrategy::PerBuffer
+        // Per-line output depends on that one line's text only.
+        CacheStrategy::PerLine
     }
 
     fn display(&self, view: &AppView<'_>) -> Vec<DisplayDirective> {
@@ -127,6 +127,24 @@ impl Lens for IndentGuidesLens {
             }
         }
         out
+    }
+
+    fn display_line(&self, view: &AppView<'_>, line: usize) -> Vec<DisplayDirective> {
+        if self.indent_width == 0 {
+            return Vec::new();
+        }
+        let Some(atoms) = view.lines().get(line) else {
+            return Vec::new();
+        };
+        let text: String = atoms.iter().map(|a| a.contents.as_str()).collect();
+        indent_guide_columns(&text, self.indent_width)
+            .into_iter()
+            .map(|col| DisplayDirective::StyleInline {
+                line,
+                byte_range: col..col + 1,
+                face: self.style,
+            })
+            .collect()
     }
 }
 

@@ -573,3 +573,194 @@ fn empty_enabled_set_does_not_compute_buffer_hash() {
     assert!(dirs.is_empty());
     assert_eq!(registry.cache_len(), 0);
 }
+
+// -----------------------------------------------------------------
+// PerLine cache behaviour
+// -----------------------------------------------------------------
+
+/// Lens that records which (line_idx) values its display_line was
+/// called against. Used to verify per-line cache hits skip
+/// invocations for unchanged lines.
+struct PerLineCounter {
+    id: LensId,
+    invoked_lines: Arc<std::sync::Mutex<Vec<usize>>>,
+}
+
+impl PerLineCounter {
+    fn new(id: LensId) -> (Self, Arc<std::sync::Mutex<Vec<usize>>>) {
+        let invoked_lines = Arc::new(std::sync::Mutex::new(Vec::new()));
+        (
+            Self {
+                id,
+                invoked_lines: invoked_lines.clone(),
+            },
+            invoked_lines,
+        )
+    }
+}
+
+impl Lens for PerLineCounter {
+    fn id(&self) -> LensId {
+        self.id.clone()
+    }
+    fn cache_strategy(&self) -> CacheStrategy {
+        CacheStrategy::PerLine
+    }
+    fn display(&self, _view: &AppView<'_>) -> Vec<DisplayDirective> {
+        // Whole-buffer fallback — the dispatcher uses display_line
+        // for PerLine, so this should not be called from the
+        // PerLine path. Implementing it for the trait is required.
+        Vec::new()
+    }
+    fn display_line(&self, view: &AppView<'_>, line: usize) -> Vec<DisplayDirective> {
+        self.invoked_lines.lock().unwrap().push(line);
+        // Emit one StyleLine directive per line so we have something
+        // to assert on output as well.
+        let _ = view;
+        vec![DisplayDirective::StyleLine {
+            line,
+            face: WireFace::default(),
+            z_order: 0,
+        }]
+    }
+}
+
+#[test]
+fn perline_lens_invokes_each_line_once_then_caches_all() {
+    let (lens, invoked) = PerLineCounter::new(id("p", "per-line"));
+    let lens_id = lens.id();
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens));
+    registry.enable(&lens_id);
+
+    let state = appstate_with_lines(&["a", "b", "c"]);
+
+    let _ = registry.collect_directives(&AppView::new(&state));
+    assert_eq!(*invoked.lock().unwrap(), vec![0, 1, 2]);
+    assert_eq!(registry.cache_len(), 3, "one cache entry per line");
+
+    // Second call against unchanged buffer: zero new invocations.
+    invoked.lock().unwrap().clear();
+    let _ = registry.collect_directives(&AppView::new(&state));
+    assert!(
+        invoked.lock().unwrap().is_empty(),
+        "cache hits everywhere → zero invocations"
+    );
+}
+
+#[test]
+fn perline_invalidates_only_changed_line() {
+    let (lens, invoked) = PerLineCounter::new(id("p", "per-line"));
+    let lens_id = lens.id();
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens));
+    registry.enable(&lens_id);
+
+    let state_a = appstate_with_lines(&["a", "b", "c"]);
+    let _ = registry.collect_directives(&AppView::new(&state_a));
+    assert_eq!(*invoked.lock().unwrap(), vec![0, 1, 2]);
+    invoked.lock().unwrap().clear();
+
+    // Change only line 1. Lines 0 and 2 keep their cache entries.
+    let state_b = appstate_with_lines(&["a", "BB", "c"]);
+    let _ = registry.collect_directives(&AppView::new(&state_b));
+    assert_eq!(
+        *invoked.lock().unwrap(),
+        vec![1],
+        "only line 1 re-invoked; lines 0 and 2 hit cache"
+    );
+    // Cache still has 3 entries (one per line; line 1's was
+    // overwritten with the new hash).
+    assert_eq!(registry.cache_len(), 3);
+}
+
+#[test]
+fn perline_default_display_line_filters_whole_buffer_by_anchor_line() {
+    // A lens that overrides only `display()` (not `display_line`)
+    // — the default `display_line` impl filters by anchor line.
+    struct WholeBufferLens {
+        id: LensId,
+    }
+    impl Lens for WholeBufferLens {
+        fn id(&self) -> LensId {
+            self.id.clone()
+        }
+        fn cache_strategy(&self) -> CacheStrategy {
+            CacheStrategy::PerLine
+        }
+        fn display(&self, _view: &AppView<'_>) -> Vec<DisplayDirective> {
+            vec![
+                DisplayDirective::StyleLine {
+                    line: 0,
+                    face: WireFace::default(),
+                    z_order: 0,
+                },
+                DisplayDirective::StyleLine {
+                    line: 2,
+                    face: WireFace::default(),
+                    z_order: 0,
+                },
+            ]
+        }
+    }
+
+    let lens_id = id("p", "default-display-line");
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(WholeBufferLens {
+        id: lens_id.clone(),
+    }));
+    registry.enable(&lens_id);
+
+    let state = appstate_with_lines(&["a", "b", "c"]);
+    let dirs = registry.collect_directives(&AppView::new(&state));
+    // Two emissions (lines 0 and 2 only — line 1 produced none).
+    assert_eq!(dirs.len(), 2);
+    let lines: Vec<usize> = dirs
+        .iter()
+        .map(|(d, _, _)| match d {
+            DisplayDirective::StyleLine { line, .. } => *line,
+            _ => panic!(),
+        })
+        .collect();
+    assert_eq!(lines, vec![0, 2]);
+    // 3 cache entries (one per line — line 1 cached as empty).
+    assert_eq!(registry.cache_len(), 3);
+}
+
+#[test]
+fn perline_cache_length_grows_with_line_count() {
+    let (lens, _) = PerLineCounter::new(id("p", "x"));
+    let lens_id = lens.id();
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens));
+    registry.enable(&lens_id);
+
+    // 5 lines → 5 cache entries after one collect.
+    let state = appstate_with_lines(&["a", "b", "c", "d", "e"]);
+    let _ = registry.collect_directives(&AppView::new(&state));
+    assert_eq!(registry.cache_len(), 5);
+
+    // Disable drops them all.
+    registry.disable(&lens_id);
+    assert_eq!(registry.cache_len(), 0);
+}
+
+#[test]
+fn invalidate_drops_per_line_entries_too() {
+    let (lens, _) = PerLineCounter::new(id("p", "x"));
+    let lens_id = lens.id();
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens));
+    registry.enable(&lens_id);
+
+    let state = appstate_with_lines(&["a", "b"]);
+    let _ = registry.collect_directives(&AppView::new(&state));
+    assert_eq!(registry.cache_len(), 2);
+
+    registry.unregister(&lens_id);
+    assert_eq!(
+        registry.cache_len(),
+        0,
+        "unregister drops per-line entries for the lens"
+    );
+}
