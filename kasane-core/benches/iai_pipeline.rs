@@ -180,6 +180,83 @@ fn iai_grid_diff_incremental(grid: CellGrid) {
 }
 
 // ---------------------------------------------------------------------------
+// Bridge bench (ADR-034 / ADR-037)
+// ---------------------------------------------------------------------------
+
+/// Realistic mixed workload mirroring `bridge_overhead/mixed_full`:
+/// 2 Hides + 1 Fold + 24 Gutters + 4 StyleInlines + 1 InlineBox.
+fn setup_bridge_mixed_full() -> kasane_core::display::DirectiveSet {
+    use compact_str::CompactString;
+    use kasane_core::display::{DirectiveSet, DisplayDirective, GutterSide, InlineBoxAlignment};
+    use kasane_core::element::Element;
+    use kasane_core::plugin::PluginId;
+    use kasane_core::protocol::{Atom, WireFace};
+
+    const LINE_COUNT: usize = 24;
+    let pid = |s: &str| PluginId(s.to_string());
+    let atom = |s: &str| {
+        Atom::with_style(
+            CompactString::from(s),
+            kasane_core::protocol::Style::default(),
+        )
+    };
+
+    let mut set = DirectiveSet::default();
+    set.push(DisplayDirective::Hide { range: 0..2 }, 0, pid("h1"));
+    set.push(DisplayDirective::Hide { range: 20..22 }, 0, pid("h2"));
+    set.push(
+        DisplayDirective::Fold {
+            range: 5..10,
+            summary: vec![atom("// folded")],
+        },
+        0,
+        pid("f"),
+    );
+    for line in 0..LINE_COUNT {
+        set.push(
+            DisplayDirective::Gutter {
+                line,
+                side: GutterSide::Left,
+                content: Element::Empty,
+                priority: 0,
+            },
+            0,
+            pid(&format!("g{}", line)),
+        );
+    }
+    for line in [3, 11, 14, 17] {
+        set.push(
+            DisplayDirective::StyleInline {
+                line,
+                byte_range: 0..10,
+                face: WireFace::default(),
+            },
+            0,
+            pid(&format!("si{}", line)),
+        );
+    }
+    set.push(
+        DisplayDirective::InlineBox {
+            line: 12,
+            byte_offset: 4,
+            width_cells: 2.0,
+            height_lines: 1.0,
+            box_id: 42,
+            alignment: InlineBoxAlignment::Center,
+        },
+        0,
+        pid("box"),
+    );
+    set
+}
+
+#[library_benchmark(config = regression_config())]
+#[bench::default(setup_bridge_mixed_full())]
+fn iai_bridge_resolve_mixed_full(set: kasane_core::display::DirectiveSet) {
+    let _out = kasane_core::display_algebra::bridge::resolve_via_algebra(&set, 24);
+}
+
+// ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
 
@@ -191,7 +268,8 @@ library_benchmark_group!(
         iai_state_apply_draw,
         iai_paint_80x24,
         iai_grid_diff_full,
-        iai_grid_diff_incremental
+        iai_grid_diff_incremental,
+        iai_bridge_resolve_mixed_full,
 );
 
 main!(library_benchmark_groups = iai_pipeline);
