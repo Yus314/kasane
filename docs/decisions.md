@@ -2643,7 +2643,9 @@ W1, W2, W4 run from day 1. W3 must precede W5. W5 has hard halt gates (see §Dec
 
 The spike (W5) produces the following data points. Each row has a target and a halt trigger; a halt trigger fires at the day-2 checkpoint (early termination preserves remaining timebox).
 
-| Metric | Target | Halt trigger |
+**Targets below are calibrated to the 2026-04-29 Linux x86_64 reference host.** When the spike runs on a different machine class, apply the *Reference machine policy* below the table — relative-to-host-baseline interpretation overrides absolute targets where the host is > 1.5× off reference.
+
+| Metric | Target (Linux ref) | Halt trigger (Linux ref) |
 |---|---|---|
 | 80×24 warm frame | ≤ 70 µs | > 100 µs at Day 2 |
 | Cursor-only frame | ≤ 20 µs | > 60 µs |
@@ -2658,6 +2660,22 @@ The spike (W5) produces the following data points. Each row has a target and a h
 | Glifo adapter LOC introduced (if Mode A1 path taken) | ≤ 400 | > 800 → flag (LOC win negated; reconsider Glifo-only rejection) |
 
 The 80×24 warm-frame target intentionally matches ADR-031's Phase 11 target (≤ 70 µs) — Vello must clear the same bar Parley + swash already cleared.
+
+#### Reference machine policy (added 2026-05-02)
+
+The absolute µs targets above are calibrated against the **2026-04-29 Linux x86_64 reference host** documented in [`docs/performance.md` §Parley-only baseline](./performance.md). Cross-machine measurement on Apple M1 / macOS 26.3 (recorded in [`docs/performance.md` §Cross-machine baseline](./performance.md)) shows the ratio between hosts is **strongly bench-dependent**: M1 is faster on shape and cold-frame paths, but **3.5–4.4× slower on warm-frame paths** for reasons that appear to be cache-line / LRU sensitivity rather than CPU clock.
+
+This means a host-portable spike interpretation requires both an absolute target *and* a relative-to-baseline rule:
+
+| Spike runs on … | Apply absolute target? | Apply relative rule? |
+|---|---|---|
+| 2026-04-29 Linux x86_64 reference (or within 1.5× of it on the same bench) | Yes | (subsumed by absolute) |
+| Apple M1 / macOS 26.3 (or any host > 1.5× of reference on the *current* bench) | **No** | **`Vello result ≤ 1.2× host's current production stack measurement on the same bench`** |
+| Other hosts not yet baselined | Add a `Cross-machine baseline` entry to `performance.md` first; then apply the relative rule | Required |
+
+The relative rule (`≤ 1.2× current production`) tests the *adoption-relevant* question: does Vello regress this host's already-shipping performance? An absolute Linux µs target is meaningless on M1 because the production stack already exceeds it on M1; the spike's task there is to verify Vello does not make it *worse*.
+
+**Cross-machine spike runs are explicitly permitted.** A halt-trigger fire on an absolute row is **not a halt** if (a) the spike host is documented as `> 1.5× of reference`, (b) the relative-rule version of the row passes. The §Spike Findings field 6 (Driver matrix coverage) must record which host the spike ran on so the Findings reader can apply the appropriate rule.
 
 The **incremental warm frame** row pins the Salsa-cache-hit case that Kasane's render pipeline currently exploits (`salsa_views/` + `text/layout_cache.rs` + `text/raster_cache.rs`). Vello's `Scene` is whole-frame re-encoded, so the CPU side cannot benefit from Salsa beyond `query draw_commands(state) -> Vec<DrawCommand>`. If the incremental warm frame measurement is **worse than the warm frame measurement** (i.e. Salsa-hit gives no benefit), Vello adoption flips Kasane's pipeline from incremental to full-rebuild — a regression that the warm-frame-only matrix would not have caught.
 
@@ -2750,7 +2768,7 @@ The findings below are **required fields**; missing any field invalidates the sp
 3. **Spike Measurement Matrix — every row**: raw value, unit, target, halt-trigger verdict. No row may be skipped; "not measured" requires a stated reason and counts as red against that row.
 4. **Hybrid CPU strip vs GPU submit decomposition**: `cpu_encode`, `glifo_atlas`, `gpu_prepare`, `gpu_submit_latency`, `total_warm` (per [`kasane-vello-spike` instrumentation plan](./decisions.md#adr-032-gpu-rendering-strategy--vello-evaluation-framework)). Compute and record `cpu_share = (cpu_encode + glifo_atlas) / total_warm`. Classify as **durable** (< 20 %) / **transitional** (20–50 %) / **stepping-stone** (≥ 50 %).
 5. **Incremental warm frame measurement**: `frame_warm_one_line_changed` against the same fixture set as full warm. Record the Salsa-hit case explicitly; a measurement worse than the full warm frame is a regression flag.
-6. **Driver matrix coverage**: list of (OS, GPU vendor, driver version, wgpu backend) tuples tested. CI-runner status (deterministic / per-tuple snapshot / local-only). DSSIM per tuple.
+6. **Driver matrix coverage**: list of (OS, GPU vendor, driver version, wgpu backend) tuples tested. CI-runner status (deterministic / per-tuple snapshot / local-only). DSSIM per tuple. **Host class for absolute-vs-relative target interpretation**: record whether the spike host is within 1.5× of the 2026-04-29 Linux x86_64 reference on `frame_warm_24_lines` (apply absolute targets) or > 1.5× off (apply relative `≤ 1.2× current production` rule per §Reference machine policy). Cite `docs/performance.md` for the host's pre-spike production baseline.
 7. **Actual LOC retire vs predicted**: file-by-file table. Predicted (Mode A2): ~3,900 LOC across `text/raster_cache.rs`, `text/gpu_atlas.rs`, `text/glyph_rasterizer.rs`, `text/glyph_emitter.rs`, `text/wgpu_cache.rs`, `text/vertex_builder.rs`, `quad_pipeline.rs`, `image_pipeline.rs`, `text_effects.rs`, WGSL group. Record actual.
 8. **Adapter LOC introduced**: count of new code in `kasane-vello-spike/` and any `kasane-gui` adapter modules. Mode A1 path adds ~400–600; Mode A2 ~150 churn. > 800 invalidates the LOC win.
 9. **Plugin wire protocol delta**: which existing WIT types must change for `DrawCommand::DrawPath` and `BackendCapabilities::supports_paths` to land. Bundled and example WASM plugins requiring recompile (count). Plugin SDK semver bump required (yes/no, target version).

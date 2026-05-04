@@ -511,6 +511,67 @@ The GPU text pipeline now caches at two levels:
 >
 > See [ADR-031](./decisions.md#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign).
 
+> **Cross-machine baseline — Apple M1 / macOS 26.3 (2026-05-02)** —
+> captured to verify ADR-032 §Spike Measurement Matrix targets are
+> machine-portable. **They are not.** The 2026-04-29 baseline above
+> is from a different (presumed Linux x86_64) host; per-bench ratios
+> diverge significantly across the two machine classes.
+>
+> Hardware: MacBook Air, Apple M1, 8 GB. OS: macOS 26.3 Tahoe (kernel
+> xnu-12377 arm64). wgpu adapter: Apple M1 (Metal). wgpu-hal pinned
+> at 29.0.2 (29.0.1 has a `MTLSharedEvent`/`create_fence` panic on
+> macOS 26.x; fixed in 29.0.2).
+>
+> | Bench | M1 macOS 26.3 | Linux ref (2026-04-29) | Ratio M1 / ref |
+> |---|---|---|---|
+> | `parley/shape_cold` | 165 µs | — | n/a (no ref recorded) |
+> | `parley/shape_warm` | 4.92 µs | 13.58 µs | **0.36×** (M1 faster) |
+> | `parley/frame_cold_24_lines` | 1.02 ms | 7.77 ms | **0.13×** (M1 7.6× faster) |
+> | `parley/frame_warm_24_lines` | 286 µs | 64.89 µs | **4.41×** (M1 slower) |
+> | `parley/frame_one_line_changed_24_lines` | 296 µs | 83.77 µs | **3.54×** (M1 slower) |
+>
+> **Asymmetry.** M1 is fundamentally faster on shape and cold-frame
+> paths (compute-heavy, exercises Parley shaping + harfrust + swash
+> outline rasterisation) but fundamentally slower on warm-frame paths
+> (cache-lookup-heavy, exercises `LayoutCache` + `GlyphRasterCache`
+> LRU touches + `AtlasShelf` allocator). The warm-frame deficit on
+> M1 is **not** a regression — at the post-`StyledLineScratch` closure
+> point (`f04f4f9`, ADR-031 closure baseline), M1 measured 539 µs on
+> `frame_warm_24_lines` whereas current `master` measures 286 µs;
+> post-closure perf work has lifted M1 by **2× without affecting the
+> Linux ref number**.
+>
+> **CompactString impact validation.** Commit `ec6da79`
+> (`perf(core): switch DrawCommand text fields to CompactString`,
+> 2026-04-30) and the earlier `ResolvedAtom.contents` `String →
+> CompactString` change appear to be the dominant contributors to
+> the M1 perf improvement from 539 µs (f04f4f9) → 286 µs (HEAD).
+> This validates ADR-032 §Non-Spike Decision Factors §Self-optimisation
+> alternative — alloc-elision pays disproportionately on M1 because
+> Apple Silicon's allocator path is cache-line sensitive in ways
+> that the Linux x86_64 reference machine's allocator is not.
+>
+> **Spike target portability.** ADR-032 §Spike Measurement Matrix
+> rows that quote absolute µs (e.g. `≤ 70 µs warm`) are **only valid
+> on a host class within ~1.5× of the 2026-04-29 reference**. On M1
+> the same code already exceeds those numerical targets without
+> Vello in the picture; the spike target must be expressed
+> *relative to the host's current production stack* (e.g.,
+> `≤ 1.2× current baseline`) to be machine-portable. ADR-032
+> §Spike Measurement Matrix has been refactored accordingly — see
+> the `Reference machine policy` paragraph there.
+>
+> **Recommended profiling target (next):** the M1 warm-path 4× gap
+> against Linux ref is concentrated in **non-shape** stages. Run
+> `xcrun xctrace` or macOS `sample` against a `--profile-time=10`
+> criterion run of `parley/frame_warm_24_lines` and stratify by:
+> (1) `LayoutCache::get_or_compute` cache-hit fast path,
+> (2) `GlyphRasterCache::get_or_insert` LRU touch + bookkeeping,
+> (3) `AtlasShelf` allocator probe. The hypothesis from the
+> machine-class asymmetry is that LRU pointer-chase dominates on
+> M1 (cache-line sensitive) and is amortised better on x86's
+> larger LLC.
+
 The historical hit-rate measurements below were collected on a
 2026-04-26 host run with the cosmic-era `kasane::line_cache=debug`
 per-frame summary across three workloads (no longer reproducible):

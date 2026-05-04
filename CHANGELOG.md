@@ -1561,6 +1561,82 @@ land in a history backend, plugins read past states via
 - New test code: ~2,510 LOC.
 - New implementation code: ~2,530 LOC.
 
+### Added — ADR-032 cross-machine baseline + per-machine matrix policy + W2 snapshot bootstrap on Apple M1 (2026-05-02)
+
+Documents and operationalises the discovery that ADR-032 §Spike
+Measurement Matrix's absolute µs targets are **calibrated to a single
+reference host** and need a host-portable interpretation rule when the
+spike runs on a materially different machine class.
+
+- **gui (tests, snapshot bootstrap)**: 8 W2 / Phase 10 fixture PNGs
+  bootstrapped on Apple M1 / macOS 26.3 / wgpu-hal 29.0.2 in commit
+  `45e9ae4`. Snapshots: `monochrome_grid`,
+  `subpixel_quantisation_4step`, `curly_underline`,
+  `color_emoji_priority`, `inline_box_text_flow`, `rtl_bidi_cursor`,
+  `cjk_cluster_double_width`, `clear_color_red`. Self-DSSIM ≤ 0.005
+  against own snapshots; Apple M1 Metal is byte-stable on identical
+  driver (5/5 sequential bootstrap MD5 matches), so the threshold has
+  ~5 orders of magnitude of headroom on this host class. Per ADR-032
+  §Risks "Driver-dependent rasterization" mitigation, the snapshots
+  are pinned to the (macOS, Apple-Metal) tuple; a future Linux harness
+  re-runs requires either a per-OS subdirectory layout or a separate
+  bootstrap on the Linux runner.
+- **gui (deps, regression note)**: wgpu-hal 29.0.1 panics on macOS 26.x
+  in `metal::device::create_fence` because `MTLSharedEvent::newSharedEvent()`
+  returns `None` and the wgpu code path unwraps unconditionally.
+  Fixed in 29.0.2; the workspace now depends on 29.0.2+ for the
+  golden harness to function on macOS 26+. Cargo.lock updated.
+- **docs (performance.md)**: new §Cross-machine baseline subsection
+  records Apple M1 / macOS 26.3 measurements for `parley_pipeline`.
+  Notable findings:
+  - `parley/shape_warm`: M1 4.92 µs vs Linux ref 13.58 µs (M1 0.36×)
+  - `parley/frame_cold_24_lines`: M1 1.02 ms vs ref 7.77 ms (M1 0.13×)
+  - `parley/frame_warm_24_lines`: M1 286 µs vs ref 64.89 µs (**M1 4.41×**)
+  - `parley/frame_one_line_changed`: M1 296 µs vs ref 83.77 µs (M1 3.54×)
+
+  The asymmetry is structural: M1 is faster on compute-heavy paths
+  (shape, cold frame — Parley + harfrust + swash outline raster) and
+  slower on cache-lookup-heavy paths (warm frame —
+  `LayoutCache`/`GlyphRasterCache` LRU touches + `AtlasShelf`
+  allocator probe). Bisecting against the post-`StyledLineScratch`
+  closure point (`f04f4f9`, ADR-031 closure baseline) shows M1 was
+  539 µs at closure and 286 µs on master — post-closure perf work
+  (notably `ec6da79` `CompactString` for `DrawCommand` text fields)
+  improved M1 by 2× without affecting the Linux ref number,
+  validating ADR-032 §Non-Spike Decision Factors §Self-optimisation
+  alternative and giving the first concrete data point that
+  alloc-elision pays disproportionately on Apple Silicon.
+- **docs (ADR-032 §Spike Measurement Matrix refactor)**:
+  - Matrix table now annotated as "calibrated to 2026-04-29 Linux
+    x86_64 reference host"; per-machine targets remain absolute.
+  - New §Reference machine policy paragraph defines the host-portable
+    interpretation rule:
+    - Spike on host within 1.5× of reference → apply absolute targets
+    - Spike on host > 1.5× off reference (e.g. M1) → apply relative
+      rule `Vello result ≤ 1.2× host's current production stack on
+      the same bench`
+    - Other hosts → bootstrap a `Cross-machine baseline` entry in
+      `performance.md` first, then apply relative rule
+  - The relative rule encodes the *adoption-relevant* question
+    (does Vello regress this host's already-shipping perf?) rather
+    than the *Linux-baseline-equivalent* question that an absolute
+    target answers.
+  - §Spike Findings field 6 (Driver matrix coverage) extended:
+    spike must record host class and cite the appropriate baseline
+    so the Findings reader can apply the correct rule.
+  - Cross-machine spike runs explicitly permitted: an absolute-row
+    halt-trigger fire on a non-reference host is *not* a halt if
+    the relative-rule version of the row passes.
+- **process**: this CHANGELOG entry is the artefact that closes the
+  finding loop — the M1 measurement showed the matrix was
+  machine-dependent; the matrix has been refactored to be
+  machine-portable; future spike findings will cite both rules
+  explicitly. The decision-grade statement is: *if Vello adoption
+  is approved on the Linux ref host, that approval is portable to
+  M1 only if the relative-rule (`≤ 1.2× current M1 baseline`) also
+  holds — which is a separate measurement on M1 that the spike
+  must perform if M1 is a target deployment host.*
+
 ### Added — ADR-032 W2 bootstrap (2026-05-01)
 
 - (gui) `kasane_gui::gpu::scene_renderer::FrameTarget` enum (`Surface` /
