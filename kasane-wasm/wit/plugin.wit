@@ -1237,6 +1237,45 @@ interface types {
         veto,
     }
 
+    // --- Composable Lenses (Roadmap §2.2 follow-up) ---
+
+    /// Cache invalidation strategy a lens declares to the host
+    /// dispatcher. Mirrors `kasane_core::lens::CacheStrategy`.
+    ///
+    /// - `none` — no caching; the lens runs every frame.
+    /// - `per-buffer` — single cache entry per lens; any
+    ///   line-text change invalidates. Sound only for lenses
+    ///   whose output depends on line text alone.
+    /// - `per-line` — one cache entry per `(lens, line)`;
+    ///   single-line edit invalidates one entry. Strictly
+    ///   narrower soundness contract — per-line output must
+    ///   depend only on that one line's text. Plugins that
+    ///   declare `per-line` should implement
+    ///   `lens-display-line` with line-specific logic.
+    enum lens-cache-strategy {
+        none,
+        per-buffer,
+        per-line,
+    }
+
+    /// Declaration of a single lens owned by a plugin. The host
+    /// reads this at plugin load via `declare-lenses` and
+    /// constructs a host-side adapter that calls back into the
+    /// plugin's `lens-display-line` export.
+    record lens-declaration {
+        /// Lens name; namespaced under the owning plugin's id.
+        /// Kebab-case identifier (e.g. `trailing-whitespace`).
+        name: string,
+        /// Human-readable label for UI display.
+        label: string,
+        /// Priority in the conflict-resolution ordering. Higher
+        /// priority wins on overlap (matches the native
+        /// `Lens::priority` contract). Default: 0.
+        priority: s16,
+        /// Cache invalidation strategy for this lens.
+        cache-strategy: lens-cache-strategy,
+    }
+
     // --- v0.20.0: Image types ---
 
     /// Image source for Element::Image.
@@ -1606,7 +1645,8 @@ interface plugin-api {
                display-unit-info, navigation-policy-kind, navigation-action-result,
                channel-value,
                projection-descriptor,
-               shadow-edit, shadow-edit-verdict};
+               shadow-edit, shadow-edit-verdict,
+               lens-declaration, lens-cache-strategy};
 
     // --- Identity ---
 
@@ -1876,6 +1916,48 @@ interface plugin-api {
     /// commit. `veto` lets a plugin block edits that violate a
     /// plugin-owned invariant. Most plugins return `pass-through`.
     intercept-buffer-edit: func(edit: shadow-edit) -> shadow-edit-verdict;
+
+    // --- Composable Lenses (Roadmap §2.2 follow-up) ---
+
+    /// Declare lenses owned by this plugin. Called by the host
+    /// once at plugin load; for each returned declaration the
+    /// host constructs a `WasmLensAdapter` that implements the
+    /// native `Lens` trait and registers it on
+    /// `AppState.lens_registry`. Adapters call back into this
+    /// plugin's `lens-display-line` export when the dispatcher
+    /// needs lens output.
+    ///
+    /// New registrations start **disabled**; the embedder /
+    /// user calls `LensRegistry::enable` to activate.
+    ///
+    /// Default: empty list (no lenses).
+    declare-lenses: func() -> list<lens-declaration>;
+
+    /// Compute whole-buffer display directives for a named
+    /// lens. Called by the host adapter on:
+    /// - every frame if `cache-strategy: none`,
+    /// - every cache miss if `cache-strategy: per-buffer`.
+    ///
+    /// Plugins that declare `cache-strategy: per-line` may
+    /// leave the whole-buffer impl returning empty if they
+    /// implement `lens-display-line` directly — the host's
+    /// `PerLine` path uses `lens-display-line` exclusively.
+    ///
+    /// Default: empty list.
+    lens-display: func(lens-name: string) -> list<display-directive>;
+
+    /// Compute display directives for one line of a named lens.
+    /// Called by the host's `PerLine` cache miss path (one call
+    /// per line on first frame and on line-content change).
+    ///
+    /// Plugins that declare `cache-strategy: per-line` should
+    /// implement this directly for true per-line caching
+    /// savings. The default impl in the SDK returns empty;
+    /// without an override, declared `per-line` lenses produce
+    /// no output.
+    ///
+    /// Default: empty list.
+    lens-display-line: func(lens-name: string, line: u32) -> list<display-directive>;
 }
 
 // ---------------------------------------------------------------------------

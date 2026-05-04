@@ -577,6 +577,35 @@ pub(crate) fn generate_defaults(
         }
     );
 
+    // --- Composable Lenses (Roadmap §2.2 follow-up) ---
+
+    add_default!(
+        "declare_lenses",
+        quote! {
+            fn declare_lenses() -> Vec<LensDeclaration> {
+                Vec::new()
+            }
+        }
+    );
+
+    add_default!(
+        "lens_display",
+        quote! {
+            fn lens_display(_lens_name: String) -> Vec<DisplayDirective> {
+                Vec::new()
+            }
+        }
+    );
+
+    add_default!(
+        "lens_display_line",
+        quote! {
+            fn lens_display_line(_lens_name: String, _line: u32) -> Vec<DisplayDirective> {
+                Vec::new()
+            }
+        }
+    );
+
     // --- Inter-plugin messaging ---
 
     add_default!(

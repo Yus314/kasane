@@ -547,6 +547,137 @@ impl WasmPlugin {
             cached_projection_descriptors,
         }
     }
+
+    /// Composable Lenses (Roadmap §2.2): query the plugin's
+    /// `declare-lenses` export, build a `WasmLensAdapter` for
+    /// each declaration, and register it on `registry`. New
+    /// registrations start **disabled**; the embedder calls
+    /// `LensRegistry::enable` to activate.
+    ///
+    /// No-op (returns 0) if the plugin declares no lenses or
+    /// the WASM call fails (the failure is logged via tracing
+    /// but does not propagate — lens registration is a
+    /// best-effort lifecycle step, not a load gate).
+    pub fn register_lenses_into(&self, registry: &mut kasane_core::lens::LensRegistry) -> usize {
+        let declarations = self.shared.with_runtime(|rt| {
+            match rt
+                .instance
+                .kasane_plugin_plugin_api()
+                .call_declare_lenses(&mut rt.store)
+            {
+                Ok(decls) => decls,
+                Err(e) => {
+                    tracing::error!(
+                        "WASM plugin {}.declare_lenses failed: {e}",
+                        self.shared.plugin_id.0
+                    );
+                    Vec::new()
+                }
+            }
+        });
+        let mut registered = 0usize;
+        for wit_decl in declarations {
+            let decl = convert::wit_lens_declaration_to_native(&wit_decl);
+            let adapter = WasmLensAdapter {
+                shared: Arc::clone(&self.shared),
+                declaration: decl,
+            };
+            registry.register(Arc::new(adapter));
+            registered += 1;
+        }
+        registered
+    }
+}
+
+/// Native `Lens` impl backed by a WASM plugin's
+/// `lens-display` / `lens-display-line` exports.
+///
+/// Constructed by `WasmPlugin::register_lenses_into` (one
+/// adapter per declaration returned from `declare-lenses`).
+/// The host's lens dispatcher invokes the trait methods; the
+/// adapter forwards each call to the plugin via `call_synced`.
+struct WasmLensAdapter {
+    shared: Arc<WasmPluginShared>,
+    declaration: convert::LensDeclaration,
+}
+
+impl WasmLensAdapter {
+    fn build_view_view<'a>(
+        &self,
+        view: &'a kasane_core::plugin::AppView<'_>,
+    ) -> &'a kasane_core::plugin::AppView<'a> {
+        // No-op helper kept for symmetry with other adapter
+        // shapes; AppView lifetime threads naturally.
+        view
+    }
+}
+
+impl kasane_core::lens::Lens for WasmLensAdapter {
+    fn id(&self) -> kasane_core::lens::LensId {
+        kasane_core::lens::LensId::new(self.shared.plugin_id.clone(), self.declaration.name.clone())
+    }
+
+    fn label(&self) -> String {
+        self.declaration.label.clone()
+    }
+
+    fn priority(&self) -> i16 {
+        self.declaration.priority
+    }
+
+    fn cache_strategy(&self) -> kasane_core::lens::CacheStrategy {
+        self.declaration.cache_strategy
+    }
+
+    fn display(
+        &self,
+        view: &kasane_core::plugin::AppView<'_>,
+    ) -> Vec<kasane_core::display::DisplayDirective> {
+        let view = self.build_view_view(view);
+        let lens_name = self.declaration.name.clone();
+        let plugin_tag = self.shared.plugin_tag();
+        self.shared
+            .call_synced(view, "lens_display", |rt| -> anyhow::Result<_> {
+                rt.store.data_mut().elements.clear();
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let directives = api.call_lens_display(&mut rt.store, &lens_name)?;
+                let mut out = Vec::with_capacity(directives.len());
+                for d in &directives {
+                    out.push(convert::wit_display_directive_to_directive_with_resolver(
+                        d,
+                        plugin_tag,
+                        &mut |handle| rt.store.data_mut().take_root_element(handle),
+                    ));
+                }
+                Ok(out)
+            })
+    }
+
+    fn display_line(
+        &self,
+        view: &kasane_core::plugin::AppView<'_>,
+        line: usize,
+    ) -> Vec<kasane_core::display::DisplayDirective> {
+        let view = self.build_view_view(view);
+        let lens_name = self.declaration.name.clone();
+        let plugin_tag = self.shared.plugin_tag();
+        self.shared
+            .call_synced(view, "lens_display_line", |rt| -> anyhow::Result<_> {
+                rt.store.data_mut().elements.clear();
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let directives =
+                    api.call_lens_display_line(&mut rt.store, &lens_name, line as u32)?;
+                let mut out = Vec::with_capacity(directives.len());
+                for d in &directives {
+                    out.push(convert::wit_display_directive_to_directive_with_resolver(
+                        d,
+                        plugin_tag,
+                        &mut |handle| rt.store.data_mut().take_root_element(handle),
+                    ));
+                }
+                Ok(out)
+            })
+    }
 }
 
 impl PluginBackend for WasmPlugin {

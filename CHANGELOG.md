@@ -2,6 +2,108 @@
 
 ## [Unreleased]
 
+### Added — WIT surface for Composable Lenses (WASM plugins can register lenses) (2026-05-04)
+
+Composable Lenses follow-up: the lens system was native-only —
+this revision opens it to WASM plugins. A WASM plugin declares
+its lenses via `plugin-api.declare-lenses()`; the host
+constructs `WasmLensAdapter` instances that implement the
+native `Lens` trait by calling back into the plugin's
+`lens-display` / `lens-display-line` exports. Registration
+goes through the existing `LensRegistry`; the dispatcher and
+caching paths don't need to know whether a lens is native or
+WASM.
+
+This is an **additive** change within `kasane:plugin@3.0.0`;
+the ABI version stays at 3.0.0. Plugins that don't declare
+lenses get SDK-supplied empty defaults and need no source
+changes.
+
+#### WIT contract
+
+- (wit) `interface types`:
+  - `enum lens-cache-strategy { none, per-buffer, per-line }`
+    — mirrors `kasane_core::lens::CacheStrategy`.
+  - `record lens-declaration { name, label, priority,
+    cache-strategy }` — what plugins return from
+    `declare-lenses` to advertise their lenses.
+- (wit) `interface plugin-api`:
+  - New export `declare-lenses() -> list<lens-declaration>`
+    — called once at plugin load (or whenever the embedder
+    invokes `register_lenses_into`); default empty.
+  - New export `lens-display(lens-name: string) -> list<display-directive>`
+    — whole-buffer output for a named lens. Used by the host
+    adapter for `none` / `per-buffer` strategies.
+  - New export `lens-display-line(lens-name: string, line:
+    u32) -> list<display-directive>` — per-line output. Used
+    by the host adapter for `per-line` strategy. Plugins that
+    declare `per-line` should implement this directly for true
+    per-line caching savings.
+  - `use` clause extended to import the two new types.
+
+#### SDK
+
+- (sdk-macros) `kasane-plugin-sdk-macros::defaults` — three
+  new defaults all returning empty: `declare_lenses`,
+  `lens_display`, `lens_display_line`. Plugins inherit these
+  unless they override.
+
+#### Host
+
+- (core) `convert::LensDeclaration` — native mirror of the
+  WIT record (`name`, `label`, `priority`, `cache_strategy`).
+- (core) `convert::wit_lens_declaration_to_native` — wire →
+  native conversion (including the cache-strategy enum
+  mapping).
+- (core) `WasmLensAdapter` — new struct implementing the
+  native `Lens` trait. Holds `Arc<WasmPluginShared>` and the
+  declaration. `id()` namespaces under the owning plugin id;
+  `label()` / `priority()` / `cache_strategy()` mirror the
+  declaration; `display(view)` and `display_line(view, line)`
+  call the WASM exports via `call_synced` and convert WIT
+  directives to native via the existing
+  `wit_display_directive_to_directive_with_resolver`.
+- (core) `WasmPlugin::register_lenses_into(registry)` — new
+  public method. Calls the plugin's `declare-lenses` export,
+  builds one adapter per declaration, and registers each on
+  the supplied `LensRegistry`. Returns the count registered.
+  Failures (export trap) log via tracing and return 0 — lens
+  registration is a best-effort lifecycle step, not a load
+  gate. Embedders call this explicitly when ready;
+  auto-wiring into the plugin manager's load step is a
+  follow-up.
+
+#### WASM blob rebuild
+
+All 12 example / fixture / guest plugins rebuilt against the
+new ABI surface. The default `declare_lenses` returns empty,
+so existing plugins (none of which declare lenses today)
+require no source changes — the new exports are purely
+additive.
+
+#### Validation
+
+- 2568 workspace lib tests pass.
+- 2825 workspace integration tests pass (count unchanged from
+  the prior commit; no new tests added in this commit — the
+  WASM-side adapter is exercised by virtue of the existing
+  WASM plugin lifecycle tests not failing under the new
+  exports).
+- clippy + fmt clean across `gui,syntax`.
+
+The dispatch chain is now uniform: native and WASM lenses
+both flow through `LensRegistry::collect_directives`, share
+the same cache infrastructure (`CacheStrategy::PerLine` and
+`PerBuffer`), and merge into the same `DirectiveSet` plugin
+display handlers produce. Same algebra, same Hippocratic
+checks, same conflict resolution.
+
+The Composable Lenses Roadmap §2.2 entry is now complete in
+its core scope: registry + caching + bundled lenses + WIT
+surface. Remaining follow-ups (more bundled lenses,
+auto-wired lifecycle registration) are nice-to-haves rather
+than capability gaps.
+
 ### Added — `CacheStrategy::PerLine` for finer-grained lens caching (2026-05-04)
 
 Composable Lenses follow-up: complement `PerBuffer` caching with

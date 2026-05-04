@@ -579,5 +579,34 @@ pub(crate) fn wit_shadow_edit_verdict_to_native(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Composable Lenses conversions (Roadmap §2.2 follow-up)
+// ---------------------------------------------------------------------------
+
+use kasane_core::lens::CacheStrategy as LensCacheStrategy;
+
+/// Native-side mirror of the WIT `lens-declaration` record. Held
+/// inside `WasmLensAdapter` and used by registration code.
+#[derive(Debug, Clone)]
+pub(crate) struct LensDeclaration {
+    pub(crate) name: String,
+    pub(crate) label: String,
+    pub(crate) priority: i16,
+    pub(crate) cache_strategy: LensCacheStrategy,
+}
+
+pub(crate) fn wit_lens_declaration_to_native(decl: &wit::LensDeclaration) -> LensDeclaration {
+    LensDeclaration {
+        name: decl.name.clone(),
+        label: decl.label.clone(),
+        priority: decl.priority,
+        cache_strategy: match decl.cache_strategy {
+            wit::LensCacheStrategy::None => LensCacheStrategy::None,
+            wit::LensCacheStrategy::PerBuffer => LensCacheStrategy::PerBuffer,
+            wit::LensCacheStrategy::PerLine => LensCacheStrategy::PerLine,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests;
