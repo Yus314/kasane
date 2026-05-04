@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Changed — ADR-035 ShadowCursor §Migration Phase 2 (2026-05-04)
+
+`EditableSpan`'s per-span `anchor_line: usize` + `buffer_byte_range:
+Range<usize>` pair collapses to a single `projection_target:
+Selection` field. Phase 1 (2026-05-03) introduced the read-only
+Selection-shaped accessor over the legacy fields; Phase 2 retires
+the legacy fields entirely and stores Selection as the source of
+truth.
+
+- (core) `state::shadow_cursor::EditableSpan` — `anchor_line`
+  and `buffer_byte_range` removed; `projection_target: Selection`
+  added. Invariant: `anchor.line == cursor.line` (Mirror
+  projections target one buffer line); `min().column..max().column`
+  recovers the byte range. The Phase 1 `projection_target()`
+  method is gone — callers read the field directly.
+- (core) `state::shadow_cursor::ShadowCursor::buffer_projection_target`
+  — closure body returns `s.projection_target` (was
+  `EditableSpan::projection_target` method).
+- (core) `state::shadow_cursor::build_mirror_commit` — derives
+  `(anchor_line, col_min, col_max)` from `span.projection_target`;
+  Hippocratic empty-range check uses `col_min == col_max` rather
+  than `Range::is_empty`.
+- (test) Six `EditableSpan { ... }` literals collapsed onto a
+  `mk_span(line, start_col, end_col)` test helper. Three Phase 1
+  tests covering field shape and indexing retained; the
+  overflow-clamping test (which exercised the deleted
+  `projection_target()` method's usize → u32 narrowing) is gone
+  — the new field is `Selection` (already u32-typed), so the
+  narrowing concern moves entirely to construction sites.
+
+No external API change: `EditableSpan` is a payload type carried
+through `display`, `display_algebra::primitives`, `display::unit`,
+and `plugin::safe_directive`, but none of those callsites read or
+construct the consolidated fields. The full workspace builds
+clean (TUI + GUI + syntax) and all 1770 lib tests + 2011
+integration tests pass.
+
+ADR-035 §Implementation Status updated with the Phase 2 milestone
+entry; the in-module migration docstring (`shadow_cursor.rs`)
+renumbers the deferred phases (formerly Phase 2/3/4 — now
+Phase 3/4 with Phase 2 marked landed).
+
 ### Added — ADR-035 Time-aware Salsa integration (2026-05-03 follow-up)
 
 Builds on the ADR-035 Selection / Time foundation entry below with

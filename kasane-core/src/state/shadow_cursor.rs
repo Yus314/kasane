@@ -22,17 +22,14 @@
 //!
 //! What *can* be re-hosted on `Selection` is the **projection target**:
 //! the buffer-space range that the active edit will commit into via
-//! `exec -draft`. This is what `EditableSpan::projection_target` and
-//! `ShadowCursor::buffer_projection_target` (added in this Phase 1)
-//! expose — Selection-shaped views over the existing `Range<usize>`
-//! plumbing, with no behaviour change.
+//! `exec -draft`. `EditableSpan` now stores this as a single
+//! `projection_target: Selection` field (anchor and cursor share
+//! one buffer line; their columns are the byte-range bounds).
+//! `ShadowCursor::buffer_projection_target` indexes into the parent
+//! span vector and returns that field.
 //!
 //! Subsequent phases (deferred):
 //!
-//! - **Phase 2** — replace `EditableSpan.buffer_byte_range:
-//!   Range<usize>` with a `Selection` field; ripple through the
-//!   16-ish callsites in `display`, `display_algebra`, and
-//!   `plugin::safe_directive`.
 //! - **Phase 3** — fold the keyboard-handling state machine into a
 //!   smaller surface that carries the working-text edit as a
 //!   `SelectionSet`-anchored overlay; commit via `exec -draft`
@@ -61,35 +58,20 @@ pub enum EditProjection {
 /// A contiguous editable region within a virtual text line.
 ///
 /// Byte ranges are aligned to `Atom` boundaries in the synthetic content.
+///
+/// `projection_target` carries the buffer-space target as a single
+/// `Selection`; by invariant `anchor.line == cursor.line`
+/// (Mirror projections target a single buffer line), and
+/// `min().column..max().column` is the byte range within that line.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EditableSpan {
     /// Byte range within the virtual text's synthetic content.
     pub display_byte_range: Range<usize>,
-    /// Anchor buffer line (0-indexed) that this span projects to.
-    pub anchor_line: usize,
-    /// Byte range within the anchor buffer line (Mirror projection).
-    pub buffer_byte_range: Range<usize>,
+    /// Buffer-space projection target. Subsumes the previous
+    /// `anchor_line` + `buffer_byte_range` pair.
+    pub projection_target: crate::state::selection::Selection,
     /// How edits are projected back to the buffer.
     pub projection: EditProjection,
-}
-
-impl EditableSpan {
-    /// ADR-035 §1 — Selection-shaped view of the buffer-space range
-    /// this span's edits commit into. The returned `Selection`
-    /// anchors at `(anchor_line, buffer_byte_range.start)` and
-    /// cursors at `(anchor_line, buffer_byte_range.end)`.
-    ///
-    /// `anchor_line` and the byte offsets fit in `u32` for any
-    /// realistic buffer (4 GiB / 4 G lines); larger values clamp
-    /// to `u32::MAX` rather than panic, matching the
-    /// `selections_to_set` convention in `apply.rs`.
-    pub fn projection_target(&self) -> crate::state::selection::Selection {
-        use crate::state::selection::{BufferPos, Selection};
-        let line = self.anchor_line.min(u32::MAX as usize) as u32;
-        let start = self.buffer_byte_range.start.min(u32::MAX as usize) as u32;
-        let end = self.buffer_byte_range.end.min(u32::MAX as usize) as u32;
-        Selection::new(BufferPos::new(line, start), BufferPos::new(line, end))
-    }
 }
 
 /// Lifecycle phase of a shadow cursor.
@@ -139,9 +121,7 @@ impl ShadowCursor {
         &self,
         spans: &[EditableSpan],
     ) -> Option<crate::state::selection::Selection> {
-        spans
-            .get(self.span_index)
-            .map(EditableSpan::projection_target)
+        spans.get(self.span_index).map(|s| s.projection_target)
     }
 }
 
@@ -355,10 +335,11 @@ fn build_commit_commands(
         return vec![];
     }
 
-    // The actual buffer projection requires the EditableSpan (anchor_line,
-    // buffer_byte_range) which is resolved by the caller. This function
-    // returns placeholder commands; the real projection happens in
-    // `build_mirror_commit` which is called from the update dispatch.
+    // The actual buffer projection requires the EditableSpan
+    // (`projection_target`) which is resolved by the caller. This
+    // function returns placeholder commands; the real projection
+    // happens in `build_mirror_commit` which is called from the
+    // update dispatch.
     vec![]
 }
 
@@ -371,8 +352,8 @@ fn build_commit_commands(
 ///
 /// # Security
 ///
-/// - `anchor_line` must be within `line_count`
-/// - `buffer_byte_range` must be within the anchor line's content
+/// - `projection_target.anchor.line` must be within `line_count`
+/// - The column range must be within the anchor line's content
 /// - Violations result in empty commands (graceful degradation)
 pub fn build_mirror_commit(
     shadow: &ShadowCursor,
@@ -388,43 +369,35 @@ pub fn build_mirror_commit(
         ShadowPhase::Navigating => return vec![],
     };
 
-    // Hippocratic condition
     if working_text == original_text {
         return vec![];
     }
 
-    // Security: validate anchor_line
-    if span.anchor_line >= line_count {
+    let target = span.projection_target;
+    let anchor_line = target.anchor.line as usize;
+    if anchor_line >= line_count {
         return vec![];
     }
 
     match span.projection {
         EditProjection::Mirror => {
-            // Generate exec -draft command:
-            // 1. Go to anchor line (1-indexed)
-            // 2. Select the byte range
-            // 3. Replace with working_text
-            let line_1indexed = span.anchor_line + 1;
-            let col_start = span.buffer_byte_range.start + 1; // 1-indexed
-            let col_end = span.buffer_byte_range.end; // inclusive end in Kakoune
+            let col_min = target.min().column as usize;
+            let col_max = target.max().column as usize;
+            let line_1indexed = anchor_line + 1;
+            let col_start = col_min + 1; // 1-indexed
+            let col_end = col_max; // inclusive end in Kakoune
 
-            // Escape working_text for Kakoune insert mode
             let escaped = escape_for_kakoune_insert(working_text);
 
-            let cmd = if span.buffer_byte_range.is_empty() {
-                // Empty range: insert at position
+            let cmd = if col_min == col_max {
                 format!("exec -draft {line_1indexed}g {col_start}li{escaped}<esc>")
             } else {
-                // Non-empty range: select and replace
                 format!("exec -draft {line_1indexed}g {col_start}l{col_end}lsc{escaped}<esc>")
             };
 
             vec![Command::kakoune_command(&cmd)]
         }
-        EditProjection::PluginDefined => {
-            // Deferred to BDT-7 (plugin API)
-            vec![]
-        }
+        EditProjection::PluginDefined => vec![],
     }
 }
 
@@ -451,53 +424,32 @@ mod tests {
     // ADR-035 §1 Phase 1 — Selection-based projection accessors
     // -----------------------------------------------------------------
 
-    #[test]
-    fn editable_span_projection_target_anchors_buffer_range() {
-        let span = EditableSpan {
-            display_byte_range: 0..5,
-            anchor_line: 7,
-            buffer_byte_range: 12..18,
+    fn mk_span(line: u32, start_col: u32, end_col: u32) -> EditableSpan {
+        use crate::state::selection::{BufferPos, Selection};
+        EditableSpan {
+            display_byte_range: 0..(end_col - start_col) as usize,
+            projection_target: Selection::new(
+                BufferPos::new(line, start_col),
+                BufferPos::new(line, end_col),
+            ),
             projection: EditProjection::Mirror,
-        };
-        let sel = span.projection_target();
-        assert_eq!(sel.anchor.line, 7);
-        assert_eq!(sel.anchor.column, 12);
-        assert_eq!(sel.cursor.line, 7);
-        assert_eq!(sel.cursor.column, 18);
-        assert_eq!(sel.min().column, 12);
-        assert_eq!(sel.max().column, 18);
+        }
     }
 
     #[test]
-    fn editable_span_projection_clamps_overflow_to_u32_max() {
-        let span = EditableSpan {
-            display_byte_range: 0..5,
-            anchor_line: usize::MAX,
-            buffer_byte_range: usize::MAX..usize::MAX,
-            projection: EditProjection::Mirror,
-        };
-        let sel = span.projection_target();
-        assert_eq!(sel.anchor.line, u32::MAX);
-        assert_eq!(sel.anchor.column, u32::MAX);
+    fn editable_span_projection_target_field_stores_selection() {
+        let span = mk_span(7, 12, 18);
+        assert_eq!(span.projection_target.anchor.line, 7);
+        assert_eq!(span.projection_target.anchor.column, 12);
+        assert_eq!(span.projection_target.cursor.line, 7);
+        assert_eq!(span.projection_target.cursor.column, 18);
+        assert_eq!(span.projection_target.min().column, 12);
+        assert_eq!(span.projection_target.max().column, 18);
     }
 
     #[test]
     fn shadow_cursor_buffer_projection_target_indexes_spans_by_span_index() {
-        let spans = vec![
-            EditableSpan {
-                display_byte_range: 0..3,
-                anchor_line: 1,
-                buffer_byte_range: 0..3,
-                projection: EditProjection::Mirror,
-            },
-            EditableSpan {
-                display_byte_range: 4..9,
-                anchor_line: 2,
-                buffer_byte_range: 5..10,
-                projection: EditProjection::Mirror,
-            },
-        ];
-
+        let spans = vec![mk_span(1, 0, 3), mk_span(2, 5, 10)];
         let shadow = ShadowCursor {
             display_line: 0,
             span_index: 1,
@@ -513,12 +465,7 @@ mod tests {
 
     #[test]
     fn shadow_cursor_buffer_projection_target_out_of_bounds_returns_none() {
-        let spans = vec![EditableSpan {
-            display_byte_range: 0..3,
-            anchor_line: 0,
-            buffer_byte_range: 0..3,
-            projection: EditProjection::Mirror,
-        }];
+        let spans = vec![mk_span(0, 0, 3)];
         let shadow = ShadowCursor {
             display_line: 0,
             span_index: 5, // out of bounds
@@ -726,12 +673,7 @@ mod tests {
             original_text: "hello".into(),
             cursor_grapheme_offset: 5,
         });
-        let span = EditableSpan {
-            display_byte_range: 0..5,
-            anchor_line: 0,
-            buffer_byte_range: 0..5,
-            projection: EditProjection::Mirror,
-        };
+        let span = mk_span(0, 0, 5);
         let cmds = build_mirror_commit(&shadow, &span, 10);
         assert!(cmds.is_empty(), "Hippocratic: no change → no commands");
     }
@@ -743,12 +685,7 @@ mod tests {
             original_text: "hello".into(),
             cursor_grapheme_offset: 5,
         });
-        let span = EditableSpan {
-            display_byte_range: 0..5,
-            anchor_line: 2,
-            buffer_byte_range: 0..5,
-            projection: EditProjection::Mirror,
-        };
+        let span = mk_span(2, 0, 5);
         let cmds = build_mirror_commit(&shadow, &span, 10);
         assert_eq!(cmds.len(), 1, "Mirror: one exec -draft command");
     }
@@ -760,12 +697,7 @@ mod tests {
             original_text: "hello".into(),
             cursor_grapheme_offset: 5,
         });
-        let span = EditableSpan {
-            display_byte_range: 0..5,
-            anchor_line: 100,
-            buffer_byte_range: 0..5,
-            projection: EditProjection::Mirror,
-        };
+        let span = mk_span(100, 0, 5);
         let cmds = build_mirror_commit(&shadow, &span, 10);
         assert!(cmds.is_empty(), "anchor out of range → no commands");
     }

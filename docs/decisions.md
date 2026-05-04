@@ -3730,6 +3730,28 @@ state). Acceptance is gated on the wiring step below.
   (returns the older `derived::Selection` type) and is retired in a
   follow-up milestone once the auto-commit projection covers all the
   heuristic's recall cases.
+- ✅ **ShadowCursor §Migration Phase 2 — `EditableSpan` field
+  consolidation (2026-05-04)** — the per-span `anchor_line: usize`
+  + `buffer_byte_range: Range<usize>` pair collapses to a single
+  `projection_target: Selection` field. By invariant
+  `anchor.line == cursor.line` (Mirror projections target one
+  buffer line); `min().column..max().column` recovers the byte
+  range. `EditableSpan::projection_target()` (the read-only
+  accessor introduced in Phase 1) becomes the field itself; the
+  ShadowCursor accessor `buffer_projection_target(spans)` returns
+  the field by index. `build_mirror_commit` reads
+  `projection_target` directly to compute the `exec -draft`
+  command; one Hippocratic check (`col_min == col_max`) replaces
+  the previous `Range::is_empty`. Tests collapsed from 6 expanded
+  literals to a `mk_span(line, start, end)` test helper; no
+  external callsite changes (the field shape is private to
+  `state::shadow_cursor`; downstream `display`,
+  `display_algebra::primitives`, `display::unit`, and
+  `plugin::safe_directive` only carry `EditableSpan` as a payload
+  type and never touch the consolidated fields). Phase 3 (state
+  machine collapse onto `SelectionSet`-anchored overlay) and
+  Phase 4 (`BufferVersion` stamp on `working_text`) remain
+  deferred per the in-module migration docstring.
 
 The §Migration table below remains the target shape; Acceptance signals
 the migration is complete.
