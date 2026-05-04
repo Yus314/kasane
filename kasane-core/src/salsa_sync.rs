@@ -31,6 +31,11 @@ pub struct SalsaInputHandles {
     pub plugin_overlays: PluginOverlaysInput,
     pub transform_patches: TransformPatchesInput,
     pub content_annotations: ContentAnnotationsInput,
+    /// ADR-035 §2 — handle to the configured `HistoryBackend`.
+    /// Synced from `AppState::history` each frame; backs the
+    /// Time-aware Salsa queries (`text_at_time`, `selection_at_time`,
+    /// `display_directives_at_time`).
+    pub history: HistoryInput,
     contribution_cache: ContributionCache,
 }
 
@@ -88,6 +93,11 @@ impl SalsaInputHandles {
             plugin_overlays: PluginOverlaysInput::new(db, vec![]),
             transform_patches: TransformPatchesInput::new(db, None, None),
             content_annotations: ContentAnnotationsInput::new(db, vec![]),
+            history: HistoryInput::new(
+                db,
+                std::sync::Arc::new(crate::history::InMemoryRing::new()),
+                crate::history::VersionId::INITIAL,
+            ),
             contribution_cache: ContributionCache::default(),
         }
     }
@@ -119,6 +129,16 @@ pub fn sync_inputs_from_state(
     state: &AppState,
     inputs: &SalsaInputHandles,
 ) {
+    // ADR-035 §2 — history backend (point at AppState's ring) and
+    // current_version (so Time::Now-resolving queries invalidate
+    // when the auto-commit hook bumps the version).
+    use crate::history::HistoryBackend;
+    inputs.history.set_backend(db).to(state.history.clone());
+    inputs
+        .history
+        .set_current_version(db)
+        .to(state.history.current_version());
+
     // Buffer content
     inputs.buffer.set_lines(db).to(state.observed.lines.clone());
     inputs
