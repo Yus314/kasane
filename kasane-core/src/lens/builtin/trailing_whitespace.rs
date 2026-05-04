@@ -35,7 +35,7 @@
 //! make this incremental.
 
 use crate::display::DisplayDirective;
-use crate::lens::{Lens, LensId};
+use crate::lens::{CacheStrategy, Lens, LensId};
 use crate::plugin::{AppView, PluginId};
 use crate::protocol::WireFace;
 
@@ -75,6 +75,12 @@ impl Lens for TrailingWhitespaceLens {
 
     fn label(&self) -> String {
         "Trailing whitespace".into()
+    }
+
+    fn cache_strategy(&self) -> CacheStrategy {
+        // Output depends on line text only — no cursor / selection
+        // / syntax reads.
+        CacheStrategy::PerBuffer
     }
 
     fn display(&self, view: &AppView<'_>) -> Vec<DisplayDirective> {

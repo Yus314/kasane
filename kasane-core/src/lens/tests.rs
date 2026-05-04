@@ -1,11 +1,14 @@
 //! Tests for the Composable Lenses MVP.
 
-use super::{Lens, LensId, LensRegistry};
+use super::{CacheStrategy, Lens, LensId, LensRegistry};
 use crate::display::DisplayDirective;
 use crate::plugin::{AppView, PluginId};
 use crate::protocol::WireFace;
 use crate::state::AppState;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 // -----------------------------------------------------------------
 // Test fixtures
@@ -333,4 +336,240 @@ fn lens_directives_flow_through_plugin_runtime_collect() {
     state.lens_registry.disable(&lens_id);
     let directives = view_handle.collect_display_directives(&AppView::new(&state));
     assert!(directives.is_empty());
+}
+
+// -----------------------------------------------------------------
+// PerBuffer cache behaviour
+// -----------------------------------------------------------------
+
+/// A lens that records how many times its `display()` is called.
+/// Used to verify cache hits skip the invocation entirely.
+struct CountingLens {
+    id: LensId,
+    invocations: Arc<AtomicUsize>,
+    strategy: CacheStrategy,
+}
+
+impl CountingLens {
+    fn new(id: LensId, strategy: CacheStrategy) -> (Self, Arc<AtomicUsize>) {
+        let invocations = Arc::new(AtomicUsize::new(0));
+        (
+            Self {
+                id,
+                invocations: invocations.clone(),
+                strategy,
+            },
+            invocations,
+        )
+    }
+}
+
+impl Lens for CountingLens {
+    fn id(&self) -> LensId {
+        self.id.clone()
+    }
+    fn cache_strategy(&self) -> CacheStrategy {
+        self.strategy
+    }
+    fn display(&self, _view: &AppView<'_>) -> Vec<DisplayDirective> {
+        self.invocations.fetch_add(1, Ordering::SeqCst);
+        vec![style_line(0)]
+    }
+}
+
+fn appstate_with_lines(texts: &[&str]) -> AppState {
+    use crate::protocol::{Atom, Line};
+    use std::sync::Arc as StdArc;
+    let lines: Vec<Line> = texts.iter().map(|t| vec![Atom::plain(*t)]).collect();
+    let mut state = AppState::default();
+    state.observed.lines = StdArc::new(lines);
+    state
+}
+
+#[test]
+fn perbuffer_lens_invokes_once_per_buffer_then_caches() {
+    let (lens, count) = CountingLens::new(id("p", "cache-me"), CacheStrategy::PerBuffer);
+    let lens_id = lens.id();
+    let state = appstate_with_lines(&["hello", "world"]);
+
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens));
+    registry.enable(&lens_id);
+
+    let view = AppView::new(&state);
+    // First call: cache miss, lens runs.
+    let _ = registry.collect_directives(&view);
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    assert_eq!(registry.cache_len(), 1);
+
+    // Subsequent calls against the same buffer: cache hit, lens
+    // does not run.
+    let _ = registry.collect_directives(&view);
+    let _ = registry.collect_directives(&view);
+    assert_eq!(
+        count.load(Ordering::SeqCst),
+        1,
+        "lens invoked exactly once across three collects on unchanged buffer"
+    );
+}
+
+#[test]
+fn perbuffer_lens_reinvokes_when_line_text_changes() {
+    let (lens, count) = CountingLens::new(id("p", "cache-me"), CacheStrategy::PerBuffer);
+    let lens_id = lens.id();
+
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens));
+    registry.enable(&lens_id);
+
+    let state_a = appstate_with_lines(&["hello"]);
+    let _ = registry.collect_directives(&AppView::new(&state_a));
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+
+    // Different buffer text → different hash → cache miss.
+    let state_b = appstate_with_lines(&["world"]);
+    let _ = registry.collect_directives(&AppView::new(&state_b));
+    assert_eq!(count.load(Ordering::SeqCst), 2);
+
+    // Back to the original text → also a cache miss because the
+    // entry was overwritten.
+    let _ = registry.collect_directives(&AppView::new(&state_a));
+    assert_eq!(count.load(Ordering::SeqCst), 3);
+}
+
+#[test]
+fn none_strategy_lens_runs_every_call() {
+    let (lens, count) = CountingLens::new(id("p", "uncached"), CacheStrategy::None);
+    let lens_id = lens.id();
+
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens));
+    registry.enable(&lens_id);
+    let state = appstate_with_lines(&["hello"]);
+
+    for _ in 0..5 {
+        let _ = registry.collect_directives(&AppView::new(&state));
+    }
+    assert_eq!(count.load(Ordering::SeqCst), 5);
+    assert_eq!(
+        registry.cache_len(),
+        0,
+        "None strategy never populates the cache"
+    );
+}
+
+#[test]
+fn disable_drops_cache_entry_so_re_enable_re_invokes() {
+    let (lens, count) = CountingLens::new(id("p", "cache-me"), CacheStrategy::PerBuffer);
+    let lens_id = lens.id();
+
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens));
+    registry.enable(&lens_id);
+    let state = appstate_with_lines(&["hello"]);
+
+    let _ = registry.collect_directives(&AppView::new(&state));
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    assert_eq!(registry.cache_len(), 1);
+
+    registry.disable(&lens_id);
+    assert_eq!(
+        registry.cache_len(),
+        0,
+        "disable drops the lens's cache entry"
+    );
+
+    registry.enable(&lens_id);
+    let _ = registry.collect_directives(&AppView::new(&state));
+    assert_eq!(
+        count.load(Ordering::SeqCst),
+        2,
+        "re-enable forces a fresh invocation"
+    );
+}
+
+#[test]
+fn unregister_drops_cache_entry() {
+    let (lens, _count) = CountingLens::new(id("p", "cache-me"), CacheStrategy::PerBuffer);
+    let lens_id = lens.id();
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens));
+    registry.enable(&lens_id);
+    let state = appstate_with_lines(&["hello"]);
+
+    let _ = registry.collect_directives(&AppView::new(&state));
+    assert_eq!(registry.cache_len(), 1);
+    registry.unregister(&lens_id);
+    assert_eq!(registry.cache_len(), 0);
+}
+
+#[test]
+fn re_register_invalidates_previous_cache_entry() {
+    let (lens_a, count_a) = CountingLens::new(id("p", "cache-me"), CacheStrategy::PerBuffer);
+    let lens_id = lens_a.id();
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens_a));
+    registry.enable(&lens_id);
+
+    let state = appstate_with_lines(&["hello"]);
+    let _ = registry.collect_directives(&AppView::new(&state));
+    assert_eq!(count_a.load(Ordering::SeqCst), 1);
+    assert_eq!(registry.cache_len(), 1);
+
+    // Replace with a fresh lens at the same id. The new lens
+    // should be invoked even against the unchanged buffer (its
+    // output may differ from the cached output of the previous
+    // instance).
+    let (lens_b, count_b) = CountingLens::new(id("p", "cache-me"), CacheStrategy::PerBuffer);
+    registry.register(Arc::new(lens_b));
+
+    let _ = registry.collect_directives(&AppView::new(&state));
+    assert_eq!(
+        count_a.load(Ordering::SeqCst),
+        1,
+        "old instance not invoked"
+    );
+    assert_eq!(
+        count_b.load(Ordering::SeqCst),
+        1,
+        "new instance invoked from scratch"
+    );
+}
+
+#[test]
+fn cache_amortizes_buffer_hash_across_multiple_perbuffer_lenses() {
+    // Two PerBuffer lenses; the buffer hash is computed once per
+    // collect_directives call. Both lenses should populate cache
+    // entries on the first call and skip invocation on the
+    // second.
+    let (lens_a, count_a) = CountingLens::new(id("a", "x"), CacheStrategy::PerBuffer);
+    let (lens_b, count_b) = CountingLens::new(id("b", "y"), CacheStrategy::PerBuffer);
+    let id_a = lens_a.id();
+    let id_b = lens_b.id();
+
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens_a));
+    registry.register(Arc::new(lens_b));
+    registry.enable(&id_a);
+    registry.enable(&id_b);
+
+    let state = appstate_with_lines(&["hello", "world"]);
+    let _ = registry.collect_directives(&AppView::new(&state));
+    let _ = registry.collect_directives(&AppView::new(&state));
+    assert_eq!(count_a.load(Ordering::SeqCst), 1);
+    assert_eq!(count_b.load(Ordering::SeqCst), 1);
+    assert_eq!(registry.cache_len(), 2);
+}
+
+#[test]
+fn empty_enabled_set_does_not_compute_buffer_hash() {
+    // No enabled lenses → no hash computation, no cache writes.
+    // We can't directly observe the hash compute, but we can
+    // observe cache_len stays 0 and collect_directives returns
+    // empty.
+    let registry = LensRegistry::new();
+    let state = appstate_with_lines(&["hello"]);
+    let dirs = registry.collect_directives(&AppView::new(&state));
+    assert!(dirs.is_empty());
+    assert_eq!(registry.cache_len(), 0);
 }

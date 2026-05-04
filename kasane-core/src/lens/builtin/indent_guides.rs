@@ -54,7 +54,7 @@
 //! frame.
 
 use crate::display::DisplayDirective;
-use crate::lens::{Lens, LensId};
+use crate::lens::{CacheStrategy, Lens, LensId};
 use crate::plugin::{AppView, PluginId};
 use crate::protocol::WireFace;
 
@@ -103,6 +103,11 @@ impl Lens for IndentGuidesLens {
 
     fn label(&self) -> String {
         format!("Indent guides ({} sp)", self.indent_width)
+    }
+
+    fn cache_strategy(&self) -> CacheStrategy {
+        // Output depends on line text only.
+        CacheStrategy::PerBuffer
     }
 
     fn display(&self, view: &AppView<'_>) -> Vec<DisplayDirective> {

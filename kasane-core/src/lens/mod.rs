@@ -22,11 +22,17 @@
 //!   `(plugin_id, name)` identity the user can address from a UI
 //!   or CLI.
 //!
-//! Lenses are also a natural unit of caching — a future Salsa
-//! integration can key on `(file_id, line, lens_stack)` so a single
-//! lens toggle invalidates one cache entry per line, not the whole
-//! frame. The MVP doesn't implement caching; the lens pipeline runs
-//! every frame just like plugin display handlers do today.
+//! Lenses are a natural unit of caching. The MVP shipped without
+//! caching; this revision adds opt-in `CacheStrategy::PerBuffer`:
+//! a lens that declares `PerBuffer` (because its output depends on
+//! line text only — no cursor / selection / syntax reads) lets the
+//! registry skip its `display()` invocation when the buffer text
+//! hasn't changed since the cached entry. The buffer hash is
+//! computed once per `collect_directives` call and shared across
+//! all `PerBuffer` lenses. A finer-grained `PerLine` strategy is
+//! left for a follow-up — it requires a per-line method on the
+//! `Lens` trait that the `Display` algebra's whole-buffer
+//! aggregation doesn't yet need.
 //!
 //! ## Composition
 //!
@@ -48,6 +54,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::display::DisplayDirective;
 use crate::plugin::{AppView, PluginId};
+
+mod cache;
+pub use cache::CacheStrategy;
 
 /// Stable identity for a lens: `(owner_plugin, name)`.
 ///
@@ -95,6 +104,17 @@ pub trait Lens: Send + Sync {
         0
     }
 
+    /// Cache invalidation strategy for the lens's output.
+    /// Default `None` — the lens runs every frame, matching
+    /// the MVP behaviour. Bundled lenses opt in to
+    /// `CacheStrategy::PerBuffer` because their output depends
+    /// on line text only. User lenses that read cursor /
+    /// selection / syntax / etc. state must keep the default
+    /// or the cache will return stale results.
+    fn cache_strategy(&self) -> CacheStrategy {
+        CacheStrategy::None
+    }
+
     /// Emit display directives for the current frame. Called by
     /// the rendering pipeline when the lens is enabled.
     /// Disabled lenses' `display` is never called.
@@ -106,11 +126,25 @@ pub trait Lens: Send + Sync {
 ///
 /// Held on `AppState`. Cloning the registry preserves both the
 /// enabled set and the registered lenses — lenses are reference-
-/// counted (`Arc<dyn Lens>`) so the clone is cheap.
-#[derive(Clone, Default)]
+/// counted (`Arc<dyn Lens>`) so the clone is cheap. The output
+/// cache (for opt-in lenses with `CacheStrategy::PerBuffer`) is
+/// shared across clones via `Arc<Mutex<...>>`, matching the
+/// session-scoped semantics of `AppState.history`.
+#[derive(Clone)]
 pub struct LensRegistry {
     lenses: BTreeMap<LensId, std::sync::Arc<dyn Lens>>,
     enabled: BTreeSet<LensId>,
+    cache: cache::SharedCache,
+}
+
+impl Default for LensRegistry {
+    fn default() -> Self {
+        Self {
+            lenses: BTreeMap::new(),
+            enabled: BTreeSet::new(),
+            cache: cache::empty_cache(),
+        }
+    }
 }
 
 impl std::fmt::Debug for LensRegistry {
@@ -142,16 +176,24 @@ impl LensRegistry {
     /// Register a lens. Replaces any existing registration with
     /// the same `LensId`. New registrations start **disabled**;
     /// call `enable` to activate.
+    ///
+    /// Re-registration drops any cached output for the previous
+    /// lens instance — the new instance may produce different
+    /// output even for the same buffer hash.
     pub fn register(&mut self, lens: std::sync::Arc<dyn Lens>) {
         let id = lens.id();
-        self.lenses.insert(id, lens);
+        if self.lenses.insert(id.clone(), lens).is_some() {
+            self.cache.lock().unwrap().invalidate(&id);
+        }
     }
 
     /// Unregister a lens. Also removes it from the enabled set
-    /// if present. No-op if `id` was never registered.
+    /// and drops any cached output. No-op if `id` was never
+    /// registered.
     pub fn unregister(&mut self, id: &LensId) {
         self.lenses.remove(id);
         self.enabled.remove(id);
+        self.cache.lock().unwrap().invalidate(id);
     }
 
     /// Enable a registered lens. No-op if `id` is not registered
@@ -163,21 +205,27 @@ impl LensRegistry {
         }
     }
 
-    /// Disable a registered lens. No-op if not enabled.
+    /// Disable a registered lens. No-op if not enabled. Drops
+    /// the lens's cached output so a future re-enable
+    /// re-invokes the lens against the current buffer state.
     pub fn disable(&mut self, id: &LensId) {
-        self.enabled.remove(id);
+        if self.enabled.remove(id) {
+            self.cache.lock().unwrap().invalidate(id);
+        }
     }
 
     /// Toggle a lens's enabled state. Returns the new state
     /// (`true` = enabled). No-op if `id` is not registered;
     /// returns the unchanged state in that case (always
-    /// `false`).
+    /// `false`). The off→on path does not pre-warm the cache;
+    /// the next `collect_directives` call invokes the lens.
     pub fn toggle(&mut self, id: &LensId) -> bool {
         if !self.lenses.contains_key(id) {
             return false;
         }
         if self.enabled.contains(id) {
             self.enabled.remove(id);
+            self.cache.lock().unwrap().invalidate(id);
             false
         } else {
             self.enabled.insert(id.clone());
@@ -230,18 +278,57 @@ impl LensRegistry {
     ///
     /// Iteration order is stable: enabled lenses traverse in
     /// `LensId` sort order.
+    ///
+    /// Lenses with `CacheStrategy::PerBuffer` consult the
+    /// per-registry cache: a single buffer-text hash is computed
+    /// once per call (lazily — only if at least one `PerBuffer`
+    /// lens is enabled) and shared across `PerBuffer` lenses.
+    /// Cache hits skip the lens `display()` invocation entirely;
+    /// cache misses invoke the lens and store the new output.
     pub fn collect_directives(&self, view: &AppView<'_>) -> Vec<(DisplayDirective, i16, PluginId)> {
         let mut out = Vec::new();
+        let mut buffer_hash: Option<u64> = None;
         for id in &self.enabled {
             let Some(lens) = self.lenses.get(id) else {
                 continue;
             };
             let priority = lens.priority();
-            for d in lens.display(view) {
+            let strategy = lens.cache_strategy();
+
+            let directives: Vec<DisplayDirective> = match strategy {
+                CacheStrategy::None => lens.display(view),
+                CacheStrategy::PerBuffer => {
+                    let hash =
+                        *buffer_hash.get_or_insert_with(|| cache::hash_buffer_text(view.lines()));
+                    let cached = self.cache.lock().unwrap().get(id, hash);
+                    if let Some(output) = cached {
+                        output
+                    } else {
+                        // Drop the lock across the lens
+                        // invocation so a (theoretical) re-entrant
+                        // lens that calls back into the registry
+                        // doesn't deadlock.
+                        let output = lens.display(view);
+                        self.cache
+                            .lock()
+                            .unwrap()
+                            .put(id.clone(), hash, output.clone());
+                        output
+                    }
+                }
+            };
+            for d in directives {
                 out.push((d, priority, id.plugin.clone()));
             }
         }
         out
+    }
+
+    /// Number of cache entries currently held. Test-facing
+    /// introspection — the registry doesn't expose the cache
+    /// shape directly.
+    pub fn cache_len(&self) -> usize {
+        self.cache.lock().unwrap().len()
     }
 }
 

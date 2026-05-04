@@ -2,6 +2,91 @@
 
 ## [Unreleased]
 
+### Added — Lens output caching (`CacheStrategy::PerBuffer`) (2026-05-04)
+
+Composable Lenses follow-up: the registry can now skip a lens's
+`display()` invocation when the buffer text hasn't changed
+since the cached entry. The MVP ran every lens every frame;
+this revision adds opt-in caching so heavy lenses (regex
+highlighters, long buffers, etc.) pay the recompute cost only
+when inputs actually change.
+
+The cache is **keyed by `LensId`** with each entry storing
+`(buffer_content_hash, Vec<DisplayDirective>)`. The buffer
+hash is computed once per `collect_directives` call (lazily —
+only when at least one `PerBuffer`-strategy lens is enabled)
+and shared across all `PerBuffer` lenses, so the hash cost is
+amortised.
+
+- (core) `kasane_core::lens::CacheStrategy` — new public enum:
+  - `None` (default) — no caching; lens runs every frame.
+    Preserves MVP behaviour for user lenses that haven't opted
+    in.
+  - `PerBuffer` — cache invalidates when any line's text
+    changes. Sound only for lenses whose output depends on
+    line text alone (no cursor / selection / syntax reads).
+- (core) `Lens::cache_strategy(&self) -> CacheStrategy` — new
+  trait method with `None` default.
+- (core) `kasane_core::lens::cache` — new private module
+  housing `LensCache` (the `HashMap<LensId, CacheEntry>` state)
+  and `hash_buffer_text(lines)` (the per-frame hash function).
+  The cache lives behind `Arc<Mutex<...>>` matching
+  `AppState.history`'s session-scoped sharing semantics.
+- (core) `LensRegistry.cache: Arc<Mutex<LensCache>>` — new
+  field; clones share the cache.
+- (core) `LensRegistry::collect_directives` — when a lens
+  declares `CacheStrategy::PerBuffer`, the registry computes
+  the buffer hash on demand, looks up the cache, and either
+  returns the cached output or invokes the lens and stores the
+  fresh output. The lens lock is dropped across the lens
+  invocation so a (theoretical) re-entrant lens that calls
+  back into the registry doesn't deadlock.
+- (core) Cache invalidation hooks:
+  - `register` (when replacing an existing entry) drops the
+    old lens's cache entry — the new instance may produce
+    different output even for the same buffer hash.
+  - `unregister` drops the entry.
+  - `disable` drops the entry — re-enable forces a fresh
+    invocation against the current buffer state.
+  - `toggle` drops on the on→off transition.
+- (core) `LensRegistry::cache_len()` — test-facing
+  introspection (the cache shape itself stays private).
+- (core) Bundled lenses opt in to `CacheStrategy::PerBuffer`:
+  `TrailingWhitespaceLens`, `LongLineLens`, `IndentGuidesLens`.
+  All three depend on line text only — soundness contract met.
+- (test) 13 new cache tests in `lens::cache::tests` (lib 2543
+  → 2563): hash determinism + invalidation triggers (5);
+  `LensCache` get / put / invalidate (6); `CacheStrategy`
+  default (1); plus 1 hash-ignores-atom-segmentation
+  invariant.
+- (test) 7 new integration tests in `lens::tests`:
+  - PerBuffer lens invokes once then caches (3 collects, 1
+    invocation).
+  - PerBuffer reinvokes when line text changes.
+  - None strategy lens runs every call.
+  - Disable drops cache → re-enable re-invokes.
+  - Unregister drops cache.
+  - Re-register invalidates previous cache entry; new lens
+    instance invoked from scratch.
+  - Buffer hash amortises across multiple PerBuffer lenses
+    (2 lenses, 2 collects, 2 invocations).
+
+The granularity is per-buffer: any change to any line text
+invalidates every `PerBuffer` lens's cache. A finer
+`CacheStrategy::PerLine` (per-`(LensId, line_idx)` keying)
+would invalidate exactly one entry per lens on a single-line
+edit; deferred because it requires a per-line method on the
+`Lens` trait that the current whole-buffer `display()`
+signature doesn't expose.
+
+The lens module docstring is updated to remove the prior "MVP
+doesn't implement caching" note.
+
+Validation: 2563 workspace lib tests pass; 2820 workspace
+integration tests pass; clippy + fmt clean across
+`gui,syntax`. Roadmap §2.2 entry updated with the caching
+milestone.
+
 ### Added — Bundled `IndentGuidesLens` (Composable Lenses follow-up) (2026-05-04)
 
 Third built-in `Lens` implementation. Highlights every Nth
