@@ -86,6 +86,60 @@ pub fn text_at_time(
     }
 }
 
+/// ADR-034 + ADR-035 integration — Time-aware display directives.
+///
+/// Synthesises a `NormalizedDisplay` from the `SelectionSet` at the
+/// requested `Time`: each selection becomes a single-line `Decorate`
+/// (background highlight) leaf, then the result is run through
+/// `algebra_normalize` to produce the canonical normalised form.
+///
+/// This is the simplest demonstration of the two ADRs composing —
+/// ADR-035's Time-aware history feeds the algebra (ADR-034) which
+/// normalises into the same `NormalizedDisplay` shape that the
+/// production bridge consumes. The selection-to-decorate mapping is
+/// a deliberately tiny example; real plugins will emit richer trees.
+///
+/// Cache key: `(HistoryInput, Time)`. Same invalidation semantics as
+/// [`selection_at_time`] — `Time::Now` invalidates when
+/// `current_version` advances; `Time::At(v)` is permanent for
+/// committed versions.
+#[salsa::tracked]
+pub fn display_directives_at_time(
+    db: &dyn KasaneDb,
+    history: HistoryInput,
+    time: Time,
+) -> crate::display_algebra::NormalizedDisplay {
+    use crate::display_algebra::{TaggedDisplay, normalize as algebra_normalize, style_inline};
+    use crate::plugin::PluginId;
+
+    let Some(selection) = selection_at_time(db, history, time) else {
+        return crate::display_algebra::NormalizedDisplay::default();
+    };
+
+    // Map each Selection to a single-line Decorate over its byte range.
+    // The plugin-id and priority tags are placeholder values for this
+    // PoC; a real synthesizer would carry plugin-attribution metadata.
+    let leaves: Vec<TaggedDisplay> = selection
+        .iter()
+        .enumerate()
+        .map(|(i, sel)| {
+            TaggedDisplay::new(
+                style_inline(
+                    sel.min().line as usize,
+                    (sel.min().column as usize)..(sel.max().column as usize),
+                    crate::protocol::WireFace::default(),
+                    0, // decorate priority
+                ),
+                0,                                    // tag priority
+                PluginId(format!("selection-{}", i)), // placeholder plugin id
+                i as u32,
+            )
+        })
+        .collect();
+
+    algebra_normalize(leaves)
+}
+
 /// ADR-035 §2 — Time-aware `SelectionSet` query.
 ///
 /// Companion to [`text_at_time`] — resolves a `SelectionSet` at the
@@ -333,6 +387,114 @@ mod time_query_tests {
         history.set_current_version(&mut db).to(v1);
         let second = selection_at_time(&db, history, Time::Now).unwrap();
         assert_eq!(second, p1);
+    }
+
+    // -----------------------------------------------------------------
+    // display_directives_at_time (ADR-034 + ADR-035 integration)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn display_directives_empty_when_history_empty() {
+        let db = KasaneDatabase::default();
+        let history = empty_history(&db);
+        let nd = display_directives_at_time(&db, history, Time::Now);
+        assert!(nd.is_empty());
+    }
+
+    #[test]
+    fn display_directives_synthesises_decorate_per_selection() {
+        use salsa::Setter;
+
+        let mut db = KasaneDatabase::default();
+        let (history, ring) = make_history(&db);
+
+        let payload = SelectionSet::from_iter(
+            vec![sel(0, 0, 5), sel(1, 3, 8), sel(2, 0, 10)],
+            BufferId::new("test"),
+            BufferVersion(0),
+        );
+        let v = ring.commit(
+            Arc::from("text"),
+            payload,
+            BufferId::new("test"),
+            BufferVersion(0),
+        );
+        history.set_current_version(&mut db).to(v);
+
+        let nd = display_directives_at_time(&db, history, Time::Now);
+        assert_eq!(nd.leaves.len(), 3, "one Decorate per selection",);
+        for leaf in &nd.leaves {
+            assert!(matches!(
+                leaf.display,
+                crate::display_algebra::Display::Decorate { .. }
+            ));
+        }
+        assert!(nd.conflicts.is_empty(), "decorates never conflict (L5)");
+    }
+
+    #[test]
+    fn display_directives_at_specific_version_uses_historical_selection() {
+        let db = KasaneDatabase::default();
+        let (history, ring) = make_history(&db);
+
+        // Past commit: 1 selection.
+        let past = SelectionSet::singleton(sel(0, 0, 5), BufferId::new("test"), BufferVersion(0));
+        let v_past = ring.commit(
+            Arc::from("a"),
+            past,
+            BufferId::new("test"),
+            BufferVersion(0),
+        );
+
+        // Future commit: 3 selections.
+        let future = SelectionSet::from_iter(
+            vec![sel(0, 0, 5), sel(1, 0, 5), sel(2, 0, 5)],
+            BufferId::new("test"),
+            BufferVersion(1),
+        );
+        let _v_future = ring.commit(
+            Arc::from("b"),
+            future,
+            BufferId::new("test"),
+            BufferVersion(1),
+        );
+
+        // Querying at v_past returns 1 decorate, not 3.
+        let nd = display_directives_at_time(&db, history, Time::At(v_past));
+        assert_eq!(nd.leaves.len(), 1);
+    }
+
+    #[test]
+    fn display_directives_invalidate_when_current_version_advances() {
+        use salsa::Setter;
+
+        let mut db = KasaneDatabase::default();
+        let (history, ring) = make_history(&db);
+
+        let p0 = SelectionSet::singleton(sel(0, 0, 5), BufferId::new("test"), BufferVersion(0));
+        let p1 = SelectionSet::from_iter(
+            vec![sel(1, 0, 5), sel(2, 0, 5)],
+            BufferId::new("test"),
+            BufferVersion(1),
+        );
+        let v0 = ring.commit(Arc::from("a"), p0, BufferId::new("test"), BufferVersion(0));
+        let v1 = ring.commit(Arc::from("b"), p1, BufferId::new("test"), BufferVersion(1));
+
+        history.set_current_version(&mut db).to(v0);
+        assert_eq!(
+            display_directives_at_time(&db, history, Time::Now)
+                .leaves
+                .len(),
+            1
+        );
+
+        history.set_current_version(&mut db).to(v1);
+        assert_eq!(
+            display_directives_at_time(&db, history, Time::Now)
+                .leaves
+                .len(),
+            2
+        );
     }
 
     #[test]
