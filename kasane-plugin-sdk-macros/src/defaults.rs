@@ -566,6 +566,17 @@ pub(crate) fn generate_defaults(
         }
     );
 
+    // --- Shadow-cursor commit-intercept (WIT 3.0 follow-up) ---
+
+    add_default!(
+        "intercept_buffer_edit",
+        quote! {
+            fn intercept_buffer_edit(_edit: ShadowEdit) -> ShadowEditVerdict {
+                ShadowEditVerdict::PassThrough
+            }
+        }
+    );
+
     // --- Inter-plugin messaging ---
 
     add_default!(

@@ -2,6 +2,100 @@
 
 ## [Unreleased]
 
+### Added — WIT surface for commit-intercept hook (`shadow-edit` + `intercept-buffer-edit`) (2026-05-04)
+
+WASM plugins can now register a commit-intercept handler — the
+native-only capability that landed in commit `6f88744f` is now
+fully wire-exposed. Resolves the `buffer-edit` WIT shape
+conflict noted in the WIT 3.0 paper-design reconsideration by
+naming the new record `shadow-edit` (distinct from the
+WIT 2.0 `buffer-edit` used by the `edit-buffer` command effect).
+
+This is an additive change within `kasane:plugin@3.0.0`; the
+ABI version stays at 3.0.0, no plugin recompilation is
+required for plugins that don't override the new export
+(SDK provides a `pass-through` default).
+
+#### WIT contract
+
+- (wit) `interface types`:
+  - `record shadow-edit { target: selection-record, original:
+    string, replacement: string, base-version: version-id }` —
+    the algebraic shape of a shadow-cursor commit, surfaced
+    to intercept handlers before serialisation.
+  - `variant shadow-edit-verdict { pass-through, replace(shadow-edit), veto }`
+    — handler return type. Folded by the dispatcher in slot
+    order; `replace` substitutes the running edit, `veto`
+    short-circuits.
+- (wit) `interface plugin-api`:
+  - New export `intercept-buffer-edit: func(edit: shadow-edit)
+    -> shadow-edit-verdict` — host calls this on every
+    registered plugin after the builtin shadow cursor
+    surfaces a pending commit; `pass-through` is the default
+    verdict.
+  - `use` clause extended to import the two new types.
+
+The legacy `buffer-edit` record (different shape, used by
+`edit-buffer` command) coexists unchanged.
+
+#### SDK
+
+- (sdk-macros) `kasane-plugin-sdk-macros::defaults` — new
+  `intercept_buffer_edit` default returning
+  `ShadowEditVerdict::PassThrough`. Plugins that don't
+  override the export inherit this, matching the native-side
+  `BufferEditVerdict::PassThrough` default behaviour.
+
+#### Host bindings (`kasane-wasm`)
+
+- (core) `convert::buffer_edit_to_wit` /
+  `convert::wit_shadow_edit_to_buffer_edit` /
+  `convert::wit_shadow_edit_verdict_to_native` — wire ↔
+  native conversion helpers. Direction is preserved across
+  the boundary (Backward selections retain their direction
+  rather than being re-inferred from anchor / cursor
+  ordering).
+- (core) `WasmPlugin::intercept_buffer_edit`
+  (`PluginBackend` impl) — converts native `BufferEdit` →
+  wire `ShadowEdit`, calls
+  `api.call_intercept_buffer_edit(...)`, converts wire
+  `ShadowEditVerdict` → native `BufferEditVerdict`. Uses
+  `call_synced` whose `R::default()` fallback (now
+  `BufferEditVerdict::PassThrough` via the new `Default`
+  derive) means a plugin call failure degrades safely to
+  pass-through.
+- (core) `BufferEditVerdict` gains `#[derive(Default)]` with
+  `#[default]` on `PassThrough`. Used by host bindings to
+  fail safely.
+
+#### WASM blob rebuild
+
+- All 12 example / fixture / guest plugins rebuilt against
+  the new ABI surface. The default `intercept-buffer-edit`
+  export is auto-supplied by the SDK macro; no plugin source
+  changes required for the rebuild.
+
+#### Validation
+
+- 2467 workspace lib tests pass (unchanged from prior
+  commit; no new tests added — the existing
+  `intercept_tests` already exercise the verdict algebra).
+- 2724 workspace integration tests pass.
+- 45 SDK lib tests pass.
+- clippy + fmt clean across `gui,syntax`.
+
+ADR-035 §"WIT 3.0 Wire Shape (paper design)" updated:
+sub-section "4. `buffer-edit` record" renamed to
+"4. `shadow-edit` record" with a follow-up note recording
+the rename rationale.
+
+The native-only intercept hook from commit `6f88744f` is now
+the implementation for both native plugins (which can register
+via `HandlerRegistry::on_buffer_edit_intercept` directly) and
+WASM plugins (which export `intercept-buffer-edit` per the
+WIT). Same dispatch chain, same verdict algebra, same
+Hippocratic noop short-circuit.
+
 ### Added — Plugin commit-intercept hook for shadow-cursor edits (2026-05-04)
 
 Plugins can now observe / transform / veto a shadow-cursor

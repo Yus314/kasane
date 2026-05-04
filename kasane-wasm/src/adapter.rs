@@ -949,6 +949,27 @@ impl PluginBackend for WasmPlugin {
             })
     }
 
+    fn intercept_buffer_edit(
+        &mut self,
+        edit: &kasane_core::state::shadow_cursor::BufferEdit,
+        state: &AppView<'_>,
+    ) -> kasane_core::state::shadow_cursor::BufferEditVerdict {
+        use kasane_core::state::shadow_cursor::BufferEditVerdict;
+        // call_synced returns R::default() on error; the Default impl for
+        // BufferEditVerdict is PassThrough, matching "plugin had no
+        // opinion" semantics on dispatch failure.
+        let wit_edit = convert::buffer_edit_to_wit(edit);
+        self.shared.call_synced(
+            state,
+            "intercept_buffer_edit",
+            |rt| -> anyhow::Result<BufferEditVerdict> {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_verdict = api.call_intercept_buffer_edit(&mut rt.store, &wit_edit)?;
+                Ok(convert::wit_shadow_edit_verdict_to_native(wit_verdict))
+            },
+        )
+    }
+
     fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
         let shared = Arc::clone(&self.shared);
         self.shared.with_runtime(|runtime| {

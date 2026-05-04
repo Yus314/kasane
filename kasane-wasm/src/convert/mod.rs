@@ -513,5 +513,71 @@ pub(crate) fn wit_setting_value_to_setting_value(wv: &wit::SettingValue) -> Sett
     }
 }
 
+// ---------------------------------------------------------------------------
+// Shadow-cursor commit-intercept conversions (WIT 3.0 follow-up)
+// ---------------------------------------------------------------------------
+
+use kasane_core::state::selection::{BufferPos, Direction, Selection};
+use kasane_core::state::shadow_cursor::{BufferEdit, BufferEditVerdict};
+
+fn selection_to_wit_record(sel: &Selection) -> wit::SelectionRecord {
+    wit::SelectionRecord {
+        anchor: wit::BufferPos {
+            line: sel.anchor.line,
+            column: sel.anchor.column,
+        },
+        cursor: wit::BufferPos {
+            line: sel.cursor.line,
+            column: sel.cursor.column,
+        },
+        direction: match sel.direction {
+            Direction::Forward => wit::SelectionDirection::Forward,
+            Direction::Backward => wit::SelectionDirection::Backward,
+        },
+    }
+}
+
+fn wit_selection_record_to_selection(rec: &wit::SelectionRecord) -> Selection {
+    let mut sel = Selection::new(
+        BufferPos::new(rec.anchor.line, rec.anchor.column),
+        BufferPos::new(rec.cursor.line, rec.cursor.column),
+    );
+    sel.direction = match rec.direction {
+        wit::SelectionDirection::Forward => Direction::Forward,
+        wit::SelectionDirection::Backward => Direction::Backward,
+    };
+    sel
+}
+
+pub(crate) fn buffer_edit_to_wit(edit: &BufferEdit) -> wit::ShadowEdit {
+    wit::ShadowEdit {
+        target: selection_to_wit_record(&edit.target),
+        original: edit.original.clone(),
+        replacement: edit.replacement.clone(),
+        base_version: edit.base_version.0,
+    }
+}
+
+pub(crate) fn wit_shadow_edit_to_buffer_edit(wit_edit: &wit::ShadowEdit) -> BufferEdit {
+    BufferEdit {
+        target: wit_selection_record_to_selection(&wit_edit.target),
+        original: wit_edit.original.clone(),
+        replacement: wit_edit.replacement.clone(),
+        base_version: kasane_core::history::VersionId(wit_edit.base_version),
+    }
+}
+
+pub(crate) fn wit_shadow_edit_verdict_to_native(
+    verdict: wit::ShadowEditVerdict,
+) -> BufferEditVerdict {
+    match verdict {
+        wit::ShadowEditVerdict::PassThrough => BufferEditVerdict::PassThrough,
+        wit::ShadowEditVerdict::Replace(edit) => {
+            BufferEditVerdict::Replace(wit_shadow_edit_to_buffer_edit(&edit))
+        }
+        wit::ShadowEditVerdict::Veto => BufferEditVerdict::Veto,
+    }
+}
+
 #[cfg(test)]
 mod tests;

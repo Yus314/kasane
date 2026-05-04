@@ -418,8 +418,14 @@ pub struct BufferEdit {
 /// The dispatch loop folds verdicts in plugin-priority order:
 /// `PassThrough` is identity; `Replace(new)` substitutes the running
 /// edit; `Veto` short-circuits and drops the commit.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Default` is `PassThrough` — used by host bindings (e.g.
+/// `WasmPlugin::intercept_buffer_edit` via `call_synced`'s
+/// `R::default()` fallback) when the plugin call fails or the
+/// plugin doesn't override the handler.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum BufferEditVerdict {
+    #[default]
     /// Use the running edit unchanged. Equivalent to a plugin that
     /// did not register an intercept handler. Typical for plugins
     /// that observe edits without modifying them (e.g. logging).

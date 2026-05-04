@@ -4194,21 +4194,18 @@ Plugins emit `list<display>`; the host runs the existing
 wire constructors — plugins do not express composition; they
 emit independent leaves and the host composes.
 
-#### 4. `buffer-edit` record — DEFERRED (shape conflict)
+#### 4. `shadow-edit` record (renamed from `buffer-edit`)
 
-> **Update (2026-05-04, post-implementation review)**: not
-> added in the WIT 3.0 implementation commit. WIT 2.0
-> already shipped a `buffer-edit` record under the same
-> name with a different shape (`start-line` /
-> `start-column` / `end-line` / `end-column` /
-> `replacement`) that backs the existing `edit-buffer`
-> command. Adding the paper-design shape would either
-> require renaming the existing record (breaking the
-> `edit-buffer` consumers) or re-using the name with a
-> richer shape (subsuming both purposes). Both options
-> warrant their own design pass; deferred until a
-> commit-intercept hook actually demands the
-> `base-version`-stamped shape.
+> **Update (2026-05-04 follow-up)**: shipped under the name
+> `shadow-edit` to avoid the shape conflict with the WIT 2.0
+> `buffer-edit` (used by the `edit-buffer` command effect, with
+> a `(start-line, start-column, end-line, end-column,
+> replacement)` shape). The two records now coexist:
+> `buffer-edit` keeps its programmatic-edit role; `shadow-edit`
+> carries the richer Phase 3 / 4 algebraic shape exclusively
+> for the commit-intercept hook surface. Plugins that don't
+> override `intercept-buffer-edit` get a default impl returning
+> `pass-through` from `kasane-plugin-sdk-macros::defaults`.
 
 The Phase 3 / 4 algebraic shape of a shadow-cursor commit:
 
@@ -4221,13 +4218,13 @@ record buffer-edit {
 }
 ```
 
-If revisited, naming options include `shadow-edit`
-(distinguishes from the existing edit-buffer payload)
-or `buffer-edit-with-context` (extends the current
-shape additively). No free functions are exposed in
-either case; the record is read-only from the plugin
-perspective. The intercept-hook handler that consumes
-/ produces it lands additively (no further ABI break).
+The naming choice landed as `shadow-edit` for clarity
+about the record's origin (shadow-cursor commits) and to
+keep `buffer-edit` reserved for the programmatic
+`edit-buffer` command. No free functions are exposed;
+the record is read-only from the plugin perspective.
+The `intercept-buffer-edit` plugin-api export consumes /
+produces it.
 
 #### 5. `current-selection-set` accessor in `host-state`
 

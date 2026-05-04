@@ -1188,6 +1188,55 @@ interface types {
         at(version-id),
     }
 
+    // --- WIT 3.0 follow-up: shadow-cursor commit-intercept ---
+
+    /// Algebraic shape of a shadow-cursor commit, surfaced to
+    /// `intercept-buffer-edit` plugin handlers before serialisation
+    /// to Kakoune `exec -draft` commands.
+    ///
+    /// Distinct from the legacy `buffer-edit` record (used by
+    /// the `edit-buffer` command effect) — that record uses a
+    /// `(start-line, start-column, end-line, end-column,
+    /// replacement)` shape suited to programmatic edits.
+    /// `shadow-edit` carries the additional metadata an
+    /// intercept handler needs:
+    ///
+    /// - `target` — Selection-shaped buffer range (anchor /
+    ///   cursor with direction; for Mirror projections,
+    ///   `anchor.line == cursor.line`).
+    /// - `original` — pre-edit content at `target`. Used for
+    ///   Hippocratic checks (the dispatcher drops
+    ///   `original == replacement` commits even after
+    ///   intercept transforms).
+    /// - `replacement` — post-edit content. Empty string
+    ///   represents a pure deletion.
+    /// - `base-version` — history `version-id` the edit was
+    ///   authored against, lets handlers detect stale commits
+    ///   or compose with `time::at(v)` queries to materialise
+    ///   the buffer state the user was looking at.
+    record shadow-edit {
+        target: selection-record,
+        original: string,
+        replacement: string,
+        base-version: version-id,
+    }
+
+    /// Verdict from an `intercept-buffer-edit` plugin handler.
+    /// The dispatcher folds verdicts in slot order: `pass-through`
+    /// is identity, `replace(new)` substitutes the running edit,
+    /// `veto` short-circuits and drops the commit.
+    variant shadow-edit-verdict {
+        /// Observe without modifying. Default verdict for plugins
+        /// that don't override `intercept-buffer-edit`.
+        pass-through,
+        /// Substitute a transformed edit (e.g. snap indentation,
+        /// run an auto-formatter).
+        replace(shadow-edit),
+        /// Drop the commit — no Kakoune commands emit. The shadow
+        /// cursor still deactivates.
+        veto,
+    }
+
     // --- v0.20.0: Image types ---
 
     /// Image source for Element::Image.
@@ -1556,7 +1605,8 @@ interface plugin-api {
                key-group-decl, key-response,
                display-unit-info, navigation-policy-kind, navigation-action-result,
                channel-value,
-               projection-descriptor};
+               projection-descriptor,
+               shadow-edit, shadow-edit-verdict};
 
     // --- Identity ---
 
@@ -1808,6 +1858,24 @@ interface plugin-api {
     /// arena is undefined behaviour; use the `element-builder` import to
     /// construct the handle.
     paint-inline-box: func(box-id: u64) -> option<element-handle>;
+
+    // --- WIT 3.0 follow-up: shadow-cursor commit-intercept ---
+
+    /// Intercept a shadow-cursor buffer-edit commit before
+    /// serialisation to Kakoune `exec -draft` commands.
+    ///
+    /// The host runs this on every registered plugin in slot order
+    /// after the builtin shadow cursor surfaces a pending commit.
+    /// Plugins return a `shadow-edit-verdict`:
+    /// - `pass-through` — observe without modifying (default).
+    /// - `replace(new)` — substitute a transformed edit.
+    /// - `veto` — drop the commit (no commands emit).
+    ///
+    /// `replace` lets a plugin rewrite the target / replacement
+    /// (e.g. snap indentation, run an auto-formatter, etc.) before
+    /// commit. `veto` lets a plugin block edits that violate a
+    /// plugin-owned invariant. Most plugins return `pass-through`.
+    intercept-buffer-edit: func(edit: shadow-edit) -> shadow-edit-verdict;
 }
 
 // ---------------------------------------------------------------------------
