@@ -1753,6 +1753,8 @@ mod sync_lenses {
         }
     }
 
+    crate::impl_migrated_caps_default!(LensOwningPlugin);
+
     impl PluginBackend for LensOwningPlugin {
         fn id(&self) -> PluginId {
             self.id.clone()
@@ -1843,6 +1845,7 @@ mod sync_lenses {
         // A plugin that doesn't override register_lenses returns 0
         // by default.
         struct NoLensPlugin;
+        crate::impl_migrated_caps_default!(NoLensPlugin);
         impl PluginBackend for NoLensPlugin {
             fn id(&self) -> PluginId {
                 PluginId("no-lens".into())

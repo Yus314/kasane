@@ -314,10 +314,6 @@ impl PluginBackend for PluginBridge {
         &self.table.suppressed_builtins
     }
 
-    fn allows_process_spawn(&self) -> bool {
-        true
-    }
-
     fn state_hash(&self) -> u64 {
         self.generation
     }
@@ -370,18 +366,6 @@ impl PluginBackend for PluginBridge {
         dispatch_state_effect!(self, state_changed_handler, app, dirty)
     }
 
-    fn on_io_event_effects(&mut self, event: &IoEvent, app: &AppView<'_>) -> Effects {
-        // Route process events through active task handles first.
-        if let IoEvent::Process(proc_event) = event
-            && let Some(effects) = self.try_process_task_event(proc_event, app)
-        {
-            return effects;
-        }
-
-        // Fall through to the manual io_event handler.
-        dispatch_state_effect!(self, io_event_handler, event, app)
-    }
-
     fn intercept_buffer_edit(
         &mut self,
         edit: &crate::state::shadow_cursor::BufferEdit,
@@ -410,23 +394,6 @@ impl PluginBackend for PluginBridge {
 
     fn workspace_restore(&mut self, data: &serde_json::Value) {
         dispatch_state_only!(self, workspace_restore_handler, data);
-    }
-
-    fn start_process_task(&mut self, name: &str) -> Vec<Command> {
-        let Some(entry) = self.table.process_tasks.iter().find(|e| e.name == name) else {
-            tracing::warn!(plugin = self.id.0.as_str(), name, "unknown process task");
-            return vec![];
-        };
-
-        let job_id = self.next_task_job_id;
-        self.next_task_job_id += 1;
-
-        let fallbacks = collect_fallbacks(&entry.spec);
-        let cmd = spawn_command(&entry.spec, job_id);
-        self.active_process_tasks
-            .push(ProcessTaskHandle::new(entry.name, job_id, fallbacks));
-
-        vec![cmd]
     }
 
     // === Input ===
@@ -898,6 +865,37 @@ impl super::capability_traits::ExtensionParticipant for PluginBridge {
     }
 }
 
+impl super::capability_traits::Io for PluginBridge {
+    fn on_io_event_effects(&mut self, event: &IoEvent, app: &AppView<'_>) -> Effects {
+        // Route process events through active task handles first.
+        if let IoEvent::Process(proc_event) = event
+            && let Some(effects) = self.try_process_task_event(proc_event, app)
+        {
+            return effects;
+        }
+
+        // Fall through to the manual io_event handler.
+        dispatch_state_effect!(self, io_event_handler, event, app)
+    }
+
+    fn start_process_task(&mut self, name: &str) -> Vec<Command> {
+        let Some(entry) = self.table.process_tasks.iter().find(|e| e.name == name) else {
+            tracing::warn!(plugin = self.id.0.as_str(), name, "unknown process task");
+            return vec![];
+        };
+
+        let job_id = self.next_task_job_id;
+        self.next_task_job_id += 1;
+
+        let fallbacks = collect_fallbacks(&entry.spec);
+        let cmd = spawn_command(&entry.spec, job_id);
+        self.active_process_tasks
+            .push(ProcessTaskHandle::new(entry.name, job_id, fallbacks));
+
+        vec![cmd]
+    }
+}
+
 /// Marker trait for runtime detection of `Plugin`-backed plugins.
 ///
 /// Enables the framework to access externalized state directly on `dyn PluginBackend`
@@ -918,7 +916,7 @@ impl IsBridgedPlugin for PluginBridge {
 
 #[cfg(test)]
 mod tests {
-    use super::super::capability_traits::PubSubMember;
+    use super::super::capability_traits::{Io, PubSubMember};
     use super::super::state::tests::{ColorPreviewPure, CursorLinePure, CursorLineState};
     use super::*;
     use crate::layout::Rect;

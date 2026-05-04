@@ -11,7 +11,7 @@ use crate::display::unit::DisplayUnit;
 
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
-    DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, LineAnnotation, OrnamentBatch,
+    DisplayDirective, Effects, ElementPatch, GutterSide, LineAnnotation, OrnamentBatch,
     OverlayContext, OverlayContribution, PluginAuthorities, PluginCapabilities, PluginDiagnostic,
     PluginId, PluginView, RenderOrnamentContext, SlotId, TransformContext, TransformDescriptor,
     TransformSubject, TransformTarget, VirtualTextItem,
@@ -111,7 +111,10 @@ pub enum TextInputPreDispatchResult {
 /// `impl_<cap>_default!` macro for non-overriders).
 #[doc(hidden)]
 pub trait PluginBackend:
-    super::capability_traits::PubSubMember + super::capability_traits::ExtensionParticipant + Any
+    super::capability_traits::PubSubMember
+    + super::capability_traits::ExtensionParticipant
+    + super::capability_traits::Io
+    + Any
 {
     fn id(&self) -> PluginId;
 
@@ -143,10 +146,7 @@ pub trait PluginBackend:
     fn on_state_changed_effects(&mut self, _state: &AppView<'_>, _dirty: DirtyFlags) -> Effects {
         Effects::default()
     }
-    /// Handle an I/O event (process output, etc.).
-    fn on_io_event_effects(&mut self, _event: &IoEvent, _state: &AppView<'_>) -> Effects {
-        Effects::default()
-    }
+    // `on_io_event_effects` migrated to `capability_traits::Io` (R1.6).
 
     /// Intercept a shadow-cursor buffer-edit commit before
     /// serialization (ADR-035 ShadowCursor follow-up).
@@ -384,12 +384,7 @@ pub trait PluginBackend:
 
     /// Start a named process task, returning spawn commands.
     ///
-    /// Framework-managed tasks registered via [`HandlerRegistry::on_process_task`]
-    /// are looked up by name. Returns the initial `SpawnProcess` command(s).
-    /// Default: returns empty (no tasks registered).
-    fn start_process_task(&mut self, _name: &str) -> Vec<Command> {
-        vec![]
-    }
+    // `start_process_task` migrated to `capability_traits::Io` (R1.6).
 
     /// Host-level authorities required for privileged deferred effects.
     fn authorities(&self) -> PluginAuthorities {
@@ -403,14 +398,7 @@ pub trait PluginBackend:
         &EMPTY
     }
 
-    /// Whether this plugin is allowed to spawn external processes.
-    ///
-    /// Native plugins default to `true`. WASM plugins check their resolved
-    /// capability grants (the `process` capability must be requested and not
-    /// denied by user configuration).
-    fn allows_process_spawn(&self) -> bool {
-        true
-    }
+    // `allows_process_spawn` migrated to `capability_traits::Io` (R1.6).
 
     // --- Surface system hooks (Phase S) ---
 

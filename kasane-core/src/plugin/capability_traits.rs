@@ -842,17 +842,7 @@ impl<T: super::PluginBackend + ?Sized> Renderer for T {
     }
 }
 
-impl<T: super::PluginBackend + ?Sized> Io for T {
-    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppView<'_>) -> Effects {
-        super::PluginBackend::on_io_event_effects(self, event, state)
-    }
-    fn start_process_task(&mut self, name: &str) -> Vec<Command> {
-        super::PluginBackend::start_process_task(self, name)
-    }
-    fn allows_process_spawn(&self) -> bool {
-        super::PluginBackend::allows_process_spawn(self)
-    }
-}
+// Io migrated to super-trait of PluginBackend (R1.6).
 
 // PubSubMember has no blanket impl — R1.4 migrated it to a super-trait
 // of PluginBackend, with method bodies living in this trait.
@@ -926,11 +916,13 @@ impl<T: super::PluginBackend + ?Sized> PluginMeta for T {
 /// Currently covers (in migration order):
 /// - R1.4: `PubSubMember`
 /// - R1.5: `ExtensionParticipant`
+/// - R1.6: `Io`
 #[macro_export]
 macro_rules! impl_migrated_caps_default {
     ($($t:ty),+ $(,)?) => {
         $crate::impl_pubsub_member_default!($($t),+);
         $crate::impl_extension_participant_default!($($t),+);
+        $crate::impl_io_default!($($t),+);
     };
 }
 

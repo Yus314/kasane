@@ -774,18 +774,6 @@ impl PluginBackend for WasmPlugin {
             })
     }
 
-    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppView<'_>) -> Effects {
-        let shared = Arc::clone(&self.shared);
-        self.shared
-            .call_synced_with_hash(state, "on_io_event_effects", |rt| {
-                let api = rt.instance.kasane_plugin_plugin_api();
-                let wit_event = convert::io_event_to_wit(event);
-                Ok(shared.convert_runtime_effects(
-                    &api.call_on_io_event_effects(&mut rt.store, &wit_event)?,
-                ))
-            })
-    }
-
     fn on_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
         let snapshot = convert::workspace_query_to_snapshot(query);
         self.shared.with_runtime(|runtime| {
@@ -1479,10 +1467,6 @@ impl PluginBackend for WasmPlugin {
         self.shared.authorities
     }
 
-    fn allows_process_spawn(&self) -> bool {
-        self.shared.process_allowed
-    }
-
     fn capability_descriptor(&self) -> Option<kasane_core::plugin::CapabilityDescriptor> {
         self.shared.manifest_descriptor.clone()
     }
@@ -1608,5 +1592,23 @@ impl kasane_core::plugin::capability_traits::ExtensionParticipant for WasmPlugin
             }],
             None => vec![],
         }
+    }
+}
+
+impl kasane_core::plugin::capability_traits::Io for WasmPlugin {
+    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppView<'_>) -> Effects {
+        let shared = Arc::clone(&self.shared);
+        self.shared
+            .call_synced_with_hash(state, "on_io_event_effects", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_event = convert::io_event_to_wit(event);
+                Ok(shared.convert_runtime_effects(
+                    &api.call_on_io_event_effects(&mut rt.store, &wit_event)?,
+                ))
+            })
+    }
+
+    fn allows_process_spawn(&self) -> bool {
+        self.shared.process_allowed
     }
 }
