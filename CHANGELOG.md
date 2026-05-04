@@ -2,6 +2,61 @@
 
 ## [Unreleased]
 
+### Added — Bundled `LongLineLens` (Composable Lenses follow-up) (2026-05-04)
+
+Second built-in `Lens` implementation. Highlights characters
+past a configurable column threshold — typical use is flagging
+code that exceeds a style-guide line-length limit (80, 100,
+or 120 columns).
+
+The lens demonstrates the **parameterised-config pattern**
+the trailing-whitespace lens didn't exercise: the threshold
+is a constructor argument, distinct constructor values yield
+distinct default `LensId` names (`long-line-80` vs
+`long-line-120`) so multiple instances coexist in the registry
+without manual disambiguation.
+
+- (core) `kasane_core::lens::builtin::LongLineLens`:
+  - `new(column: u32, style: WireFace)` — construct with the
+    threshold and highlight style.
+  - `with_name(name)` — override the default `long-line-{column}`
+    name; useful when registering instances with semantic names
+    like `style-guide-warning` / `style-guide-error`.
+  - `threshold()` accessor returns the construction value.
+  - `id()` returns
+    `LensId { plugin: "kasane.builtin", name: "long-line-{N}" }`.
+  - `label()` returns `"Long line (> N)"` (UI display).
+  - `priority()` defaults to 0.
+- (core) Internal `past_threshold_byte_range(line, threshold)`
+  pure helper. Counts characters as Unicode scalar values
+  (`str::chars()`); returns the byte range of the run starting
+  at the `(threshold + 1)`-th character through line end, or
+  `None` for lines at or under the threshold. Documented
+  caveat: CJK and double-width chars count as one column each
+  (matching the common "100 chars" style guide convention,
+  not display cells); a future variant can swap in
+  `unicode-width` if needed.
+- (test) 18 new tests in `lens::builtin::long_line::tests`
+  (lib 2501 → 2519): 7 range-computation cases (shorter than
+  threshold / exactly at threshold / one past / many past /
+  CJK char counting / threshold-zero / mixed ASCII+CJK byte
+  offset); 5 lens-display integration cases (empty buffer /
+  short lines / long line / mixed buffer / multi-atom long
+  line); 6 trait-surface cases (id namespace / `with_name`
+  override / label format / `threshold()` accessor / priority
+  default / two distinct-threshold instances coexist).
+
+The bundled-lens menu now covers two complementary
+visualisation patterns — trailing whitespace (suffix
+detection) and long lines (column-threshold detection). Both
+follow the same authoring template (constructor + `Lens`
+impl + pure range helper + comprehensive tests) and document
+the lens API by example.
+
+Validation: 2519 workspace lib tests pass; 2776 workspace
+integration tests pass; clippy + fmt clean across
+`gui,syntax`.
+
 ### Added — Bundled `TrailingWhitespaceLens` (Composable Lenses follow-up) (2026-05-04)
 
 First built-in `Lens` implementation. Demonstrates the lens
