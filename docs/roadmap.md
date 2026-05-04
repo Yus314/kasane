@@ -78,6 +78,7 @@ Open follow-up debts surfaced during the Phase 5 landing (2026-04-29). Most reso
 | Workstream | Notes |
 |---|---|
 | External plugin candidates | indent guides, clickable links, built-in splits, floating panels, code folding, display-line navigation, URL detection, region-specific text policy, etc. |
+| Composable Lenses | **MVP landed (2026-05-04)** — `kasane_core::lens` module with `Lens` trait, `LensId`, `LensRegistry`. Lenses contribute `DisplayDirective`s alongside plugin display handlers and are individually toggleable by `(plugin_id, name)`. Native-only; runs every frame (no Salsa caching). Follow-ups: (a) Salsa cache key `(file_id, line, lens_stack)` per ADR-035 §"Salsa input shape" hint, (b) WIT surface for WASM plugins to register lenses, (c) bundled example lenses (trailing-whitespace highlighter, indent guides). |
 | Session-affine plugin surfaces | Plugin API for declaring session affinity on `surfaces()` return values. No consumer exists yet; deferred until a plugin requires it |
 | Element ↔ §2.6 P(X) synchronisation regression test | Mechanise the §15.1 sync obligation between `Element` variants and the polynomial functor P(X) in semantics §2.6, so variant additions force a semantics update. See semantics §13.16 |
 | Semantic Zoom Phase 3 | Per-pane zoom (requires plugin instance state) |

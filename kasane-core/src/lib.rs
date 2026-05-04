@@ -8,6 +8,7 @@ pub mod history;
 pub mod input;
 pub mod io;
 pub mod layout;
+pub mod lens;
 mod perf;
 pub mod plugin;
 pub mod plugin_prelude;

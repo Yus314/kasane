@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::display::{DirectiveSet, DisplayMap, DisplayMapRef};
 use crate::element::{Element, FlexChild};
+use crate::plugin::app_view::FrameworkAccess;
 use crate::plugin::compose::{Composable, ContentAnnotationSet, ContributionSet, OverlaySet};
 use crate::plugin::element_patch::ElementPatch;
 use crate::plugin::{
@@ -877,11 +878,18 @@ impl<'a> PluginView<'a> {
     }
 
     /// Collect raw display directives from all plugins (without building a DisplayMap).
+    ///
+    /// Includes contributions from enabled lenses on
+    /// `state.lens_registry` — a buffer with no display-transform
+    /// plugin but at least one enabled lens still produces
+    /// directives.
     pub fn collect_display_directives(
         &self,
         state: &AppView<'_>,
     ) -> Vec<crate::display::DisplayDirective> {
-        if !self.has_capability(PluginCapabilities::DISPLAY_TRANSFORM) {
+        let has_display_plugin = self.has_capability(PluginCapabilities::DISPLAY_TRANSFORM);
+        let has_enabled_lens = state.as_app_state().lens_registry.enabled_count() > 0;
+        if !has_display_plugin && !has_enabled_lens {
             return Vec::new();
         }
 
@@ -904,6 +912,19 @@ impl<'a> PluginView<'a> {
     fn collect_tagged_display_directives(&self, state: &AppView<'_>) -> DirectiveSet {
         let mut set = DirectiveSet::default();
         let projection_policy = state.projection_policy();
+
+        // Composable Lenses (Roadmap §Backlog): enabled lenses
+        // contribute their directives onto the same set as plugin
+        // display handlers, so the algebra resolves both streams
+        // uniformly. The registry's `collect_directives` returns
+        // `(directive, priority, owner_plugin_id)` triples in
+        // `LensId` sort order, matching the
+        // `DirectiveSet::push` shape.
+        for (directive, priority, plugin_id) in
+            state.as_app_state().lens_registry.collect_directives(state)
+        {
+            set.push(directive, priority, plugin_id);
+        }
 
         for (idx, slot) in self.slots.iter().enumerate() {
             if !slot

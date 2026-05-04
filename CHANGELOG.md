@@ -2,6 +2,88 @@
 
 ## [Unreleased]
 
+### Added — Composable Lenses MVP (Roadmap §Backlog) (2026-05-04)
+
+A `Lens` is a named, individually-toggleable source of
+`DisplayDirective`s, registered on a `LensRegistry` held on
+`AppState`. The dispatch path queries the registry alongside
+plugin display handlers; enabled lenses contribute their
+directives to the same `DirectiveSet` plugin handlers produce,
+so the existing display algebra (`Then` / `Merge` via
+`bridge::resolve_via_algebra`) handles composition uniformly.
+
+**Why a separate abstraction from plugins**: plugin display
+handlers can already emit directives, but enable / disable
+granularity is plugin-wide. A plugin bundling 5 visualisations
+gets all-or-nothing today. Lenses give per-contribution toggle
+without unloading the plugin, addressable by stable
+`(plugin_id, name)` identity from a UI / CLI.
+
+**Composition**: enabled lenses' directives push onto the same
+`DirectiveSet` and resolve via the existing algebra —
+order-independent for non-conflicting leaves; conflicts resolve
+by the existing `(priority, plugin_id, ...)` sort key. A lens
+can supply a `priority()` to control its placement in the
+conflict ordering.
+
+- (core) `kasane_core::lens` — new module:
+  - `Lens` trait — `id() -> LensId`, `label() -> String`
+    (default = name), `priority() -> i16` (default 0),
+    `display(view) -> Vec<DisplayDirective>`.
+  - `LensId { plugin: PluginId, name: String }` — namespaced
+    identity.
+  - `LensRegistry` — `register` / `unregister` / `enable` /
+    `disable` / `toggle` / `is_enabled` / `is_registered` /
+    `registered_ids` / `enabled_ids` / `len` /
+    `enabled_count` / `collect_directives(view)`. Holds
+    lenses as `Arc<dyn Lens>` so cloning is cheap; `Default`
+    is empty.
+- (core) `AppState.lens_registry: LensRegistry` — new field;
+  default empty. Survives `clone()` since `LensRegistry` is
+  `Clone`.
+- (core) `PluginRuntime::view().collect_display_directives`
+  now also pulls from `AppView::as_app_state().lens_registry`
+  via `collect_tagged_display_directives`. The early-return
+  guard relaxes from "any DISPLAY_TRANSFORM plugin" to "any
+  DISPLAY_TRANSFORM plugin OR any enabled lens" so a
+  lens-only buffer still produces directives.
+- (test) 15 new tests in `lens::tests` (lib 2467 → 2482):
+  - **Registry mechanics** (8 tests): empty registry collects
+    nothing; register inserts but starts disabled;
+    enable / disable toggles emission; toggle returns new
+    state and flips; enable / toggle of unregistered lens are
+    no-ops; unregister also removes from enabled set;
+    re-register replaces existing lens preserving enable
+    state.
+  - **Composition** (2 tests): multiple enabled lenses compose
+    in `LensId` sort order; priority lifts onto the emitted
+    tuple.
+  - **Identity & introspection** (2 tests): `registered_ids`
+    are sorted; equality compares enabled-set + registered-id
+    set (lens trait objects compared by id).
+  - **AppState integration** (2 tests): `AppState::default`
+    carries empty registry; mutating `state.lens_registry`
+    takes effect on the next `collect_directives` call.
+  - **End-to-end pipeline** (1 test): a lens emitting
+    `DisplayDirective::Hide { 3..4 }` flows through
+    `PluginRuntime::view().collect_display_directives`
+    against an empty plugin set; disabling the lens removes
+    the directive on the next call.
+
+The MVP is **native-only and runs every frame** (no Salsa
+caching layer yet). The future Salsa integration described in
+ADR-035 (caching key
+`(file_id, line, lens_stack) -> Display`) is the natural
+follow-up — the registry's stable `LensId` set + enabled set
+is already the right cache key shape. WIT-level surface
+(plugins registering lenses from WASM) is also deferred;
+native plugins (crates linking `kasane-core` directly) can
+register lenses today.
+
+Validation: 2482 workspace lib tests pass; 2739 workspace
+integration tests pass; clippy + fmt clean across
+`gui,syntax`.
+
 ### Added — WIT surface for commit-intercept hook (`shadow-edit` + `intercept-buffer-edit`) (2026-05-04)
 
 WASM plugins can now register a commit-intercept handler — the

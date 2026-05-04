@@ -132,6 +132,13 @@ pub struct AppState {
     /// snapshot-scoped (`commit` happens on Kakoune protocol echoes,
     /// not on speculative state copies).
     pub history: std::sync::Arc<crate::history::InMemoryRing>,
+
+    /// Composable Lenses registry (Roadmap §Backlog). Holds named,
+    /// individually-toggleable display-directive contributors that
+    /// merge into the same `DirectiveSet` plugin display handlers
+    /// produce. Default is an empty registry. See `crate::lens` for
+    /// the surface area.
+    pub lens_registry: crate::lens::LensRegistry,
 }
 
 // ---------------------------------------------------------------------------
