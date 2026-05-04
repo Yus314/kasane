@@ -126,6 +126,11 @@ impl WasmPluginLoader {
             host::HostState,
             HasSelf<host::HostState>,
         >(&mut linker, |state| state)?;
+        // WIT 3.0 (ADR-035 §2): history interface
+        bindings::kasane::plugin::history::add_to_linker::<
+            host::HostState,
+            HasSelf<host::HostState>,
+        >(&mut linker, |state| state)?;
         Ok((engine, linker))
     }
 

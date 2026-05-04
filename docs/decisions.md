@@ -3808,6 +3808,33 @@ state). Acceptance is gated on the wiring step below.
   primitives; LOC estimated ~400 (vs 927)" is realised in
   spirit (algebraic edit shape + version stamp) but not in LOC
   (the keyboard-handler grapheme arithmetic stays).
+- ✅ **WIT 3.0 ABI bump — selection-set + time + history
+  (2026-05-04)** — implements the ADR-035 portion of the
+  paper-design freeze below. Bumps `kasane:plugin@2.0.0` →
+  `@3.0.0`. Adds: `selection-set` value-record + 7 set-algebra
+  free functions; `selection-record` + `buffer-pos` +
+  `selection-direction` supporting types; `time` variant +
+  `version-id` alias; new `history` interface
+  (`current-version`, `earliest-version`, `text-at`,
+  `selection-at`); `current-selection-set` accessor on
+  `host-state`. Removes: legacy heuristic `selection` record
+  + `get-selection-count` / `get-selection` /
+  `get-all-selections` triplet. Host bindings (`kasane-wasm`)
+  serve all new functions over native primitives that landed
+  in the prior milestones. The `selection-algebra` example
+  plugin migrates from the legacy iterator pattern to a
+  single `current-selection-set` call. All 12 example /
+  fixture / guest WASM plugins rebuilt against the new ABI
+  as `wasm32-wasip2` Components. 25 manifest files + the
+  `HOST_ABI_VERSION` constants in `kasane-plugin-package`
+  and `kasane/plugin_cmd/templates` bumped to "3.0.0". The
+  display-directive → display variant collapse (the
+  ADR-034 driver portion of WIT 3.0) is intentionally
+  deferred to a follow-up commit per the paper-design
+  "Implementation gating" section — the 11-case
+  `display-directive` variant has a deep host plumbing tail
+  (color-preview + selection-algebra both emit it) that
+  warrants its own focused PR.
 - ✅ **`SelectionSet::to_kakoune_command()` projection
   (2026-05-04)** — closes the §Decision "Projection back to
   Kakoune" line which was previously documentation-only. Encodes

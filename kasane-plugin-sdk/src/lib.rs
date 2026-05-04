@@ -218,7 +218,10 @@ pub mod channel {
         #[test]
         fn round_trip_struct() {
             #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-            struct Point { x: i32, y: i32 }
+            struct Point {
+                x: i32,
+                y: i32,
+            }
             let (data, _hint) = serialize(&Point { x: 10, y: 20 });
             assert_eq!(deserialize::<Point>(&data), Some(Point { x: 10, y: 20 }));
         }
@@ -246,34 +249,55 @@ pub mod channel {
 /// ```
 #[macro_export]
 macro_rules! pred_has_focus {
-    () => { vec![PredicateOp::HasFocus] };
+    () => {
+        vec![PredicateOp::HasFocus]
+    };
 }
 
 #[macro_export]
 macro_rules! pred_surface_is {
-    ($id:expr) => { vec![PredicateOp::SurfaceIs($id)] };
+    ($id:expr) => {
+        vec![PredicateOp::SurfaceIs($id)]
+    };
 }
 
 #[macro_export]
 macro_rules! pred_line_range {
     ($start:expr, $end:expr) => {
-        vec![PredicateOp::LineRange(LineRangePredicate { start: $start, end: $end })]
+        vec![PredicateOp::LineRange(LineRangePredicate {
+            start: $start,
+            end: $end,
+        })]
     };
 }
 
 #[macro_export]
 macro_rules! pred_not {
-    ($inner:expr) => {{ let mut ops = $inner; ops.push(PredicateOp::NotOp); ops }};
+    ($inner:expr) => {{
+        let mut ops = $inner;
+        ops.push(PredicateOp::NotOp);
+        ops
+    }};
 }
 
 #[macro_export]
 macro_rules! pred_and {
-    ($a:expr, $b:expr) => {{ let mut ops = $a; ops.extend($b); ops.push(PredicateOp::AndOp); ops }};
+    ($a:expr, $b:expr) => {{
+        let mut ops = $a;
+        ops.extend($b);
+        ops.push(PredicateOp::AndOp);
+        ops
+    }};
 }
 
 #[macro_export]
 macro_rules! pred_or {
-    ($a:expr, $b:expr) => {{ let mut ops = $a; ops.extend($b); ops.push(PredicateOp::OrOp); ops }};
+    ($a:expr, $b:expr) => {{
+        let mut ops = $a;
+        ops.extend($b);
+        ops.push(PredicateOp::OrOp);
+        ops
+    }};
 }
 
 /// Modifier key bitflags matching `kasane_core::input::Modifiers`.
@@ -1566,13 +1590,6 @@ mod test_harness_tests {
         h.set_cursor_col(10);
         assert_eq!(mock_host_state::get_cursor_line(), 42);
         assert_eq!(mock_host_state::get_cursor_col(), 10);
-    }
-
-    #[test]
-    fn harness_set_selection_count() {
-        let mut h = TestHarness::new();
-        h.set_selection_count(5);
-        assert_eq!(mock_host_state::get_selection_count(), 5);
     }
 
     #[test]

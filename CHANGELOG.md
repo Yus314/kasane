@@ -2,6 +2,157 @@
 
 ## [Unreleased]
 
+### Changed — WIT 3.0 ABI bump (selection-set + time + history) (2026-05-04)
+
+Implements the ADR-035 portion of the WIT 3.0 paper-design
+freeze. Bumps `kasane:plugin@2.0.0` → `@3.0.0`.
+
+The display-directive → display variant collapse (the
+ADR-034 driver portion of WIT 3.0) is intentionally deferred
+to a follow-up commit — the 11-case `display-directive`
+variant has a deep host plumbing tail (color-preview +
+selection-algebra both emit it) that warrants its own
+focused PR. The version is bumped to 3.0.0 in this commit;
+the deferred follow-up will land additively under the same
+major version.
+
+#### WIT contract (single canonical file, symlinked into 3 crates)
+
+- (wit) `package kasane:plugin@2.0.0` → `@3.0.0` with a
+  comment block recording the ADR-035 driver scope.
+- (wit) Adds (in `interface types`):
+  - `record buffer-pos { line: u32, column: u32 }`
+  - `enum selection-direction { forward, backward }`
+  - `record selection-record { anchor, cursor, direction }`
+  - `record selection-set { selections, buffer, generation }`
+  - `variant set-save-error { invalid-name }`
+  - `variant set-load-error { not-found, buffer-mismatch }`
+  - `type version-id = u64`
+  - `variant time { now, at(version-id) }`
+- (wit) Adds (in `interface host-state`):
+  - `current-selection-set: func() -> selection-set`
+  - `selection-set-union` / `-intersect` / `-difference` /
+    `-symmetric-difference` (free functions on
+    `selection-set`)
+  - `selection-set-save` / `-load` (returning
+    `result<_, set-save-error>` / `result<selection-set,
+    set-load-error>`)
+  - `selection-set-to-kakoune-command: func(set) -> option<string>`
+- (wit) Adds new `interface history` with
+  `current-version`, `earliest-version`, `text-at`,
+  `selection-at`; world `kasane-plugin` imports it
+  alongside `host-state` / `element-builder` / `host-log`.
+- (wit) Removes:
+  - `record selection { anchor, cursor, is-primary }`
+  - `host-state.get-selection-count` / `get-selection` /
+    `get-all-selections`
+
+#### Host bindings (`kasane-wasm`)
+
+- (core) `host::HostState.selection_set:
+  state::selection_set::SelectionSet` — replaces
+  `selections: Vec<derived::Selection>`. Mirrored from
+  `state.inference.selection_set` in the BUFFER_CURSOR sync
+  block.
+- (core) `host::HostState.history:
+  Option<Arc<InMemoryRing>>` — cloned from `state.history`
+  in the BUFFER_CONTENT sync block. Backs the new
+  `history` interface.
+- (core) `host::HostState`'s `host_state::Host` impl gains
+  `current_selection_set` + 7 set-algebra wrappers
+  (`selection_set_union` / `_intersect` / `_difference` /
+  `_symmetric_difference` / `_save` / `_load` /
+  `_to_kakoune_command`). Each wrapper converts WIT
+  `SelectionSet` → native `SelectionSet`, calls the
+  algebraic method, converts the result back. The
+  `_to_kakoune_command` wrapper extracts the command
+  string from the native return value's keysym-encoded
+  `KasaneRequest::Keys` form (decoded back to the bare
+  `select <ranges>` string plugins expect).
+- (core) `host::HostState`'s `history::Host` impl —
+  `current_version`, `earliest_version`, `text_at(time)`,
+  `selection_at(time)`. Each delegates to the held
+  `Arc<InMemoryRing>` and converts `Time::At(VersionId)`
+  via the existing `HistoryBackend::snapshot` interface.
+- (core) `selection_set_to_wit` / `selection_set_from_wit`
+  free helpers — wire ↔ native conversion. Direction is
+  preserved across the boundary (backward selections
+  retain `Direction::Backward` rather than being
+  re-inferred from anchor / cursor ordering).
+- (core) `lib.rs::add_to_linker` — wires the new
+  `history` interface into the wasmtime linker.
+
+#### SDK bindings (`kasane-plugin-sdk`)
+
+- (sdk) `test::MockHostState.selection_count` field +
+  `set_selection_count` / `get_selection_count` mock
+  functions removed. The mock surface is intentionally
+  narrowed; plugins that need a SelectionSet mock should
+  add a per-plugin mock rather than rely on the SDK's
+  built-in.
+- (sdk) `lib.rs::tests::harness_set_selection_count` test
+  removed (asserted on the deleted mock).
+
+#### Example plugins
+
+- (examples) `examples/wasm/selection-algebra/src/lib.rs`
+  — set-operation hot path migrated from
+  `host_state::get_selection_count()` + per-index
+  `host_state::get_selection(i)` loop to a single
+  `host_state::current_selection_set()` call returning a
+  `SelectionSet` whose `selections` field iterates
+  directly. Coordinate types adjusted from `i32` to `u32`
+  to match the new `BufferPos` shape.
+- (examples) All 10 plugins under `examples/wasm/`
+  recompiled against the new ABI as `wasm32-wasip2`
+  Components and copied to
+  `kasane-wasm/fixtures/<plugin>.wasm` (and to
+  `kasane-wasm/bundled/<plugin>.wasm` for the 6 bundled
+  ones). The 2 host-test guest plugins under
+  `kasane-wasm/guests/` (`instantiate-trap`,
+  `surface-probe`) likewise recompiled.
+
+#### ABI version constants
+
+- (kasane-plugin-package) `manifest::HOST_ABI_VERSION`
+  bumped from `"2.0.0"` to `"3.0.0"`.
+- (kasane) `plugin_cmd::templates::HOST_ABI_VERSION`
+  bumped to `"3.0.0"` (templates emit `abi_version =
+  "3.0.0"` for newly-generated plugins).
+- (manifests) 25 `kasane-plugin.toml` / `*.toml` files
+  across `kasane-wasm/{fixtures,bundled}/` and
+  `examples/wasm/*/` bumped to `abi_version = "3.0.0"`.
+- (test fixtures) 10 hardcoded `abi_version = "2.0.0"`
+  manifest strings inside `kasane/src/{plugin_lock,
+  plugin_store, locked_wasm_provider, plugin_cmd/*}.rs`
+  + `kasane-plugin-package/src/{manifest,package}.rs`
+  test bodies bumped.
+- (test assertions) `kasane-wasm/src/tests/discovery.rs`
+  asserts `pane_manager.abi_version == "3.0.0"`;
+  `kasane-wasm/src/tests/mod.rs` test fixture manifest
+  bumped.
+
+#### Build pipeline
+
+- The previously-shipped WASM blobs were built against
+  the `wasm32-wasip2` target (which produces Component
+  format directly); the rebuild used the same target via
+  the Nix-flake-provided toolchain. No `wit-component`
+  invocation needed — the wasip2 target produces
+  Components natively.
+
+#### Validation
+
+- 2460 workspace lib tests pass.
+- 2717 workspace integration tests pass.
+- 45 SDK lib tests pass.
+- `cargo clippy --workspace --features gui,syntax -- -D
+  warnings`: clean.
+- `cargo fmt --check`: clean.
+
+ADR-035 §Implementation Status updated with the WIT 3.0
+milestone entry.
+
 ### Added — WIT 3.0 Wire Shape paper design (2026-05-04)
 
 Freezes the wire-shape decisions for the `kasane:plugin@3.0.0`

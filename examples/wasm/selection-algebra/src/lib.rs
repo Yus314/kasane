@@ -703,27 +703,21 @@ kasane_plugin_sdk::define_plugin! {
             state.match_count = total;
 
             // Phase 3: Selection verdicts for Keep/Remove
+            // WIT 3.0: migrated from get_selection_count + get_selection
+            // loop to current_selection_set's `selections` list.
             let mode = PromptMode::from_u8(state.mode);
             if mode.is_set_operation() {
-                let sel_count = host_state::get_selection_count();
+                let set = host_state::current_selection_set();
                 state.selection_verdicts.clear();
-                for i in 0..sel_count {
-                    if let Some(sel) = host_state::get_selection(i)
-                        && sel.anchor.line == sel.cursor.line
-                    {
-                        let line = sel.anchor.line;
+                for sel in &set.selections {
+                    if sel.anchor.line == sel.cursor.line {
+                        let line = sel.anchor.line as i32;
                         let (s, e) = if sel.anchor.column <= sel.cursor.column {
-                            (
-                                sel.anchor.column as u32,
-                                sel.cursor.column as u32 + 1,
-                            )
+                            (sel.anchor.column, sel.cursor.column + 1)
                         } else {
-                            (
-                                sel.cursor.column as u32,
-                                sel.anchor.column as u32 + 1,
-                            )
+                            (sel.cursor.column, sel.anchor.column + 1)
                         };
-                        let matches = host_state::get_line_text(line as u32)
+                        let matches = host_state::get_line_text(sel.anchor.line)
                             .and_then(|t| t.get(s as usize..e as usize).map(String::from))
                             .is_some_and(|t| re.is_match(&t));
                         state.selection_verdicts.push(SelectionVerdict {

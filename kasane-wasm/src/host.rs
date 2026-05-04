@@ -78,8 +78,19 @@ pub(crate) struct HostState {
     // --- v0.10.0 Tier 10a: Editor mode ---
     pub editor_mode: u8,
 
-    // --- v0.10.0 Tier 10b: Selections ---
-    pub selections: Vec<kasane_core::state::derived::Selection>,
+    // --- WIT 3.0 (ADR-035 §1): canonical SelectionSet ---
+    /// Mirrored from `state.inference.selection_set` on each frame
+    /// in the BUFFER_CURSOR sync block. Replaces the legacy
+    /// `selections: Vec<derived::Selection>` field that fed the
+    /// removed `get-selection*` triplet.
+    pub selection_set: kasane_core::state::selection_set::SelectionSet,
+
+    // --- WIT 3.0 (ADR-035 §2): history backend handle ---
+    /// `Arc<InMemoryRing>` cloned from `state.history` on each
+    /// BUFFER_CONTENT sync. Backs the new `history` interface
+    /// (`current-version`, `earliest-version`, `text-at`,
+    /// `selection-at`).
+    pub history: Option<std::sync::Arc<kasane_core::history::InMemoryRing>>,
 
     // --- v0.8.0 Tier 9: Theme / Color context ---
     pub theme: kasane_core::render::theme::Theme,
@@ -159,7 +170,8 @@ impl Default for HostState {
             session_descriptors: Vec::new(),
             active_session_key: None,
             editor_mode: 0,
-            selections: Vec::new(),
+            selection_set: kasane_core::state::selection_set::SelectionSet::default(),
+            history: None,
             theme: kasane_core::render::theme::Theme::default_theme(),
             is_dark: true,
             is_dragging: false,
@@ -449,30 +461,131 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
         self.editor_mode
     }
 
-    // --- v0.10.0 Tier 10b: Selections ---
-    fn get_selection_count(&mut self) -> u32 {
-        self.selections.len() as u32
+    // --- WIT 3.0 (ADR-035 §1): canonical SelectionSet ---
+
+    fn current_selection_set(&mut self) -> bindings::kasane::plugin::types::SelectionSet {
+        selection_set_to_wit(&self.selection_set)
     }
 
-    fn get_selection(&mut self, index: u32) -> Option<bindings::kasane::plugin::types::Selection> {
-        self.selections
-            .get(index as usize)
-            .map(|s| bindings::kasane::plugin::types::Selection {
-                anchor: s.anchor.into(),
-                cursor: s.cursor.into(),
-                is_primary: s.is_primary,
-            })
+    fn selection_set_union(
+        &mut self,
+        a: bindings::kasane::plugin::types::SelectionSet,
+        b: bindings::kasane::plugin::types::SelectionSet,
+    ) -> bindings::kasane::plugin::types::SelectionSet {
+        let a_native = selection_set_from_wit(a);
+        let b_native = selection_set_from_wit(b);
+        selection_set_to_wit(&a_native.union(&b_native))
     }
 
-    fn get_all_selections(&mut self) -> Vec<bindings::kasane::plugin::types::Selection> {
-        self.selections
-            .iter()
-            .map(|s| bindings::kasane::plugin::types::Selection {
-                anchor: s.anchor.into(),
-                cursor: s.cursor.into(),
-                is_primary: s.is_primary,
-            })
-            .collect()
+    fn selection_set_intersect(
+        &mut self,
+        a: bindings::kasane::plugin::types::SelectionSet,
+        b: bindings::kasane::plugin::types::SelectionSet,
+    ) -> bindings::kasane::plugin::types::SelectionSet {
+        let a_native = selection_set_from_wit(a);
+        let b_native = selection_set_from_wit(b);
+        selection_set_to_wit(&a_native.intersect(&b_native))
+    }
+
+    fn selection_set_difference(
+        &mut self,
+        a: bindings::kasane::plugin::types::SelectionSet,
+        b: bindings::kasane::plugin::types::SelectionSet,
+    ) -> bindings::kasane::plugin::types::SelectionSet {
+        let a_native = selection_set_from_wit(a);
+        let b_native = selection_set_from_wit(b);
+        selection_set_to_wit(&a_native.difference(&b_native))
+    }
+
+    fn selection_set_symmetric_difference(
+        &mut self,
+        a: bindings::kasane::plugin::types::SelectionSet,
+        b: bindings::kasane::plugin::types::SelectionSet,
+    ) -> bindings::kasane::plugin::types::SelectionSet {
+        let a_native = selection_set_from_wit(a);
+        let b_native = selection_set_from_wit(b);
+        selection_set_to_wit(&a_native.symmetric_difference(&b_native))
+    }
+
+    fn selection_set_save(
+        &mut self,
+        set: bindings::kasane::plugin::types::SelectionSet,
+        name: String,
+    ) -> Result<(), bindings::kasane::plugin::types::SetSaveError> {
+        let native = selection_set_from_wit(set);
+        match native.save(PluginId(self.plugin_id.clone()), &name) {
+            Ok(()) => Ok(()),
+            Err(kasane_core::state::selection_set::SaveError::InvalidName) => {
+                Err(bindings::kasane::plugin::types::SetSaveError::InvalidName)
+            }
+        }
+    }
+
+    fn selection_set_load(
+        &mut self,
+        name: String,
+        buffer: String,
+    ) -> Result<
+        bindings::kasane::plugin::types::SelectionSet,
+        bindings::kasane::plugin::types::SetLoadError,
+    > {
+        use kasane_core::state::selection::BufferId;
+        use kasane_core::state::selection_set::LoadError;
+        match kasane_core::state::selection_set::SelectionSet::load(
+            PluginId(self.plugin_id.clone()),
+            &name,
+            BufferId::new(buffer),
+        ) {
+            Ok(set) => Ok(selection_set_to_wit(&set)),
+            Err(LoadError::NotFound) => {
+                Err(bindings::kasane::plugin::types::SetLoadError::NotFound)
+            }
+            Err(LoadError::BufferMismatch {
+                saved_in,
+                requested,
+            }) => Err(
+                bindings::kasane::plugin::types::SetLoadError::BufferMismatch((
+                    saved_in.0,
+                    requested.0,
+                )),
+            ),
+        }
+    }
+
+    fn selection_set_to_kakoune_command(
+        &mut self,
+        set: bindings::kasane::plugin::types::SelectionSet,
+    ) -> Option<String> {
+        // Re-derive the command string from the native impl. The
+        // native `to_kakoune_command` returns a `Command`
+        // (`SendToKakoune(Keys(...))`) which we decode back to the
+        // pre-keysym-encoding form so plugins can re-issue or log
+        // the command directly.
+        let native = selection_set_from_wit(set);
+        let cmd = native.to_kakoune_command()?;
+        let keys = match cmd {
+            kasane_core::plugin::Command::SendToKakoune(
+                kasane_core::protocol::KasaneRequest::Keys(k),
+            ) => k,
+            _ => return None,
+        };
+        let mut s = String::with_capacity(keys.iter().map(|k| k.len()).sum());
+        for k in keys {
+            match k.as_str() {
+                "<space>" => s.push(' '),
+                "<minus>" => s.push('-'),
+                "<lt>" => s.push('<'),
+                "<gt>" => s.push('>'),
+                "<ret>" => s.push('\n'),
+                "<esc>" => {} // strip the surrounding ESC + RET framing
+                other => s.push_str(other),
+            }
+        }
+        // The decoded form starts with ":" (from `kakoune_command`'s
+        // colon prefix); strip the leading ":" and trailing newline
+        // for the bare command form plugins expect.
+        let trimmed = s.trim_start_matches(':').trim_end_matches('\n');
+        Some(trimmed.to_string())
     }
 
     // --- v0.9.0 Tier 10: Buffer file metadata ---
@@ -535,6 +648,125 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
 
     fn is_dragging(&mut self) -> bool {
         self.is_dragging
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WIT 3.0 (ADR-035 §1): SelectionSet wire ↔ native conversion helpers
+// ---------------------------------------------------------------------------
+
+fn selection_set_to_wit(
+    set: &kasane_core::state::selection_set::SelectionSet,
+) -> bindings::kasane::plugin::types::SelectionSet {
+    use bindings::kasane::plugin::types as wit;
+    use kasane_core::state::selection::Direction;
+    let selections = set
+        .iter()
+        .map(|s| wit::SelectionRecord {
+            anchor: wit::BufferPos {
+                line: s.anchor.line,
+                column: s.anchor.column,
+            },
+            cursor: wit::BufferPos {
+                line: s.cursor.line,
+                column: s.cursor.column,
+            },
+            direction: match s.direction {
+                Direction::Forward => wit::SelectionDirection::Forward,
+                Direction::Backward => wit::SelectionDirection::Backward,
+            },
+        })
+        .collect();
+    wit::SelectionSet {
+        selections,
+        buffer: set.buffer().0.clone(),
+        generation: set.generation().0,
+    }
+}
+
+fn selection_set_from_wit(
+    set: bindings::kasane::plugin::types::SelectionSet,
+) -> kasane_core::state::selection_set::SelectionSet {
+    use bindings::kasane::plugin::types as wit;
+    use kasane_core::state::selection::{BufferId, BufferPos, BufferVersion, Direction, Selection};
+    use kasane_core::state::selection_set::SelectionSet;
+    let buffer = BufferId::new(set.buffer);
+    let generation = BufferVersion(set.generation);
+    let sels: Vec<Selection> = set
+        .selections
+        .into_iter()
+        .map(|r: wit::SelectionRecord| {
+            let dir = match r.direction {
+                wit::SelectionDirection::Forward => Direction::Forward,
+                wit::SelectionDirection::Backward => Direction::Backward,
+            };
+            // `Selection::new` infers direction from anchor/cursor
+            // ordering; preserving the wire-supplied direction
+            // matters for backward selections.
+            let mut s = Selection::new(
+                BufferPos::new(r.anchor.line, r.anchor.column),
+                BufferPos::new(r.cursor.line, r.cursor.column),
+            );
+            s.direction = dir;
+            s
+        })
+        .collect();
+    SelectionSet::from_iter(sels, buffer, generation)
+}
+
+// ---------------------------------------------------------------------------
+// WIT 3.0 (ADR-035 §2): history Host impl
+// ---------------------------------------------------------------------------
+
+impl bindings::kasane::plugin::history::Host for HostState {
+    fn current_version(&mut self) -> u64 {
+        use kasane_core::history::HistoryBackend;
+        self.history
+            .as_ref()
+            .map(|h| h.current_version().0)
+            .unwrap_or(0)
+    }
+
+    fn earliest_version(&mut self) -> u64 {
+        use kasane_core::history::HistoryBackend;
+        self.history
+            .as_ref()
+            .map(|h| h.earliest_version().0)
+            .unwrap_or(0)
+    }
+
+    fn text_at(&mut self, at: bindings::kasane::plugin::types::Time) -> Option<String> {
+        use kasane_core::history::{HistoryBackend, Time, VersionId};
+        let history = self.history.as_ref()?;
+        let t = match at {
+            bindings::kasane::plugin::types::Time::Now => Time::Now,
+            bindings::kasane::plugin::types::Time::At(v) => Time::At(VersionId(v)),
+        };
+        let v = match t {
+            Time::Now => history.current_version(),
+            Time::At(v) => v,
+        };
+        history.snapshot(v).ok().map(|s| s.text.to_string())
+    }
+
+    fn selection_at(
+        &mut self,
+        at: bindings::kasane::plugin::types::Time,
+    ) -> Option<bindings::kasane::plugin::types::SelectionSet> {
+        use kasane_core::history::{HistoryBackend, Time, VersionId};
+        let history = self.history.as_ref()?;
+        let t = match at {
+            bindings::kasane::plugin::types::Time::Now => Time::Now,
+            bindings::kasane::plugin::types::Time::At(v) => Time::At(VersionId(v)),
+        };
+        let v = match t {
+            Time::Now => history.current_version(),
+            Time::At(v) => v,
+        };
+        history
+            .snapshot(v)
+            .ok()
+            .map(|s| selection_set_to_wit(&s.selection))
     }
 }
 
@@ -1117,7 +1349,8 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
         host.cursor_count = state.inference.cursor_count as u32;
         host.secondary_cursors
             .clone_from(&state.inference.secondary_cursors);
-        host.selections.clone_from(&state.inference.selections);
+        host.selection_set
+            .clone_from(&state.inference.selection_set);
     }
 
     // DU-4: Display unit map (synced when buffer content changes)
@@ -1128,5 +1361,11 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
     // Syntax provider (synced when buffer content changes)
     if view_deps.intersects(DirtyFlags::BUFFER_CONTENT) {
         host.syntax_provider = state.runtime.syntax_provider.clone();
+    }
+
+    // WIT 3.0 (ADR-035 §2): history backend (synced when buffer content
+    // changes — every commit advances `current_version`)
+    if view_deps.intersects(DirtyFlags::BUFFER_CONTENT) {
+        host.history = Some(std::sync::Arc::clone(&state.history));
     }
 }

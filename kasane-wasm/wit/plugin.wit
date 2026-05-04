@@ -1,4 +1,4 @@
-package kasane:plugin@2.0.0;
+package kasane:plugin@3.0.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -10,6 +10,15 @@ package kasane:plugin@2.0.0;
 // the post-resolve `style` form — Kakoune's `final_*` resolution flags
 // are a host-internal concern. Major version bump (0.25.0 → 1.0.0)
 // signals the ABI break; old WASM binaries are rejected at load time.
+//
+// WIT 3.0 (paper design at decisions.md ADR-035 §"WIT 3.0 Wire Shape"):
+// surfaces ADR-035's first-class `selection-set`, `time`, and history
+// accessors into the plugin ABI. Replaces the legacy heuristic
+// `selection` record + `get-selection*` triplet with the canonical
+// SelectionSet shape; adds a new `history` interface for time-travel
+// queries. ADR-034's display-directive → display-algebra collapse is
+// scheduled for the same bump but lands in a follow-up commit (the
+// 11-case `display-directive` variant has a deep host plumbing tail).
 
 interface types {
     enum named-color {
@@ -1103,12 +1112,80 @@ interface types {
         surfaces: list<surface-orn>,
     }
 
-    // --- v0.19.0: Selection types ---
+    // --- WIT 3.0 (ADR-035 §1): canonical SelectionSet types ---
 
-    record selection {
-        anchor: coord,
-        cursor: coord,
-        is-primary: bool,
+    /// Buffer-relative position. Lines and columns are 0-indexed;
+    /// `column` is a byte offset within the line, not a display
+    /// column — matches the semantics of selection ranges in the
+    /// Kakoune protocol (lines are addressed in bytes; the renderer
+    /// translates to display columns separately).
+    record buffer-pos {
+        line: u32,
+        column: u32,
+    }
+
+    /// Direction of a selection — which end the user is moving when
+    /// keys extend the range. Kakoune calls these "anchor" and
+    /// "cursor"; the `selection-direction` indicates which is the
+    /// primary head.
+    enum selection-direction {
+        forward,
+        backward,
+    }
+
+    /// A single canonical selection: a half-open range
+    /// `[min, max)` where the cursor is at one end and the anchor
+    /// at the other; `direction` records which.
+    record selection-record {
+        anchor: buffer-pos,
+        cursor: buffer-pos,
+        direction: selection-direction,
+    }
+
+    /// A set of disjoint, sorted selections within a single buffer
+    /// at a single version. The set is empty by construction when
+    /// no selection exists. Set-algebra operations (`union` /
+    /// `intersect` / `difference` / `symmetric-difference`) are
+    /// defined on the same `(buffer, generation)` anchor;
+    /// cross-anchor operations require explicit projection
+    /// (deferred to a follow-up).
+    record selection-set {
+        /// Sorted by `min()`, disjoint, all anchored to the same
+        /// buffer + generation by construction.
+        selections: list<selection-record>,
+        /// Buffer this set is anchored to. Must match the buffer
+        /// Kakoune is currently focused on for projection back via
+        /// `selection-set-to-kakoune-command`.
+        buffer: string,
+        /// Buffer-version this set is anchored to.
+        generation: u64,
+    }
+
+    /// Errors returned by SelectionSet save / load persistence.
+    variant set-save-error {
+        /// The supplied name is empty or contains a `:` (reserved
+        /// for scoping by `(plugin-id, name)`).
+        invalid-name,
+    }
+
+    variant set-load-error {
+        not-found,
+        buffer-mismatch(tuple<string, string>),
+    }
+
+    // --- WIT 3.0 (ADR-035 §2): history Time coordinate ---
+
+    /// History version handle. Monotonic, opaque; the `0` value is
+    /// the initial version. Subsequent versions are minted in
+    /// protocol-echo order by the host's history backend.
+    type version-id = u64;
+
+    /// Time coordinate for a query. `now` short-circuits;
+    /// `at(version-id)` requires the configured backend to
+    /// materialise the snapshot.
+    variant time {
+        %now,
+        at(version-id),
     }
 
     // --- v0.20.0: Image types ---
@@ -1209,7 +1286,7 @@ interface types {
 }
 
 interface host-state {
-    use types.{style, atom, coord, session-descriptor, selection, display-unit-info};
+    use types.{style, atom, coord, session-descriptor, display-unit-info, selection-set, selection-record, set-save-error, set-load-error};
 
     get-cursor-line: func() -> s32;
     get-cursor-col: func() -> s32;
@@ -1302,17 +1379,46 @@ interface host-state {
     /// 0=Normal, 1=Insert, 2=Replace, 3=Prompt, 255=Unknown.
     get-editor-mode: func() -> u8;
 
-    // --- v0.10.0 Tier 10b: Selections ---
+    // --- WIT 3.0 (ADR-035 §1): canonical SelectionSet accessor ---
 
-    /// Get the number of detected selections.
-    get-selection-count: func() -> u32;
+    /// Get the canonical SelectionSet for the focused buffer at
+    /// the current time. Returns the empty set when no protocol
+    /// echo has populated the canonical set yet (no buffer focus,
+    /// or empty Kakoune `draw`).
+    ///
+    /// Replaces the legacy heuristic `get-selection-count` /
+    /// `get-selection` / `get-all-selections` triplet; the primary
+    /// selection is the first element after canonical sort
+    /// (Kakoune convention).
+    current-selection-set: func() -> selection-set;
 
-    /// Get a selection by index.
-    /// Returns anchor, cursor, is_primary packed as a selection record.
-    get-selection: func(index: u32) -> option<selection>;
+    /// Set-algebra: union of two sets (must share buffer +
+    /// generation; cross-anchor unions return the left set
+    /// unchanged — explicit `project-to` is a follow-up).
+    selection-set-union: func(a: selection-set, b: selection-set) -> selection-set;
 
-    /// Get all selections as a batch.
-    get-all-selections: func() -> list<selection>;
+    /// Set-algebra: intersection.
+    selection-set-intersect: func(a: selection-set, b: selection-set) -> selection-set;
+
+    /// Set-algebra: difference (a minus b).
+    selection-set-difference: func(a: selection-set, b: selection-set) -> selection-set;
+
+    /// Set-algebra: symmetric difference.
+    selection-set-symmetric-difference: func(a: selection-set, b: selection-set) -> selection-set;
+
+    /// Persistence: save under `(calling-plugin-id, name)`.
+    selection-set-save: func(set: selection-set, name: string) -> result<_, set-save-error>;
+
+    /// Persistence: load. Returns `not-found` if no entry exists
+    /// for `(calling-plugin-id, name)`; returns `buffer-mismatch`
+    /// if the saved set was anchored to a different buffer.
+    selection-set-load: func(name: string, buffer: string) -> result<selection-set, set-load-error>;
+
+    /// Encode the set as a Kakoune `:select` command string.
+    /// Returns none for an empty set (Kakoune `:select` requires
+    /// at least one range). The command is emitted via the
+    /// existing `effect::send-to-kakoune` plumbing.
+    selection-set-to-kakoune-command: func(set: selection-set) -> option<string>;
 
     // --- v0.9.0 Tier 10: Buffer file metadata ---
 
@@ -1720,8 +1826,33 @@ interface host-log {
     log-message: func(level: log-level, message: string);
 }
 
+/// WIT 3.0 (ADR-035 §2): time-aware history accessors.
+///
+/// Lives in a separate interface from `host-state` so plugins that
+/// don't need history don't pull the symbols. All functions are
+/// scoped to the focused buffer.
+interface history {
+    use types.{selection-set, time, version-id};
+
+    /// Current history version (the `time::now` materialisation).
+    current-version: func() -> version-id;
+
+    /// Earliest version still in the backend's window. Versions
+    /// older than this have been evicted (FIFO for `InMemoryRing`).
+    earliest-version: func() -> version-id;
+
+    /// Materialise a snapshot's text. Returns none for evicted
+    /// versions or for `time::now` when no buffer is focused.
+    text-at: func(at: time) -> option<string>;
+
+    /// Materialise a snapshot's selection-set. Returns none for
+    /// evicted versions.
+    selection-at: func(at: time) -> option<selection-set>;
+}
+
 world kasane-plugin {
     import host-state;
+    import history;
     import element-builder;
     import host-log;
     export plugin-api;

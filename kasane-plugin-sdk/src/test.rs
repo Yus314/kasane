@@ -83,9 +83,11 @@ pub struct MockHostState {
 
     // --- Theme ---
     pub dark_background: bool,
-
-    // --- Selection ---
-    pub selection_count: u32,
+    // WIT 3.0 (ADR-035): the legacy heuristic `selection_count`
+    // mock field was removed alongside the `get-selection*` WIT
+    // triplet. Plugins that need a SelectionSet mock should add
+    // a per-plugin mock; the SDK's built-in mock is intentionally
+    // narrow to keep its surface stable.
 }
 
 /// A simplified atom for test purposes.
@@ -123,7 +125,6 @@ impl Default for MockHostState {
             session_count: 1,
             active_session_key: None,
             dark_background: true,
-            selection_count: 1,
         }
     }
 }
@@ -342,12 +343,6 @@ impl TestHarness {
         MOCK_STATE.with(|s| s.borrow_mut().active_session_key = key);
     }
 
-    // --- Selection setters ---
-
-    pub fn set_selection_count(&mut self, count: u32) {
-        MOCK_STATE.with(|s| s.borrow_mut().selection_count = count);
-    }
-
     // --- Theme setters ---
 
     pub fn set_dark_background(&mut self, dark: bool) {
@@ -476,9 +471,6 @@ pub mod mock_host_state {
     }
     pub fn is_dark_background() -> bool {
         MOCK_STATE.with(|s| s.borrow().dark_background)
-    }
-    pub fn get_selection_count() -> u32 {
-        MOCK_STATE.with(|s| s.borrow().selection_count)
     }
     pub fn get_buffer_file_path() -> Option<String> {
         MOCK_STATE.with(|s| s.borrow().buffer_file_path.clone())
