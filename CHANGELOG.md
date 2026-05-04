@@ -2,6 +2,55 @@
 
 ## [Unreleased]
 
+### Added — ADR-035 ShadowCursor §Migration Phase 4 (2026-05-04)
+
+The active shadow edit now carries the history `VersionId` it was
+authored against. Combined with Phase 3's algebraic `BufferEdit`,
+this gives a downstream consumer the full algebraic shape of an
+edit-in-flight: `target` (where), `original` / `replacement`
+(what), and `base_version` (when). The §Migration table row
+"ShadowCursor rewritten on Selection + Time primitives" is
+realised in spirit (algebraic edit shape + version stamp) but not
+in LOC (the keyboard-handler grapheme arithmetic stays — it does
+not re-shape onto buffer-space `SelectionSet` algebra).
+
+- (core) `state::shadow_cursor::ShadowPhase::Editing` — gains a
+  `base_version: VersionId` field set at the
+  `Navigating → Editing` transition (the first printable
+  keystroke) and preserved across all in-place keystroke edits.
+- (core) `state::shadow_cursor::handle_shadow_cursor_key` —
+  takes `current_version: VersionId`, consulted only at the
+  activation transition. The production caller in
+  `handle_key_pre_dispatch` reads it from
+  `app_state.history.current_version()`.
+- (core) `state::shadow_cursor::BufferEdit` — gains
+  `base_version: VersionId` plus
+  `is_stale_against(current) -> bool` returning true when
+  `current > base_version`. Lets a downstream consumer gate
+  commit, prompt the user, or replay the edit on a newer base
+  — and lets a consumer compose the edit with `Time::At(v)`
+  queries to materialise the buffer state it was authored
+  against.
+- (test) 4 new shadow_cursor tests (1779 → 1783 lib): activation
+  stamp from `Char` keystroke; in-place edit preserves the
+  activation stamp even when a later `current_version` is
+  supplied (the buffer advanced underneath the active edit but
+  the user kept typing); `mirror_edit` surfaces the stamp on
+  `BufferEdit`; `is_stale_against` predicate semantics
+  (same / older / newer current).
+- (test) 16 existing `ShadowPhase::Editing` constructions
+  collapsed onto a new `mk_editing(working, original, cursor)`
+  helper that defaults `base_version` to `VersionId::INITIAL`;
+  3 `BufferEdit` literals in Phase 3 tests collapsed onto a new
+  `mk_buffer_edit(line, start, end, original, replacement)`
+  helper that does the same. Net test-code reduction.
+
+ADR-035 §Implementation Status updated with the Phase 4
+milestone entry; the in-module migration docstring records that
+the ShadowCursor §Migration is now complete to the extent the
+keyboard-handler half permits — no further deferred phases
+remain in this module.
+
 ### Added — ADR-035 ShadowCursor §Migration Phase 3 (2026-05-04)
 
 The shadow cursor commit pipeline gains an algebraic representation:

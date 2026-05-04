@@ -3775,8 +3775,39 @@ state). Acceptance is gated on the wiring step below.
   `SelectionSet` algebra (cursor_grapheme_offset indexes
   graphemes within working_text, not buffer columns), so that
   half is dropped from the migration plan rather than deferred.
-  Phase 4 (`BufferVersion` stamp on `working_text`) remains
-  deferred per the in-module migration docstring.
+  See ShadowCursor §Migration Phase 4 below for the version-stamp
+  follow-up.
+- ✅ **ShadowCursor §Migration Phase 4 — `VersionId` activation
+  stamp (2026-05-04)** — the active shadow edit now carries the
+  history `VersionId` it was authored against.
+  `ShadowPhase::Editing` gains a `base_version: VersionId` field
+  set at the `Navigating → Editing` transition (the first
+  printable keystroke) and preserved across all in-place
+  keystroke edits within the span. `handle_shadow_cursor_key`
+  takes `current_version: VersionId`, consulted only at the
+  activation transition; the production caller in
+  `handle_key_pre_dispatch` reads it from
+  `app_state.history.current_version()`. `BufferEdit` surfaces
+  the stamp; `is_stale_against(current)` returns true when the
+  buffer has advanced past the version the edit was authored
+  against — a downstream consumer can use this to gate commit,
+  prompt the user, or replay the edit on the new base. The stamp
+  also lets a consumer compose the edit with `Time::At(v)`
+  queries to materialise the buffer state it was authored against
+  (e.g. for diff visualisation or three-way conflict resolution).
+  4 new tests cover the activation stamp, the in-place
+  preservation invariant, the surface through `mirror_edit`, and
+  the staleness predicate. Test churn was reduced via an
+  `mk_editing(working, original, cursor)` helper that defaults
+  `base_version` to `VersionId::INITIAL`; 16 existing test
+  constructions migrated. With Phase 4 landed, the in-module
+  migration docstring records that the ShadowCursor §Migration is
+  complete to the extent the keyboard-handler half permits — no
+  further deferred phases remain in this module. The §Migration
+  table row "ShadowCursor rewritten on Selection + Time
+  primitives; LOC estimated ~400 (vs 927)" is realised in
+  spirit (algebraic edit shape + version stamp) but not in LOC
+  (the keyboard-handler grapheme arithmetic stays).
 
 The §Migration table below remains the target shape; Acceptance signals
 the migration is complete.

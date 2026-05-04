@@ -46,15 +46,29 @@
 //! re-shape onto buffer-space `SelectionSet` algebra, so that part
 //! of the original Phase 3 sketch is intentionally not pursued.
 //!
-//! Subsequent phase (deferred):
+//! Phase 4 stamps the active edit with the history `VersionId` at
+//! activation time:
 //!
-//! - **Phase 4** — version the working_text via `BufferVersion` so
-//!   shadow edits compose with `Time::At(v)` queries.
+//! - `ShadowPhase::Editing` gains a `base_version: VersionId`
+//!   field, set at the `Navigating → Editing` transition and
+//!   preserved across in-place keystroke edits.
+//! - `handle_shadow_cursor_key` takes `current_version: VersionId`
+//!   (consulted only at the activation transition).
+//! - `BufferEdit` surfaces the stamp; `is_stale_against(current)`
+//!   tells a downstream consumer whether the buffer has advanced
+//!   past the version the edit was authored against. The stamp
+//!   also lets callers compose the edit with `Time::At(v)` queries
+//!   to materialise the buffer state it was authored against.
+//!
+//! With Phase 4 landed, the ADR-035 ShadowCursor §Migration is
+//! complete to the extent the keyboard-handler half permits — no
+//! further deferred phases remain in this module.
 
 use std::ops::Range;
 
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::history::VersionId;
 use crate::input::KeyEvent;
 use crate::plugin::{Command, PluginId};
 use crate::state::DirtyFlags;
@@ -102,6 +116,15 @@ pub enum ShadowPhase {
         original_text: String,
         /// Cursor position as grapheme cluster offset from span start.
         cursor_grapheme_offset: usize,
+        /// History `VersionId` at the moment the user transitioned
+        /// from `Navigating` into `Editing`. Stamped once at
+        /// activation and preserved across in-place keystroke edits
+        /// within the span; flows through to
+        /// `BufferEdit::base_version` on commit so a downstream
+        /// consumer can detect a stale commit (the buffer advanced
+        /// underneath the edit) or compose with `Time::At(v)`
+        /// queries.
+        base_version: VersionId,
     },
 }
 
@@ -151,10 +174,15 @@ pub enum ShadowKeyResult {
 ///
 /// In `Navigating` phase, the first printable character transitions to `Editing`.
 /// In `Editing` phase, character keys modify `working_text` with grapheme-correct ops.
+///
+/// `current_version` is consulted only at the `Navigating → Editing`
+/// transition to stamp `ShadowPhase::Editing.base_version`. In-place
+/// edits within `Editing` preserve the existing stamp.
 pub fn handle_shadow_cursor_key(
     shadow: &mut ShadowCursor,
     key: &KeyEvent,
     span_text: &str,
+    current_version: VersionId,
 ) -> ShadowKeyResult {
     use crate::input::Key;
 
@@ -198,6 +226,7 @@ pub fn handle_shadow_cursor_key(
                         working_text,
                         original_text: span_text.to_string(),
                         cursor_grapheme_offset: cursor + 1,
+                        base_version: current_version,
                     };
                     ShadowKeyResult::Consumed(DirtyFlags::BUFFER_CONTENT)
                 }
@@ -359,7 +388,8 @@ fn build_commit_commands(
 /// cursor commit. ADR-035 §Migration ShadowCursor Phase 3 — the
 /// `BufferEdit` shape is the algebraic source of truth; the
 /// Kakoune `exec -draft` command is a thin serialization on top
-/// (`edit_to_commands`).
+/// (`edit_to_commands`). Phase 4 adds `base_version`, the
+/// `VersionId` against which the edit was authored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferEdit {
     /// Buffer-space target of the edit. For a Mirror projection,
@@ -373,6 +403,14 @@ pub struct BufferEdit {
     /// Post-edit content (what `target` should contain after the
     /// commit). Empty string represents a pure deletion.
     pub replacement: String,
+    /// `VersionId` at the moment the user activated the
+    /// shadow cursor edit (stamped from
+    /// `ShadowPhase::Editing.base_version`). Lets a downstream
+    /// consumer detect a stale commit
+    /// (`is_stale_against(current)`) or compose with `Time::At(v)`
+    /// queries to materialise the buffer state the edit was
+    /// authored against.
+    pub base_version: VersionId,
 }
 
 impl BufferEdit {
@@ -381,6 +419,17 @@ impl BufferEdit {
     /// emission for hippocratic edits.
     pub fn is_hippocratic_noop(&self) -> bool {
         self.original == self.replacement
+    }
+
+    /// True when the buffer has advanced past the version this
+    /// edit was authored against (`current > base_version`). A
+    /// stale edit may still be safe to land — only adversarial
+    /// concurrent edits to the *same byte range* break the
+    /// projection — but the caller can use this signal to gate
+    /// commit, prompt the user, or replay the edit on the new
+    /// base.
+    pub fn is_stale_against(&self, current: VersionId) -> bool {
+        current > self.base_version
     }
 }
 
@@ -399,12 +448,13 @@ pub fn mirror_edit(
     span: &EditableSpan,
     line_count: usize,
 ) -> Option<BufferEdit> {
-    let (working_text, original_text) = match &shadow.phase {
+    let (working_text, original_text, base_version) = match &shadow.phase {
         ShadowPhase::Editing {
             working_text,
             original_text,
+            base_version,
             ..
-        } => (working_text.as_str(), original_text.as_str()),
+        } => (working_text.as_str(), original_text.as_str(), *base_version),
         ShadowPhase::Navigating => return None,
     };
 
@@ -425,6 +475,7 @@ pub fn mirror_edit(
         target,
         original: original_text.to_string(),
         replacement: working_text.to_string(),
+        base_version,
     })
 }
 
@@ -498,6 +549,15 @@ mod tests {
         }
     }
 
+    fn mk_editing(working: &str, original: &str, cursor: usize) -> ShadowPhase {
+        ShadowPhase::Editing {
+            working_text: working.into(),
+            original_text: original.into(),
+            cursor_grapheme_offset: cursor,
+            base_version: VersionId::INITIAL,
+        }
+    }
+
     #[test]
     fn editable_span_projection_target_field_stores_selection() {
         let span = mk_span(7, 12, 18);
@@ -556,31 +616,43 @@ mod tests {
     #[test]
     fn escape_deactivates_from_navigating() {
         let mut shadow = make_shadow(ShadowPhase::Navigating);
-        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Escape), "hello");
+        let result = handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Escape),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert!(matches!(result, ShadowKeyResult::Deactivate));
     }
 
     #[test]
     fn escape_deactivates_from_editing() {
-        let mut shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "hello".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 5,
-        });
-        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Escape), "hello");
+        let mut shadow = make_shadow(mk_editing("hello", "hello", 5));
+        let result = handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Escape),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert!(matches!(result, ShadowKeyResult::Deactivate));
     }
 
     #[test]
     fn char_transitions_navigating_to_editing() {
         let mut shadow = make_shadow(ShadowPhase::Navigating);
-        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Char('a')), "hello");
+        let result = handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Char('a')),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert!(matches!(result, ShadowKeyResult::Consumed(_)));
         match &shadow.phase {
             ShadowPhase::Editing {
                 working_text,
                 original_text,
                 cursor_grapheme_offset,
+                ..
             } => {
                 assert_eq!(working_text, "helloa");
                 assert_eq!(original_text, "hello");
@@ -592,12 +664,13 @@ mod tests {
 
     #[test]
     fn char_insert_at_cursor() {
-        let mut shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "hllo".into(),
-            original_text: "hllo".into(),
-            cursor_grapheme_offset: 1,
-        });
-        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Char('e')), "hllo");
+        let mut shadow = make_shadow(mk_editing("hllo", "hllo", 1));
+        let result = handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Char('e')),
+            "hllo",
+            VersionId::INITIAL,
+        );
         assert!(matches!(result, ShadowKeyResult::Consumed(_)));
         if let ShadowPhase::Editing {
             working_text,
@@ -612,12 +685,13 @@ mod tests {
 
     #[test]
     fn backspace_deletes_before_cursor() {
-        let mut shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "hello".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 3,
-        });
-        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Backspace), "hello");
+        let mut shadow = make_shadow(mk_editing("hello", "hello", 3));
+        let result = handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Backspace),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert!(matches!(result, ShadowKeyResult::Consumed(_)));
         if let ShadowPhase::Editing {
             working_text,
@@ -632,12 +706,13 @@ mod tests {
 
     #[test]
     fn backspace_at_position_zero_is_noop() {
-        let mut shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "hello".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 0,
-        });
-        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Backspace), "hello");
+        let mut shadow = make_shadow(mk_editing("hello", "hello", 0));
+        let result = handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Backspace),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert!(matches!(result, ShadowKeyResult::Consumed(_)));
         if let ShadowPhase::Editing {
             working_text,
@@ -652,12 +727,13 @@ mod tests {
 
     #[test]
     fn delete_after_cursor() {
-        let mut shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "hello".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 2,
-        });
-        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Delete), "hello");
+        let mut shadow = make_shadow(mk_editing("hello", "hello", 2));
+        let result = handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Delete),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert!(matches!(result, ShadowKeyResult::Consumed(_)));
         if let ShadowPhase::Editing {
             working_text,
@@ -672,22 +748,38 @@ mod tests {
 
     #[test]
     fn cursor_movement_left_right_home_end() {
-        let mut shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "hello".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 3,
-        });
+        let mut shadow = make_shadow(mk_editing("hello", "hello", 3));
         // Left
-        handle_shadow_cursor_key(&mut shadow, &make_key(Key::Left), "hello");
+        handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Left),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert_eq!(editing_offset(&shadow), 2);
         // Right
-        handle_shadow_cursor_key(&mut shadow, &make_key(Key::Right), "hello");
+        handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Right),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert_eq!(editing_offset(&shadow), 3);
         // Home
-        handle_shadow_cursor_key(&mut shadow, &make_key(Key::Home), "hello");
+        handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Home),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert_eq!(editing_offset(&shadow), 0);
         // End
-        handle_shadow_cursor_key(&mut shadow, &make_key(Key::End), "hello");
+        handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::End),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert_eq!(editing_offset(&shadow), 5);
     }
 
@@ -695,30 +787,36 @@ mod tests {
     fn up_down_deactivate() {
         let mut shadow = make_shadow(ShadowPhase::Navigating);
         assert!(matches!(
-            handle_shadow_cursor_key(&mut shadow, &make_key(Key::Up), ""),
+            handle_shadow_cursor_key(&mut shadow, &make_key(Key::Up), "", VersionId::INITIAL),
             ShadowKeyResult::Deactivate
         ));
         assert!(matches!(
-            handle_shadow_cursor_key(&mut shadow, &make_key(Key::Down), ""),
+            handle_shadow_cursor_key(&mut shadow, &make_key(Key::Down), "", VersionId::INITIAL),
             ShadowKeyResult::Deactivate
         ));
     }
 
     #[test]
     fn enter_commits_from_editing() {
-        let mut shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "world".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 5,
-        });
-        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Enter), "hello");
+        let mut shadow = make_shadow(mk_editing("world", "hello", 5));
+        let result = handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Enter),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert!(matches!(result, ShadowKeyResult::Commit(_)));
     }
 
     #[test]
     fn enter_deactivates_from_navigating() {
         let mut shadow = make_shadow(ShadowPhase::Navigating);
-        let result = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Enter), "hello");
+        let result = handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Enter),
+            "hello",
+            VersionId::INITIAL,
+        );
         assert!(matches!(result, ShadowKeyResult::Deactivate));
     }
 
@@ -730,11 +828,7 @@ mod tests {
 
     #[test]
     fn mirror_commit_hippocratic() {
-        let shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "hello".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 5,
-        });
+        let shadow = make_shadow(mk_editing("hello", "hello", 5));
         let span = mk_span(0, 0, 5);
         let cmds = build_mirror_commit(&shadow, &span, 10);
         assert!(cmds.is_empty(), "Hippocratic: no change → no commands");
@@ -742,11 +836,7 @@ mod tests {
 
     #[test]
     fn mirror_commit_changed() {
-        let shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "world".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 5,
-        });
+        let shadow = make_shadow(mk_editing("world", "hello", 5));
         let span = mk_span(2, 0, 5);
         let cmds = build_mirror_commit(&shadow, &span, 10);
         assert_eq!(cmds.len(), 1, "Mirror: one exec -draft command");
@@ -754,11 +844,7 @@ mod tests {
 
     #[test]
     fn mirror_commit_anchor_out_of_range() {
-        let shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "world".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 5,
-        });
+        let shadow = make_shadow(mk_editing("world", "hello", 5));
         let span = mk_span(100, 0, 5);
         let cmds = build_mirror_commit(&shadow, &span, 10);
         assert!(cmds.is_empty(), "anchor out of range → no commands");
@@ -770,11 +856,7 @@ mod tests {
 
     #[test]
     fn mirror_edit_returns_buffer_edit_with_target_and_text_pair() {
-        let shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "world".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 5,
-        });
+        let shadow = make_shadow(mk_editing("world", "hello", 5));
         let span = mk_span(2, 0, 5);
         let edit = mirror_edit(&shadow, &span, 10).expect("edit produced");
         assert_eq!(edit.target, span.projection_target);
@@ -792,33 +874,21 @@ mod tests {
 
     #[test]
     fn mirror_edit_returns_none_for_hippocratic_noop() {
-        let shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "hello".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 5,
-        });
+        let shadow = make_shadow(mk_editing("hello", "hello", 5));
         let span = mk_span(0, 0, 5);
         assert!(mirror_edit(&shadow, &span, 10).is_none());
     }
 
     #[test]
     fn mirror_edit_returns_none_for_anchor_out_of_range() {
-        let shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "world".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 5,
-        });
+        let shadow = make_shadow(mk_editing("world", "hello", 5));
         let span = mk_span(100, 0, 5);
         assert!(mirror_edit(&shadow, &span, 10).is_none());
     }
 
     #[test]
     fn mirror_edit_returns_none_for_plugin_defined_projection() {
-        let shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "world".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 5,
-        });
+        let shadow = make_shadow(mk_editing("world", "hello", 5));
         let mut span = mk_span(0, 0, 5);
         span.projection = EditProjection::PluginDefined;
         assert!(mirror_edit(&shadow, &span, 10).is_none());
@@ -849,14 +919,25 @@ mod tests {
         s
     }
 
+    fn mk_buffer_edit(
+        line: u32,
+        start: u32,
+        end: u32,
+        original: &str,
+        replacement: &str,
+    ) -> BufferEdit {
+        use crate::state::selection::{BufferPos, Selection};
+        BufferEdit {
+            target: Selection::new(BufferPos::new(line, start), BufferPos::new(line, end)),
+            original: original.into(),
+            replacement: replacement.into(),
+            base_version: VersionId::INITIAL,
+        }
+    }
+
     #[test]
     fn edit_to_commands_substitutes_non_empty_range() {
-        use crate::state::selection::{BufferPos, Selection};
-        let edit = BufferEdit {
-            target: Selection::new(BufferPos::new(2, 0), BufferPos::new(2, 5)),
-            original: "hello".into(),
-            replacement: "world".into(),
-        };
+        let edit = mk_buffer_edit(2, 0, 5, "hello", "world");
         let cmds = edit_to_commands(&edit);
         assert_eq!(cmds.len(), 1);
         let rendered = render_kakoune_command(&cmds[0]);
@@ -868,12 +949,7 @@ mod tests {
 
     #[test]
     fn edit_to_commands_inserts_at_empty_range() {
-        use crate::state::selection::{BufferPos, Selection};
-        let edit = BufferEdit {
-            target: Selection::new(BufferPos::new(0, 3), BufferPos::new(0, 3)),
-            original: "".into(),
-            replacement: "X".into(),
-        };
+        let edit = mk_buffer_edit(0, 3, 3, "", "X");
         let cmds = edit_to_commands(&edit);
         assert_eq!(cmds.len(), 1);
         let rendered = render_kakoune_command(&cmds[0]);
@@ -885,11 +961,7 @@ mod tests {
 
     #[test]
     fn build_mirror_commit_matches_compose_of_mirror_edit_and_edit_to_commands() {
-        let shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "world".into(),
-            original_text: "hello".into(),
-            cursor_grapheme_offset: 5,
-        });
+        let shadow = make_shadow(mk_editing("world", "hello", 5));
         let span = mk_span(2, 0, 5);
         let composed = mirror_edit(&shadow, &span, 10)
             .as_ref()
@@ -904,13 +976,71 @@ mod tests {
 
     #[test]
     fn buffer_edit_hippocratic_noop_detects_equal_strings() {
-        use crate::state::selection::{BufferPos, Selection};
-        let edit = BufferEdit {
-            target: Selection::new(BufferPos::new(0, 0), BufferPos::new(0, 5)),
-            original: "hello".into(),
-            replacement: "hello".into(),
-        };
+        let edit = mk_buffer_edit(0, 0, 5, "hello", "hello");
         assert!(edit.is_hippocratic_noop());
+    }
+
+    // -----------------------------------------------------------------
+    // ADR-035 §Migration ShadowCursor Phase 4 — VersionId stamp
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn buffer_edit_is_stale_against_advanced_version() {
+        let mut edit = mk_buffer_edit(0, 0, 5, "hello", "world");
+        edit.base_version = VersionId(7);
+        assert!(
+            !edit.is_stale_against(VersionId(7)),
+            "same version: not stale"
+        );
+        assert!(
+            !edit.is_stale_against(VersionId(6)),
+            "older current: not stale"
+        );
+        assert!(
+            edit.is_stale_against(VersionId(8)),
+            "advanced current: stale"
+        );
+    }
+
+    #[test]
+    fn handle_shadow_cursor_key_stamps_base_version_at_activation() {
+        let mut shadow = make_shadow(ShadowPhase::Navigating);
+        let stamp = VersionId(42);
+        let _ = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Char('a')), "hello", stamp);
+        match &shadow.phase {
+            ShadowPhase::Editing { base_version, .. } => assert_eq!(*base_version, stamp),
+            _ => panic!("expected Editing phase after Char activation"),
+        }
+    }
+
+    #[test]
+    fn handle_shadow_cursor_key_preserves_base_version_across_in_place_edits() {
+        // Activate at v=5 with first Char.
+        let mut shadow = make_shadow(ShadowPhase::Navigating);
+        let activation = VersionId(5);
+        let _ =
+            handle_shadow_cursor_key(&mut shadow, &make_key(Key::Char('a')), "hello", activation);
+        // A subsequent in-place edit with a *different* current_version
+        // (the buffer advanced underneath, but the user kept typing).
+        let later = VersionId(99);
+        let _ = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Char('b')), "hello", later);
+        match &shadow.phase {
+            ShadowPhase::Editing { base_version, .. } => assert_eq!(
+                *base_version, activation,
+                "in-place edits must preserve the activation stamp"
+            ),
+            _ => panic!("expected Editing phase"),
+        }
+    }
+
+    #[test]
+    fn mirror_edit_surfaces_base_version_from_editing_phase() {
+        let stamp = VersionId(13);
+        let mut shadow = make_shadow(ShadowPhase::Navigating);
+        let _ = handle_shadow_cursor_key(&mut shadow, &make_key(Key::Char('a')), "hello", stamp);
+        let span = mk_span(0, 0, 6); // "hello" + 'a' = 6 bytes
+        let edit = mirror_edit(&shadow, &span, 10).expect("edit produced");
+        assert_eq!(edit.base_version, stamp);
     }
 
     #[test]
@@ -921,13 +1051,14 @@ mod tests {
 
     #[test]
     fn cjk_grapheme_operations() {
-        let mut shadow = make_shadow(ShadowPhase::Editing {
-            working_text: "日本語".into(),
-            original_text: "日本語".into(),
-            cursor_grapheme_offset: 1,
-        });
+        let mut shadow = make_shadow(mk_editing("日本語", "日本語", 1));
         // Backspace at offset 1: delete '日'
-        handle_shadow_cursor_key(&mut shadow, &make_key(Key::Backspace), "日本語");
+        handle_shadow_cursor_key(
+            &mut shadow,
+            &make_key(Key::Backspace),
+            "日本語",
+            VersionId::INITIAL,
+        );
         if let ShadowPhase::Editing {
             working_text,
             cursor_grapheme_offset,
@@ -1045,7 +1176,11 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
             .unwrap_or_default();
 
         let mut shadow_mut = shadow.clone();
-        match handle_shadow_cursor_key(&mut shadow_mut, key, &span_text) {
+        let current_version = {
+            use crate::history::HistoryBackend;
+            app_state.history.current_version()
+        };
+        match handle_shadow_cursor_key(&mut shadow_mut, key, &span_text, current_version) {
             ShadowKeyResult::Consumed(flags) => KeyPreDispatchResult::Consumed {
                 flags,
                 commands: vec![],
