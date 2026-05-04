@@ -3613,25 +3613,38 @@ state). Acceptance is gated on the wiring step below.
   unit tests.
 
 **Pending for Accepted status**:
-- ✅ **Salsa `text_at_time` end-to-end (2026-05-03)** —
-  `text_at_time(db, BufferInput, HistoryInput, Time)` resolves both
-  ends of the `Time` enum through the Salsa cache. `Time::Now`
-  projects the current `BufferInput.lines` to plain text;
-  `Time::At(v)` reaches through the new `HistoryInput`
-  (`#[salsa::input] HistoryInput { backend: Arc<InMemoryRing> }`)
-  to fetch the past snapshot. The cache keys on
-  `(BufferInput, HistoryInput, Time)`: past `Time::At(v)` entries
-  are valid forever once computed (snapshots are immutable), and
-  `Time::Now` invalidates correctly when `BufferInput.lines`
-  changes. 7 unit tests pin the full contract: current-buffer
-  projection, empty-history `Time::At` returns None, committed
-  snapshot returned for `Time::At(v)`, FIFO-evicted version
-  returns None, distinct-time cache keys, BufferInput-change
-  invalidates `Time::Now`, empty-buffer edge case. The original
-  §Migration item "Add Time parameter to every Salsa query" is
-  reframed: the *cache-shape and HistoryInput pattern* are settled
-  here; bulk-applying it to every existing query is a follow-up
-  per-query migration tracked separately.
+- ✅ **Salsa Time-aware queries — full integration (2026-05-03)**.
+  Three Salsa-tracked queries demonstrate the Time-aware pattern
+  for distinct payload types, with `HistoryInput` lifted as a
+  first-class Salsa input:
+
+  - `text_at_time(db, BufferInput, HistoryInput, Time)
+    -> Option<Arc<str>>` — Time::Now projects `BufferInput.lines`
+    to plain text; Time::At(v) reads from `history.backend(db)`.
+  - `selection_at_time(db, HistoryInput, Time)
+    -> Option<SelectionSet>` — Time::Now resolves through
+    `history.current_version(db)`; Time::At(v) reads the snapshot's
+    selection. Same invalidation guarantees as text_at_time.
+  - `display_directives_at_time(db, HistoryInput, Time)
+    -> NormalizedDisplay` — ADR-034 + ADR-035 integration query.
+    Synthesises Decorate primitives from the SelectionSet at the
+    requested Time and runs `algebra_normalize`. Cache key
+    `(HistoryInput, Time)`.
+
+  `HistoryInput { backend: Arc<InMemoryRing>, current_version:
+  VersionId }` is initialised in `SalsaInputHandles::new` with a
+  placeholder ring; `sync_inputs_from_state` swaps the backend to
+  `Arc::clone(&state.history)` and pushes
+  `state.history.current_version()` to `current_version` every
+  frame. Production code paths can now call any of the three
+  queries against the same backend the apply auto-commit hook
+  writes to.
+
+  Test coverage: 15 unit tests in `salsa_queries::time_query_tests`
+  + 4 production-path integration tests in
+  `tests/salsa_history_sync.rs`. Cache-shape pattern proved for
+  three payload types; bulk per-query migration uses these as the
+  template.
 - ✅ **Canonical SelectionSet field on `InferenceState` (2026-05-03)**
   — `InferenceState` gains a `pub selection_set: SelectionSet` field
   populated by `AppState::apply` from the heuristic detector's

@@ -2,6 +2,76 @@
 
 ## [Unreleased]
 
+### Added — ADR-035 Time-aware Salsa integration (2026-05-03 follow-up)
+
+Builds on the ADR-035 Selection / Time foundation entry below with
+production-grade Salsa wiring and ADR-034 cross-integration. After
+this work ADR-035 is at 10/11 milestones — only the ShadowCursor
+re-host and WIT 3.0 coordinated bump remain.
+
+- (core) `salsa_inputs::HistoryInput` — new `#[salsa::input]` with
+  `backend: Arc<InMemoryRing>` and `current_version: VersionId`
+  fields. Concrete-type backend (rather than trait-object Arc)
+  because Salsa input fields require Update-deriving types; a
+  wrapper enum will support pluggable backends later.
+- (core) `salsa_queries::text_at_time(db, BufferInput, HistoryInput,
+  Time) -> Option<Arc<str>>` — Time::Now projects `BufferInput.lines`
+  to plain text; Time::At(v) reads from history. Cache key
+  `(BufferInput, HistoryInput, Time)`.
+- (core) `salsa_queries::selection_at_time(db, HistoryInput, Time)
+  -> Option<SelectionSet>` — Time::Now resolves through
+  `history.current_version(db)`; Time::At(v) reads the snapshot's
+  selection. Demonstrates the Time-aware pattern generalises beyond
+  text. Cache key `(HistoryInput, Time)`.
+- (core) `salsa_queries::display_directives_at_time(db, HistoryInput,
+  Time) -> NormalizedDisplay` — ADR-034 + ADR-035 integration
+  query. Synthesises Decorate primitives from the SelectionSet at
+  the requested Time and runs `algebra_normalize`. Demonstrates the
+  Time-aware Salsa pattern feeding the Display algebra in a single
+  query.
+- (core) `salsa_sync::SalsaInputHandles::history` field +
+  `sync_inputs_from_state` updates the field every frame: the
+  backend Arc is swapped to `Arc::clone(&state.history)` (so all
+  three queries see the same ring AppState writes to) and the
+  current_version is pushed from `state.history.current_version()`
+  (so Time::Now-resolving queries invalidate when apply's
+  auto-commit hook bumps the version).
+- (core) `state::inference_state::InferenceState.selection_set:
+  SelectionSet` — canonical SelectionSet field projected from the
+  heuristic detector's output by `AppState::apply()`. Stored
+  alongside the simultaneous history commit so
+  `current_selection_set()` and `selection_at_time(Time::Now)`
+  observably agree. SelectionSet gained `Default` /
+  `default_empty()` to support the field's default value.
+- (core) `plugin::app_view::AppView::current_selection_set()` —
+  direct field-read accessor for the canonical SelectionSet,
+  avoiding the history-lookup overhead for the common
+  "what's selected right now" query.
+- (core) `display_algebra::normalize::pass_c_filter_evt` fast-path
+  early-returns when no EVT leaves are present, skipping the
+  invisible-line scan / partition / sort / dedup. EVT is rare in
+  typical workloads; the fast-path improves
+  `bridge_overhead/mixed_full` from 7.72 µs to 7.04 µs (Phase 2 →
+  Phase 3b regression reduced from +28 % to +17 %).
+- (test) 15 new Salsa Time-aware unit tests in
+  `salsa_queries::time_query_tests` covering all three queries
+  across Time::Now / Time::At, empty/populated history, FIFO
+  eviction, current_version-advance invalidation, integration
+  query selection-to-decorate synthesis. 4 new production-path
+  integration tests in `tests/salsa_history_sync.rs` covering Arc
+  identity preservation, post-apply / post-sync queries, version-
+  advance invalidation through the production sync, integration
+  query against synced state. 3 new history_selection tests
+  covering canonical SelectionSet field consistency.
+- (example) `examples/selection-algebra-native` extended with a
+  Time-aware history section: InMemoryRing capacity-3 commits 4
+  snapshots, demonstrates FIFO eviction, Time::Now resolution,
+  earliest..current walk. Workspace-external dogfood now exercises
+  both ADR-035 §1 (set algebra) and §2 (Time / HistoryBackend).
+
+ADR-035 §Implementation Status updated; ADR-037 §Acceptance criteria
+#6 amended with the fast-path bench numbers.
+
 ### Added — ADR-037 Fold-in-Algebra Accepted (2026-05-03)
 
 The hybrid bridge introduced by ADR-034 is retired. Every directive
