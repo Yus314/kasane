@@ -500,4 +500,6 @@ fn coalesce_ranges_inplace(mut ranges: Vec<std::ops::Range<usize>>) -> Vec<std::
 }
 
 #[cfg(test)]
+mod proptests;
+#[cfg(test)]
 mod tests;
