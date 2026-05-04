@@ -2,6 +2,67 @@
 
 ## [Unreleased]
 
+### Changed — WIT 3.0 paper design reconsidered: display-directive collapse deferred indefinitely (2026-05-04)
+
+After landing the ADR-035 driver portion of WIT 3.0 (commit
+`0e75a54a`), I revisited the deferred ADR-034 driver portion
+(the `display-directive` → `display` algebra-leaf collapse)
+and concluded it should not ship — neither now nor as a WIT
+3.x follow-up.
+
+The original paper-design argument was "one wire
+representation eliminates the host translator." On
+re-examination after seeing the actual code:
+
+- The host translator (`display_algebra::bridge::directive_to_display`)
+  is **72 LOC** of straightforward per-variant dispatch over
+  13 `derived::*` constructors — not the deep plumbing tail
+  the prior commit's deferral note implied.
+- Removing it doesn't eliminate equivalent code; it moves it
+  to the **guest SDK side** because plugin authors need the
+  same ergonomic helpers (`hide(line_range)`, `fold(range,
+  summary)`, etc.) — emitting raw `Replace { span, content }`
+  leaves directly is verbose and error-prone.
+- The "single representation" benefit is **theoretical
+  aesthetic**, not load-bearing — both representations carry
+  the same information, the bridge is a pure bijection
+  modulo documented lossy metadata.
+- Migration cost is **real and concrete**: every plugin
+  author pays a forced rewrite plus a forced recompile.
+- No concrete capability is unlocked — the original ADR text
+  mentioned `then` / `merge` "as record-level constructors"
+  but the paper design itself walked that back, declaring
+  them host-side normalisation operators.
+
+A future ABI break (WIT 4.0+) may revisit if a concrete
+capability emerges that the wire-level collapse unlocks
+(e.g. plugin-emitted Then / Merge composition, which would
+require host changes anyway). Until that capability
+surfaces, the collapse is pure churn.
+
+- (docs) `docs/decisions.md` ADR-035 §"WIT 3.0 Wire Shape
+  (paper design)" — new sub-section "Drivers reconsidered
+  (2026-05-04)" with the analysis; "Drivers" table struck
+  through the ADR-034 row; "Decision summary" table struck
+  through row 3; sub-section "3. `display` variant" gains a
+  DEFERRED banner; sub-section "4. `buffer-edit` record"
+  gains a DEFERRED banner (the pre-existing WIT 2.0
+  `buffer-edit` shape conflict was missed in the original
+  paper design — addressing it requires a separate naming
+  pass).
+- (docs) ADR-034 §Migration WIT-contract row updated to
+  point at the reconsidered decision rather than the frozen
+  shape.
+- (docs) The previous commit's milestone entry note
+  ("intentionally deferred to a follow-up commit") replaced
+  with a clear "deferred indefinitely" marker.
+
+This commit changes only documentation. No code, no tests,
+no plugins — the WIT 3.0 ABI bump that landed in `0e75a54a`
+ships ADR-035 only and is the final shape of WIT 3.0
+unless / until a concrete capability surfaces that justifies
+revisiting.
+
 ### Changed — WIT 3.0 ABI bump (selection-set + time + history) (2026-05-04)
 
 Implements the ADR-035 portion of the WIT 3.0 paper-design

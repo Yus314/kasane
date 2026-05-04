@@ -3338,7 +3338,7 @@ during the foundation redesign.
 | `kasane-core/src/display/resolve.rs` | Delete. Replace with `display_algebra/normalize.rs`. |
 | `kasane-core/src/display/resolve/tests.rs` | Rewrite as proptest L1–L6 witnesses + scenario tests in `display_algebra/tests/`. |
 | Plugin handler signatures | Change `Vec<DisplayDirective>` → `Display`. |
-| WIT contract | Bump to `kasane:plugin@3.0.0`. The `display-directive` variant is replaced by a `display` variant with 4 algebra leaves (`identity`, `replace`, `decorate`, `anchor`). `then` / `merge` are *normalisation operators on the host*, not wire constructors — plugins emit `list<display>` and the host composes via `algebra_normalize`. The wire shape is frozen in ADR-035 §"WIT 3.0 Wire Shape (paper design)". |
+| WIT contract | Reconsidered (2026-05-04). The `display-directive` → `display` variant collapse was originally folded into the `kasane:plugin@3.0.0` bump, but on closer inspection (post-ADR-035-WIT-3.0 implementation) the collapse provides ~zero net benefit. The host's `display_algebra::bridge::directive_to_display` is 72 LOC of straightforward dispatch over 13 algebra constructors (`derived::*`); collapsing it onto the wire would move equivalent code to the guest SDK (the ergonomic helper layer plugin authors expect) without a net LOC reduction. Meanwhile every plugin author pays a forced rewrite + recompile for what is, in practice, a representation rename. The display-directive variant therefore remains on the wire under WIT 3.0; the algebra normalize / Pass A/B/C pipeline (`display_algebra`) continues to consume the bridge's output. A future bump may revisit if a concrete capability emerges that the wire-level collapse unlocks (e.g. plugin-emitted Then / Merge composition). |
 | 10 bundled / fixture WASM plugins | Rebuild against 3.0.0. The `define_plugin!` macro is updated so plugins that already use the helper constructors compile with minimal source change. |
 | `EditableVirtualText` (ADR-030 Level 5) | Becomes `Display::Replace { content: Content::Editable(...) }`. ADR-035 covers the time / selection facets that interlock with this. |
 | ADR-030 Level 4 per-line locality invariant | Re-witnessed as a property of `Span` (single-line by construction). |
@@ -3829,12 +3829,12 @@ state). Acceptance is gated on the wiring step below.
   `HOST_ABI_VERSION` constants in `kasane-plugin-package`
   and `kasane/plugin_cmd/templates` bumped to "3.0.0". The
   display-directive → display variant collapse (the
-  ADR-034 driver portion of WIT 3.0) is intentionally
-  deferred to a follow-up commit per the paper-design
-  "Implementation gating" section — the 11-case
-  `display-directive` variant has a deep host plumbing tail
-  (color-preview + selection-algebra both emit it) that
-  warrants its own focused PR.
+  ADR-034 driver portion of WIT 3.0) is **deferred
+  indefinitely** per the post-implementation review
+  recorded in §"Drivers reconsidered (2026-05-04)" —
+  the host bridge is 72 LOC of straightforward dispatch
+  and the collapse moves equivalent code onto the SDK
+  side without a net reduction.
 - ✅ **`SelectionSet::to_kakoune_command()` projection
   (2026-05-04)** — closes the §Decision "Projection back to
   Kakoune" line which was previously documentation-only. Encodes
@@ -3936,17 +3936,78 @@ line 2388) is the template; the same discipline applies here.
 
 #### Drivers
 
-WIT 3.0 is a coordinated bump driven by three accepted ADRs:
+WIT 3.0 is driven by ADR-035 only after a 2026-05-04
+reconsideration of the ADR-034 driver portion (see "Drivers
+reconsidered" below):
 
 | ADR | What it requires from WIT 3.0 |
 |---|---|
-| ADR-034 | `display-directive` variant replaced by `display` value-record + composition done host-side; `then` / `merge` are post-emit normalisation operators, not wire constructors |
 | ADR-035 | New `selection-set` value-record + `time` variant + history accessor functions; legacy heuristic `selection` record removed |
+| ~~ADR-034~~ | ~~`display-directive` → `display` collapse~~ — **deferred indefinitely** post-implementation review; the host bridge is 72 LOC of straightforward dispatch and the collapse moves equivalent code onto the SDK side without a net reduction. See "Drivers reconsidered (2026-05-04)" below. |
 | ADR-032 W5 (conditional) | `path`, `brush`, `stroke` types if the Vello adoption decision lands positive — currently **out of scope** for WIT 3.0; if W5 lands later it bumps to WIT 3.1.0 (additive) or WIT 4.0.0 (breaking), per the ADR-032 §SDK-migration analysis |
 
-WIT 3.0 ships ADR-034 + ADR-035 only. ADR-032 W5 is decoupled
-to keep the bump bounded; the path/brush/stroke types do not
-collide with the selection-set / time / display additions.
+WIT 3.0 ships ADR-035 only. ADR-032 W5 is decoupled to keep
+the bump bounded; the ADR-034 wire-level collapse is deferred
+indefinitely.
+
+#### Drivers reconsidered (2026-05-04)
+
+After landing the ADR-035 driver portion of WIT 3.0
+(2026-05-04 commit `0e75a54a`), I revisited the ADR-034
+driver portion and concluded it should not ship.
+
+**Original argument (paper design)**: collapse the legacy
+`display-directive` (11-case variant) onto the `display`
+algebra (4-leaf variant) on the wire so plugins emit raw
+algebra leaves, eliminating the host-side
+`bridge::directive_to_display` translator and giving the
+codebase "one representation" rather than two.
+
+**Re-examination**:
+
+1. The host translator is **72 LOC** of straightforward
+   per-variant dispatch over 13 `derived::*` constructors
+   (`hide_lines`, `fold`, `style_line`, etc.) — not a deep
+   plumbing tail, just a thin sugar layer.
+2. Removing it doesn't eliminate equivalent code; it moves
+   it to the **guest SDK side**, because plugin authors
+   need the same ergonomic helpers (`hide(line_range)`,
+   `fold(range, summary)`, etc.) — emitting raw `Replace
+   { span, content }` leaves directly is verbose and
+   error-prone (Span construction alone is non-trivial).
+3. The "one representation" benefit is **theoretical
+   aesthetic**, not load-bearing. Both representations
+   carry the same information; the bridge is a pure
+   bijection (modulo the documented lossy metadata fields
+   the rustdoc already enumerates).
+4. The migration cost is **real and concrete**: every
+   plugin author pays a forced rewrite (the `display-
+   directive` constructors they currently use disappear)
+   plus a forced recompile against the new SDK.
+5. No concrete capability is unlocked. The original ADR
+   text mentioned `then` / `merge` "as record-level
+   constructors" but the paper design itself walked that
+   back, declaring them host-side normalisation operators.
+   With composition staying host-side, the wire shape
+   gains nothing actionable.
+
+**Conclusion**: Defer the `display-directive` →
+`display` wire collapse indefinitely. WIT 3.0 ships
+without it. The host bridge stays as a stable internal
+sugar layer; plugins continue to emit `list<display-
+directive>`; the algebra normalize / Pass A/B/C
+pipeline continues to consume the bridge's output.
+
+A future ABI break (WIT 4.0 or later) may revisit if a
+concrete capability emerges that the wire-level collapse
+unlocks (e.g. plugin-emitted Then / Merge composition,
+which would require host changes anyway). Until that
+capability surfaces, the collapse is pure churn.
+
+This reconsideration also updates the "Decision summary"
+table below: row 3 ("`display`") moves from
+**plugin-visible** to **deferred** status; rows 1 / 2 /
+4 / 5 ship as planned.
 
 #### Decision summary
 
@@ -3954,7 +4015,7 @@ collide with the selection-set / time / display additions.
 |---|---|---|---|---|
 | 1. `selection-set` (canonical multi-cursor algebra) | plugin-visible | new `selection-set` record + 8 free functions | legacy `selection` record + `get-selection*` triplet | All landed (`state::selection_set`) |
 | 2. `time` (history coordinate) | plugin-visible | new `time` variant + `version-id` alias + 4 free functions | none | All landed (`history::Time`, `salsa_queries::*_at_time`) |
-| 3. `display` (algebra leaves) | plugin-visible | new `display` variant (4 leaves) + supporting records | legacy `display-directive` variant (12 cases) | All landed (`display_algebra::primitives`) |
+| 3. ~~`display` (algebra leaves)~~ | **deferred** | ~~new `display` variant (4 leaves) + supporting records~~ | ~~legacy `display-directive` variant (12 cases)~~ | Stays internal — see "Drivers reconsidered" |
 | 4. `buffer-edit` (algebraic shadow-cursor commit) | plugin-visible | new `buffer-edit` record | none | All landed (`shadow_cursor::BufferEdit`) |
 | 5. `current-selection-set` host accessor | plugin-visible | one new `host-state` function | none | All landed (`AppView::current_selection_set`) |
 
@@ -4075,7 +4136,15 @@ The four `history-*` functions live in the new `history`
 interface (parallel to `host-state`) so plugins that don't
 need history don't pull the symbols.
 
-#### 3. `display` variant (algebra leaves)
+#### 3. `display` variant (algebra leaves) — DEFERRED
+
+> **Update (2026-05-04, post-implementation review)**: this
+> sub-section's collapse is **deferred indefinitely**. See
+> "Drivers reconsidered (2026-05-04)" above for the
+> reasoning. The shapes below are retained in the paper
+> design as a record of what *would* land if a future ABI
+> break revisits this — but no implementation work is
+> scheduled.
 
 The legacy `display-directive` variant (12 cases — `Hide`,
 `Fold`, `StyleLine`, `StyleInline`, `InsertBefore`,
@@ -4125,11 +4194,23 @@ Plugins emit `list<display>`; the host runs the existing
 wire constructors — plugins do not express composition; they
 emit independent leaves and the host composes.
 
-#### 4. `buffer-edit` record
+#### 4. `buffer-edit` record — DEFERRED (shape conflict)
 
-The Phase 3 / 4 algebraic shape of a shadow-cursor commit.
-Surfaced into WIT 3.0 so a future plugin commit-intercept hook
-has a typed payload.
+> **Update (2026-05-04, post-implementation review)**: not
+> added in the WIT 3.0 implementation commit. WIT 2.0
+> already shipped a `buffer-edit` record under the same
+> name with a different shape (`start-line` /
+> `start-column` / `end-line` / `end-column` /
+> `replacement`) that backs the existing `edit-buffer`
+> command. Adding the paper-design shape would either
+> require renaming the existing record (breaking the
+> `edit-buffer` consumers) or re-using the name with a
+> richer shape (subsuming both purposes). Both options
+> warrant their own design pass; deferred until a
+> commit-intercept hook actually demands the
+> `base-version`-stamped shape.
+
+The Phase 3 / 4 algebraic shape of a shadow-cursor commit:
 
 ```wit
 record buffer-edit {
@@ -4140,11 +4221,13 @@ record buffer-edit {
 }
 ```
 
-No free functions on `buffer-edit` are exposed in WIT 3.0; the
-record is read-only from the plugin perspective. The
-intercept-hook handler that consumes / produces it is also
-deferred — WIT 3.0 only freezes the record shape so the hook
-can land additively (no further ABI break).
+If revisited, naming options include `shadow-edit`
+(distinguishes from the existing edit-buffer payload)
+or `buffer-edit-with-context` (extends the current
+shape additively). No free functions are exposed in
+either case; the record is read-only from the plugin
+perspective. The intercept-hook handler that consumes
+/ produces it lands additively (no further ABI break).
 
 #### 5. `current-selection-set` accessor in `host-state`
 
