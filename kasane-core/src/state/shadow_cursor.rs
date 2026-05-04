@@ -4,6 +4,41 @@
 //! It operates outside the Kakoune protocol: text editing happens locally in
 //! `working_text`, and only on commit (Enter) is the result projected back to
 //! the buffer via `exec -draft`.
+//!
+//! ## ADR-035 §Migration — multi-phase re-host on Selection / Time
+//!
+//! ADR-035's §Migration line on re-hosting `state::shadow_cursor`
+//! atop the new `Selection` and `Time` primitives is staged because
+//! the existing types serve a fundamentally different domain than
+//! `Selection`.
+//!
+//! - `Selection` (in `state::selection`) addresses positions in a real
+//!   buffer (`BufferPos { line, column }`).
+//! - `ShadowCursor`'s "cursor" lives in *synthetic* `working_text`
+//!   bytes — its `cursor_grapheme_offset` indexes graphemes within
+//!   the editable span, not buffer columns. The keyboard handling
+//!   logic (`handle_shadow_cursor_key`) is grapheme arithmetic that
+//!   doesn't naturally re-shape onto multi-cursor algebra.
+//!
+//! What *can* be re-hosted on `Selection` is the **projection target**:
+//! the buffer-space range that the active edit will commit into via
+//! `exec -draft`. This is what `EditableSpan::projection_target` and
+//! `ShadowCursor::buffer_projection_target` (added in this Phase 1)
+//! expose — Selection-shaped views over the existing `Range<usize>`
+//! plumbing, with no behaviour change.
+//!
+//! Subsequent phases (deferred):
+//!
+//! - **Phase 2** — replace `EditableSpan.buffer_byte_range:
+//!   Range<usize>` with a `Selection` field; ripple through the
+//!   16-ish callsites in `display`, `display_algebra`, and
+//!   `plugin::safe_directive`.
+//! - **Phase 3** — fold the keyboard-handling state machine into a
+//!   smaller surface that carries the working-text edit as a
+//!   `SelectionSet`-anchored overlay; commit via `exec -draft`
+//!   produces a `BufferEdit` keyed by the projected Selection.
+//! - **Phase 4** — version the working_text via `BufferVersion` so
+//!   shadow edits compose with `Time::At(v)` queries.
 
 use std::ops::Range;
 
@@ -38,6 +73,25 @@ pub struct EditableSpan {
     pub projection: EditProjection,
 }
 
+impl EditableSpan {
+    /// ADR-035 §1 — Selection-shaped view of the buffer-space range
+    /// this span's edits commit into. The returned `Selection`
+    /// anchors at `(anchor_line, buffer_byte_range.start)` and
+    /// cursors at `(anchor_line, buffer_byte_range.end)`.
+    ///
+    /// `anchor_line` and the byte offsets fit in `u32` for any
+    /// realistic buffer (4 GiB / 4 G lines); larger values clamp
+    /// to `u32::MAX` rather than panic, matching the
+    /// `selections_to_set` convention in `apply.rs`.
+    pub fn projection_target(&self) -> crate::state::selection::Selection {
+        use crate::state::selection::{BufferPos, Selection};
+        let line = self.anchor_line.min(u32::MAX as usize) as u32;
+        let start = self.buffer_byte_range.start.min(u32::MAX as usize) as u32;
+        let end = self.buffer_byte_range.end.min(u32::MAX as usize) as u32;
+        Selection::new(BufferPos::new(line, start), BufferPos::new(line, end))
+    }
+}
+
 /// Lifecycle phase of a shadow cursor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShadowPhase {
@@ -69,6 +123,26 @@ pub struct ShadowCursor {
     pub phase: ShadowPhase,
     /// Plugin that owns the editable virtual text.
     pub owner_plugin: PluginId,
+}
+
+impl ShadowCursor {
+    /// ADR-035 §1 — Selection-shaped view of the buffer-space range
+    /// the active edit will commit into when the user presses
+    /// Enter. Caller supplies the `EditableSpan` vector for the
+    /// shadow cursor's display line (the cursor only knows its
+    /// `span_index`, not the spans themselves).
+    ///
+    /// Returns `None` when `span_index` is out of bounds for the
+    /// supplied vector (e.g. the underlying display entry's spans
+    /// were re-emitted with fewer entries this frame).
+    pub fn buffer_projection_target(
+        &self,
+        spans: &[EditableSpan],
+    ) -> Option<crate::state::selection::Selection> {
+        spans
+            .get(self.span_index)
+            .map(EditableSpan::projection_target)
+    }
 }
 
 /// Result of handling a key event in shadow cursor context.
@@ -372,6 +446,87 @@ fn escape_for_kakoune_insert(text: &str) -> String {
 mod tests {
     use super::*;
     use crate::input::{Key, KeyEvent, Modifiers};
+
+    // -----------------------------------------------------------------
+    // ADR-035 §1 Phase 1 — Selection-based projection accessors
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn editable_span_projection_target_anchors_buffer_range() {
+        let span = EditableSpan {
+            display_byte_range: 0..5,
+            anchor_line: 7,
+            buffer_byte_range: 12..18,
+            projection: EditProjection::Mirror,
+        };
+        let sel = span.projection_target();
+        assert_eq!(sel.anchor.line, 7);
+        assert_eq!(sel.anchor.column, 12);
+        assert_eq!(sel.cursor.line, 7);
+        assert_eq!(sel.cursor.column, 18);
+        assert_eq!(sel.min().column, 12);
+        assert_eq!(sel.max().column, 18);
+    }
+
+    #[test]
+    fn editable_span_projection_clamps_overflow_to_u32_max() {
+        let span = EditableSpan {
+            display_byte_range: 0..5,
+            anchor_line: usize::MAX,
+            buffer_byte_range: usize::MAX..usize::MAX,
+            projection: EditProjection::Mirror,
+        };
+        let sel = span.projection_target();
+        assert_eq!(sel.anchor.line, u32::MAX);
+        assert_eq!(sel.anchor.column, u32::MAX);
+    }
+
+    #[test]
+    fn shadow_cursor_buffer_projection_target_indexes_spans_by_span_index() {
+        let spans = vec![
+            EditableSpan {
+                display_byte_range: 0..3,
+                anchor_line: 1,
+                buffer_byte_range: 0..3,
+                projection: EditProjection::Mirror,
+            },
+            EditableSpan {
+                display_byte_range: 4..9,
+                anchor_line: 2,
+                buffer_byte_range: 5..10,
+                projection: EditProjection::Mirror,
+            },
+        ];
+
+        let shadow = ShadowCursor {
+            display_line: 0,
+            span_index: 1,
+            phase: ShadowPhase::Navigating,
+            owner_plugin: PluginId("p".into()),
+        };
+
+        let sel = shadow.buffer_projection_target(&spans).unwrap();
+        assert_eq!(sel.anchor.line, 2);
+        assert_eq!(sel.anchor.column, 5);
+        assert_eq!(sel.cursor.column, 10);
+    }
+
+    #[test]
+    fn shadow_cursor_buffer_projection_target_out_of_bounds_returns_none() {
+        let spans = vec![EditableSpan {
+            display_byte_range: 0..3,
+            anchor_line: 0,
+            buffer_byte_range: 0..3,
+            projection: EditProjection::Mirror,
+        }];
+        let shadow = ShadowCursor {
+            display_line: 0,
+            span_index: 5, // out of bounds
+            phase: ShadowPhase::Navigating,
+            owner_plugin: PluginId("p".into()),
+        };
+        assert!(shadow.buffer_projection_target(&spans).is_none());
+    }
 
     fn make_key(k: Key) -> KeyEvent {
         KeyEvent {
