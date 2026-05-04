@@ -245,5 +245,7 @@ impl LensRegistry {
     }
 }
 
+pub mod builtin;
+
 #[cfg(test)]
 mod tests;

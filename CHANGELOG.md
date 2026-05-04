@@ -2,6 +2,69 @@
 
 ## [Unreleased]
 
+### Added — Bundled `TrailingWhitespaceLens` (Composable Lenses follow-up) (2026-05-04)
+
+First built-in `Lens` implementation. Demonstrates the lens
+authoring pattern by usage and ships as an opt-in user-facing
+capability — a plugin / embedder registers + enables it; the
+runtime dispatches it alongside any other lens or display
+handler.
+
+- (core) `kasane_core::lens::builtin` — new submodule reserved
+  for built-in lenses. Exports the `BUILTIN_PLUGIN_ID =
+  "kasane.builtin"` constant for the namespaced plugin id
+  built-in lenses share.
+- (core) `kasane_core::lens::builtin::TrailingWhitespaceLens`
+  — flags the longest whitespace suffix on each line. Bytes
+  qualify via `char::is_whitespace` (covers ASCII space / tab
+  plus the Unicode whitespace set including NBSP and
+  ideographic space). Lines that are entirely whitespace
+  produce a single `StyleInline` covering the whole line;
+  lines with no trailing whitespace produce no directive for
+  that line.
+  - `new(WireFace)` — construct with a highlight style.
+  - `with_name(name)` — override the default lens name
+    (`trailing-whitespace`); useful when the same embedder
+    registers multiple instances with distinct styles per
+    language.
+  - `id()` returns
+    `LensId { plugin: "kasane.builtin", name: "trailing-whitespace" }`.
+  - `label()` returns `"Trailing whitespace"` (UI display).
+  - `priority()` defaults to 0.
+- (core) Internal `trailing_whitespace_byte_range(line)`
+  helper — pure function returning the byte range of the
+  trailing whitespace run (or None). Handles empty lines,
+  CJK byte alignment (e.g. `日本語 ` → range 9..10),
+  mid-line whitespace (only the trailing run flagged), and
+  whitespace-only lines.
+- (test) 19 new tests in
+  `lens::builtin::trailing_whitespace::tests` (lib 2482 →
+  2501): 10 range-computation cases (empty / clean / single
+  / multiple / tab / mixed / whitespace-only / CJK byte
+  offsets / NBSP / interior-vs-trailing); 5 lens-display
+  integration cases (empty buffer / clean buffer / single
+  flagged line / mixed buffer flagging only dirty lines /
+  multi-atom line concatenates correctly); 4 trait-surface
+  cases (id namespace / `with_name` override / label /
+  priority default).
+
+The lens runs every frame at O(visible-line-content-bytes)
+cost — the future Salsa cache key
+`(file_id, line, lens_stack)` per ADR-035 §"Salsa input
+shape" would make this incremental, but the MVP's
+non-cached path matches plugin display handler semantics
+and is fast enough for realistic buffers.
+
+Validation: 2501 workspace lib tests pass; 2758 workspace
+integration tests pass; clippy + fmt clean across
+`gui,syntax`.
+
+This is the first concrete user-visible capability built on
+the Composable Lenses MVP from commit `6bda084a`. Two more
+follow-ups remain in the Roadmap §2.2 entry: (a) Salsa
+cache integration, (b) WIT surface for WASM-side lens
+registration.
+
 ### Added — Composable Lenses MVP (Roadmap §Backlog) (2026-05-04)
 
 A `Lens` is a named, individually-toggleable source of
