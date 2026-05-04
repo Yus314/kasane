@@ -2,6 +2,70 @@
 
 ## [Unreleased]
 
+### Added — WIT 3.0 Wire Shape paper design (2026-05-04)
+
+Freezes the wire-shape decisions for the `kasane:plugin@3.0.0`
+ABI bump so the implementation can be one PR. Following the
+ADR-031 "Phase 10 Wire Shape" template — the same discipline
+that prevented the two-ABI-breaks trap there applies here.
+
+- (docs) `docs/decisions.md` ADR-035 §"WIT 3.0 Wire Shape (paper
+  design, 2026-05-04)" — ~250 lines covering:
+  - Drivers table (ADR-034 + ADR-035 only; ADR-032 W5
+    path/brush/stroke decoupled to keep the bump bounded).
+  - Decision summary (5 features, all backed by already-landed
+    native primitives — wire promotion, not new design).
+  - Concrete WIT shapes for `selection-set` value-record +
+    `selection-record` + `buffer-pos` + `selection-direction`
+    + 8 free functions for set-algebra operations + `save` /
+    `load` / `to-kakoune-command` projections.
+  - `time` variant + `version-id` alias + 4 history-accessor
+    free functions (`history-current-version`,
+    `history-earliest-version`, `history-text-at`,
+    `history-selection-at`) in a new `history` interface.
+  - `display` variant (4 algebra leaves) replacing the legacy
+    12-case `display-directive`. `then` / `merge` are
+    *normalisation operators on the host*, not wire
+    constructors — plugins emit `list<display>` and the host
+    composes via `algebra_normalize`.
+  - `buffer-edit` record (target / original / replacement /
+    base-version) — the Phase 3 / 4 algebraic shadow-cursor
+    commit shape, frozen now so a future plugin commit-intercept
+    hook can land additively.
+  - `current-selection-set` accessor in `host-state`,
+    replacing the legacy heuristic `get-selection*` triplet.
+  - Removals table (legacy `selection` record, `get-selection*`
+    triplet, 12-case `display-directive` variant).
+  - Implementation gating (one PR; touches plugin.wit ×3,
+    host.rs, sdk lib.rs, ~10 example WASM plugins; ABI version
+    check rejects `@2.0.0` binaries at host load — same single
+    -ABI-break strategy as ADR-031 Phase 4 closure).
+  - Risks / out-of-scope (plugin-author migration cost
+    mitigated by mechanical migration cookbook;
+    `selection-set::map` / `::filter` / `::flat-map` deferred
+    indefinitely because WIT does not express host-side
+    closures ergonomically).
+- (docs) ADR-034 §Migration WIT-contract row updated to point
+  at the frozen wire shape.
+- (docs) ADR-035 §Migration WIT-contract row sharpened with
+  the concrete additions / removals.
+
+Resources were considered for `selection-set` but rejected:
+the host-tracked-handle ergonomics they enable do not benefit
+set algebra (which is naturally value-typed), and they would
+introduce the only `resource` in the entire 1728-line WIT,
+raising the SDK guest-binding complexity floor unnecessarily.
+
+Every host-side primitive WIT 3.0 surfaces is **already
+implemented** as native Rust code (the ADR-035 / ADR-034 /
+ADR-037 work that landed 2026-05-03 / 04). WIT 3.0 is the
+wire-shape promotion of work that already exists internally —
+not a design phase that discovers new requirements.
+
+No code change in this entry. The implementation PR is gated
+on user greenlight: the bump touches host bindings, SDK,
+~10 example WASM plugins, and the ABI version check.
+
 ### Added — ADR-035 SelectionSet → Kakoune projection (2026-05-04)
 
 Closes the ADR-035 §Decision "Projection back to Kakoune" line

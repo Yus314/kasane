@@ -3338,7 +3338,7 @@ during the foundation redesign.
 | `kasane-core/src/display/resolve.rs` | Delete. Replace with `display_algebra/normalize.rs`. |
 | `kasane-core/src/display/resolve/tests.rs` | Rewrite as proptest L1–L6 witnesses + scenario tests in `display_algebra/tests/`. |
 | Plugin handler signatures | Change `Vec<DisplayDirective>` → `Display`. |
-| WIT contract | Bump to `kasane:plugin@3.0.0`. The `display-directive` variant is replaced by a `display` record with `kind: variant { replace, decorate, anchor, identity }` plus `then` / `merge` as record-level constructors. |
+| WIT contract | Bump to `kasane:plugin@3.0.0`. The `display-directive` variant is replaced by a `display` variant with 4 algebra leaves (`identity`, `replace`, `decorate`, `anchor`). `then` / `merge` are *normalisation operators on the host*, not wire constructors — plugins emit `list<display>` and the host composes via `algebra_normalize`. The wire shape is frozen in ADR-035 §"WIT 3.0 Wire Shape (paper design)". |
 | 10 bundled / fixture WASM plugins | Rebuild against 3.0.0. The `define_plugin!` macro is updated so plugins that already use the helper constructors compile with minimal source change. |
 | `EditableVirtualText` (ADR-030 Level 5) | Becomes `Display::Replace { content: Content::Editable(...) }`. ADR-035 covers the time / selection facets that interlock with this. |
 | ADR-030 Level 4 per-line locality invariant | Re-witnessed as a property of `Span` (single-line by construction). |
@@ -3839,7 +3839,7 @@ the migration is complete.
 | All Salsa queries reading buffer / selection state | Take `at: Time` |
 | `kasane-core/src/history/` | New module — backend trait + in-memory ring impl |
 | `Cargo.toml` features | New `history-git`, `history-rocksdb` features |
-| WIT contract | Bump to `3.0.0` (coordinated with ADR-034). New `selection-set` and `time` resources. |
+| WIT contract | Bump to `3.0.0` (coordinated with ADR-034). New `selection-set` value-record + `time` variant + `version-id` alias + 4 history-accessor functions; legacy heuristic `selection` record + `get-selection*` triplet removed. The wire shape is frozen in §"WIT 3.0 Wire Shape (paper design)" below — implementation is one PR. |
 | Plugins reading selection | Source rewrite to `SelectionSet` API. |
 | Plugin-defined selection extensions (`examples/wasm/selection-algebra`) | Promoted to first-class APIs; the example becomes documentation rather than a workaround. |
 
@@ -3896,6 +3896,304 @@ The history backend is the memory-cost knob:
   History" section, both authoritative.
 - ADR-030's observed/policy split is preserved: `Time` is observed (it's
   derived from protocol echoes); `HistoryBackend` config is policy.
+
+### WIT 3.0 Wire Shape (paper design, 2026-05-04)
+
+This sub-section freezes the wire-shape decisions for the WIT
+`kasane:plugin@3.0.0` ABI bump so the implementation can be one
+pass. WIT 3.0 may not introduce features beyond what is listed
+here without a follow-up ADR; doing so would re-create the
+"two ABI breaks" trap that ADR-031 §動機-5 was written to
+prevent. ADR-031's "Phase 10 Wire Shape" sub-section (around
+line 2388) is the template; the same discipline applies here.
+
+#### Drivers
+
+WIT 3.0 is a coordinated bump driven by three accepted ADRs:
+
+| ADR | What it requires from WIT 3.0 |
+|---|---|
+| ADR-034 | `display-directive` variant replaced by `display` value-record + composition done host-side; `then` / `merge` are post-emit normalisation operators, not wire constructors |
+| ADR-035 | New `selection-set` value-record + `time` variant + history accessor functions; legacy heuristic `selection` record removed |
+| ADR-032 W5 (conditional) | `path`, `brush`, `stroke` types if the Vello adoption decision lands positive — currently **out of scope** for WIT 3.0; if W5 lands later it bumps to WIT 3.1.0 (additive) or WIT 4.0.0 (breaking), per the ADR-032 §SDK-migration analysis |
+
+WIT 3.0 ships ADR-034 + ADR-035 only. ADR-032 W5 is decoupled
+to keep the bump bounded; the path/brush/stroke types do not
+collide with the selection-set / time / display additions.
+
+#### Decision summary
+
+| Feature | Plugin visibility | WIT additions | WIT removals | Host plumbing |
+|---|---|---|---|---|
+| 1. `selection-set` (canonical multi-cursor algebra) | plugin-visible | new `selection-set` record + 8 free functions | legacy `selection` record + `get-selection*` triplet | All landed (`state::selection_set`) |
+| 2. `time` (history coordinate) | plugin-visible | new `time` variant + `version-id` alias + 4 free functions | none | All landed (`history::Time`, `salsa_queries::*_at_time`) |
+| 3. `display` (algebra leaves) | plugin-visible | new `display` variant (4 leaves) + supporting records | legacy `display-directive` variant (12 cases) | All landed (`display_algebra::primitives`) |
+| 4. `buffer-edit` (algebraic shadow-cursor commit) | plugin-visible | new `buffer-edit` record | none | All landed (`shadow_cursor::BufferEdit`) |
+| 5. `current-selection-set` host accessor | plugin-visible | one new `host-state` function | none | All landed (`AppView::current_selection_set`) |
+
+Every host-side primitive is **already implemented** as native
+Rust code (the ADR-035 / ADR-034 / ADR-037 work that landed
+2026-05-03 / 04). WIT 3.0 is the wire-shape promotion of work
+that already exists internally — *not* a design phase that
+discovers new requirements.
+
+#### 1. `selection-set` value-record
+
+Following the existing WIT idiom of records + free functions
+(no `resource` types appear in the current `kasane:plugin@2.0.0`
+WIT), `selection-set` is a value-record with set-algebra
+operations as free functions. Resources were considered but
+rejected: the host-tracked-handle ergonomics they enable do not
+benefit set algebra (which is naturally value-typed), and they
+would introduce the only `resource` in the entire WIT, raising
+the SDK guest-binding complexity floor.
+
+```wit
+record buffer-pos {
+    line: u32,
+    column: u32,
+}
+
+enum selection-direction {
+    forward,
+    backward,
+}
+
+record selection-record {
+    anchor: buffer-pos,
+    cursor: buffer-pos,
+    direction: selection-direction,
+}
+
+record selection-set {
+    /// Sorted by `min()`, disjoint, all anchored to the same
+    /// buffer + generation by construction.
+    selections: list<selection-record>,
+    /// Buffer this set is anchored to. Must match the buffer
+    /// Kakoune is currently focused on for projection back via
+    /// `selection-set-to-kakoune-command`; otherwise the
+    /// projection lands positions in the wrong buffer.
+    buffer: string,
+    /// Buffer-version this set is anchored to. Set algebra is
+    /// defined on the same generation; cross-generation
+    /// operations require explicit `selection-set-project-to`
+    /// (deferred to a follow-up).
+    generation: u64,
+}
+
+variant set-algebra-error {
+    /// `union` / `intersect` / `difference` / `symmetric-difference`
+    /// applied to two sets anchored to different buffers.
+    buffer-mismatch(tuple<string, string>),
+    /// Cross-generation operation without explicit `project-to`.
+    generation-mismatch(tuple<u64, u64>),
+}
+
+variant save-error {
+    /// The supplied name is empty or contains a `:` (reserved for
+    /// scoping by `(plugin-id, name)`).
+    invalid-name,
+}
+
+variant load-error {
+    not-found,
+    buffer-mismatch(tuple<string, string>),
+}
+```
+
+Free functions on `selection-set`:
+
+```wit
+selection-set-empty: func(buffer: string, generation: u64) -> selection-set;
+selection-set-singleton: func(sel: selection-record, buffer: string, generation: u64) -> selection-set;
+selection-set-union: func(a: selection-set, b: selection-set) -> result<selection-set, set-algebra-error>;
+selection-set-intersect: func(a: selection-set, b: selection-set) -> result<selection-set, set-algebra-error>;
+selection-set-difference: func(a: selection-set, b: selection-set) -> result<selection-set, set-algebra-error>;
+selection-set-symmetric-difference: func(a: selection-set, b: selection-set) -> result<selection-set, set-algebra-error>;
+selection-set-save: func(set: selection-set, name: string) -> result<_, save-error>;
+selection-set-load: func(name: string, buffer: string) -> result<selection-set, load-error>;
+selection-set-to-kakoune-command: func(set: selection-set) -> option<string>;
+```
+
+`map` / `filter` / `flat-map` are deliberately omitted from
+WIT 3.0 — they require host-side closures, which WIT does not
+express ergonomically. Plugins reach into `selections` directly
+and rebuild via `selection-set-empty` + repeated union.
+
+#### 2. `time` variant
+
+```wit
+type version-id = u64;
+
+variant time {
+    %now,
+    at(version-id),
+}
+```
+
+Free functions:
+
+```wit
+/// Current history version (the `Time::Now` materialisation).
+history-current-version: func() -> version-id;
+/// Earliest version still in the backend's window.
+history-earliest-version: func() -> version-id;
+/// Materialise a snapshot's text. Returns none for evicted versions.
+history-text-at: func(at: time) -> option<string>;
+/// Materialise a snapshot's selection-set. Returns none for evicted versions.
+history-selection-at: func(at: time) -> option<selection-set>;
+```
+
+The four `history-*` functions live in the new `history`
+interface (parallel to `host-state`) so plugins that don't
+need history don't pull the symbols.
+
+#### 3. `display` variant (algebra leaves)
+
+The legacy `display-directive` variant (12 cases — `Hide`,
+`Fold`, `StyleLine`, `StyleInline`, `InsertBefore`,
+`InsertAfter`, `InsertInline`, `Gutter`, `VirtualText`,
+`EditableVirtualText`, `InlineBox`, `HideInline`) collapses to
+4 algebra leaves matching `display_algebra::primitives::Display`:
+
+```wit
+record byte-range {
+    start: u32,
+    end: u32,
+}
+
+enum side {
+    left,
+    right,
+    full,
+}
+
+variant content {
+    empty,
+    text(list<atom>),
+    fold(tuple<u32, u32, list<atom>>),  // (line-range-start, end, summary)
+    hide(tuple<u32, u32>),               // (line-range-start, end)
+    editable(tuple<list<atom>, list<editable-span>, edit-spec>),
+    inline-box(inline-box-id),
+    gutter(element),
+}
+
+record span {
+    line: u32,
+    side: side,
+    byte-range: byte-range,
+}
+
+variant display {
+    identity,
+    replace(tuple<span, content>),
+    decorate(tuple<span, style>),
+    anchor(tuple<span, content, anchor-position>),
+}
+```
+
+Plugins emit `list<display>`; the host runs the existing
+`algebra_normalize` + Pass A/B/C pipeline (`display_algebra`).
+`then` / `merge` are *normalisation operators on the host*, not
+wire constructors — plugins do not express composition; they
+emit independent leaves and the host composes.
+
+#### 4. `buffer-edit` record
+
+The Phase 3 / 4 algebraic shape of a shadow-cursor commit.
+Surfaced into WIT 3.0 so a future plugin commit-intercept hook
+has a typed payload.
+
+```wit
+record buffer-edit {
+    target: selection-record,
+    original: string,
+    replacement: string,
+    base-version: version-id,
+}
+```
+
+No free functions on `buffer-edit` are exposed in WIT 3.0; the
+record is read-only from the plugin perspective. The
+intercept-hook handler that consumes / produces it is also
+deferred — WIT 3.0 only freezes the record shape so the hook
+can land additively (no further ABI break).
+
+#### 5. `current-selection-set` accessor in `host-state`
+
+Replaces the legacy heuristic `get-selection*` triplet:
+
+```wit
+// In host-state interface:
+
+/// Get the canonical SelectionSet for the focused buffer at
+/// the current Time. Returns the empty set when no protocol
+/// echo has populated the canonical set yet.
+current-selection-set: func() -> selection-set;
+```
+
+#### Removals from WIT 2.0
+
+| Symbol | Reason |
+|---|---|
+| `record selection { anchor, cursor, is-primary }` | Replaced by `selection-record` (carries direction, no ad-hoc primary flag — primary inferred from sorted ordering) |
+| `host-state.get-selection-count` | Replaced by `selection-set.selections.len` (plugin reads the list directly) |
+| `host-state.get-selection(index)` | Replaced by `selection-set.selections[index]` |
+| `host-state.get-all-selections` | Replaced by `selection-set.selections` |
+| `display-directive` variant (12 cases) | Replaced by `display` (4 algebra leaves) |
+
+Removals are aggregated in this single bump precisely to avoid
+the two-ABI-breaks trap; plugins migrate once.
+
+#### Implementation gating
+
+A WIT 3.0 implementation lands as **one PR** that:
+
+1. Bumps `package kasane:plugin@2.0.0;` → `@3.0.0` in
+   `kasane-wasm/wit/plugin.wit`,
+   `kasane-plugin-sdk/wit/plugin.wit`, and
+   `kasane-plugin-sdk-macros/wit/plugin.wit` (kept in sync).
+2. Adds the new types / functions per the shape above.
+3. Removes the legacy types / functions per the removals
+   table.
+4. Updates `kasane-wasm/src/host.rs` host-side bindings to
+   serve the new functions from existing native primitives
+   (no new logic — only wire bridging).
+5. Updates `kasane-plugin-sdk/src/lib.rs` guest-side bindings
+   and helpers (`define_plugin!` macro adjustments).
+6. Recompiles the ~10 bundled / example WASM plugins
+   (`examples/wasm/`) against `@3.0.0`. Any plugin using
+   `get-selection*` or `display-directive` migrates to the
+   new API; the §Decision examples in this ADR plus the
+   `examples/wasm/selection-algebra/` external example
+   document the migration pattern.
+7. ABI version check at host load time rejects `@2.0.0` WASM
+   binaries (matching the ADR-031 Phase 4 closure pattern;
+   no parallel-ABI support, no deprecation cycle inside the
+   binary).
+
+#### Risks
+
+| Risk | Mitigation |
+|---|---|
+| External plugin authors block on the migration | CHANGELOG entry + migration cookbook in `docs/plugin-development.md`; the migration is mechanical (rename + restructure, no semantic surprises) |
+| `display` variant's `content::editable` payload contains `editable-span` which itself contains a `selection-record` — circular type dependency in WIT | Topological ordering of types in the WIT file (the existing 1728-line file already orders this way for `style` / `atom`) |
+| `buffer-edit` record size grows with `original` / `replacement` strings | Acceptable — shadow-cursor commits are inherently bounded in size by the editable virtual-text span; no risk of unbounded `original` |
+| WIT 3.0 lands while ADR-032 W5 is in flight | W5 is currently undecided; if W5 lands positive after WIT 3.0, that's a WIT 3.1 or 4.0 follow-up. Not a blocker |
+
+#### Out of scope (deferred to later ADRs)
+
+- ADR-032 W5 path / brush / stroke types — gated on the Vello
+  adoption decision (see ADR-032 §SDK-migration analysis).
+- Plugin commit-intercept hook (consumes `buffer-edit`,
+  produces transformed `buffer-edit`) — additively landable
+  on top of WIT 3.0; no further ABI break needed.
+- `selection-set::map` / `::filter` / `::flat-map` (require
+  host-side closures, deferred indefinitely; plugins use the
+  workaround via direct `selections` list access).
+- Cross-generation `selection-set-project-to` — deferred to a
+  follow-up ADR; the current `set-algebra-error::generation-mismatch`
+  variant reserves the wire shape for it.
 
 ## ADR-037: Fold-in-Algebra — Retiring the Hybrid Bridge
 
