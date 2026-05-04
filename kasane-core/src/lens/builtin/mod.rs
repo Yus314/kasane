@@ -10,9 +10,11 @@
 //! `kasane.builtin` plugin id is reserved for built-in lenses;
 //! third-party plugins register under their own plugin id.
 
+pub mod indent_guides;
 pub mod long_line;
 pub mod trailing_whitespace;
 
+pub use indent_guides::IndentGuidesLens;
 pub use long_line::LongLineLens;
 pub use trailing_whitespace::TrailingWhitespaceLens;
 

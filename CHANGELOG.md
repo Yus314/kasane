@@ -2,6 +2,64 @@
 
 ## [Unreleased]
 
+### Added — Bundled `IndentGuidesLens` (Composable Lenses follow-up) (2026-05-04)
+
+Third built-in `Lens` implementation. Highlights every Nth
+column in a line's leading whitespace so indentation
+structure is visually traceable. The first lens in the bundle
+that emits **multiple directives per line** rather than the
+single-directive shape the trailing-whitespace and long-line
+lenses produced — exercises a different output-cardinality
+pattern.
+
+For each line whose leading whitespace consists entirely of
+ASCII space characters, the lens emits one `StyleInline` per
+indent column (byte offsets `0`, `indent_width`,
+`2 * indent_width`, ...) covering the single space at that
+column. The visual outcome depends on the supplied style:
+a contrasting background colour produces a column of coloured
+cells that reads as a vertical guide.
+
+- (core) `kasane_core::lens::builtin::IndentGuidesLens`:
+  - `new(indent_width: u32, style: WireFace)` — typical
+    `indent_width`: 2 or 4.
+  - `with_name(name)` — override the default
+    `indent-guides-{indent_width}` name; useful for
+    semantic naming (`yaml-guides`, `markdown-guides`).
+  - `indent_width()` accessor.
+  - `id()` → `LensId { plugin: "kasane.builtin", name:
+    "indent-guides-{N}" }`.
+  - `label()` → `"Indent guides (N sp)"`.
+- (core) Internal `indent_guide_columns(line, indent_width)`
+  pure helper. Counts leading space-only bytes; aborts (returns
+  empty) on any tab in the leading run (avoids the tab-width
+  controversy — different editors render tabs at 2/4/8 cells;
+  a future tab-aware variant can layer on top once the project
+  picks tab semantics). Returns column byte offsets at every
+  multiple of `indent_width` within the leading-space run.
+- (test) 24 new tests in `lens::builtin::indent_guides::tests`
+  (lib 2519 → 2543): 11 column-computation cases (empty / no
+  leading space / 1 / 2 / 3 levels / partial trailing run /
+  tab in leading run / whitespace-only line / indent_width 2 /
+  indent_width 0 / indent_width larger than leading); 7
+  lens-display integration cases (empty / unindented / single
+  / deeply indented / mixed / multi-atom / tab-only); 6
+  trait-surface cases.
+
+The bundled-lens menu now spans three patterns:
+- **Suffix detection** — `TrailingWhitespaceLens`.
+- **Column-threshold detection** — `LongLineLens`.
+- **Per-column markers** — `IndentGuidesLens`.
+
+All three follow the same authoring template (constructor +
+`Lens` impl + pure range/column helper + comprehensive tests).
+The output shape varies (single-directive vs multi-directive
+per line), validating the registry's composition under both.
+
+Validation: 2543 workspace lib tests pass; 2800 workspace
+integration tests pass; clippy + fmt clean across
+`gui,syntax`.
+
 ### Added — Bundled `LongLineLens` (Composable Lenses follow-up) (2026-05-04)
 
 Second built-in `Lens` implementation. Highlights characters
