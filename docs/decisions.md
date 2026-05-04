@@ -3613,18 +3613,25 @@ state). Acceptance is gated on the wiring step below.
   unit tests.
 
 **Pending for Accepted status**:
-- ✅ **Salsa `text_at_time` PoC tracked function (2026-05-03)** —
-  proves `Time` integrates as a Salsa tracked-function parameter.
-  `text_at_time(db, BufferInput, Time)` keys the cache on
-  `(BufferInput, Time)`; `Time::Now` projects the current
-  `BufferInput.lines` to plain text, `Time::At(_)` returns `None`
-  as a documented contract slot until a `HistoryInput` Salsa input
-  lifts the backend into the Salsa world. 5 unit tests pin the
-  contract: current-buffer projection, `Time::At` placeholder,
-  distinct-time cache keys, BufferInput-change invalidates
-  `Time::Now`, empty-buffer yields empty text. This unblocks
-  threading `Time` through the broader query graph (lens directives,
-  display map, etc.) — the cache-shape question is settled.
+- ✅ **Salsa `text_at_time` end-to-end (2026-05-03)** —
+  `text_at_time(db, BufferInput, HistoryInput, Time)` resolves both
+  ends of the `Time` enum through the Salsa cache. `Time::Now`
+  projects the current `BufferInput.lines` to plain text;
+  `Time::At(v)` reaches through the new `HistoryInput`
+  (`#[salsa::input] HistoryInput { backend: Arc<InMemoryRing> }`)
+  to fetch the past snapshot. The cache keys on
+  `(BufferInput, HistoryInput, Time)`: past `Time::At(v)` entries
+  are valid forever once computed (snapshots are immutable), and
+  `Time::Now` invalidates correctly when `BufferInput.lines`
+  changes. 7 unit tests pin the full contract: current-buffer
+  projection, empty-history `Time::At` returns None, committed
+  snapshot returned for `Time::At(v)`, FIFO-evicted version
+  returns None, distinct-time cache keys, BufferInput-change
+  invalidates `Time::Now`, empty-buffer edge case. The original
+  §Migration item "Add Time parameter to every Salsa query" is
+  reframed: the *cache-shape and HistoryInput pattern* are settled
+  here; bulk-applying it to every existing query is a follow-up
+  per-query migration tracked separately.
 - ✅ **Canonical SelectionSet field on `InferenceState` (2026-05-03)**
   — `InferenceState` gains a `pub selection_set: SelectionSet` field
   populated by `AppState::apply` from the heuristic detector's
