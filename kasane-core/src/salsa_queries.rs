@@ -47,21 +47,19 @@ pub fn cursor_style_query(
 
 /// ADR-035 §2 — Time-aware text query.
 ///
-/// Demonstrates that `Time` integrates as a Salsa tracked-function
-/// parameter and resolves both ends of the `Time` enum:
+/// Resolves both ends of the `Time` enum through the Salsa cache:
 ///
 /// - `Time::Now` projects the current `BufferInput.lines` to plain
 ///   text (lossy: drops style payloads, matches the `lines_to_text`
-///   convention used by `AppState::apply`'s auto-commit hook).
+///   convention used by `AppState::apply`'s auto-commit hook). The
+///   cache invalidates when `BufferInput.lines` changes.
 /// - `Time::At(v)` resolves through the configured `HistoryInput`'s
 ///   `InMemoryRing` — returns the snapshot's text if `v` is still
-///   in the ring, `None` if it was evicted or never observed.
+///   in the ring, `None` if it was evicted or never observed. Past
+///   snapshots are immutable, so these cache entries are valid
+///   forever once computed.
 ///
-/// The Salsa cache keys on `(BufferInput, HistoryInput, Time)`. The
-/// `HistoryInput`'s `Arc` is stable for the session, so cache
-/// entries for `Time::At(v)` are valid forever once computed (past
-/// snapshots are immutable). `Time::Now` invalidates correctly when
-/// the underlying `BufferInput.lines` changes.
+/// Cache key: `(BufferInput, HistoryInput, Time)`.
 #[salsa::tracked]
 pub fn text_at_time(
     db: &dyn KasaneDb,
@@ -86,6 +84,36 @@ pub fn text_at_time(
         }
         Time::At(v) => history.backend(db).snapshot(v).ok().map(|s| s.text),
     }
+}
+
+/// ADR-035 §2 — Time-aware `SelectionSet` query.
+///
+/// Companion to [`text_at_time`] — resolves a `SelectionSet` at the
+/// requested `Time` through the same `HistoryInput`. Demonstrates
+/// that the Time-aware Salsa pattern generalises beyond text.
+///
+/// - `Time::Now` resolves to `history.current_version(db)` and reads
+///   the snapshot's `selection`. The Salsa cache invalidates when
+///   the caller pushes a new `current_version` after a commit (see
+///   `HistoryInput::set_current_version`).
+/// - `Time::At(v)` reads the snapshot for the specific version,
+///   returning `None` for evicted or unknown versions.
+///
+/// Cache key: `(HistoryInput, Time)`. No `BufferInput` dependency —
+/// the SelectionSet lives entirely in history (committed alongside
+/// text by `AppState::apply`'s auto-commit hook).
+#[salsa::tracked]
+pub fn selection_at_time(
+    db: &dyn KasaneDb,
+    history: HistoryInput,
+    time: Time,
+) -> Option<crate::state::selection_set::SelectionSet> {
+    use crate::history::HistoryBackend;
+    let v = match time {
+        Time::Now => history.current_version(db),
+        Time::At(v) => v,
+    };
+    history.backend(db).snapshot(v).ok().map(|s| s.selection)
 }
 
 #[cfg(test)]
@@ -120,7 +148,7 @@ mod time_query_tests {
 
     fn make_history(db: &KasaneDatabase) -> (HistoryInput, Arc<InMemoryRing>) {
         let ring = Arc::new(InMemoryRing::new());
-        let input = HistoryInput::new(db, ring.clone());
+        let input = HistoryInput::new(db, ring.clone(), VersionId::INITIAL);
         (input, ring)
     }
 
@@ -170,7 +198,7 @@ mod time_query_tests {
         let db = KasaneDatabase::default();
         let buffer = make_buffer(&db, vec!["x"]);
         let ring = Arc::new(InMemoryRing::with_capacity(1));
-        let history = HistoryInput::new(&db, ring.clone());
+        let history = HistoryInput::new(&db, ring.clone(), VersionId::INITIAL);
 
         let v0 = ring.commit(
             Arc::from("a"),
@@ -233,5 +261,96 @@ mod time_query_tests {
         let history = empty_history(&db);
         let text = text_at_time(&db, buffer, history, Time::Now).unwrap();
         assert_eq!(&*text, "");
+    }
+
+    // -----------------------------------------------------------------
+    // selection_at_time
+    // -----------------------------------------------------------------
+
+    use crate::state::selection::{BufferPos, Selection};
+
+    fn sel(line: u32, c0: u32, c1: u32) -> Selection {
+        Selection::new(BufferPos::new(line, c0), BufferPos::new(line, c1))
+    }
+
+    #[test]
+    fn selection_at_now_empty_history_returns_none() {
+        let db = KasaneDatabase::default();
+        let history = empty_history(&db);
+        assert_eq!(selection_at_time(&db, history, Time::Now), None);
+    }
+
+    #[test]
+    fn selection_at_returns_committed_payload() {
+        use salsa::Setter;
+
+        let mut db = KasaneDatabase::default();
+        let (history, ring) = make_history(&db);
+
+        let payload =
+            SelectionSet::singleton(sel(2, 5, 10), BufferId::new("test"), BufferVersion(0));
+        let v = ring.commit(
+            Arc::from("text"),
+            payload.clone(),
+            BufferId::new("test"),
+            BufferVersion(0),
+        );
+
+        // Sync current_version so Time::Now picks up v.
+        history.set_current_version(&mut db).to(v);
+
+        let now = selection_at_time(&db, history, Time::Now).unwrap();
+        let at = selection_at_time(&db, history, Time::At(v)).unwrap();
+        assert_eq!(now, payload);
+        assert_eq!(at, payload);
+        assert_eq!(now, at);
+    }
+
+    #[test]
+    fn selection_at_now_invalidates_when_current_version_advances() {
+        use salsa::Setter;
+
+        let mut db = KasaneDatabase::default();
+        let (history, ring) = make_history(&db);
+
+        // Commit two versions with different selections.
+        let p0 = SelectionSet::singleton(sel(0, 0, 5), BufferId::new("test"), BufferVersion(0));
+        let p1 = SelectionSet::singleton(sel(1, 0, 5), BufferId::new("test"), BufferVersion(1));
+        let v0 = ring.commit(Arc::from("a"), p0, BufferId::new("test"), BufferVersion(0));
+        let v1 = ring.commit(
+            Arc::from("b"),
+            p1.clone(),
+            BufferId::new("test"),
+            BufferVersion(1),
+        );
+
+        // Initially Time::Now points at v0.
+        history.set_current_version(&mut db).to(v0);
+        let first = selection_at_time(&db, history, Time::Now).unwrap();
+        assert_eq!(first.primary().unwrap().min().line, 0);
+
+        // Advance current_version → Salsa invalidates Time::Now.
+        history.set_current_version(&mut db).to(v1);
+        let second = selection_at_time(&db, history, Time::Now).unwrap();
+        assert_eq!(second, p1);
+    }
+
+    #[test]
+    fn selection_at_evicted_returns_none() {
+        let db = KasaneDatabase::default();
+        let ring = Arc::new(InMemoryRing::with_capacity(1));
+        let history = HistoryInput::new(&db, ring.clone(), VersionId::INITIAL);
+
+        let p0 = SelectionSet::default_empty();
+        let v0 = ring.commit(Arc::from("a"), p0, BufferId::new("test"), BufferVersion(0));
+        let _v1 = ring.commit(
+            Arc::from("b"),
+            SelectionSet::default_empty(),
+            BufferId::new("test"),
+            BufferVersion(1),
+        );
+
+        // v0 evicted by FIFO at capacity 1.
+        assert_eq!(selection_at_time(&db, history, Time::At(v0)), None);
     }
 }

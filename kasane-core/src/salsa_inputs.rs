@@ -181,9 +181,18 @@ pub struct TransformPatchesInput {
 /// Salsa-tracked queries that need to resolve `Time::At(VersionId)`
 /// take this input alongside their other parameters. The `Arc` is
 /// stable for the session (the backend itself isn't replaced
-/// in-place), so Salsa's input-change detection sees the field as
-/// constant — past snapshots are immutable, so cache entries keyed on
-/// `Time::At(v)` for committed `v` are valid forever once computed.
+/// in-place), so Salsa's input-change detection sees the `backend`
+/// field as constant — past snapshots are immutable, so cache
+/// entries keyed on `Time::At(v)` for committed `v` are valid
+/// forever once computed.
+///
+/// `current_version` is the Salsa-trackable handle for `Time::Now`
+/// resolution: queries that resolve `Time::Now` to "the latest
+/// committed version" read this field, so they invalidate when the
+/// caller pushes a new version after a commit. Embedders are
+/// responsible for keeping it in sync (`backend.commit(...)` returns
+/// the assigned `VersionId`; pass it to
+/// `history_input.set_current_version(...).to(new_v)`).
 ///
 /// Concrete `Arc<InMemoryRing>` rather than `Arc<dyn HistoryBackend>`
 /// because Salsa input fields require `Update`-deriving types and
@@ -193,4 +202,5 @@ pub struct TransformPatchesInput {
 #[salsa::input]
 pub struct HistoryInput {
     pub backend: Arc<crate::history::InMemoryRing>,
+    pub current_version: crate::history::VersionId,
 }
