@@ -1101,6 +1101,14 @@ impl PluginBackend for WasmPlugin {
         )
     }
 
+    /// Trait-method bridge to the existing
+    /// [`Self::register_lenses_into`] inherent method. Lets
+    /// `PluginRuntime::sync_lenses` dispatch over `&dyn
+    /// PluginBackend` without downcasting to `WasmPlugin`.
+    fn register_lenses(&self, registry: &mut kasane_core::lens::LensRegistry) -> usize {
+        WasmPlugin::register_lenses_into(self, registry)
+    }
+
     fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
         let shared = Arc::clone(&self.shared);
         self.shared.with_runtime(|runtime| {

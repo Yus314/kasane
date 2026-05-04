@@ -1700,3 +1700,146 @@ fn unified_and_legacy_annotators_coexist() {
     assert!(result.left_gutter.is_some());
     assert!(result.line_backgrounds.is_some());
 }
+
+// =============================================================================
+// PluginRuntime::sync_lenses (Composable Lenses auto-wired lifecycle)
+// =============================================================================
+
+mod sync_lenses {
+    use super::super::super::PluginRuntime;
+    use super::super::super::traits::PluginBackend;
+    use crate::lens::{Lens, LensId, LensRegistry};
+    use crate::plugin::PluginId;
+    use std::sync::{Arc, Mutex};
+
+    /// Native plugin that owns one lens and registers it via the
+    /// `PluginBackend::register_lenses` hook.
+    struct LensOwningPlugin {
+        id: PluginId,
+        lens_name: String,
+        registered: Arc<Mutex<usize>>,
+    }
+
+    struct OwnedLens {
+        id: LensId,
+    }
+    impl Lens for OwnedLens {
+        fn id(&self) -> LensId {
+            self.id.clone()
+        }
+        fn display(
+            &self,
+            _view: &crate::plugin::AppView<'_>,
+        ) -> Vec<crate::display::DisplayDirective> {
+            Vec::new()
+        }
+    }
+
+    impl PluginBackend for LensOwningPlugin {
+        fn id(&self) -> PluginId {
+            self.id.clone()
+        }
+        fn on_init_effects(
+            &mut self,
+            _state: &crate::plugin::AppView<'_>,
+        ) -> crate::plugin::Effects {
+            crate::plugin::Effects::default()
+        }
+        fn register_lenses(&self, registry: &mut LensRegistry) -> usize {
+            registry.register(Arc::new(OwnedLens {
+                id: LensId::new(self.id.clone(), self.lens_name.clone()),
+            }));
+            *self.registered.lock().unwrap() += 1;
+            1
+        }
+    }
+
+    fn make_runtime(plugins: Vec<Box<dyn PluginBackend>>) -> PluginRuntime {
+        let mut runtime = PluginRuntime::new();
+        for plugin in plugins {
+            runtime.register_backend(plugin);
+        }
+        runtime
+    }
+
+    #[test]
+    fn sync_lenses_registers_from_each_plugin() {
+        let counter_a = Arc::new(Mutex::new(0));
+        let counter_b = Arc::new(Mutex::new(0));
+        let runtime = make_runtime(vec![
+            Box::new(LensOwningPlugin {
+                id: PluginId("alpha".into()),
+                lens_name: "lens-a".into(),
+                registered: counter_a.clone(),
+            }),
+            Box::new(LensOwningPlugin {
+                id: PluginId("beta".into()),
+                lens_name: "lens-b".into(),
+                registered: counter_b.clone(),
+            }),
+        ]);
+
+        let mut lens_registry = LensRegistry::new();
+        let count = runtime.sync_lenses(&mut lens_registry);
+        assert_eq!(count, 2);
+        assert!(lens_registry.is_registered(&LensId::new(PluginId("alpha".into()), "lens-a")));
+        assert!(lens_registry.is_registered(&LensId::new(PluginId("beta".into()), "lens-b")));
+        assert_eq!(*counter_a.lock().unwrap(), 1);
+        assert_eq!(*counter_b.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn sync_lenses_drops_stale_plugins_then_re_registers_live() {
+        // First sync: alpha + beta both registered.
+        let runtime_initial = make_runtime(vec![
+            Box::new(LensOwningPlugin {
+                id: PluginId("alpha".into()),
+                lens_name: "a".into(),
+                registered: Arc::new(Mutex::new(0)),
+            }),
+            Box::new(LensOwningPlugin {
+                id: PluginId("beta".into()),
+                lens_name: "b".into(),
+                registered: Arc::new(Mutex::new(0)),
+            }),
+        ]);
+        let mut lens_registry = LensRegistry::new();
+        runtime_initial.sync_lenses(&mut lens_registry);
+        assert_eq!(lens_registry.len(), 2);
+
+        // Second sync: only alpha remains. beta's lens should be
+        // dropped; alpha's stays.
+        let runtime_after = make_runtime(vec![Box::new(LensOwningPlugin {
+            id: PluginId("alpha".into()),
+            lens_name: "a".into(),
+            registered: Arc::new(Mutex::new(0)),
+        })]);
+        runtime_after.sync_lenses(&mut lens_registry);
+        assert_eq!(lens_registry.len(), 1);
+        assert!(lens_registry.is_registered(&LensId::new(PluginId("alpha".into()), "a")));
+        assert!(!lens_registry.is_registered(&LensId::new(PluginId("beta".into()), "b")));
+    }
+
+    #[test]
+    fn sync_lenses_default_no_op_for_plugins_without_lenses() {
+        // A plugin that doesn't override register_lenses returns 0
+        // by default.
+        struct NoLensPlugin;
+        impl PluginBackend for NoLensPlugin {
+            fn id(&self) -> PluginId {
+                PluginId("no-lens".into())
+            }
+            fn on_init_effects(
+                &mut self,
+                _state: &crate::plugin::AppView<'_>,
+            ) -> crate::plugin::Effects {
+                crate::plugin::Effects::default()
+            }
+        }
+        let runtime = make_runtime(vec![Box::new(NoLensPlugin)]);
+        let mut lens_registry = LensRegistry::new();
+        let count = runtime.sync_lenses(&mut lens_registry);
+        assert_eq!(count, 0);
+        assert_eq!(lens_registry.len(), 0);
+    }
+}

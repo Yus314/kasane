@@ -608,6 +608,9 @@ where
     )?;
     reload.apply_settings(ctx.state);
     kasane_core::event_loop::sync_suppressed_builtins(ctx.state, ctx.registry);
+    // Composable Lenses auto-wire: drop lens entries owned by
+    // unloaded plugins and re-register from the new set.
+    ctx.registry.sync_lenses(&mut ctx.state.lens_registry);
     report_plugin_diagnostics(&reload.diagnostics);
     schedule_diagnostic_overlay(
         &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(ctx.session_tx.clone())),

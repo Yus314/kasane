@@ -157,6 +157,23 @@ pub trait PluginBackend: Any {
         crate::state::shadow_cursor::BufferEditVerdict::PassThrough
     }
 
+    /// Register lenses owned by this plugin onto the supplied
+    /// registry. Called by `PluginRuntime::sync_lenses` at
+    /// lifecycle points (initialize / reload).
+    ///
+    /// Returns the number of lenses registered. Default: 0
+    /// (no-op) — only plugins that own lenses (notably
+    /// `WasmPlugin` via the `declare-lenses` WIT export)
+    /// override this. Native plugins that want to register
+    /// lenses can do so directly via
+    /// `state.lens_registry.register(...)` from their `on_init`
+    /// handler; this trait method is the indirection that lets
+    /// the runtime auto-wire WASM plugins without each embedder
+    /// orchestrating per-plugin.
+    fn register_lenses(&self, _registry: &mut crate::lens::LensRegistry) -> usize {
+        0
+    }
+
     // --- Input hooks ---
 
     /// Observe a key event (notification only, cannot consume).

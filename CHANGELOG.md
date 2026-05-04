@@ -2,6 +2,74 @@
 
 ## [Unreleased]
 
+### Added — Auto-wired lifecycle for Composable Lenses (`PluginRuntime::sync_lenses`) (2026-05-04)
+
+Composable Lenses follow-up: lens registration was previously
+embedder-orchestrated — the embedder called
+`WasmPlugin::register_lenses_into` per-plugin after plugin
+load. This revision auto-wires lens registration into the
+plugin lifecycle so embedders no longer orchestrate
+per-plugin: a single `PluginRuntime::sync_lenses` call drops
+lens entries owned by unloaded plugins and re-registers from
+every live plugin.
+
+The dispatch chain is now uniform across WASM and native
+lifecycle paths: load a plugin → call `sync_lenses` → its
+lenses are available; unload a plugin → call `sync_lenses` →
+its lenses are gone. No per-plugin orchestration; no leaked
+adapters pointing at defunct WASM runtimes.
+
+- (core) `PluginBackend::register_lenses(&self, &mut LensRegistry)
+  -> usize` — new trait method with no-op default. Override on
+  plugin-side to register lenses owned by that plugin. The
+  default `0` lets native plugins inherit silently — they can
+  still register lenses directly via
+  `state.lens_registry.register(...)` from their `on_init`
+  handler if preferred.
+- (core) `LensRegistry::unregister_by_plugin(&PluginId) -> usize`
+  — drops every lens entry owned by the supplied plugin id
+  (and its cache entries via the existing per-lens
+  invalidation cascade). Returns the count dropped.
+- (core) `PluginRuntime::sync_lenses(&self, &mut LensRegistry)
+  -> usize` — two-phase driver:
+  1. **Drop**: lens entries owned by plugin ids no longer in
+     this runtime are unregistered (via
+     `unregister_by_plugin`).
+  2. **Register**: every current plugin's `register_lenses`
+     trait method is called with the registry. Returns the
+     total count registered in step 2.
+- (kasane-wasm) `WasmPlugin::register_lenses` (trait impl) —
+  bridges to the existing inherent `register_lenses_into` so
+  the runtime can dispatch over `&dyn PluginBackend` without
+  downcasting.
+- (kasane-tui) `lib.rs` + `event_handler.rs` —
+  `registry.sync_lenses(&mut state.lens_registry)` called
+  after every `plugin_manager.initialize` and
+  `plugin_manager.reload`.
+- (kasane-gui) `app/mod.rs` — same auto-wire after
+  `initialize` and after the hot-reload's `reload`.
+- (test) 6 new tests:
+  - **Lens registry** (3): `unregister_by_plugin` drops all
+    lenses for the given plugin (multi-lens, multi-plugin
+    fixture); unknown-plugin unregister is a no-op;
+    `unregister_by_plugin` cascades through the per-line
+    cache (drops cache entries alongside lens entries).
+  - **Plugin runtime** (3): `sync_lenses` registers from each
+    plugin in slot order (counts via callback-driven test
+    plugins); `sync_lenses` drops stale-plugin lens entries
+    on a follow-up sync against a different runtime; default
+    no-op behaviour for plugins that don't override
+    `register_lenses`.
+
+The Composable Lenses Roadmap §2.2 entry is now marked
+**Complete**. Optional follow-up (more bundled lenses) is a
+nice-to-have rather than a capability gap.
+
+Validation: 107 lens-namespace tests pass (was 96 before the
+sync work; +6 tests added in this commit + 5 placement
+adjustments); workspace lib + integration tests pass with
+zero failures; clippy + fmt clean across `gui,syntax`.
+
 ### Added — WIT surface for Composable Lenses (WASM plugins can register lenses) (2026-05-04)
 
 Composable Lenses follow-up: the lens system was native-only —

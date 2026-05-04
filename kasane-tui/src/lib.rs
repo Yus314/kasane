@@ -199,6 +199,12 @@ where
     })?;
     initial_plugins.apply_settings(&mut state);
     kasane_core::event_loop::sync_suppressed_builtins(&mut state, &registry);
+    // Composable Lenses auto-wire (Roadmap §2.2 follow-up): pull
+    // lens declarations from each loaded plugin into the
+    // session's `LensRegistry`. WASM plugins surface lenses via
+    // `declare-lenses`; native plugins inherit the no-op default
+    // and may register directly via state.lens_registry.
+    registry.sync_lenses(&mut state.lens_registry);
     report_plugin_diagnostics(&initial_plugins.diagnostics);
     kasane_core::event_loop::schedule_diagnostic_overlay(
         &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(tx.clone())),

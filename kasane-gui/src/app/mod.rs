@@ -202,6 +202,8 @@ where
         })?;
         initial_plugins.apply_settings(&mut state);
         kasane_core::event_loop::sync_suppressed_builtins(&mut state, &registry);
+        // Composable Lenses auto-wire (Roadmap §2.2 follow-up).
+        registry.sync_lenses(&mut state.lens_registry);
         let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
         report_plugin_diagnostics(&initial_plugins.diagnostics);
         let gui_sink = GuiEventSink(event_proxy.clone());
@@ -830,6 +832,10 @@ where
             Ok(reload) => {
                 reload.apply_settings(&mut self.state);
                 kasane_core::event_loop::sync_suppressed_builtins(&mut self.state, &self.registry);
+                // Composable Lenses auto-wire: drop lens entries
+                // owned by unloaded plugins and re-register from
+                // the new set.
+                self.registry.sync_lenses(&mut self.state.lens_registry);
                 report_plugin_diagnostics(&reload.diagnostics);
                 schedule_diagnostic_overlay(
                     &kasane_core::event_loop::GenericDiagnosticScheduler(self.gui_sink.clone()),

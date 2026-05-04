@@ -128,6 +128,46 @@ impl PluginRuntime {
         self.slots.len()
     }
 
+    /// Sync lens registrations from this runtime to `lens_registry`
+    /// (Composable Lenses auto-wired lifecycle).
+    ///
+    /// Two-phase:
+    /// 1. **Drop** lens entries owned by plugin ids no longer in
+    ///    this runtime. A plugin that unloaded between calls has
+    ///    its lenses purged so they don't outlive the backing
+    ///    runtime.
+    /// 2. **Register** by calling `register_lenses` on every
+    ///    current backend. Native plugins return 0 (no-op
+    ///    default); WASM plugins query `declare-lenses` and
+    ///    register one `WasmLensAdapter` per declaration.
+    ///
+    /// Idempotent: re-registering an existing lens replaces the
+    /// previous adapter (same `LensId`). Cache entries for the
+    /// previous adapter are dropped on re-registration per
+    /// `LensRegistry::register`.
+    ///
+    /// Returns the number of lenses registered in step 2 (the
+    /// count from step 1 is implicit; call
+    /// `LensRegistry::registered_ids().count()` before / after to
+    /// observe the diff).
+    pub fn sync_lenses(&self, lens_registry: &mut crate::lens::LensRegistry) -> usize {
+        let live: std::collections::HashSet<super::PluginId> =
+            self.slots.iter().map(|s| s.backend.id()).collect();
+        let stale_plugins: Vec<super::PluginId> = lens_registry
+            .registered_ids()
+            .map(|id| id.plugin.clone())
+            .filter(|p| !live.contains(p))
+            .collect();
+        for plugin in stale_plugins {
+            lens_registry.unregister_by_plugin(&plugin);
+        }
+        let mut registered = 0usize;
+        for slot in &self.slots {
+            registered += slot.backend.register_lenses(lens_registry);
+        }
+        registered
+    }
+
     /// Access the plugin variable store.
     pub fn variable_store(&self) -> &super::variable_store::PluginVariableStore {
         &self.variable_store

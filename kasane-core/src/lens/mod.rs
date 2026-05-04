@@ -382,6 +382,27 @@ impl LensRegistry {
     pub fn cache_len(&self) -> usize {
         self.cache.lock().unwrap().len()
     }
+
+    /// Unregister all lenses owned by the supplied plugin id.
+    /// Drops each lens's enabled state and cache entries.
+    /// Returns the count of unregistered lenses.
+    ///
+    /// Used by `PluginRuntime::sync_lenses` after a plugin
+    /// unloads so its lens entries don't outlive the backing
+    /// plugin runtime. Embedders that manually orchestrate
+    /// plugin lifecycle can call this directly.
+    pub fn unregister_by_plugin(&mut self, plugin: &PluginId) -> usize {
+        let to_drop: Vec<LensId> = self
+            .lenses
+            .keys()
+            .filter(|id| &id.plugin == plugin)
+            .cloned()
+            .collect();
+        for id in &to_drop {
+            self.unregister(id);
+        }
+        to_drop.len()
+    }
 }
 
 pub mod builtin;

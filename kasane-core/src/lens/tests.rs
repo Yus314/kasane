@@ -764,3 +764,57 @@ fn invalidate_drops_per_line_entries_too() {
         "unregister drops per-line entries for the lens"
     );
 }
+
+// -----------------------------------------------------------------
+// Auto-wired lifecycle: unregister_by_plugin + sync_lenses
+// -----------------------------------------------------------------
+
+#[test]
+fn unregister_by_plugin_drops_all_lenses_for_that_plugin() {
+    let mut registry = LensRegistry::new();
+    let alpha_a = id("alpha", "a");
+    let alpha_b = id("alpha", "b");
+    let beta_c = id("beta", "c");
+    registry.register(Arc::new(FixedLens::new(alpha_a.clone(), style_line(0))));
+    registry.register(Arc::new(FixedLens::new(alpha_b.clone(), style_line(1))));
+    registry.register(Arc::new(FixedLens::new(beta_c.clone(), style_line(2))));
+    registry.enable(&alpha_a);
+    registry.enable(&beta_c);
+    assert_eq!(registry.len(), 3);
+    assert_eq!(registry.enabled_count(), 2);
+
+    let dropped = registry.unregister_by_plugin(&pid("alpha"));
+    assert_eq!(dropped, 2, "two lenses owned by alpha");
+    assert!(!registry.is_registered(&alpha_a));
+    assert!(!registry.is_registered(&alpha_b));
+    assert!(registry.is_registered(&beta_c), "beta untouched");
+    assert!(registry.is_enabled(&beta_c));
+    assert_eq!(registry.len(), 1);
+}
+
+#[test]
+fn unregister_by_plugin_unknown_plugin_is_noop() {
+    let mut registry = LensRegistry::new();
+    let lens_id = id("p", "x");
+    registry.register(Arc::new(FixedLens::new(lens_id.clone(), style_line(0))));
+    let dropped = registry.unregister_by_plugin(&pid("ghost"));
+    assert_eq!(dropped, 0);
+    assert!(registry.is_registered(&lens_id));
+}
+
+#[test]
+fn unregister_by_plugin_drops_per_line_cache_entries() {
+    let (lens, _) = PerLineCounter::new(id("p", "x"));
+    let lens_id = lens.id();
+    let mut registry = LensRegistry::new();
+    registry.register(Arc::new(lens));
+    registry.enable(&lens_id);
+
+    let state = appstate_with_lines(&["a", "b", "c"]);
+    let _ = registry.collect_directives(&AppView::new(&state));
+    assert_eq!(registry.cache_len(), 3);
+
+    let dropped = registry.unregister_by_plugin(&pid("p"));
+    assert_eq!(dropped, 1);
+    assert_eq!(registry.cache_len(), 0);
+}
