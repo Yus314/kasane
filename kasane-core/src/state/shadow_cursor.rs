@@ -28,12 +28,26 @@
 //! `ShadowCursor::buffer_projection_target` indexes into the parent
 //! span vector and returns that field.
 //!
-//! Subsequent phases (deferred):
+//! Phase 3 splits the commit pipeline into an algebraic and a
+//! serialization layer:
 //!
-//! - **Phase 3** — fold the keyboard-handling state machine into a
-//!   smaller surface that carries the working-text edit as a
-//!   `SelectionSet`-anchored overlay; commit via `exec -draft`
-//!   produces a `BufferEdit` keyed by the projected Selection.
+//! - `mirror_edit(shadow, span, line_count) -> Option<BufferEdit>`
+//!   computes the algebraic shape of the commit — a `Selection`
+//!   target plus pre/post text — and is the natural payload for a
+//!   future plugin commit-intercept hook.
+//! - `edit_to_commands(edit) -> Vec<Command>` serializes a
+//!   `BufferEdit` into the Kakoune `exec -draft` command(s) that
+//!   land it.
+//! - `build_mirror_commit` remains a thin composition of the two,
+//!   preserving the dispatch-side entry point.
+//!
+//! The keyboard-handling state machine (`handle_shadow_cursor_key`)
+//! still operates in synthetic grapheme space — it does not
+//! re-shape onto buffer-space `SelectionSet` algebra, so that part
+//! of the original Phase 3 sketch is intentionally not pursued.
+//!
+//! Subsequent phase (deferred):
+//!
 //! - **Phase 4** — version the working_text via `BufferVersion` so
 //!   shadow edits compose with `Time::At(v)` queries.
 
@@ -44,6 +58,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::input::KeyEvent;
 use crate::plugin::{Command, PluginId};
 use crate::state::DirtyFlags;
+use crate::state::selection::Selection;
 
 /// How the virtual text maps back to the buffer on commit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -69,7 +84,7 @@ pub struct EditableSpan {
     pub display_byte_range: Range<usize>,
     /// Buffer-space projection target. Subsumes the previous
     /// `anchor_line` + `buffer_byte_range` pair.
-    pub projection_target: crate::state::selection::Selection,
+    pub projection_target: Selection,
     /// How edits are projected back to the buffer.
     pub projection: EditProjection,
 }
@@ -117,10 +132,7 @@ impl ShadowCursor {
     /// Returns `None` when `span_index` is out of bounds for the
     /// supplied vector (e.g. the underlying display entry's spans
     /// were re-emitted with fewer entries this frame).
-    pub fn buffer_projection_target(
-        &self,
-        spans: &[EditableSpan],
-    ) -> Option<crate::state::selection::Selection> {
+    pub fn buffer_projection_target(&self, spans: &[EditableSpan]) -> Option<Selection> {
         spans.get(self.span_index).map(|s| s.projection_target)
     }
 }
@@ -343,62 +355,112 @@ fn build_commit_commands(
     vec![]
 }
 
-/// Build mirror-projection commit commands from a shadow cursor and its span.
+/// Algebraic representation of a buffer edit produced by a shadow
+/// cursor commit. ADR-035 §Migration ShadowCursor Phase 3 — the
+/// `BufferEdit` shape is the algebraic source of truth; the
+/// Kakoune `exec -draft` command is a thin serialization on top
+/// (`edit_to_commands`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BufferEdit {
+    /// Buffer-space target of the edit. For a Mirror projection,
+    /// `target.anchor.line == target.cursor.line` and
+    /// `min().column..max().column` is the byte range being
+    /// replaced.
+    pub target: Selection,
+    /// Pre-edit content (what currently lives at `target`). Used
+    /// for Hippocratic checks and round-tripping.
+    pub original: String,
+    /// Post-edit content (what `target` should contain after the
+    /// commit). Empty string represents a pure deletion.
+    pub replacement: String,
+}
+
+impl BufferEdit {
+    /// True when the edit would not change the buffer
+    /// (`original == replacement`). Callers should skip command
+    /// emission for hippocratic edits.
+    pub fn is_hippocratic_noop(&self) -> bool {
+        self.original == self.replacement
+    }
+}
+
+/// Compute the `BufferEdit` for a Mirror-projection shadow cursor
+/// commit, or `None` when no edit should be produced.
 ///
-/// For Mirror projection: generates `exec -draft` to select the anchor line's
-/// byte range and replace it with `working_text`.
-///
-/// For PluginDefined: deferred to BDT-7 (plugin API).
-///
-/// # Security
-///
-/// - `projection_target.anchor.line` must be within `line_count`
-/// - The column range must be within the anchor line's content
-/// - Violations result in empty commands (graceful degradation)
-pub fn build_mirror_commit(
+/// Returns `None` when:
+/// - the shadow cursor is in `Navigating` phase (nothing to commit),
+/// - the working text matches the original (Hippocratic noop),
+/// - `span.projection_target.anchor.line >= line_count`
+///   (anchor line out of range — graceful degradation),
+/// - `span.projection != Mirror` (`PluginDefined` projections are
+///   handled by `on_virtual_edit`, deferred to BDT-7).
+pub fn mirror_edit(
     shadow: &ShadowCursor,
     span: &EditableSpan,
     line_count: usize,
-) -> Vec<Command> {
+) -> Option<BufferEdit> {
     let (working_text, original_text) = match &shadow.phase {
         ShadowPhase::Editing {
             working_text,
             original_text,
             ..
         } => (working_text.as_str(), original_text.as_str()),
-        ShadowPhase::Navigating => return vec![],
+        ShadowPhase::Navigating => return None,
     };
 
     if working_text == original_text {
-        return vec![];
+        return None;
+    }
+
+    if span.projection != EditProjection::Mirror {
+        return None;
     }
 
     let target = span.projection_target;
-    let anchor_line = target.anchor.line as usize;
-    if anchor_line >= line_count {
-        return vec![];
+    if (target.anchor.line as usize) >= line_count {
+        return None;
     }
 
-    match span.projection {
-        EditProjection::Mirror => {
-            let col_min = target.min().column as usize;
-            let col_max = target.max().column as usize;
-            let line_1indexed = anchor_line + 1;
-            let col_start = col_min + 1; // 1-indexed
-            let col_end = col_max; // inclusive end in Kakoune
+    Some(BufferEdit {
+        target,
+        original: original_text.to_string(),
+        replacement: working_text.to_string(),
+    })
+}
 
-            let escaped = escape_for_kakoune_insert(working_text);
+/// Serialize a `BufferEdit` into the Kakoune `exec -draft` command(s)
+/// that will land it. The single-command form selects the byte range
+/// and either inserts (empty range) or substitutes (non-empty range).
+pub fn edit_to_commands(edit: &BufferEdit) -> Vec<Command> {
+    let line_1indexed = edit.target.anchor.line as usize + 1;
+    let col_min = edit.target.min().column as usize;
+    let col_max = edit.target.max().column as usize;
+    let col_start = col_min + 1; // 1-indexed
+    let col_end = col_max; // inclusive end in Kakoune
 
-            let cmd = if col_min == col_max {
-                format!("exec -draft {line_1indexed}g {col_start}li{escaped}<esc>")
-            } else {
-                format!("exec -draft {line_1indexed}g {col_start}l{col_end}lsc{escaped}<esc>")
-            };
+    let escaped = escape_for_kakoune_insert(&edit.replacement);
 
-            vec![Command::kakoune_command(&cmd)]
-        }
-        EditProjection::PluginDefined => vec![],
-    }
+    let cmd = if col_min == col_max {
+        format!("exec -draft {line_1indexed}g {col_start}li{escaped}<esc>")
+    } else {
+        format!("exec -draft {line_1indexed}g {col_start}l{col_end}lsc{escaped}<esc>")
+    };
+
+    vec![Command::kakoune_command(&cmd)]
+}
+
+/// Build mirror-projection commit commands from a shadow cursor and
+/// its span. Thin composition of `mirror_edit` + `edit_to_commands`;
+/// preserved as the public entry point for the update dispatch.
+pub fn build_mirror_commit(
+    shadow: &ShadowCursor,
+    span: &EditableSpan,
+    line_count: usize,
+) -> Vec<Command> {
+    mirror_edit(shadow, span, line_count)
+        .as_ref()
+        .map(edit_to_commands)
+        .unwrap_or_default()
 }
 
 /// Escape text for Kakoune insert mode within `exec -draft`.
@@ -700,6 +762,155 @@ mod tests {
         let span = mk_span(100, 0, 5);
         let cmds = build_mirror_commit(&shadow, &span, 10);
         assert!(cmds.is_empty(), "anchor out of range → no commands");
+    }
+
+    // -----------------------------------------------------------------
+    // ADR-035 §Migration ShadowCursor Phase 3 — algebraic BufferEdit
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn mirror_edit_returns_buffer_edit_with_target_and_text_pair() {
+        let shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "world".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 5,
+        });
+        let span = mk_span(2, 0, 5);
+        let edit = mirror_edit(&shadow, &span, 10).expect("edit produced");
+        assert_eq!(edit.target, span.projection_target);
+        assert_eq!(edit.original, "hello");
+        assert_eq!(edit.replacement, "world");
+        assert!(!edit.is_hippocratic_noop());
+    }
+
+    #[test]
+    fn mirror_edit_returns_none_for_navigating_phase() {
+        let shadow = make_shadow(ShadowPhase::Navigating);
+        let span = mk_span(0, 0, 5);
+        assert!(mirror_edit(&shadow, &span, 10).is_none());
+    }
+
+    #[test]
+    fn mirror_edit_returns_none_for_hippocratic_noop() {
+        let shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "hello".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 5,
+        });
+        let span = mk_span(0, 0, 5);
+        assert!(mirror_edit(&shadow, &span, 10).is_none());
+    }
+
+    #[test]
+    fn mirror_edit_returns_none_for_anchor_out_of_range() {
+        let shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "world".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 5,
+        });
+        let span = mk_span(100, 0, 5);
+        assert!(mirror_edit(&shadow, &span, 10).is_none());
+    }
+
+    #[test]
+    fn mirror_edit_returns_none_for_plugin_defined_projection() {
+        let shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "world".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 5,
+        });
+        let mut span = mk_span(0, 0, 5);
+        span.projection = EditProjection::PluginDefined;
+        assert!(mirror_edit(&shadow, &span, 10).is_none());
+    }
+
+    /// Decode a `Command::SendToKakoune(Keys(...))` back into the
+    /// keysym-substituted command string. Inverse of
+    /// `Command::kakoune_command`'s key-by-key encoding.
+    fn render_kakoune_command(cmd: &Command) -> String {
+        use crate::plugin::Command;
+        use crate::protocol::KasaneRequest;
+        let keys = match cmd {
+            Command::SendToKakoune(KasaneRequest::Keys(k)) => k,
+            _ => panic!("expected SendToKakoune(Keys)"),
+        };
+        let mut s = String::new();
+        for k in keys {
+            match k.as_str() {
+                "<space>" => s.push(' '),
+                "<minus>" => s.push('-'),
+                "<lt>" => s.push('<'),
+                "<gt>" => s.push('>'),
+                "<ret>" => s.push('\n'),
+                "<esc>" => s.push_str("<esc>"),
+                other => s.push_str(other),
+            }
+        }
+        s
+    }
+
+    #[test]
+    fn edit_to_commands_substitutes_non_empty_range() {
+        use crate::state::selection::{BufferPos, Selection};
+        let edit = BufferEdit {
+            target: Selection::new(BufferPos::new(2, 0), BufferPos::new(2, 5)),
+            original: "hello".into(),
+            replacement: "world".into(),
+        };
+        let cmds = edit_to_commands(&edit);
+        assert_eq!(cmds.len(), 1);
+        let rendered = render_kakoune_command(&cmds[0]);
+        assert!(
+            rendered.contains("exec -draft 3g 1l5lscworld<esc>"),
+            "non-empty range expected substitute form; got {rendered}"
+        );
+    }
+
+    #[test]
+    fn edit_to_commands_inserts_at_empty_range() {
+        use crate::state::selection::{BufferPos, Selection};
+        let edit = BufferEdit {
+            target: Selection::new(BufferPos::new(0, 3), BufferPos::new(0, 3)),
+            original: "".into(),
+            replacement: "X".into(),
+        };
+        let cmds = edit_to_commands(&edit);
+        assert_eq!(cmds.len(), 1);
+        let rendered = render_kakoune_command(&cmds[0]);
+        assert!(
+            rendered.contains("exec -draft 1g 4liX<esc>"),
+            "empty range expected insert form; got {rendered}"
+        );
+    }
+
+    #[test]
+    fn build_mirror_commit_matches_compose_of_mirror_edit_and_edit_to_commands() {
+        let shadow = make_shadow(ShadowPhase::Editing {
+            working_text: "world".into(),
+            original_text: "hello".into(),
+            cursor_grapheme_offset: 5,
+        });
+        let span = mk_span(2, 0, 5);
+        let composed = mirror_edit(&shadow, &span, 10)
+            .as_ref()
+            .map(edit_to_commands)
+            .unwrap_or_default();
+        let direct = build_mirror_commit(&shadow, &span, 10);
+        assert_eq!(composed.len(), direct.len());
+        for (c, d) in composed.iter().zip(direct.iter()) {
+            assert_eq!(render_kakoune_command(c), render_kakoune_command(d));
+        }
+    }
+
+    #[test]
+    fn buffer_edit_hippocratic_noop_detects_equal_strings() {
+        use crate::state::selection::{BufferPos, Selection};
+        let edit = BufferEdit {
+            target: Selection::new(BufferPos::new(0, 0), BufferPos::new(0, 5)),
+            original: "hello".into(),
+            replacement: "hello".into(),
+        };
+        assert!(edit.is_hippocratic_noop());
     }
 
     #[test]

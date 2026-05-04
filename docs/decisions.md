@@ -3748,9 +3748,34 @@ state). Acceptance is gated on the wiring step below.
   `state::shadow_cursor`; downstream `display`,
   `display_algebra::primitives`, `display::unit`, and
   `plugin::safe_directive` only carry `EditableSpan` as a payload
-  type and never touch the consolidated fields). Phase 3 (state
-  machine collapse onto `SelectionSet`-anchored overlay) and
-  Phase 4 (`BufferVersion` stamp on `working_text`) remain
+  type and never touch the consolidated fields).
+- ✅ **ShadowCursor §Migration Phase 3 — algebraic `BufferEdit`
+  (2026-05-04)** — the commit pipeline splits into an algebraic
+  layer and a serialization layer. `BufferEdit { target:
+  Selection, original: String, replacement: String }` is the
+  algebraic source of truth; `mirror_edit(shadow, span,
+  line_count) -> Option<BufferEdit>` computes it (returning
+  `None` for Navigating phase, Hippocratic noops, out-of-range
+  anchors, and PluginDefined projections); `edit_to_commands(edit)
+  -> Vec<Command>` serializes a `BufferEdit` into the Kakoune
+  `exec -draft` substitute / insert command(s). The pre-existing
+  `build_mirror_commit` becomes a thin compose of the two,
+  preserving the dispatch-side entry point. `BufferEdit` is the
+  natural payload for a future plugin commit-intercept hook (a
+  plugin reads / transforms / vetoes the edit before it serializes
+  to Kakoune). Tests assert structural shape at the
+  `BufferEdit` layer (target Selection equality, original /
+  replacement text, Hippocratic noop detection) and round-trip
+  the keysym-encoded command string through a
+  `render_kakoune_command` helper, eliminating Debug-format
+  fragility. The keyboard-handling state machine
+  (`handle_shadow_cursor_key`) intentionally remains in
+  synthetic grapheme space — the original Phase 3 sketch's
+  "smaller surface" half does not re-shape onto buffer-space
+  `SelectionSet` algebra (cursor_grapheme_offset indexes
+  graphemes within working_text, not buffer columns), so that
+  half is dropped from the migration plan rather than deferred.
+  Phase 4 (`BufferVersion` stamp on `working_text`) remains
   deferred per the in-module migration docstring.
 
 The §Migration table below remains the target shape; Acceptance signals

@@ -2,6 +2,63 @@
 
 ## [Unreleased]
 
+### Added — ADR-035 ShadowCursor §Migration Phase 3 (2026-05-04)
+
+The shadow cursor commit pipeline gains an algebraic representation:
+`BufferEdit { target: Selection, original: String, replacement:
+String }`. Production splits into `mirror_edit(shadow, span,
+line_count) -> Option<BufferEdit>` (the algebra) and
+`edit_to_commands(edit) -> Vec<Command>` (the Kakoune
+`exec -draft` serializer). `build_mirror_commit` survives as a
+thin compose of the two — dispatch-side callers do not change.
+
+The motivation: `BufferEdit` is the natural payload for a future
+plugin commit-intercept hook (a plugin reads / transforms / vetoes
+the edit before it serializes to Kakoune), and tests can assert
+structural shape against a typed value rather than parsing
+keysym-encoded `exec -draft` strings.
+
+- (core) `state::shadow_cursor::BufferEdit` — new public type
+  carrying the algebraic shape of a buffer edit (target Selection,
+  pre-edit text, post-edit text). `is_hippocratic_noop()` returns
+  true when the replacement equals the original.
+- (core) `state::shadow_cursor::mirror_edit(shadow, span,
+  line_count) -> Option<BufferEdit>` — computes the BufferEdit for
+  a Mirror-projection commit. Returns None for Navigating phase
+  (nothing to commit), Hippocratic noops (working_text ==
+  original_text), out-of-range anchor lines, and PluginDefined
+  projections (handled separately by `on_virtual_edit`).
+- (core) `state::shadow_cursor::edit_to_commands(edit)
+  -> Vec<Command>` — serializes a BufferEdit into Kakoune
+  `exec -draft` commands. Empty target ranges produce the insert
+  form (`{line}g {col}li{text}<esc>`); non-empty ranges produce
+  the substitute form (`{line}g {start}l{end}lsc{text}<esc>`).
+- (core) `state::shadow_cursor::build_mirror_commit` — refactored
+  to `mirror_edit().as_ref().map(edit_to_commands).unwrap_or_default()`.
+  Behavior unchanged for existing callers.
+- (test) 9 new `shadow_cursor` tests (1770 → 1779 lib tests):
+  five `mirror_edit_*` tests covering the four None branches plus
+  the Some-shape happy path; two `edit_to_commands_*` tests
+  asserting substitute / insert command forms via a
+  `render_kakoune_command` helper that decodes
+  `KasaneRequest::Keys` back to a readable string;
+  `build_mirror_commit_matches_compose_of_mirror_edit_and_edit_to_commands`
+  pins the equivalence; `buffer_edit_hippocratic_noop_detects_equal_strings`
+  pins the noop-detection helper.
+
+The keyboard-handling state machine (`handle_shadow_cursor_key`)
+intentionally remains in synthetic grapheme space — the original
+Phase 3 sketch's "smaller surface" half does not re-shape onto
+buffer-space `SelectionSet` algebra (cursor_grapheme_offset
+indexes graphemes within working_text, not buffer columns), so
+that half is dropped from the migration plan rather than
+deferred. Phase 4 (`BufferVersion` stamp on `working_text`)
+remains deferred.
+
+ADR-035 §Implementation Status updated with the Phase 3
+milestone entry; the in-module migration docstring renumbers
+the deferred phases (Phase 4 is the only remainder).
+
 ### Changed — ADR-035 ShadowCursor §Migration Phase 2 (2026-05-04)
 
 `EditableSpan`'s per-span `anchor_line: usize` + `buffer_byte_range:
