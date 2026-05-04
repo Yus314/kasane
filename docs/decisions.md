@@ -3808,6 +3808,23 @@ state). Acceptance is gated on the wiring step below.
   primitives; LOC estimated ~400 (vs 927)" is realised in
   spirit (algebraic edit shape + version stamp) but not in LOC
   (the keyboard-handler grapheme arithmetic stays).
+- ✅ **`SelectionSet::to_kakoune_command()` projection
+  (2026-05-04)** — closes the §Decision "Projection back to
+  Kakoune" line which was previously documentation-only. Encodes
+  a `SelectionSet` as a Kakoune `:select` command in the
+  `<line>.<col>,<line>.<col>` per-range syntax (1-indexed,
+  byte-addressed, anchor-then-cursor). Returns `None` for an
+  empty set (Kakoune `:select` requires ≥ 1 range). Direction is
+  preserved by emitting the anchor position first; multi-line
+  selections produce one range whose anchor and cursor sit on
+  different lines. With this method landed, the round-trip
+  described in the §Decision (`current.union(&saved).apply()` →
+  `select` to Kakoune → next protocol echo carries the new
+  canonical selection) is wired end-to-end. 5 new integration
+  tests cover the empty / singleton / multi-selection /
+  direction-preservation / multi-line cases via a
+  `render_kakoune_command` helper that decodes
+  `KasaneRequest::Keys` back to a readable string.
 
 The §Migration table below remains the target shape; Acceptance signals
 the migration is complete.

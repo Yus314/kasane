@@ -355,6 +355,50 @@ impl SelectionSet {
         }
         Ok(saved.clone())
     }
+
+    // -------------------------------------------------------------------------
+    // Projection back to Kakoune (ADR-035 §Decision)
+    // -------------------------------------------------------------------------
+
+    /// Encode this set as a Kakoune `:select` command. When issued, the
+    /// command replaces Kakoune's current selection with this set; on
+    /// the next protocol echo the new selection arrives as the
+    /// canonical current selection.
+    ///
+    /// Returns `None` for an empty set — Kakoune's `:select` requires
+    /// at least one range, and the caller usually wants to omit the
+    /// command entirely rather than error out.
+    ///
+    /// Each selection is encoded in Kakoune's
+    /// `<line>.<col>,<line>.<col>` per-range syntax (1-indexed,
+    /// byte-addressed, anchor-then-cursor). Direction is preserved by
+    /// emitting the anchor position first; Kakoune treats the second
+    /// position as the cursor regardless of relative ordering.
+    ///
+    /// The set's `BufferId` and `BufferVersion` are not consulted —
+    /// the caller is responsible for ensuring the set is anchored to
+    /// the buffer Kakoune is currently focused on; otherwise
+    /// the projection lands positions in the wrong buffer and
+    /// Kakoune will silently mis-select.
+    pub fn to_kakoune_command(&self) -> Option<crate::plugin::Command> {
+        use std::fmt::Write;
+        if self.selections.is_empty() {
+            return None;
+        }
+        let mut cmd = String::from("select");
+        for sel in &self.selections {
+            write!(
+                cmd,
+                " {}.{},{}.{}",
+                sel.anchor.line + 1,
+                sel.anchor.column + 1,
+                sel.cursor.line + 1,
+                sel.cursor.column + 1,
+            )
+            .expect("writing to String never fails");
+        }
+        Some(crate::plugin::Command::kakoune_command(&cmd))
+    }
 }
 
 /// Subtract `b` from `a`, returning 0–2 leftover selections.

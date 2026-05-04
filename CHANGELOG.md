@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Added — ADR-035 SelectionSet → Kakoune projection (2026-05-04)
+
+Closes the ADR-035 §Decision "Projection back to Kakoune" line
+which was previously documentation-only. The round-trip the ADR
+describes (`current.union(&saved).apply()` → `select` to Kakoune
+→ next protocol echo carries the new canonical selection) is now
+wired end-to-end.
+
+- (core) `state::selection_set::SelectionSet::to_kakoune_command(&self)
+  -> Option<Command>` — encodes the set as a Kakoune `:select`
+  command in the `<line>.<col>,<line>.<col>` per-range syntax
+  (1-indexed, byte-addressed, anchor-then-cursor). Returns
+  `None` for an empty set (Kakoune `:select` requires ≥ 1
+  range). Direction is preserved by emitting the anchor
+  position first; multi-line selections produce one range whose
+  anchor and cursor sit on different lines.
+- (test) 5 new tests in `state::selection_set_tests` (lib 1783
+  → 1788) covering empty / singleton / multi-selection /
+  direction-preservation (Backward selection emits anchor
+  before cursor) / multi-line anchor / cursor cases. The
+  assertions decode `KasaneRequest::Keys` via a
+  `render_kakoune_command` helper to compare against the
+  readable command form rather than the keysym vector.
+
+The set's `BufferId` and `BufferVersion` are not consulted —
+the caller is responsible for ensuring the set is anchored to
+the buffer Kakoune is currently focused on; otherwise the
+projection lands positions in the wrong buffer and Kakoune
+silently mis-selects.
+
 ### Added — ADR-035 ShadowCursor §Migration Phase 4 (2026-05-04)
 
 The active shadow edit now carries the history `VersionId` it was

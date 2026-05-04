@@ -329,3 +329,88 @@ fn save_under_different_plugins_does_not_collide() {
     assert_eq!(la, a);
     assert_eq!(lb, b);
 }
+
+// =============================================================================
+// Projection back to Kakoune (ADR-035 §Decision)
+// =============================================================================
+
+/// Decode a `Command::SendToKakoune(Keys(...))` back into the
+/// keysym-substituted command string. Used by the projection tests
+/// to assert against the readable form of the issued command.
+fn render_kakoune_command(cmd: &crate::plugin::Command) -> String {
+    use crate::plugin::Command;
+    use crate::protocol::KasaneRequest;
+    let keys = match cmd {
+        Command::SendToKakoune(KasaneRequest::Keys(k)) => k,
+        _ => panic!("expected SendToKakoune(Keys)"),
+    };
+    let mut s = String::new();
+    for k in keys {
+        match k.as_str() {
+            "<space>" => s.push(' '),
+            "<minus>" => s.push('-'),
+            "<lt>" => s.push('<'),
+            "<gt>" => s.push('>'),
+            "<ret>" => s.push('\n'),
+            "<esc>" => s.push_str("<esc>"),
+            other => s.push_str(other),
+        }
+    }
+    s
+}
+
+#[test]
+fn to_kakoune_command_empty_set_returns_none() {
+    let s = SelectionSet::empty(buf(), ver());
+    assert!(s.to_kakoune_command().is_none());
+}
+
+#[test]
+fn to_kakoune_command_singleton_emits_one_range() {
+    let s = set(vec![sel(2, 0, 5)]);
+    let cmd = s.to_kakoune_command().expect("non-empty set");
+    let rendered = render_kakoune_command(&cmd);
+    assert!(
+        rendered.contains("select 3.1,3.6"),
+        "expected `select 3.1,3.6`; got {rendered}"
+    );
+}
+
+#[test]
+fn to_kakoune_command_multi_selection_space_separates_ranges() {
+    let s = set(vec![sel(0, 0, 3), sel(4, 1, 7)]);
+    let cmd = s.to_kakoune_command().expect("non-empty set");
+    let rendered = render_kakoune_command(&cmd);
+    assert!(
+        rendered.contains("select 1.1,1.4 5.2,5.8"),
+        "expected `select 1.1,1.4 5.2,5.8`; got {rendered}"
+    );
+}
+
+#[test]
+fn to_kakoune_command_preserves_direction_via_anchor_first() {
+    use super::selection::{BufferPos, Selection};
+    let backward = Selection::new(BufferPos::new(0, 5), BufferPos::new(0, 1));
+    assert_eq!(backward.direction, Direction::Backward);
+    let s = SelectionSet::singleton(backward, buf(), ver());
+    let cmd = s.to_kakoune_command().expect("non-empty set");
+    let rendered = render_kakoune_command(&cmd);
+    // anchor=(0,5) → 1.6, cursor=(0,1) → 1.2
+    assert!(
+        rendered.contains("select 1.6,1.2"),
+        "backward selection must emit anchor before cursor; got {rendered}"
+    );
+}
+
+#[test]
+fn to_kakoune_command_multi_line_anchor_cursor() {
+    use super::selection::{BufferPos, Selection};
+    let multi = Selection::new(BufferPos::new(2, 3), BufferPos::new(7, 4));
+    let s = SelectionSet::singleton(multi, buf(), ver());
+    let cmd = s.to_kakoune_command().expect("non-empty set");
+    let rendered = render_kakoune_command(&cmd);
+    assert!(
+        rendered.contains("select 3.4,8.5"),
+        "expected `select 3.4,8.5`; got {rendered}"
+    );
+}
