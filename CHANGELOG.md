@@ -2,6 +2,94 @@
 
 ## [Unreleased]
 
+### Added — Plugin commit-intercept hook for shadow-cursor edits (2026-05-04)
+
+Plugins can now observe / transform / veto a shadow-cursor
+buffer edit before it's serialized to Kakoune `exec -draft`
+commands. The intercept runs after `mirror_edit` produces a
+`BufferEdit` and before `edit_to_commands` serializes it —
+exactly the slot ADR-035 ShadowCursor Phase 3 / 4 prepared
+the algebraic shape for.
+
+- (core) `state::shadow_cursor::BufferEditVerdict` — new enum
+  with three cases:
+  - `PassThrough` — observe without changing the edit
+    (default; equivalent to a plugin not registering an
+    intercept).
+  - `Replace(BufferEdit)` — substitute a transformed edit.
+  - `Veto` — drop the commit; no Kakoune commands emit
+    (the shadow cursor still deactivates).
+- (core) `plugin::handler_registry::HandlerRegistry::on_buffer_edit_intercept`
+  — registration method. Handler signature:
+  `Fn(&S, &BufferEdit, &AppView) -> (S, BufferEditVerdict)`.
+- (core) `plugin::handler_table::ErasedBufferEditInterceptHandler`
+  + `HandlerTable.buffer_edit_intercept_handler` field.
+- (core) `plugin::traits::PluginBackend::intercept_buffer_edit`
+  — trait method with `BufferEditVerdict::PassThrough`
+  default. Implemented on `PluginBridge` to dispatch through
+  the table.
+- (core) `plugin::registry::input_dispatch::fold_intercept_chain`
+  — pure-function verdict folder. Iterates plugin backends in
+  slot order; `PassThrough` keeps the running edit,
+  `Replace(new)` substitutes, `Veto` short-circuits to None.
+  Public so out-of-tree consumers (and tests) can exercise
+  the algebra directly.
+- (core) `plugin::traits::KeyPreDispatchResult::Consumed.pending_buffer_edit`
+  — new `Option<BufferEdit>` field. Producers
+  (`BuiltinShadowCursorPlugin`) populate it instead of
+  pre-serialized commands; the dispatch loop folds intercepts
+  and serializes the final edit.
+- (core) `state::shadow_cursor::BuiltinShadowCursorPlugin::handle_key_pre_dispatch`
+  — Commit branch refactored: instead of calling
+  `build_mirror_commit` to pre-serialize, calls `mirror_edit`
+  to surface the typed BufferEdit on
+  `pending_buffer_edit`. The dispatcher
+  (`PluginRuntime::dispatch_key_pre_dispatch`) takes
+  responsibility for folding intercepts and serializing.
+- (core) `plugin::registry::input_dispatch::PluginRuntime::dispatch_key_pre_dispatch`
+  — recognizes the new `pending_buffer_edit` field on
+  `Consumed`. After the consumer wins, runs
+  `fold_intercept_chain` over all plugins, applies the
+  Hippocratic noop check on the final edit, and serializes
+  via `state::shadow_cursor::edit_to_commands` into
+  `commands` before returning.
+- (test) 7 new `intercept_tests` covering the verdict
+  algebra (lib 2460 → 2467):
+  - `empty_chain_returns_initial_edit` — no plugins
+    registered: identity.
+  - `pass_through_chain_returns_initial_edit` — multiple
+    PassThrough plugins compose to identity.
+  - `replace_substitutes_running_edit` — Replace lands.
+  - `replace_then_replace_chains_in_order` — last
+    Replace wins (slot order).
+  - `veto_short_circuits_returning_none` — Veto first
+    drops the commit.
+  - `replace_then_veto_returns_none` — Veto after
+    Replace still drops.
+  - `veto_does_not_invoke_subsequent_handlers` —
+    short-circuit confirmed via a CountingBackend that
+    asserts zero invocations after a Veto.
+- (test) `bridge::tests::exhaustive_handler_dispatch_coverage`
+  updated: `EXPECTED_HANDLER_NAMES` gains
+  `"buffer_edit_intercept"`; `AllHandlersPlugin::register`
+  registers a passthrough intercept handler; the test body
+  invokes `bridge.intercept_buffer_edit(&probe_edit, &app)`
+  to exercise the dispatch path.
+
+The hook lands as a **native-only** capability for now — it
+does not yet appear in the WIT contract. The buffer-edit
+WIT shape conflict noted in the WIT 3.0 paper-design
+reconsideration (the existing `buffer-edit` record under WIT
+2.0 backs `edit-buffer` and has a different shape) blocks
+the WIT-level surface; surfacing the intercept handler to
+WASM plugins waits for that resolution. Native plugins
+(crates that link directly to `kasane-core`) can register
+the handler today.
+
+Validation: 2467 workspace lib tests pass. 2724 workspace
+integration tests pass. clippy + fmt clean across
+`gui,syntax`.
+
 ### Changed — WIT 3.0 paper design reconsidered: display-directive collapse deferred indefinitely (2026-05-04)
 
 After landing the ADR-035 driver portion of WIT 3.0 (commit

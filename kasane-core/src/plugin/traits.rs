@@ -52,6 +52,17 @@ pub enum KeyPreDispatchResult {
         flags: DirtyFlags,
         commands: Vec<Command>,
         state_updates: StateUpdates,
+        /// Algebraic shadow-cursor commit pending intercept dispatch.
+        /// Producers (e.g. `BuiltinShadowCursorPlugin`) populate this
+        /// in lieu of pre-serialized commands; the dispatch loop
+        /// (`PluginRuntime::dispatch_key_pre_dispatch`) runs
+        /// `on_buffer_edit_intercept` across registered plugins,
+        /// folds `BufferEditVerdict::Replace` / `Veto`, and serializes
+        /// the final edit (if any) via
+        /// `state::shadow_cursor::edit_to_commands` into `commands`
+        /// before returning. Most pre-dispatch consumers leave this
+        /// `None` — only the shadow-cursor builtin uses it.
+        pending_buffer_edit: Option<crate::state::shadow_cursor::BufferEdit>,
     },
     /// Pass through to normal key dispatch. Commands (if any) are applied first.
     /// This allows pre-dispatch handlers to update state (e.g., deactivate shadow cursor)
@@ -129,6 +140,21 @@ pub trait PluginBackend: Any {
     /// Handle an I/O event (process output, etc.).
     fn on_io_event_effects(&mut self, _event: &IoEvent, _state: &AppView<'_>) -> Effects {
         Effects::default()
+    }
+
+    /// Intercept a shadow-cursor buffer-edit commit before
+    /// serialization (ADR-035 ShadowCursor follow-up).
+    ///
+    /// Default returns `BufferEditVerdict::PassThrough` — plugins
+    /// that don't override observe nothing and change nothing. The
+    /// dispatch loop folds verdicts in plugin-priority order;
+    /// `Veto` short-circuits.
+    fn intercept_buffer_edit(
+        &mut self,
+        _edit: &crate::state::shadow_cursor::BufferEdit,
+        _state: &AppView<'_>,
+    ) -> crate::state::shadow_cursor::BufferEditVerdict {
+        crate::state::shadow_cursor::BufferEditVerdict::PassThrough
     }
 
     // --- Input hooks ---

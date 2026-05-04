@@ -231,6 +231,25 @@ pub(crate) type ErasedVirtualEditHandler = Box<
         + Sync,
 >;
 
+/// Buffer-edit intercept handler (ADR-035 ShadowCursor follow-up).
+///
+/// Invoked by the dispatch loop when `BuiltinShadowCursorPlugin`
+/// surfaces a `pending_buffer_edit` from a Mirror-projection commit.
+/// Plugins return a `BufferEditVerdict` (PassThrough / Replace / Veto)
+/// to observe, transform, or veto the commit before it's serialized
+/// to Kakoune `exec -draft` commands.
+pub(crate) type ErasedBufferEditInterceptHandler = Box<
+    dyn Fn(
+            &dyn PluginState,
+            &crate::state::shadow_cursor::BufferEdit,
+            &AppView<'_>,
+        ) -> (
+            Box<dyn PluginState>,
+            crate::state::shadow_cursor::BufferEditVerdict,
+        ) + Send
+        + Sync,
+>;
+
 /// Inline-box paint handler (ADR-031 Phase 10 Step 2-native).
 ///
 /// Returns `Some(element)` to paint inside the inline-box slot at
@@ -441,6 +460,9 @@ pub(crate) struct HandlerTable {
     // --- Virtual Edit (BDT) ---
     pub(crate) virtual_edit_handler: Option<ErasedVirtualEditHandler>,
 
+    // --- Buffer-edit intercept (ADR-035 ShadowCursor follow-up) ---
+    pub(crate) buffer_edit_intercept_handler: Option<ErasedBufferEditInterceptHandler>,
+
     // --- Inline-box paint (ADR-031 Phase 10) ---
     pub(crate) inline_box_paint_handler: Option<ErasedInlineBoxPaintHandler>,
 
@@ -515,6 +537,7 @@ impl HandlerTable {
             navigation_policy_handler: None,
             navigation_action_handler: None,
             virtual_edit_handler: None,
+            buffer_edit_intercept_handler: None,
             inline_box_paint_handler: None,
             publishers: Vec::new(),
             subscribers: Vec::new(),

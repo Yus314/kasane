@@ -177,11 +177,20 @@ impl PluginRuntime {
 
     /// Dispatch key pre-dispatch to plugins with KEY_PRE_DISPATCH capability.
     /// First plugin returning `Consumed` wins.
+    ///
+    /// ADR-035 ShadowCursor follow-up: when the consuming plugin
+    /// surfaces a `pending_buffer_edit`, this method runs the
+    /// `intercept_buffer_edit` chain across all registered plugins
+    /// (in slot order), folds verdicts (`Replace` substitutes the
+    /// running edit; `Veto` short-circuits and drops the commit),
+    /// and serializes the final edit into Kakoune commands via
+    /// `state::shadow_cursor::edit_to_commands` before returning.
     pub fn dispatch_key_pre_dispatch(
         &mut self,
         key: &KeyEvent,
         app: &AppView<'_>,
     ) -> KeyPreDispatchResult {
+        let mut consuming: Option<KeyPreDispatchResult> = None;
         for slot in &mut self.slots {
             if !slot
                 .capabilities
@@ -191,7 +200,10 @@ impl PluginRuntime {
             }
             let result = slot.backend.handle_key_pre_dispatch(key, app);
             match result {
-                KeyPreDispatchResult::Consumed { .. } => return result,
+                KeyPreDispatchResult::Consumed { .. } => {
+                    consuming = Some(result);
+                    break;
+                }
                 KeyPreDispatchResult::Pass {
                     ref commands,
                     ref state_updates,
@@ -201,10 +213,36 @@ impl PluginRuntime {
                 KeyPreDispatchResult::Pass { .. } => continue,
             }
         }
-        KeyPreDispatchResult::Pass {
-            commands: vec![],
-            state_updates: StateUpdates::default(),
+
+        let Some(mut result) = consuming else {
+            return KeyPreDispatchResult::Pass {
+                commands: vec![],
+                state_updates: StateUpdates::default(),
+            };
+        };
+
+        // Intercept dispatch (ADR-035 ShadowCursor follow-up): if
+        // the consumer surfaced a pending BufferEdit, fold the
+        // intercept chain over all plugins and serialize the
+        // final edit (if any) into commands.
+        if let KeyPreDispatchResult::Consumed {
+            commands,
+            pending_buffer_edit,
+            ..
+        } = &mut result
+            && let Some(edit) = pending_buffer_edit.take()
+        {
+            use crate::state::shadow_cursor::edit_to_commands;
+            let mut backends: Vec<&mut dyn crate::plugin::PluginBackend> =
+                self.slots.iter_mut().map(|s| s.backend.as_mut()).collect();
+            if let Some(final_edit) = fold_intercept_chain(edit, &mut backends, app)
+                && !final_edit.is_hippocratic_noop()
+            {
+                commands.extend(edit_to_commands(&final_edit));
+            }
         }
+
+        result
     }
 
     /// Dispatch text input pre-dispatch to plugins with KEY_PRE_DISPATCH capability.
@@ -422,5 +460,197 @@ impl PluginRuntime {
             }
         }
         MouseHandleResult::NotHandled
+    }
+}
+
+/// Fold the buffer-edit intercept chain over a slice of plugin
+/// backends in slot order (ADR-035 ShadowCursor follow-up).
+///
+/// Each plugin's `intercept_buffer_edit` returns a verdict:
+/// - `PassThrough` keeps the running edit unchanged.
+/// - `Replace(new)` substitutes the running edit with `new`.
+/// - `Veto` short-circuits and returns `None` from the fold.
+///
+/// Returns the final edit (or `None` on veto). The caller is
+/// responsible for the Hippocratic noop check and command
+/// serialization; this function is purely the verdict fold.
+pub fn fold_intercept_chain(
+    initial: crate::state::shadow_cursor::BufferEdit,
+    backends: &mut [&mut dyn crate::plugin::PluginBackend],
+    app: &AppView<'_>,
+) -> Option<crate::state::shadow_cursor::BufferEdit> {
+    use crate::state::shadow_cursor::BufferEditVerdict;
+    let mut current = Some(initial);
+    for backend in backends {
+        let Some(running) = current.as_ref() else {
+            break;
+        };
+        match backend.intercept_buffer_edit(running, app) {
+            BufferEditVerdict::PassThrough => {}
+            BufferEditVerdict::Replace(new_edit) => current = Some(new_edit),
+            BufferEditVerdict::Veto => current = None,
+        }
+    }
+    current
+}
+
+#[cfg(test)]
+mod intercept_tests {
+    use super::*;
+    use crate::history::VersionId;
+    use crate::plugin::{Effects, PluginBackend, PluginId};
+    use crate::state::AppState;
+    use crate::state::selection::{BufferPos, Selection};
+    use crate::state::shadow_cursor::{BufferEdit, BufferEditVerdict};
+
+    fn mk_edit(replacement: &str) -> BufferEdit {
+        BufferEdit {
+            target: Selection::new(BufferPos::new(0, 0), BufferPos::new(0, 5)),
+            original: "hello".into(),
+            replacement: replacement.into(),
+            base_version: VersionId::INITIAL,
+        }
+    }
+
+    /// A minimal PluginBackend that returns a fixed verdict from
+    /// `intercept_buffer_edit` and default impls for everything
+    /// else.
+    struct FixedVerdictBackend {
+        id: PluginId,
+        verdict: BufferEditVerdict,
+    }
+
+    impl PluginBackend for FixedVerdictBackend {
+        fn id(&self) -> PluginId {
+            self.id.clone()
+        }
+
+        fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
+            Effects::default()
+        }
+
+        fn intercept_buffer_edit(
+            &mut self,
+            _edit: &BufferEdit,
+            _state: &AppView<'_>,
+        ) -> BufferEditVerdict {
+            self.verdict.clone()
+        }
+    }
+
+    fn backend(id: &str, verdict: BufferEditVerdict) -> FixedVerdictBackend {
+        FixedVerdictBackend {
+            id: PluginId(id.into()),
+            verdict,
+        }
+    }
+
+    #[test]
+    fn empty_chain_returns_initial_edit() {
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let initial = mk_edit("world");
+        let mut backends: Vec<&mut dyn PluginBackend> = vec![];
+        let out = fold_intercept_chain(initial.clone(), &mut backends, &app);
+        assert_eq!(out, Some(initial));
+    }
+
+    #[test]
+    fn pass_through_chain_returns_initial_edit() {
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let mut a = backend("a", BufferEditVerdict::PassThrough);
+        let mut b = backend("b", BufferEditVerdict::PassThrough);
+        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a, &mut b];
+        let out = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
+        assert_eq!(out.as_ref().map(|e| e.replacement.as_str()), Some("world"));
+    }
+
+    #[test]
+    fn replace_substitutes_running_edit() {
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let mut a = backend("a", BufferEditVerdict::Replace(mk_edit("WORLD")));
+        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a];
+        let out = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
+        assert_eq!(out.as_ref().map(|e| e.replacement.as_str()), Some("WORLD"));
+    }
+
+    #[test]
+    fn replace_then_replace_chains_in_order() {
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let mut a = backend("a", BufferEditVerdict::Replace(mk_edit("first")));
+        let mut b = backend("b", BufferEditVerdict::Replace(mk_edit("second")));
+        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a, &mut b];
+        let out = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
+        // b runs after a; b's Replace wins.
+        assert_eq!(out.as_ref().map(|e| e.replacement.as_str()), Some("second"));
+    }
+
+    #[test]
+    fn veto_short_circuits_returning_none() {
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let mut a = backend("a", BufferEditVerdict::Veto);
+        let mut b = backend("b", BufferEditVerdict::Replace(mk_edit("WORLD")));
+        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a, &mut b];
+        let out = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
+        assert_eq!(out, None);
+    }
+
+    #[test]
+    fn replace_then_veto_returns_none() {
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let mut a = backend("a", BufferEditVerdict::Replace(mk_edit("WORLD")));
+        let mut b = backend("b", BufferEditVerdict::Veto);
+        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a, &mut b];
+        let out = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
+        assert_eq!(out, None);
+    }
+
+    #[test]
+    fn veto_does_not_invoke_subsequent_handlers() {
+        // A counter-driven backend that we can inspect.
+        struct CountingBackend {
+            id: PluginId,
+            invoked: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+            verdict: BufferEditVerdict,
+        }
+        impl PluginBackend for CountingBackend {
+            fn id(&self) -> PluginId {
+                self.id.clone()
+            }
+            fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
+                Effects::default()
+            }
+            fn intercept_buffer_edit(
+                &mut self,
+                _edit: &BufferEdit,
+                _state: &AppView<'_>,
+            ) -> BufferEditVerdict {
+                self.invoked
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.verdict.clone()
+            }
+        }
+
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let mut a = backend("vetoer", BufferEditVerdict::Veto);
+        let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut b = CountingBackend {
+            id: PluginId("after-veto".into()),
+            invoked: counter.clone(),
+            verdict: BufferEditVerdict::PassThrough,
+        };
+        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a, &mut b];
+        let _ = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
+        assert_eq!(
+            counter.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "downstream plugin must not be invoked after a Veto"
+        );
     }
 }

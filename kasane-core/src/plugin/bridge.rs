@@ -382,6 +382,21 @@ impl PluginBackend for PluginBridge {
         dispatch_state_effect!(self, io_event_handler, event, app)
     }
 
+    fn intercept_buffer_edit(
+        &mut self,
+        edit: &crate::state::shadow_cursor::BufferEdit,
+        app: &AppView<'_>,
+    ) -> crate::state::shadow_cursor::BufferEditVerdict {
+        if let Some(handler) = &self.table.buffer_edit_intercept_handler {
+            let (new_state, verdict) = handler(&*self.state, edit, app);
+            self.state = new_state;
+            self.check_state_change();
+            verdict
+        } else {
+            crate::state::shadow_cursor::BufferEditVerdict::PassThrough
+        }
+    }
+
     fn on_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
         dispatch_state_only!(self, workspace_changed_handler, query);
     }
@@ -1465,6 +1480,7 @@ mod tests {
             "publish",
             "subscribe",
             "paint_inline_box",
+            "buffer_edit_intercept",
         ];
 
         let invoked: Arc<Mutex<HashSet<&'static str>>> = Arc::new(Mutex::new(HashSet::new()));
@@ -1645,6 +1661,15 @@ mod tests {
                     inv.lock().unwrap().insert("subscribe");
                     *s
                 });
+
+                let inv = self.invoked.clone();
+                r.on_buffer_edit_intercept(move |s, _edit, _app| {
+                    inv.lock().unwrap().insert("buffer_edit_intercept");
+                    (
+                        *s,
+                        crate::state::shadow_cursor::BufferEditVerdict::PassThrough,
+                    )
+                });
             }
         }
 
@@ -1751,6 +1776,18 @@ mod tests {
 
         // Inline-box paint (ADR-031 Phase 10 Step 2-native)
         bridge.paint_inline_box(0, &app);
+
+        // Buffer-edit intercept (ADR-035 ShadowCursor follow-up)
+        let probe_edit = crate::state::shadow_cursor::BufferEdit {
+            target: crate::state::selection::Selection::new(
+                crate::state::selection::BufferPos::new(0, 0),
+                crate::state::selection::BufferPos::new(0, 0),
+            ),
+            original: String::new(),
+            replacement: String::new(),
+            base_version: crate::history::VersionId::INITIAL,
+        };
+        bridge.intercept_buffer_edit(&probe_edit, &app);
 
         // Pub/Sub
         let mut bus = super::super::pubsub::TopicBus::new();

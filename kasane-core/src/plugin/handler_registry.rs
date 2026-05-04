@@ -1210,6 +1210,38 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         register_state_effect!(self, virtual_edit_handler, handler, ctx, app);
     }
 
+    /// Register a buffer-edit intercept handler (ADR-035 ShadowCursor
+    /// follow-up).
+    ///
+    /// Invoked by the dispatch loop after the builtin shadow cursor
+    /// computes a Mirror-projection commit but before serializing it
+    /// to Kakoune `exec -draft` commands. Plugins return a
+    /// [`BufferEditVerdict`](crate::state::shadow_cursor::BufferEditVerdict):
+    ///
+    /// - `PassThrough` — observe without changing the edit (typical
+    ///   for logging plugins).
+    /// - `Replace(BufferEdit)` — substitute a transformed edit (e.g.
+    ///   snap indentation, run an auto-formatter).
+    /// - `Veto` — drop the commit entirely (no Kakoune commands
+    ///   emitted; the shadow cursor still deactivates).
+    ///
+    /// Multiple plugins compose: verdicts fold in plugin-priority
+    /// order, with `Veto` short-circuiting. Plugins that don't
+    /// register an intercept default to PassThrough.
+    pub fn on_buffer_edit_intercept(
+        &mut self,
+        handler: impl Fn(
+            &S,
+            &crate::state::shadow_cursor::BufferEdit,
+            &AppView<'_>,
+        ) -> (S, crate::state::shadow_cursor::BufferEditVerdict)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        register_state_effect!(self, buffer_edit_intercept_handler, handler, edit, app);
+    }
+
     // =========================================================================
     // Inline-box paint handler (ADR-031 Phase 10 Step 2-native)
     // =========================================================================

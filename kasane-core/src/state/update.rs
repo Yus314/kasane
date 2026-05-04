@@ -158,6 +158,7 @@ fn update_inner<E: PluginEffects>(
                     flags,
                     mut commands,
                     mut state_updates,
+                    pending_buffer_edit: _,
                 } => {
                     if let Some(sc) = state_updates.shadow_cursor.take() {
                         state.runtime.shadow_cursor = sc;

@@ -413,6 +413,29 @@ pub struct BufferEdit {
     pub base_version: VersionId,
 }
 
+/// Verdict returned by an `on_buffer_edit_intercept` plugin handler.
+///
+/// The dispatch loop folds verdicts in plugin-priority order:
+/// `PassThrough` is identity; `Replace(new)` substitutes the running
+/// edit; `Veto` short-circuits and drops the commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BufferEditVerdict {
+    /// Use the running edit unchanged. Equivalent to a plugin that
+    /// did not register an intercept handler. Typical for plugins
+    /// that observe edits without modifying them (e.g. logging).
+    PassThrough,
+    /// Replace the running edit with a transformed version. Use to
+    /// rewrite the target / replacement before commit (e.g. snap
+    /// indentation, auto-format the replacement, etc.). The
+    /// replacement edit's `base_version` is preserved unless the
+    /// handler explicitly overwrites it.
+    Replace(BufferEdit),
+    /// Veto the commit. No Kakoune commands are emitted; the shadow
+    /// cursor still deactivates. Use sparingly — typical use is
+    /// when the edit would violate a plugin-owned invariant.
+    Veto,
+}
+
 impl BufferEdit {
     /// True when the edit would not change the buffer
     /// (`original == replacement`). Callers should skip command
@@ -1188,6 +1211,7 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
                     shadow_cursor: Some(Some(shadow_mut)),
                     ..Default::default()
                 },
+                pending_buffer_edit: None,
             },
             ShadowKeyResult::Deactivate => KeyPreDispatchResult::Pass {
                 commands: vec![],
@@ -1197,34 +1221,30 @@ impl PluginBackend for BuiltinShadowCursorPlugin {
                 },
             },
             ShadowKeyResult::Commit(_) => {
-                // Resolve the editable span and build mirror commit commands
-                let commit_commands = app_state
-                    .runtime
-                    .display_map
-                    .as_ref()
-                    .and_then(|dm| {
-                        let entry = dm.entry(crate::display::DisplayLine(display_line))?;
-                        if let crate::display::SourceMapping::Projected { spans, .. } =
-                            entry.source()
-                        {
-                            let span = spans.get(span_index)?;
-                            Some(build_mirror_commit(
-                                &shadow_mut,
-                                span,
-                                app_state.observed.lines.len(),
-                            ))
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or_default();
+                // ADR-035 ShadowCursor follow-up: surface the algebraic
+                // BufferEdit for intercept-chain dispatch instead of
+                // pre-serializing. The dispatch loop runs
+                // `intercept_buffer_edit` across registered plugins,
+                // folds verdicts, and serializes the final edit (if any)
+                // into Kakoune commands before the dispatch result
+                // bubbles up.
+                let pending_buffer_edit = app_state.runtime.display_map.as_ref().and_then(|dm| {
+                    let entry = dm.entry(crate::display::DisplayLine(display_line))?;
+                    if let crate::display::SourceMapping::Projected { spans, .. } = entry.source() {
+                        let span = spans.get(span_index)?;
+                        mirror_edit(&shadow_mut, span, app_state.observed.lines.len())
+                    } else {
+                        None
+                    }
+                });
                 KeyPreDispatchResult::Consumed {
                     flags: DirtyFlags::BUFFER_CONTENT,
-                    commands: commit_commands,
+                    commands: vec![],
                     state_updates: crate::plugin::StateUpdates {
                         shadow_cursor: Some(None),
                         ..Default::default()
                     },
+                    pending_buffer_edit,
                 }
             }
         }
