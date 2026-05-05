@@ -1,41 +1,43 @@
-//! Capability-scoped trait skeletons that will gradually replace the
-//! 73-method [`PluginBackend`](super::PluginBackend) god-trait.
+//! Capability-scoped trait views over [`PluginBackend`](super::PluginBackend).
 //!
-//! Each trait here covers a single concern that PluginBackend currently
-//! bundles together. They are introduced as forward-looking targets so
-//! later R1.x sub-phases can migrate handlers individually without
-//! perturbing the runtime dispatch surface.
+//! Each trait here covers a single concern that `PluginBackend`
+//! bundles together. Call sites that only need one capability can
+//! take `&dyn CapTrait` and benefit from a narrower trait surface
+//! without forcing churn at any of the 24+ `impl PluginBackend for X`
+//! blocks.
 //!
-//! **Status: scaffolding only.** Nothing in the runtime calls these
-//! traits yet — `PluginBackend` remains the dispatch ABI. Phase R1.2
-//! starts wiring `Lifecycle` through the registry, R1.3 picks up
-//! `Annotator`, etc. The order is intentional: small, well-bounded
-//! traits land first so the migration pattern is established before
-//! tackling `InputHandler` (the largest concern).
+//! ## Status — frozen at R1.6 per ADR-038
 //!
-//! ## Why 11 traits?
+//! - **R1.1–R1.3 (blanket-impl pattern, complete):** `Lifecycle`,
+//!   `InputHandler`, `Contributor`, `Transformer`, `Annotator`,
+//!   `DisplayTransform`, `Renderer`, `WorkspaceMember`, `PluginMeta`
+//!   exist as narrow trait views with `impl<T: PluginBackend> CapTrait
+//!   for T` blanket impls below. Method bodies remain on
+//!   `PluginBackend`.
+//! - **R1.4–R1.6 (super-trait pattern, complete):** `PubSubMember`,
+//!   `ExtensionParticipant`, `Io` were promoted to super-traits of
+//!   `PluginBackend`. Method bodies live in these traits; implementers
+//!   opt in via explicit `impl` or
+//!   [`impl_migrated_caps_default!`](crate::impl_migrated_caps_default).
+//! - **R1.7+ (further super-trait migration): frozen.** Per ADR-038,
+//!   no further capability-trait migration is planned. The plugin
+//!   authoring path consolidates on `Plugin` + `HandlerRegistry`
+//!   (ADR-025); `PluginBackend` is retained as the internal dispatch
+//!   ABI consumed by `PluginRuntime` and `WasmPlugin`.
 //!
-//! `PluginBackend`'s 73 methods cluster into roughly 11 cohesive
-//! concerns. Splitting them means:
-//!
-//! - new extension points stay confined to the trait that owns the
-//!   concern (today they touch 5+ files);
-//! - WASM adapters can implement only the capabilities they advertise
-//!   instead of stubbing all 73 methods;
-//! - tests can supply minimal trait objects rather than hand-rolling
-//!   a full `PluginBackend` mock;
-//! - capability bitflags become a derivation of "which traits are
-//!   non-default" rather than a hand-maintained sidecar.
+//! New extension points are added to `HandlerRegistry`, not to a
+//! capability trait here. See ADR-038 for the rationale and the
+//! narrow exception clause for `PluginBackend` additions.
 //!
 //! ## Method signatures
 //!
 //! Signatures here mirror the corresponding methods on `PluginBackend`.
 //! Default implementations return the same "no-op" values, so a
-//! `PluginBackend`-shaped impl that opts into one of these traits stays
-//! semantically identical.
+//! `PluginBackend`-shaped impl that opts into one of these traits
+//! stays semantically identical.
 //!
-//! `Any + 'static` bounds are inherited so the runtime can downcast
-//! trait objects through `HandlerTable` once R1.2+ starts using them.
+//! `Any + 'static` bounds are inherited so trait objects can be
+//! downcast.
 
 use std::any::Any;
 use std::collections::HashSet;
@@ -102,15 +104,13 @@ pub trait Lifecycle: Any {
 
 /// Blanket impl: every `PluginBackend` automatically satisfies
 /// `Lifecycle` by delegating to the same-named methods on the existing
-/// god trait. Call sites that only need lifecycle hooks can take
+/// trait. Call sites that only need lifecycle hooks can take
 /// `&mut dyn Lifecycle` and benefit from a narrower interface without
 /// churn at any of the 24+ `impl PluginBackend for X` blocks.
 ///
-/// R1.3 will start migrating the *bodies* over: handlers will register
-/// `Lifecycle` impls directly through `HandlerRegistry`, the
-/// `PluginBackend::*_effects` methods will delegate the other way
-/// (Lifecycle → PluginBackend), and eventually the methods drop off
-/// `PluginBackend` entirely once R1.9 strips it.
+/// Per ADR-038, the body migration (`Lifecycle` becoming a super-trait
+/// of `PluginBackend` with the bodies living here) is not planned. The
+/// blanket impl stays as the canonical narrow view.
 impl<T: super::PluginBackend + ?Sized> Lifecycle for T {
     fn on_init_effects(&mut self, state: &AppView<'_>) -> Effects {
         super::PluginBackend::on_init_effects(self, state)
@@ -905,15 +905,12 @@ impl<T: super::PluginBackend + ?Sized> PluginMeta for T {
 // =============================================================================
 
 /// Generate empty `impl CapTrait for $type {}` for every capability
-/// trait that has been **migrated** to a super-trait of `PluginBackend`.
+/// trait that has been migrated to a super-trait of `PluginBackend`.
 ///
-/// Each R1.x sub-phase that finishes migrating a trait's body adds the
-/// corresponding `impl_<cap>_default!` invocation here. Implementer
-/// sites that don't override anything just call
-/// `impl_migrated_caps_default!(MyPlugin)` and never have to be edited
-/// again as the migration progresses.
+/// Implementer sites that don't override any of the migrated traits
+/// invoke `impl_migrated_caps_default!(MyPlugin)` once.
 ///
-/// Currently covers (in migration order):
+/// Covers (final set per ADR-038, R1.7+ frozen):
 /// - R1.4: `PubSubMember`
 /// - R1.5: `ExtensionParticipant`
 /// - R1.6: `Io`
@@ -926,24 +923,25 @@ macro_rules! impl_migrated_caps_default {
     };
 }
 
-/// Generate empty `impl CapabilityTrait for $type {}` blocks for the 11
-/// non-`PluginMeta` capability traits.
+/// Generate empty `impl CapabilityTrait for $type {}` blocks for the
+/// 11 non-`PluginMeta` capability traits.
 ///
-/// Use this once per `PluginBackend` implementer that doesn't override
-/// any capability methods. Implementers that *do* override one or more
-/// traits should write those impls manually and call the *narrower*
-/// macros (`impl_lifecycle_default!`, etc.) for the rest.
+/// Useful for `PluginBackend` implementers that want to opt into
+/// every narrow trait view at once. Implementers that override one
+/// or more capability methods should write those impls manually and
+/// call the narrower macros (`impl_lifecycle_default!`, etc.) for
+/// the rest.
 ///
 /// `PluginMeta` is intentionally excluded — it owns the required
 /// `fn id()` plus other introspection that varies per plugin, so it
 /// can't be defaulted blindly.
 ///
-/// Once R1.4-R1.9 finish migrating method bodies into the capability
-/// traits, every `PluginBackend` implementer will need either this
-/// macro or explicit per-trait impls. Until then, the existing blanket
-/// `impl<T: PluginBackend + ?Sized> CapTrait for T` provides a
-/// no-conflict default — so adopting these macros early is safe but
-/// unnecessary.
+/// Per ADR-038 (R1.7+ frozen), the non-migrated traits keep their
+/// `impl<T: PluginBackend + ?Sized> CapTrait for T` blanket impls
+/// indefinitely, so calling the per-trait macros for the
+/// non-migrated traits below is optional — the blanket impl already
+/// satisfies the bound. The macros remain available for symmetry
+/// and for call sites that prefer explicit opt-in.
 #[macro_export]
 macro_rules! plugin_capabilities_default {
     ($($t:ty),+ $(,)?) => {

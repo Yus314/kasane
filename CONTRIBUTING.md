@@ -44,6 +44,16 @@ cargo fmt --check                        # Format check
 3. Ensure `cargo test`, `cargo clippy -- -D warnings`, and `cargo fmt --check` pass
 4. Open a PR against `master`
 
+## Plugin API Guidance
+
+Native plugins use the `Plugin` trait + `HandlerRegistry` (ADR-025). This is the only authoring path for new plugins.
+
+`PluginBackend` (`kasane-core/src/plugin/traits.rs`) is the internal dispatch ABI consumed by `PluginRuntime` and the WASM adapter. It is not an authoring surface.
+
+**Do not add new methods to `PluginBackend`.** New extension points are introduced as `HandlerRegistry::on_X(...)` registration methods, with a matching `Erased*Handler` field in `HandlerTable` and dispatch in `PluginBridge`. PRs that add a method to `PluginBackend` will be blocked at review unless they qualify for the narrow exception in ADR-038 (a method that must operate on the owned trait object inside `PluginRuntime`'s dispatch loop, with the corresponding HandlerRegistry registration added in the same commit).
+
+The R1.x capability-trait split (`kasane-core/src/plugin/capability_traits.rs`) is frozen at R1.6. Further capability-trait migration is not planned. See [ADR-038](docs/decisions.md#adr-038-plugin-authoring-path-consolidation) for rationale.
+
 ## Project Structure
 
 See the Workspace Structure table in [CLAUDE.md](CLAUDE.md) for crate responsibilities. Module-level `//!` doc comments in each source file describe its contents. For architecture and design decisions, see [docs/index.md](docs/index.md).

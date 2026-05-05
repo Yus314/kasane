@@ -102,13 +102,27 @@ pub enum TextInputPreDispatchResult {
     Pass,
 }
 
-/// Internal framework trait. Plugin authors should use [`Plugin`] instead.
+/// Internal dispatch ABI. **Plugin authors must use [`Plugin`] +
+/// [`HandlerRegistry`](super::HandlerRegistry) instead.**
 ///
-/// Super-trait composition is being phased in by R1.4+. Each capability
-/// trait whose body migration is complete becomes a super-trait of
-/// `PluginBackend`, so every implementer must provide the corresponding
-/// `impl CapTrait for X` block (manually for overriders, via the
-/// `impl_<cap>_default!` macro for non-overriders).
+/// This trait is consumed by:
+/// - [`PluginRuntime`](super::PluginRuntime) as the owned trait object
+///   (`Box<dyn PluginBackend>`),
+/// - [`PluginBridge`](super::bridge::PluginBridge), which adapts
+///   `Plugin` + `HandlerRegistry` to this ABI,
+/// - `WasmPlugin` in `kasane-wasm`, which translates WIT calls
+///   directly into ABI methods.
+///
+/// **Do not add new methods to this trait.** New extension points are
+/// introduced as `HandlerRegistry::on_X(...)` registrations. See
+/// ADR-038 for rationale and the narrow exception clause.
+///
+/// Three super-traits (R1.4–R1.6) live on the path: `PubSubMember`,
+/// `ExtensionParticipant`, `Io`. Implementers provide them via either
+/// an explicit `impl CapTrait for X` block (overriders) or
+/// `impl_<cap>_default!` macros (non-overriders); see
+/// [`impl_migrated_caps_default!`](crate::impl_migrated_caps_default).
+/// Further capability-trait migration (R1.7+) is frozen per ADR-038.
 #[doc(hidden)]
 pub trait PluginBackend:
     super::capability_traits::PubSubMember
