@@ -1,6 +1,8 @@
 use kasane_core::plugin_prelude::*;
 
-kasane_core::impl_migrated_caps_default!(TestExternalPlugin);
+// `TestExternalPlugin` (from `#[kasane_plugin] mod test_external`)
+// gets its R1.4–R1.6 migrated-capability default impls from the
+// macro itself; no manual invocation needed.
 
 #[kasane_plugin]
 mod test_external {
