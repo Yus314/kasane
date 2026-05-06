@@ -539,7 +539,9 @@ For a comparison of WASM vs Native plugin models, see [Appendix C](#appendix-c-w
 
 ## Appendix B: PluginBackend (Internal) {#appendix-b-pluginbackend-internal}
 
-`PluginBackend` is the internal mutable-state plugin model (`&mut self`). It provides access to all extension points including `Surface` and workspace observation. Use this only when `Plugin` cannot express what you need.
+> **Internal — do not implement in new plugins.** Per [ADR-038 (Plugin Authoring Path Consolidation, 0.6.0)](./decisions.md#adr-038-plugin-authoring-path-consolidation), `PluginBackend` is the internal dispatch ABI consumed by `PluginRuntime` and `WasmPlugin`. The sole sanctioned authoring path is `Plugin` + `HandlerRegistry` (Appendix A). New extension points are added via `HandlerRegistry::on_X(...)` registrations, not via new `PluginBackend` methods. The example below is preserved for archaeology and to illustrate the internal shape; for any new native plugin, use `Plugin` + `HandlerRegistry`.
+
+`PluginBackend` is the internal mutable-state plugin model (`&mut self`). It provides access to all extension points including `Surface` and workspace observation. The capability traits (`Lifecycle`, `Io`, `PubSubMember`, `ExtensionParticipant`, ...) are super-traits of `PluginBackend` after the R1.x migration (0.6.0) and are blanket-implemented for `Plugin + HandlerRegistry` users automatically.
 
 ```rust
 use kasane::kasane_core::plugin_prelude::*;

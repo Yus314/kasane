@@ -114,18 +114,20 @@ For mechanisms not covered by DisplayDirective (overlay composition, element-lev
 
 ### 1.2.2 Choosing a Plugin Model
 
-Native plugins can be implemented using one of two traits:
+> **0.6.0 (ADR-038)**: `Plugin` + `HandlerRegistry` is the **sole** sanctioned authoring path for native plugins. `PluginBackend` is the internal dispatch ABI consumed by `PluginRuntime` / `WasmPlugin` and is no longer presented as an alternative authoring choice. The capability traits (`Lifecycle`, `Io`, `PubSubMember`, `ExtensionParticipant`, ...) are super-traits of `PluginBackend` after the R1.x migration; they are blanket-implemented for `Plugin` + `HandlerRegistry` users. New extension points are added via `HandlerRegistry::on_X(...)` registrations.
 
-| | `Plugin` (HandlerRegistry, recommended) | `PluginBackend` (mutable, internal) |
-|---|---|---|
-| Registration | 2 methods + 1 associated type: `id()`, `State` type, `register()` with `HandlerRegistry` | 20+ trait methods with defaults |
-| State ownership | Framework holds state; handlers are pure functions | Plugin holds its own state (`&mut self`) |
-| Capabilities | Auto-inferred from registered handlers | Manual `capabilities()` method |
-| Cache invalidation | Automatic via `PartialEq` comparison (generation counter) | Manual `state_hash()` |
-| Salsa compatibility | State transitions are pure functions; future Salsa integration path | Not directly memoizable (mutable state) |
-| Use when | UI decoration/transformation with deterministic state (most plugins) | You need `Surface`, workspace observation, or complex host integration |
+Native plugins implement the `Plugin` trait:
 
-`Plugin` is recommended for new native plugins. In unit tests, register via `PluginRuntime::register()`. In a host binary, wrap it with `PluginBridge::new(...)` and pass it to `kasane::run_with_factories(...)`.
+| | `Plugin` (HandlerRegistry — public) |
+|---|---|
+| Registration | 2 methods + 1 associated type: `id()`, `State` type, `register()` with `HandlerRegistry` |
+| State ownership | Framework holds state; handlers are pure functions |
+| Capabilities | Auto-inferred from registered handlers |
+| Cache invalidation | Automatic via `PartialEq` comparison (generation counter) |
+| Salsa compatibility | State transitions are pure functions; future Salsa integration path |
+| Use cases | All native plugin scenarios — UI decoration, surfaces, workspace observation, host integration. Surface and workspace observation are reachable via `HandlerRegistry::on_surfaces` / `on_workspace_*` handlers and via the `Lifecycle`-supertrait blanket impl |
+
+In unit tests, register via `PluginRuntime::register()`. In a host binary, wrap it with `PluginBridge::new(...)` and pass it to `kasane::run_with_factories(...)`. (`PluginBackend` is documented internally for framework contributors only — see [Appendix B of plugin-development.md](./plugin-development.md#appendix-b-pluginbackend-internal).)
 
 ```rust
 use kasane_core::plugin_prelude::*;
@@ -670,6 +672,25 @@ For semantic classification, see [semantics.md](./semantics.md).
 | `get_session_count()` | `u32` |
 | `get_session(index)` | `Option<SessionDescriptor>` |
 | `get_active_session_key()` | `Option<String>` |
+
+**Selection / Time / History (Tier 9 — WIT 3.0, ADR-035):**
+
+WIT 3.0 (Kasane 0.6.0) replaces the legacy heuristic `selection` record and the `get-selection*` triplet with a canonical `selection-set` value-record plus first-class time-travel queries.
+
+| Function | Return type |
+|---|---|
+| `get_selection_set()` | `SelectionSet` |
+| `selection_set_to_kakoune_command(set)` | `String` (`:select <args>` shape) |
+| `current_version()` | `VersionId` (alias of `u64`) |
+| `text_at_time(time)` | `Result<Vec<String>, Error>` |
+| `selection_at_time(time)` | `Result<SelectionSet, Error>` |
+| `display_directives_at_time(time)` | `Result<Vec<DisplayDirective>, Error>` |
+
+`SelectionSet` fields: `primary: u32` (index into `selections`), `selections: list<selection-record>` (disjoint, sorted, non-empty), `direction: selection-direction` (which end the user is moving). Each `selection-record` carries `anchor: coord`, `cursor: coord`, `direction: selection-direction`.
+
+`Time` is a `variant` with `now` and `at(version-id)` arms. `at(v)` requires the configured history backend to retain `v`; otherwise the call returns `Err(Error::VersionEvicted)`.
+
+> **Removed in WIT 3.0**: `selection` record, `get-selection`, `get-selection-line`, `get-selection-column`. See [docs/migration/0.5-to-0.6.md §1.3](./migration/0.5-to-0.6.md#13-wit-300--selection--time--history-adr-035) for the conversion table.
 
 `SessionDescriptor` fields:
 
