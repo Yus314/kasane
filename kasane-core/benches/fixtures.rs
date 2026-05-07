@@ -22,6 +22,8 @@ struct BenchPlugin {
     id: String,
 }
 
+kasane_core::impl_migrated_caps_default!(BenchPlugin);
+
 impl PluginBackend for BenchPlugin {
     fn id(&self) -> PluginId {
         PluginId(self.id.clone())
