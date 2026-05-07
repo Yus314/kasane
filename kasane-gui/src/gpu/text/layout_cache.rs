@@ -156,7 +156,7 @@ impl LayoutCache {
 mod tests {
     use super::*;
     use kasane_core::config::FontConfig;
-    use kasane_core::protocol::{Atom, Color, Face, NamedColor, Style};
+    use kasane_core::protocol::{Atom, Color, NamedColor, Style, WireFace};
 
     use super::super::styled_line::StyledLine;
     use super::super::{Brush, ParleyText};
@@ -218,9 +218,9 @@ mod tests {
         let mut cache = LayoutCache::new();
 
         let plain = default_line("hello");
-        let red_face = Face {
+        let red_face = WireFace {
             fg: Color::Named(NamedColor::Red),
-            ..Face::default()
+            ..WireFace::default()
         };
         let red_atoms = vec![Atom::with_style("hello", Style::from_face(&red_face))];
         let red_line = StyledLine::from_atoms(

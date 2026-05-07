@@ -396,8 +396,6 @@ pub trait PluginBackend:
         PluginCapabilities::all()
     }
 
-    /// Start a named process task, returning spawn commands.
-    ///
     // `start_process_task` migrated to `capability_traits::Io` (R1.6).
 
     /// Host-level authorities required for privileged deferred effects.

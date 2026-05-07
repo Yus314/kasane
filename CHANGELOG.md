@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-06
+
+### Highlights
+
+- **WIT 3.0 — First-class Selection and Time (ADR-035)**: Plugins gain `selection-set` value-records, a `time` variant for time-travel queries, and history-accessor functions (`text-at-time`, `selection-at-time`, `display-directives-at-time`, `current-version`). The legacy heuristic `selection` record and `get-selection*` triplet are retired.
+- **Composable Lenses**: A new declarative display-directive contributor model with opt-in caching (`CacheStrategy::None | PerBuffer | PerLine`). Native and WASM plugins register lenses through the same surface; `PluginRuntime::sync_lenses` auto-wires the lifecycle. Three bundled lenses ship: `IndentGuidesLens`, `LongLineLens`, `TrailingWhitespaceLens`.
+- **Display Algebra (ADR-034 + ADR-037 — Accepted)**: The 12-variant `DisplayDirective` enum is replaced by 5 composable primitives. Multi-plugin display composition (Fold + Hide + Replace overlap) is now principled rather than variant-specific. Hybrid bridge retired in ADR-037.
+- **Plugin commit-intercept hook**: `intercept-buffer-edit` + `shadow-edit` lifecycle lets plugins capture and rewrite ShadowCursor edits before they reach Kakoune.
+- **Plugin Authoring Path Consolidation (ADR-038)**: `Plugin + HandlerRegistry` (ADR-025) is the sole public authoring path. `PluginBackend` is the internal dispatch ABI consumed by `PluginRuntime` / `WasmPlugin`. R1.7+ capability-trait migration is frozen — new extension points are added via `HandlerRegistry::on_X(...)` registrations, not new `PluginBackend` methods.
+- **ADR-031 Parley closure baseline**: 56.7 µs warm at 80×24 (3.5× headroom under the 200 µs SLO). `DrawCommand` text → `CompactString`, buffer lines shared via `Arc<Vec<Line>>`, `PluginBridge` prev_state collapsed to a u64 hash.
+- **ADR-032 Vello evaluation framework**: `FrameTarget` headless-render abstraction, `BackendCapability` / `DegradationPolicy` plumbing, scene-encoding allocation baseline (583 allocs / 89.7 KB / 27 DrawCommands at 80×24), Apple M1 reference machine pinned. The Vello adoption decision itself remains in flight under a baseline freeze; the abstractions ship independently.
+
+### Breaking Changes
+
+- **wasm**: WIT contract bumped 0.x → 3.0.0 across three coordinated steps in this cycle: 1.0.0 (ADR-031 Phase 4 — `brush`, `style`, `inline-box` types), 2.0.0 (Style-native function names retiring the Face↔Style bridges), 3.0.0 (ADR-035 — `selection-set`, `time`, history accessors). All bundled and fixture WASM rebuild; out-of-tree plugins must rebuild against `kasane-plugin-sdk` 0.6.0. The legacy `selection` record and `get-selection*` triplet are removed.
+- **plugin**: `annotate_*` handlers renamed to `decorate_*` (gutter, background, inline, virtual-text). Mechanical rename for plugin authors (42ceb2c5).
+- **plugin**: `Transparent*` public types renamed to `KakouneSafe*` (effect transparency / Level 5 footprint analysis) (aea54bb6).
+- **plugin**: `Hash` bound dropped from `PluginState`; change detection switches to `dyn_eq`. Plugin authors with `Hash` derives no longer require them; authors using interior mutability must ensure `dyn_eq` semantics match their state model (c5f15f3a).
+- **plugin**: `Plugin + HandlerRegistry` is now the sole public authoring path. `PluginBackend` is internal — direct `impl PluginBackend` for native plugins is unsupported (the `WasmPlugin` adapter remains the only sanctioned implementor). New extension points are added via `HandlerRegistry::on_X(...)`, not via new `PluginBackend` methods. See [ADR-038](docs/decisions.md#adr-038-plugin-authoring-path-consolidation).
+- **core**: `Command::Update*` variants and the corresponding `extract_*_update` helpers are removed in favour of the typed `StateUpdates` channel on `Effects` (6d0a427b, 126730ca, 5e6d4358).
+- **sdk**: `kasane-plugin-sdk` and `kasane-plugin-sdk-macros` bumped to 0.6.0 alongside the host. Out-of-tree plugins should pin `kasane-plugin-sdk = "0.6"` and rebuild.
+
+### Migration
+
+See [docs/migration/0.5-to-0.6.md](docs/migration/0.5-to-0.6.md) for a side-by-side guide covering the WIT 1.0/2.0/3.0 differences, the handler / type renames, the capability-trait reorganisation, and the bundled-plugin rebuild flow.
+
+### Detailed Notes
+
+The chronological commit-level entries below capture the work as it landed; this section preserves them for archaeology. New 0.6.x entries will be filed under `## [Unreleased]` above.
+
 ### Added — Auto-wired lifecycle for Composable Lenses (`PluginRuntime::sync_lenses`) (2026-05-04)
 
 Composable Lenses follow-up: lens registration was previously

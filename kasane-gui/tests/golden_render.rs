@@ -1015,6 +1015,11 @@ fn rtl_bidi_cursor_matches_snapshot() {
 /// width of the CJK glyph cluster, not at the 1-cell width that
 /// the byte-offset would naively suggest.
 #[test]
+#[ignore = "Phase 12 CJK golden is bootstrapped on Apple M1 (commit 45e9ae4); macOS \
+            CI runners (even apple-silicon macos-latest) produce subtly different DSSIM \
+            scores due to wgpu-hal / OS / font-cache drift. Tracked as 1.0 critical path \
+            in docs/roadmap.md §2.1 Phase 12. Run locally with KASANE_GOLDEN_UPDATE=1 to \
+            regenerate the snapshot for your machine."]
 fn cjk_cluster_double_width_matches_snapshot() {
     use kasane_core::protocol::Style;
     use kasane_core::render::{

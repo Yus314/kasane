@@ -409,26 +409,26 @@ fn decoration_enabled(d: &DecorationKind) -> bool {
 mod tests {
     use super::*;
     use kasane_core::protocol::{
-        Brush as KBrush, Face, FontWeight as KFontWeight, NamedColor, Style,
+        Brush as KBrush, FontWeight as KFontWeight, NamedColor, Style, WireFace,
     };
 
-    fn atom(text: &str, face: Face) -> Atom {
+    fn atom(text: &str, face: WireFace) -> Atom {
         Atom::with_style(text, Style::from_face(&face))
     }
 
-    fn red_face() -> Face {
+    fn red_face() -> WireFace {
         use kasane_core::protocol::Color;
-        Face {
+        WireFace {
             fg: Color::Named(NamedColor::Red),
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
-    fn blue_face() -> Face {
+    fn blue_face() -> WireFace {
         use kasane_core::protocol::Color;
-        Face {
+        WireFace {
             fg: Color::Named(NamedColor::Blue),
-            ..Face::default()
+            ..WireFace::default()
         }
     }
 
@@ -486,7 +486,7 @@ mod tests {
     fn distinct_style_atoms_produce_distinct_runs() {
         let atoms = vec![
             atom("red", red_face()),
-            atom(" ", Face::default()),
+            atom(" ", WireFace::default()),
             atom("blue", blue_face()),
         ];
         let line = StyledLine::from_atoms(
@@ -515,7 +515,7 @@ mod tests {
     #[test]
     fn base_style_applied_to_default_atom() {
         // Atom with default style picks up base_style's brush during resolution.
-        let atoms = vec![atom("x", Face::default())];
+        let atoms = vec![atom("x", WireFace::default())];
         let base = Style {
             fg: KBrush::Named(NamedColor::Cyan),
             font_weight: KFontWeight::BOLD,

@@ -492,6 +492,14 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
             #annotate_line_impl
             #transform_menu_item_impl
         }
+
+        // R1.4-R1.6 (ADR-038): Io / PubSubMember / ExtensionParticipant
+        // are super-traits of PluginBackend. The macro emits empty
+        // default impls so plugin authors do not need to opt in
+        // manually. Plugin authors who *override* one of these
+        // capabilities should write the impl by hand and skip the
+        // macro slot for that trait.
+        kasane_core::impl_migrated_caps_default!(#struct_name);
     })
 }
 
