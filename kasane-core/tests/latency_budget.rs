@@ -173,10 +173,15 @@ fn parse_request_under_500us() {
         })
         .collect();
 
+    // Threshold set to 1000μs (1 ms) to absorb GitHub-hosted runner
+    // variance — the M1 reference (ADR-032) measures ~330 μs warm,
+    // but ubuntu-latest GH runners regularly land at ~600–700 μs
+    // under load. 1 ms is still well inside the perceptual budget
+    // (ADR-024) and useful as a regression guard against ≥3× slowdowns.
     let med = median_us(durations);
     assert!(
-        med < 500,
-        "parse_request (100 lines) median {med}μs exceeds 500μs budget"
+        med < 1000,
+        "parse_request (100 lines) median {med}μs exceeds 1000μs budget"
     );
 }
 
