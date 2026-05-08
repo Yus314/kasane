@@ -1,15 +1,15 @@
 use std::time::{Duration, Instant};
 
-use crate::protocol::{Attributes, Color, NamedColor, WireFace};
+use crate::protocol::{Brush, FontWeight, NamedColor, Style};
 use crate::surface::SurfaceRegistrationError;
 
 use super::painter::{
-    plugin_diagnostic_overlay_body_face_for, plugin_diagnostic_overlay_body_face_with_tone,
-    plugin_diagnostic_overlay_border_face, plugin_diagnostic_overlay_header_face_for,
-    plugin_diagnostic_overlay_header_face_with_tone, plugin_diagnostic_overlay_layout,
+    plugin_diagnostic_overlay_body_style_for, plugin_diagnostic_overlay_body_style_with_tone,
+    plugin_diagnostic_overlay_border_style, plugin_diagnostic_overlay_header_style_for,
+    plugin_diagnostic_overlay_header_style_with_tone, plugin_diagnostic_overlay_layout,
     plugin_diagnostic_overlay_shadow_spec, plugin_diagnostic_overlay_shadow_spec_for,
-    plugin_diagnostic_overlay_shadow_spec_with_tone, plugin_diagnostic_overlay_tag_face,
-    plugin_diagnostic_overlay_tag_text, plugin_diagnostic_overlay_text_face,
+    plugin_diagnostic_overlay_shadow_spec_with_tone, plugin_diagnostic_overlay_tag_style,
+    plugin_diagnostic_overlay_tag_text, plugin_diagnostic_overlay_text_style,
 };
 use super::scoring::{OverlayBackdropTone, diagnostic_overlay_lines};
 use super::types::{
@@ -184,68 +184,56 @@ fn overlay_palette_is_stable() {
     assert_eq!(PLUGIN_ACTIVATION_OVERLAY_TITLE, "plugin activation");
     assert_eq!(PLUGIN_DISCOVERY_OVERLAY_TITLE, "plugin discovery");
     assert_eq!(
-        plugin_diagnostic_overlay_border_face(PluginDiagnosticSeverity::Warning).fg,
-        Color::Named(NamedColor::BrightYellow)
+        plugin_diagnostic_overlay_border_style(PluginDiagnosticSeverity::Warning).fg,
+        Brush::Named(NamedColor::BrightYellow)
     );
     assert_eq!(
-        plugin_diagnostic_overlay_header_face_for(
+        plugin_diagnostic_overlay_header_style_for(
             PLUGIN_DISCOVERY_OVERLAY_TITLE,
             PluginDiagnosticSeverity::Warning,
         )
         .bg,
-        Color::Rgb {
-            r: 88,
-            g: 68,
-            b: 24,
-        }
+        Brush::rgb(88, 68, 24)
     );
     assert_eq!(
-        plugin_diagnostic_overlay_body_face_for(
+        plugin_diagnostic_overlay_body_style_for(
             PLUGIN_ACTIVATION_OVERLAY_TITLE,
             PluginDiagnosticSeverity::Error,
         )
         .bg,
-        Color::Rgb {
-            r: 36,
-            g: 18,
-            b: 18,
-        }
+        Brush::rgb(36, 18, 18)
     );
     assert_eq!(
-        plugin_diagnostic_overlay_tag_face(
+        plugin_diagnostic_overlay_tag_style(
             PluginDiagnosticOverlayTagKind::Activation,
             PluginDiagnosticSeverity::Error,
         )
         .bg,
-        Color::Named(NamedColor::BrightRed)
+        Brush::Named(NamedColor::BrightRed)
     );
     assert_eq!(
-        plugin_diagnostic_overlay_tag_face(
+        plugin_diagnostic_overlay_tag_style(
             PluginDiagnosticOverlayTagKind::Discovery,
             PluginDiagnosticSeverity::Error,
         )
         .fg,
-        Color::Named(NamedColor::BrightWhite)
+        Brush::Named(NamedColor::BrightWhite)
     );
     assert_eq!(
-        plugin_diagnostic_overlay_text_face(
+        plugin_diagnostic_overlay_text_style(
             PluginDiagnosticOverlayTagKind::ArtifactRead,
             PluginDiagnosticSeverity::Warning,
         )
         .fg,
-        Color::Rgb {
-            r: 171,
-            g: 212,
-            b: 255,
-        }
+        Brush::rgb(171, 212, 255)
     );
     assert_eq!(
-        plugin_diagnostic_overlay_text_face(
+        plugin_diagnostic_overlay_text_style(
             PluginDiagnosticOverlayTagKind::Activation,
             PluginDiagnosticSeverity::Error,
         )
-        .attributes,
-        Attributes::BOLD
+        .font_weight,
+        FontWeight::BOLD
     );
 }
 
@@ -967,16 +955,16 @@ fn overlay_paint_spec_uses_activation_tone_for_plugin_error_with_provider_warnin
         ))
     );
     assert_eq!(
-        spec.header_face,
-        plugin_diagnostic_overlay_header_face_with_tone(
+        spec.header_style,
+        plugin_diagnostic_overlay_header_style_with_tone(
             PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
             OverlayBackdropTone::Activation,
             PluginDiagnosticSeverity::Error,
         )
     );
     assert_eq!(
-        spec.body_face,
-        plugin_diagnostic_overlay_body_face_with_tone(
+        spec.body_style,
+        plugin_diagnostic_overlay_body_style_with_tone(
             PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
             OverlayBackdropTone::Activation,
             PluginDiagnosticSeverity::Error,
@@ -1014,8 +1002,8 @@ fn overlay_paint_spec_uses_neutral_tone_for_plugin_error_with_provider_init_warn
         ))
     );
     assert_eq!(
-        spec.header_face,
-        plugin_diagnostic_overlay_header_face_with_tone(
+        spec.header_style,
+        plugin_diagnostic_overlay_header_style_with_tone(
             PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
             OverlayBackdropTone::Neutral,
             PluginDiagnosticSeverity::Error,
@@ -1052,16 +1040,16 @@ fn overlay_paint_spec_keeps_neutral_tone_for_balanced_mixed_errors() {
         ))
     );
     assert_eq!(
-        spec.header_face,
-        plugin_diagnostic_overlay_header_face_with_tone(
+        spec.header_style,
+        plugin_diagnostic_overlay_header_style_with_tone(
             PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
             OverlayBackdropTone::Neutral,
             PluginDiagnosticSeverity::Error,
         )
     );
     assert_eq!(
-        spec.body_face,
-        plugin_diagnostic_overlay_body_face_with_tone(
+        spec.body_style,
+        plugin_diagnostic_overlay_body_style_with_tone(
             PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
             OverlayBackdropTone::Neutral,
             PluginDiagnosticSeverity::Error,
@@ -1092,8 +1080,8 @@ fn overlay_paint_spec_uses_activation_tone_when_plugin_score_dominates_mixed_bat
         ))
     );
     assert_eq!(
-        spec.header_face,
-        plugin_diagnostic_overlay_header_face_with_tone(
+        spec.header_style,
+        plugin_diagnostic_overlay_header_style_with_tone(
             PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
             OverlayBackdropTone::Activation,
             PluginDiagnosticSeverity::Error,
@@ -1124,8 +1112,8 @@ fn overlay_paint_spec_uses_discovery_tone_when_provider_score_dominates_mixed_ba
         ))
     );
     assert_eq!(
-        spec.header_face,
-        plugin_diagnostic_overlay_header_face_with_tone(
+        spec.header_style,
+        plugin_diagnostic_overlay_header_style_with_tone(
             PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
             OverlayBackdropTone::Discovery,
             PluginDiagnosticSeverity::Error,
@@ -1223,23 +1211,28 @@ fn overlay_shadow_varies_by_title_and_severity() {
 fn paint_overlay_issues_fill_border_and_text_primitives() {
     #[derive(Default)]
     struct MockPainter {
-        fills: Vec<(u16, u16, u16, u16, WireFace)>,
-        borders: Vec<(u16, u16, u16, u16, WireFace)>,
-        texts: Vec<(u16, u16, String, WireFace, u16)>,
+        fills: Vec<(u16, u16, u16, u16, Style)>,
+        borders: Vec<(u16, u16, u16, u16, Style)>,
+        texts: Vec<(u16, u16, String, Style, u16)>,
     }
 
     impl PluginDiagnosticOverlayPainter for MockPainter {
-        fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, face: WireFace) {
-            self.fills.push((x, y, width, height, face));
+        fn fill_region(&mut self, x: u16, y: u16, width: u16, height: u16, style: &Style) {
+            self.fills.push((x, y, width, height, style.clone()));
         }
 
-        fn draw_border(&mut self, x: u16, y: u16, width: u16, height: u16, face: WireFace) {
-            self.borders.push((x, y, width, height, face));
+        fn draw_border(&mut self, x: u16, y: u16, width: u16, height: u16, style: &Style) {
+            self.borders.push((x, y, width, height, style.clone()));
         }
 
         fn draw_text_run(&mut self, run: &PluginDiagnosticOverlayTextRun) {
-            self.texts
-                .push((run.x, run.y, run.text.clone(), run.face, run.max_width));
+            self.texts.push((
+                run.x,
+                run.y,
+                run.text.clone(),
+                run.style.clone(),
+                run.max_width,
+            ));
         }
     }
 
@@ -1265,7 +1258,7 @@ fn paint_overlay_issues_fill_border_and_text_primitives() {
             spec.layout.y,
             spec.layout.width,
             spec.layout.height,
-            spec.body_face,
+            spec.body_style.clone(),
         )
     );
     assert_eq!(
@@ -1275,7 +1268,7 @@ fn paint_overlay_issues_fill_border_and_text_primitives() {
             spec.layout.y,
             spec.layout.width,
             1,
-            spec.header_face,
+            spec.header_style.clone(),
         )
     );
     assert_eq!(
@@ -1285,7 +1278,7 @@ fn paint_overlay_issues_fill_border_and_text_primitives() {
             spec.layout.y,
             spec.layout.width,
             spec.layout.height,
-            spec.border_face,
+            spec.border_style.clone(),
         )]
     );
     assert_eq!(painter.texts.len(), spec.text_runs.len());

@@ -1,7 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Attributes, Color, NamedColor, WireFace};
+use crate::protocol::{Brush, FontWeight, NamedColor, Style};
 
 use super::scoring::{OverlayBackdropTone, overlay_backdrop_tone_for_title};
 use super::types::{
@@ -153,34 +153,34 @@ pub(super) fn plugin_diagnostic_overlay_paint_spec_with_style(
     let frame = plugin_diagnostic_overlay_frame_with_title(title, lines, hidden_count, cols, rows)?;
     let layout = frame.layout.clone();
     let severity = layout.severity;
-    let header_face = plugin_diagnostic_overlay_header_face_with_tone(title, tone, severity);
-    let body_face = plugin_diagnostic_overlay_body_face_with_tone(title, tone, severity);
-    let border_face = plugin_diagnostic_overlay_border_face(severity);
+    let header_style = plugin_diagnostic_overlay_header_style_with_tone(title, tone, severity);
+    let body_style = plugin_diagnostic_overlay_body_style_with_tone(title, tone, severity);
+    let border_style = plugin_diagnostic_overlay_border_style(severity);
 
     let mut text_runs = vec![PluginDiagnosticOverlayTextRun {
         x: layout.x + 1,
         y: layout.y,
         text: frame.header_text,
-        face: header_face,
+        style: header_style.clone(),
         max_width: layout.header_text_width(),
     }];
 
     text_runs.extend(frame.rows.into_iter().flat_map(|row| {
-        let tag_face = plugin_diagnostic_overlay_tag_face(row.tag_kind, row.severity);
-        let text_face = plugin_diagnostic_overlay_text_face(row.tag_kind, row.severity);
+        let tag_style = plugin_diagnostic_overlay_tag_style(row.tag_kind, row.severity);
+        let text_style = plugin_diagnostic_overlay_text_style(row.tag_kind, row.severity);
         [
             PluginDiagnosticOverlayTextRun {
                 x: layout.x + 1,
                 y: row.y,
                 text: row.tag.to_string(),
-                face: tag_face,
+                style: tag_style,
                 max_width: 1,
             },
             PluginDiagnosticOverlayTextRun {
                 x: layout.x + 3,
                 y: row.y,
                 text: row.text,
-                face: text_face,
+                style: text_style,
                 max_width: layout.body_text_width(),
             },
         ]
@@ -188,9 +188,9 @@ pub(super) fn plugin_diagnostic_overlay_paint_spec_with_style(
 
     Some(PluginDiagnosticOverlayPaintSpec {
         layout,
-        header_face,
-        body_face,
-        border_face,
+        header_style,
+        body_style,
+        border_style,
         shadow: Some(plugin_diagnostic_overlay_shadow_spec_with_tone(
             title, tone, severity,
         )),
@@ -268,266 +268,181 @@ pub fn paint_plugin_diagnostic_overlay<P: PluginDiagnosticOverlayPainter>(
         spec.layout.y,
         spec.layout.width,
         spec.layout.height,
-        spec.body_face,
+        &spec.body_style,
     );
     painter.fill_region(
         spec.layout.x,
         spec.layout.y,
         spec.layout.width,
         1,
-        spec.header_face,
+        &spec.header_style,
     );
     painter.draw_border(
         spec.layout.x,
         spec.layout.y,
         spec.layout.width,
         spec.layout.height,
-        spec.border_face,
+        &spec.border_style,
     );
     for run in &spec.text_runs {
         painter.draw_text_run(run);
     }
 }
 
-pub fn plugin_diagnostic_overlay_border_face(severity: PluginDiagnosticSeverity) -> WireFace {
-    WireFace {
+pub fn plugin_diagnostic_overlay_border_style(severity: PluginDiagnosticSeverity) -> Style {
+    Style {
         fg: match severity {
-            PluginDiagnosticSeverity::Warning => Color::Named(NamedColor::BrightYellow),
-            PluginDiagnosticSeverity::Error => Color::Named(NamedColor::BrightRed),
+            PluginDiagnosticSeverity::Warning => Brush::Named(NamedColor::BrightYellow),
+            PluginDiagnosticSeverity::Error => Brush::Named(NamedColor::BrightRed),
         },
-        bg: Color::Rgb {
-            r: 18,
-            g: 18,
-            b: 18,
-        },
-        underline: Color::Default,
-        attributes: Attributes::BOLD,
+        bg: Brush::rgb(18, 18, 18),
+        font_weight: FontWeight::BOLD,
+        ..Style::default()
     }
 }
 
-pub fn plugin_diagnostic_overlay_header_face(severity: PluginDiagnosticSeverity) -> WireFace {
-    plugin_diagnostic_overlay_header_face_for(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE, severity)
+pub fn plugin_diagnostic_overlay_header_style(severity: PluginDiagnosticSeverity) -> Style {
+    plugin_diagnostic_overlay_header_style_for(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE, severity)
 }
 
-pub fn plugin_diagnostic_overlay_header_face_for(
+pub fn plugin_diagnostic_overlay_header_style_for(
     title: &str,
     severity: PluginDiagnosticSeverity,
-) -> WireFace {
-    plugin_diagnostic_overlay_header_face_with_tone(
+) -> Style {
+    plugin_diagnostic_overlay_header_style_with_tone(
         title,
         overlay_backdrop_tone_for_title(title),
         severity,
     )
 }
 
-pub(super) fn plugin_diagnostic_overlay_header_face_with_tone(
+pub(super) fn plugin_diagnostic_overlay_header_style_with_tone(
     _title: &str,
     tone: OverlayBackdropTone,
     severity: PluginDiagnosticSeverity,
-) -> WireFace {
-    WireFace {
-        fg: Color::Named(NamedColor::BrightWhite),
+) -> Style {
+    Style {
+        fg: Brush::Named(NamedColor::BrightWhite),
         bg: match (tone, severity) {
-            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Error) => Color::Rgb {
-                r: 128,
-                g: 20,
-                b: 20,
-            },
-            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Warning) => Color::Rgb {
-                r: 104,
-                g: 72,
-                b: 24,
-            },
-            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Error) => Color::Rgb {
-                r: 112,
-                g: 60,
-                b: 16,
-            },
-            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Warning) => Color::Rgb {
-                r: 88,
-                g: 68,
-                b: 24,
-            },
-            (_, PluginDiagnosticSeverity::Warning) => Color::Rgb {
-                r: 96,
-                g: 72,
-                b: 12,
-            },
-            (_, PluginDiagnosticSeverity::Error) => Color::Rgb {
-                r: 112,
-                g: 24,
-                b: 24,
-            },
+            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Error) => {
+                Brush::rgb(128, 20, 20)
+            }
+            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Warning) => {
+                Brush::rgb(104, 72, 24)
+            }
+            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Error) => {
+                Brush::rgb(112, 60, 16)
+            }
+            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Warning) => {
+                Brush::rgb(88, 68, 24)
+            }
+            (_, PluginDiagnosticSeverity::Warning) => Brush::rgb(96, 72, 12),
+            (_, PluginDiagnosticSeverity::Error) => Brush::rgb(112, 24, 24),
         },
-        underline: Color::Default,
-        attributes: Attributes::BOLD,
+        font_weight: FontWeight::BOLD,
+        ..Style::default()
     }
 }
 
-pub fn plugin_diagnostic_overlay_body_face() -> WireFace {
-    plugin_diagnostic_overlay_body_face_for(
+pub fn plugin_diagnostic_overlay_body_style() -> Style {
+    plugin_diagnostic_overlay_body_style_for(
         PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
         PluginDiagnosticSeverity::Warning,
     )
 }
 
-pub fn plugin_diagnostic_overlay_body_face_for(
+pub fn plugin_diagnostic_overlay_body_style_for(
     title: &str,
     severity: PluginDiagnosticSeverity,
-) -> WireFace {
-    plugin_diagnostic_overlay_body_face_with_tone(
+) -> Style {
+    plugin_diagnostic_overlay_body_style_with_tone(
         title,
         overlay_backdrop_tone_for_title(title),
         severity,
     )
 }
 
-pub(super) fn plugin_diagnostic_overlay_body_face_with_tone(
+pub(super) fn plugin_diagnostic_overlay_body_style_with_tone(
     _title: &str,
     tone: OverlayBackdropTone,
     severity: PluginDiagnosticSeverity,
-) -> WireFace {
-    WireFace {
-        fg: Color::Named(NamedColor::BrightWhite),
+) -> Style {
+    Style {
+        fg: Brush::Named(NamedColor::BrightWhite),
         bg: match (tone, severity) {
-            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Error) => Color::Rgb {
-                r: 36,
-                g: 18,
-                b: 18,
-            },
-            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Warning) => Color::Rgb {
-                r: 32,
-                g: 26,
-                b: 18,
-            },
-            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Error) => Color::Rgb {
-                r: 34,
-                g: 24,
-                b: 17,
-            },
-            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Warning) => Color::Rgb {
-                r: 30,
-                g: 28,
-                b: 20,
-            },
-            _ => Color::Rgb {
-                r: 24,
-                g: 24,
-                b: 24,
-            },
+            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Error) => {
+                Brush::rgb(36, 18, 18)
+            }
+            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Warning) => {
+                Brush::rgb(32, 26, 18)
+            }
+            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Error) => {
+                Brush::rgb(34, 24, 17)
+            }
+            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Warning) => {
+                Brush::rgb(30, 28, 20)
+            }
+            _ => Brush::rgb(24, 24, 24),
         },
-        underline: Color::Default,
-        attributes: Attributes::empty(),
+        ..Style::default()
     }
 }
 
-pub fn plugin_diagnostic_overlay_text_face(
+pub fn plugin_diagnostic_overlay_text_style(
     kind: PluginDiagnosticOverlayTagKind,
     severity: PluginDiagnosticSeverity,
-) -> WireFace {
-    WireFace {
+) -> Style {
+    Style {
         fg: match (kind, severity) {
             (PluginDiagnosticOverlayTagKind::Activation, PluginDiagnosticSeverity::Error) => {
-                Color::Named(NamedColor::BrightWhite)
+                Brush::Named(NamedColor::BrightWhite)
             }
             (PluginDiagnosticOverlayTagKind::Activation, PluginDiagnosticSeverity::Warning) => {
-                Color::Named(NamedColor::BrightYellow)
+                Brush::Named(NamedColor::BrightYellow)
             }
-            (PluginDiagnosticOverlayTagKind::Discovery, _) => Color::Rgb {
-                r: 245,
-                g: 214,
-                b: 168,
-            },
-            (PluginDiagnosticOverlayTagKind::ArtifactManifest, _) => Color::Rgb {
-                r: 160,
-                g: 180,
-                b: 200,
-            },
-            (PluginDiagnosticOverlayTagKind::ArtifactRead, _) => Color::Rgb {
-                r: 171,
-                g: 212,
-                b: 255,
-            },
-            (PluginDiagnosticOverlayTagKind::ArtifactLoad, _) => Color::Rgb {
-                r: 200,
-                g: 160,
-                b: 60,
-            },
-            (PluginDiagnosticOverlayTagKind::ArtifactInstantiate, _) => Color::Rgb {
-                r: 255,
-                g: 194,
-                b: 114,
-            },
-            (PluginDiagnosticOverlayTagKind::Runtime, _) => Color::Named(NamedColor::BrightRed),
-            (PluginDiagnosticOverlayTagKind::Config, _) => Color::Rgb {
-                r: 140,
-                g: 200,
-                b: 220,
-            },
+            (PluginDiagnosticOverlayTagKind::Discovery, _) => Brush::rgb(245, 214, 168),
+            (PluginDiagnosticOverlayTagKind::ArtifactManifest, _) => Brush::rgb(160, 180, 200),
+            (PluginDiagnosticOverlayTagKind::ArtifactRead, _) => Brush::rgb(171, 212, 255),
+            (PluginDiagnosticOverlayTagKind::ArtifactLoad, _) => Brush::rgb(200, 160, 60),
+            (PluginDiagnosticOverlayTagKind::ArtifactInstantiate, _) => Brush::rgb(255, 194, 114),
+            (PluginDiagnosticOverlayTagKind::Runtime, _) => Brush::Named(NamedColor::BrightRed),
+            (PluginDiagnosticOverlayTagKind::Config, _) => Brush::rgb(140, 200, 220),
         },
-        bg: Color::Rgb {
-            r: 24,
-            g: 24,
-            b: 24,
+        bg: Brush::rgb(24, 24, 24),
+        font_weight: match severity {
+            PluginDiagnosticSeverity::Error => FontWeight::BOLD,
+            PluginDiagnosticSeverity::Warning => FontWeight::NORMAL,
         },
-        underline: Color::Default,
-        attributes: match severity {
-            PluginDiagnosticSeverity::Error => Attributes::BOLD,
-            PluginDiagnosticSeverity::Warning => Attributes::empty(),
-        },
+        ..Style::default()
     }
 }
 
-pub fn plugin_diagnostic_overlay_tag_face(
+pub fn plugin_diagnostic_overlay_tag_style(
     kind: PluginDiagnosticOverlayTagKind,
     severity: PluginDiagnosticSeverity,
-) -> WireFace {
-    WireFace {
+) -> Style {
+    Style {
         fg: match kind {
-            PluginDiagnosticOverlayTagKind::Discovery => Color::Named(NamedColor::BrightWhite),
-            _ => Color::Named(NamedColor::Black),
+            PluginDiagnosticOverlayTagKind::Discovery => Brush::Named(NamedColor::BrightWhite),
+            _ => Brush::Named(NamedColor::Black),
         },
         bg: match (kind, severity) {
             (PluginDiagnosticOverlayTagKind::Activation, PluginDiagnosticSeverity::Error) => {
-                Color::Named(NamedColor::BrightRed)
+                Brush::Named(NamedColor::BrightRed)
             }
             (PluginDiagnosticOverlayTagKind::Activation, PluginDiagnosticSeverity::Warning) => {
-                Color::Named(NamedColor::BrightYellow)
+                Brush::Named(NamedColor::BrightYellow)
             }
-            (PluginDiagnosticOverlayTagKind::Discovery, _) => Color::Rgb {
-                r: 124,
-                g: 54,
-                b: 18,
-            },
-            (PluginDiagnosticOverlayTagKind::ArtifactManifest, _) => Color::Rgb {
-                r: 90,
-                g: 110,
-                b: 130,
-            },
-            (PluginDiagnosticOverlayTagKind::ArtifactRead, _) => Color::Rgb {
-                r: 78,
-                g: 106,
-                b: 158,
-            },
-            (PluginDiagnosticOverlayTagKind::ArtifactLoad, _) => Color::Rgb {
-                r: 180,
-                g: 140,
-                b: 40,
-            },
-            (PluginDiagnosticOverlayTagKind::ArtifactInstantiate, _) => Color::Rgb {
-                r: 214,
-                g: 126,
-                b: 34,
-            },
-            (PluginDiagnosticOverlayTagKind::Runtime, _) => Color::Named(NamedColor::BrightRed),
-            (PluginDiagnosticOverlayTagKind::Config, _) => Color::Rgb {
-                r: 60,
-                g: 140,
-                b: 160,
-            },
+            (PluginDiagnosticOverlayTagKind::Discovery, _) => Brush::rgb(124, 54, 18),
+            (PluginDiagnosticOverlayTagKind::ArtifactManifest, _) => Brush::rgb(90, 110, 130),
+            (PluginDiagnosticOverlayTagKind::ArtifactRead, _) => Brush::rgb(78, 106, 158),
+            (PluginDiagnosticOverlayTagKind::ArtifactLoad, _) => Brush::rgb(180, 140, 40),
+            (PluginDiagnosticOverlayTagKind::ArtifactInstantiate, _) => Brush::rgb(214, 126, 34),
+            (PluginDiagnosticOverlayTagKind::Runtime, _) => Brush::Named(NamedColor::BrightRed),
+            (PluginDiagnosticOverlayTagKind::Config, _) => Brush::rgb(60, 140, 160),
         },
-        underline: Color::Default,
-        attributes: Attributes::BOLD,
+        font_weight: FontWeight::BOLD,
+        ..Style::default()
     }
 }
 

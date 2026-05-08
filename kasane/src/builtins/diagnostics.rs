@@ -9,7 +9,7 @@ use kasane_core::plugin::diagnostics::PluginDiagnosticOverlayState;
 use kasane_core::plugin::{
     AppView, OverlayContext, OverlayContribution, PluginBackend, PluginCapabilities, PluginId,
 };
-use kasane_core::protocol::{Atom, Color, Style, WireFace};
+use kasane_core::protocol::{Atom, Brush, Style};
 use unicode_width::UnicodeWidthStr;
 
 /// Built-in plugin for diagnostics overlay rendering.
@@ -59,19 +59,15 @@ impl PluginBackend for BuiltinDiagnosticsPlugin {
 fn build_footer_atoms(
     inner_width: u16,
     log_path: Option<&str>,
-    body_face: &WireFace,
+    body_style: &Style,
 ) -> Option<Vec<Atom>> {
     if inner_width < 8 {
         return None;
     }
-    let hint_face = WireFace {
-        fg: Color::Rgb {
-            r: 160,
-            g: 160,
-            b: 160,
-        },
-        bg: body_face.bg,
-        ..WireFace::default()
+    let hint_style = Style {
+        fg: Brush::rgb(160, 160, 160),
+        bg: body_style.bg,
+        ..Style::default()
     };
     let mut atoms = Vec::new();
     if let Some(path) = log_path {
@@ -83,12 +79,12 @@ fn build_footer_atoms(
         } else {
             shorten_path_to_width(path, path_room)
         };
-        atoms.push(Atom::with_style(prefix, Style::from_face(&hint_face)));
-        atoms.push(Atom::with_style(displayed, Style::from_face(&hint_face)));
+        atoms.push(Atom::with_style(prefix, hint_style.clone()));
+        atoms.push(Atom::with_style(displayed, hint_style));
     } else {
         atoms.push(Atom::with_style(
             "see log (KASANE_LOG_STDERR=1)",
-            Style::from_face(&hint_face),
+            hint_style,
         ));
     }
     Some(atoms)
@@ -135,7 +131,7 @@ fn build_diagnostic_element(
     // Header line (first text run)
     if let Some(header_run) = spec.text_runs.first() {
         body_children.push(FlexChild::fixed(Element::StyledLine(vec![
-            Atom::with_style(header_run.text.clone(), Style::from_face(&spec.header_face)),
+            Atom::with_style(header_run.text.clone(), header_run.style.clone()),
         ])));
     }
 
@@ -144,13 +140,10 @@ fn build_diagnostic_element(
     for chunk in body_runs.chunks(2) {
         let mut atoms = Vec::new();
         for run in chunk {
-            atoms.push(Atom::with_style(
-                run.text.clone(),
-                Style::from_face(&run.face),
-            ));
+            atoms.push(Atom::with_style(run.text.clone(), run.style.clone()));
             // Space between tag and text
             if atoms.len() == 1 {
-                atoms.push(Atom::with_style(" ", Style::from_face(&spec.body_face)));
+                atoms.push(Atom::with_style(" ", spec.body_style.clone()));
             }
         }
         body_children.push(FlexChild::fixed(Element::StyledLine(atoms)));
@@ -160,7 +153,7 @@ fn build_diagnostic_element(
     // Adds one extra row to the container if the layout has vertical room.
     let inner_width = layout.width.saturating_sub(2);
     let extra_height = if layout.y + layout.height < rows {
-        if let Some(footer_atoms) = build_footer_atoms(inner_width, log_path, &spec.body_face) {
+        if let Some(footer_atoms) = build_footer_atoms(inner_width, log_path, &spec.body_style) {
             body_children.push(FlexChild::fixed(Element::StyledLine(footer_atoms)));
             1
         } else {
@@ -172,21 +165,21 @@ fn build_diagnostic_element(
 
     let body = Element::column(body_children);
 
-    let border_face = WireFace {
-        fg: spec.border_face.fg,
-        bg: spec.body_face.bg,
-        ..WireFace::default()
+    let border_style = Style {
+        fg: spec.border_style.fg,
+        bg: spec.body_style.bg,
+        ..Style::default()
     };
 
     let container = Element::Container {
         child: Box::new(body),
         border: Some(BorderConfig {
             line_style: BorderLineStyle::Single,
-            style: Some(ElementStyle::from(border_face)),
+            style: Some(ElementStyle::from(border_style)),
         }),
         shadow: spec.shadow.is_some(),
         padding: kasane_core::element::Edges::ZERO,
-        style: ElementStyle::from(spec.body_face),
+        style: ElementStyle::from(spec.body_style.clone()),
         title: None,
     };
 
