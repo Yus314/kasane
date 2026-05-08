@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added — `kasane.kdl` auto-reload for `plugins` and `settings` ([ADR-040](docs/decisions.md#adr-040-kasanekdl-auto-reload-for-plugins-and-settings))
+
+Opt-in `plugins.auto_reload #true` makes edits to the `plugins` and
+`settings` blocks in `kasane.kdl` apply live: kasane runs `resolve`,
+rewrites `plugins.lock`, and live-swaps the plugin set without a
+restart. Settings-only changes skip the lock update and refresh
+plugins in place. Default is `#false` to preserve the existing
+"resolve, then restart" workflow that CI scripts depend on. See
+[docs/using-plugins.md](docs/using-plugins.md#auto-reload-on-kasanekdl-changes)
+for usage.
+
+### Fixed — Per-plugin teardown on hot-reload
+
+- `Config::restart_required_diff` now compares `settings`, surfacing a
+  diagnostic for changes that were previously ignored silently.
+- `PluginVariableStore` records the owning plugin id when a plugin
+  exposes a variable, and `unload_plugin` clears those entries so a
+  hot-reloaded plugin can't observe the previous instance's values.
+- `ProcessDispatcher::kill_all_for_plugin` aborts every child process
+  owned by an unloaded plugin and resets the per-plugin process slot
+  count, fixing a leak where re-loaded plugins could hit
+  `MAX_PROCESSES_PER_PLUGIN` for processes that no longer existed.
+
 ## [0.6.0] - 2026-05-06
 
 ### Highlights

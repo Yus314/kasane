@@ -72,6 +72,37 @@ kasane plugin resolve
 
 to rebuild `plugins.lock`.
 
+### Auto-reload on `kasane.kdl` changes
+
+By default, edits to the `plugins` or `settings` blocks in `kasane.kdl`
+require running `kasane plugin resolve` and restarting kasane. To make
+both happen automatically when the file is saved, set
+`plugins.auto_reload`:
+
+```kdl
+plugins {
+    auto_reload #true
+    enabled "cursor_line"
+}
+```
+
+With `auto_reload #true`:
+
+- Editing `plugins.enabled` / `plugins.disabled` / `plugins.selection`
+  triggers an automatic `resolve`, rewrites `plugins.lock`, and live-swaps
+  the running plugin set.
+- Editing `settings.<plugin_id> { ... }` updates the per-plugin settings
+  in place — no lock change required, no restart.
+- Resolution failures (missing packages, version conflicts) are surfaced
+  through the diagnostic overlay; the previous lock is kept so the editor
+  keeps working.
+- Changes to `font`, `window`, `ui.backend`, and `log` still require a
+  restart — those touch backend lifecycle in ways live reload can't
+  cover.
+
+The default is `#false` to preserve the explicit "resolve, then restart"
+workflow that CI and reproducible setups rely on.
+
 To remove old package artifacts that are no longer referenced by `plugins.lock`, run:
 
 ```bash

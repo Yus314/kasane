@@ -9,6 +9,7 @@
 //! Phase 2 MVP: skeleton + open/close toggle. Rendering and navigation
 //! are added in subsequent commits (2.3 / 2.4).
 
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use kasane_core::element::{
@@ -16,23 +17,27 @@ use kasane_core::element::{
 };
 use kasane_core::input::{Key, KeyEvent, Modifiers};
 use kasane_core::plugin::diagnostics::{
-    DiagnosticHistory, DiagnosticHistoryEntry, PluginDiagnostic, PluginDiagnosticSeverity,
+    DiagnosticHistory, DiagnosticHistoryEntry, PluginDiagnostic, PluginDiagnosticKind,
+    PluginDiagnosticSeverity, PluginDiagnosticTarget, provider_artifact_stage_label,
     summarize_plugin_diagnostic,
 };
 use kasane_core::plugin::{
-    AppView, KeyPreDispatchResult, OverlayContext, OverlayContribution, PluginBackend,
+    AppView, Command, KeyPreDispatchResult, OverlayContext, OverlayContribution, PluginBackend,
     PluginCapabilities, PluginId, StateUpdates,
 };
+use kasane_core::plugin::{PluginDescriptor, PluginSource};
 use kasane_core::protocol::{Atom, Attributes, Color, NamedColor, Style, WireFace};
 use kasane_core::state::DirtyFlags;
 use unicode_width::UnicodeWidthStr;
 
 const PANEL_TITLE: &str = " Plugin Diagnostics ";
 const PANEL_Z_INDEX: i16 = 200;
-/// Fixed border + header + footer rows reserved outside the entry list.
+/// Border (2) + header (1) + footer (2) rows reserved outside the entry list.
 const NON_ENTRY_ROWS: u16 = 5;
+/// Detail block lines: separator + message + previous + attempted.
+const DETAIL_ROWS: u16 = 4;
 const MIN_PANEL_W: u16 = 40;
-const MIN_PANEL_H: u16 = 8;
+const MIN_PANEL_H: u16 = 12;
 
 /// Panel state. Stored on the plugin instance because diagnostics are
 /// framework-internal and we don't want to expose history navigation
@@ -171,6 +176,25 @@ impl PluginBackend for BuiltinDiagnosticsPanelPlugin {
             };
         }
 
+        // Enter: hand off to Kakoune to open the log file. We close the
+        // panel first so the user lands on the freshly-opened buffer.
+        if key.modifiers.is_empty() && key.key == Key::Enter {
+            let mut commands = Vec::new();
+            if let Some(path) = state.log_path() {
+                let resolved = resolve_active_log_file(path);
+                if let Some(path_str) = resolved.to_str() {
+                    commands.push(Command::kakoune_command(&format!("edit {path_str}")));
+                }
+            }
+            self.close();
+            return KeyPreDispatchResult::Consumed {
+                flags: DirtyFlags::ALL,
+                commands,
+                state_updates: StateUpdates::default(),
+                pending_buffer_edit: None,
+            };
+        }
+
         if let Some(action) = Self::nav_action_for(key) {
             let total = state.diagnostic_history().len();
             let viewport = panel_layout(state.cols(), state.rows())
@@ -243,7 +267,9 @@ fn panel_layout(cols: u16, rows: u16) -> Option<PanelLayout> {
     let h = ((rows as f32 * 0.8) as u16).max(MIN_PANEL_H).min(rows);
     let x = (cols.saturating_sub(w)) / 2;
     let y = (rows.saturating_sub(h)) / 2;
-    let entry_rows = h.saturating_sub(NON_ENTRY_ROWS);
+    // Reserve detail rows up front; the entry list shrinks accordingly so
+    // the detail block has a stable position regardless of selection.
+    let entry_rows = h.saturating_sub(NON_ENTRY_ROWS + DETAIL_ROWS);
     Some(PanelLayout {
         x,
         y,
@@ -295,6 +321,30 @@ fn build_panel_element(
     for _ in used..layout.entry_rows {
         children.push(FlexChild::fixed(Element::StyledLine(vec![
             Atom::with_style("", Style::from_face(&body_face)),
+        ])));
+    }
+
+    // Detail block: separator + 3 stable rows. We always emit DETAIL_ROWS
+    // rows so the footer position never shifts; rows render blank when
+    // the corresponding field is absent.
+    let detail_face = panel_detail_face();
+    let detail_separator_face = panel_detail_separator_face();
+    let selected_entry = entries
+        .iter()
+        .enumerate()
+        .find(|(rel, _)| scroll_offset + rel == absolute_selected)
+        .map(|(_, e)| e);
+    let detail_lines = format_detail_lines(selected_entry.map(|e| &e.diagnostic), inner_w);
+
+    children.push(FlexChild::fixed(Element::StyledLine(vec![
+        Atom::with_style(
+            detail_separator_text(inner_w),
+            Style::from_face(&detail_separator_face),
+        ),
+    ])));
+    for line in detail_lines {
+        children.push(FlexChild::fixed(Element::StyledLine(vec![
+            Atom::with_style(line, Style::from_face(&detail_face)),
         ])));
     }
 
@@ -360,8 +410,141 @@ fn header_atom(history: &DiagnosticHistory, inner_w: u16, face: &WireFace) -> At
 }
 
 fn footer_keys_text(inner_w: u16) -> String {
-    let s = " ↑↓/jk navigate │ g/G top/bottom │ q/esc close ";
+    let s = " ↑↓/jk nav │ g/G top/bottom │ enter open log │ y yank │ q close ";
     truncate_to_width(s, inner_w)
+}
+
+fn detail_separator_text(inner_w: u16) -> String {
+    let max = inner_w as usize;
+    let label = " details ";
+    if max <= label.len() + 2 {
+        return "─".repeat(max);
+    }
+    let dashes = max.saturating_sub(label.len() + 1);
+    format!(" {label}{}", "─".repeat(dashes))
+}
+
+/// Build the 3 detail lines (always 3 rows, blank when absent) for the
+/// row block under the separator.
+fn format_detail_lines(diag: Option<&PluginDiagnostic>, inner_w: u16) -> [String; 3] {
+    let Some(d) = diag else {
+        return [String::new(), String::new(), String::new()];
+    };
+    let kind_label = kind_short_label(&d.kind);
+    let target = match &d.target {
+        PluginDiagnosticTarget::Plugin(id) => format!("plugin {}", id.0),
+        PluginDiagnosticTarget::Provider(p) => format!("provider {p}"),
+    };
+    let line1 = truncate_to_width(&format!(" [{kind_label}] {target}"), inner_w);
+    let line2 = truncate_to_width(&format!(" message: {}", d.message), inner_w);
+    let line3 = format_descriptors_line(d, inner_w);
+    [line1, line2, line3]
+}
+
+fn kind_short_label(kind: &PluginDiagnosticKind) -> &'static str {
+    match kind {
+        PluginDiagnosticKind::SurfaceRegistrationFailed { .. } => "surface",
+        PluginDiagnosticKind::InstantiationFailed => "init",
+        PluginDiagnosticKind::ProviderCollectFailed => "discovery",
+        PluginDiagnosticKind::ProviderArtifactFailed { .. } => "artifact",
+        PluginDiagnosticKind::RuntimeError { .. } => "runtime",
+        PluginDiagnosticKind::ConfigError { .. } => "config",
+        PluginDiagnosticKind::BackendCapabilityRejected { .. } => "backend",
+    }
+}
+
+/// Third detail row: kind-specific extras (artifact stage, runtime method,
+/// previous→attempted descriptor pair). Always returns one truncated line.
+fn format_descriptors_line(d: &PluginDiagnostic, inner_w: u16) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    match &d.kind {
+        PluginDiagnosticKind::ProviderArtifactFailed { artifact, stage } => {
+            parts.push(format!(
+                "stage: {} artifact: {artifact}",
+                provider_artifact_stage_label(*stage)
+            ));
+        }
+        PluginDiagnosticKind::RuntimeError { method } => {
+            parts.push(format!("method: {method}"));
+        }
+        PluginDiagnosticKind::ConfigError { key } => {
+            parts.push(format!("key: {key}"));
+        }
+        PluginDiagnosticKind::BackendCapabilityRejected {
+            primitive_kind,
+            backend,
+        } => {
+            parts.push(format!("backend {backend} rejected {primitive_kind}"));
+        }
+        _ => {}
+    }
+    if let Some(prev) = d.previous.as_ref() {
+        parts.push(format!("prev {}", short_descriptor(prev)));
+    }
+    if let Some(att) = d.attempted.as_ref() {
+        parts.push(format!("attempted {}", short_descriptor(att)));
+    }
+    let raw = if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", parts.join(" │ "))
+    };
+    truncate_to_width(&raw, inner_w)
+}
+
+/// Resolve the active rotated log file from the configured base path.
+///
+/// `tracing_appender::rolling::daily` writes to `<prefix>.YYYY-MM-DD`;
+/// the path stored in `RuntimeState::log_path` is the un-suffixed base
+/// (`<dir>/kasane.log`). This walks the directory and returns the
+/// most recently modified `kasane.log*` entry, falling back to the
+/// configured base path when nothing is found (so Kakoune still opens
+/// *something* the user can see).
+fn resolve_active_log_file(configured: &Path) -> PathBuf {
+    let Some(dir) = configured.parent() else {
+        return configured.to_path_buf();
+    };
+    let Some(stem) = configured.file_name().and_then(|n| n.to_str()) else {
+        return configured.to_path_buf();
+    };
+    let read = match std::fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(_) => return configured.to_path_buf(),
+    };
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    for entry in read.flatten() {
+        let name = entry.file_name();
+        let Some(name_str) = name.to_str() else {
+            continue;
+        };
+        if !name_str.starts_with(stem) {
+            continue;
+        }
+        let mtime = match entry.metadata().and_then(|m| m.modified()) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        match &best {
+            Some((bt, _)) if *bt >= mtime => {}
+            _ => best = Some((mtime, entry.path())),
+        }
+    }
+    best.map(|(_, p)| p)
+        .unwrap_or_else(|| configured.to_path_buf())
+}
+
+fn short_descriptor(d: &PluginDescriptor) -> String {
+    let src = match &d.source {
+        PluginSource::BundledWasm { name } => format!("bundled:{name}"),
+        PluginSource::FilesystemWasm { path } => path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| format!("file:{n}"))
+            .unwrap_or_else(|| "file:?".to_string()),
+        PluginSource::Host { provider } => format!("host:{provider}"),
+        PluginSource::Builtin { name } => format!("builtin:{name}"),
+    };
+    format!("{}@{}", src, d.revision.0)
 }
 
 fn footer_log_text(log_path: Option<&str>, inner_w: u16) -> String {
@@ -466,6 +649,40 @@ fn panel_selected_face() -> WireFace {
         bg: Color::Named(NamedColor::BrightYellow),
         underline: Color::Default,
         attributes: Attributes::BOLD,
+    }
+}
+
+fn panel_detail_face() -> WireFace {
+    WireFace {
+        fg: Color::Rgb {
+            r: 200,
+            g: 200,
+            b: 220,
+        },
+        bg: Color::Rgb {
+            r: 22,
+            g: 22,
+            b: 28,
+        },
+        underline: Color::Default,
+        attributes: Attributes::empty(),
+    }
+}
+
+fn panel_detail_separator_face() -> WireFace {
+    WireFace {
+        fg: Color::Rgb {
+            r: 110,
+            g: 110,
+            b: 130,
+        },
+        bg: Color::Rgb {
+            r: 22,
+            g: 22,
+            b: 28,
+        },
+        underline: Color::Default,
+        attributes: Attributes::empty(),
     }
 }
 
@@ -615,6 +832,46 @@ mod tests {
         assert_eq!((s, o), (0, 0));
         let (s2, o2) = BuiltinDiagnosticsPanelPlugin::navigate(NavAction::Bottom, 10, 5, 0, 0);
         assert_eq!((s2, o2), (9, 5));
+    }
+
+    #[test]
+    fn enter_emits_no_commands_when_log_path_unset() {
+        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
+        plugin.is_open = true;
+        let state = kasane_core::state::AppState::default();
+        // RuntimeState::log_path defaults to None.
+        let view = AppView::new(&state);
+        let result = plugin.handle_key_pre_dispatch(&ev(Key::Enter, Modifiers::empty()), &view);
+        match result {
+            KeyPreDispatchResult::Consumed { commands, .. } => {
+                assert!(commands.is_empty());
+            }
+            _ => panic!("expected Consumed"),
+        }
+        assert!(!plugin.is_open, "enter should close the panel");
+    }
+
+    #[test]
+    fn enter_with_log_path_emits_kakoune_command_and_closes() {
+        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
+        plugin.is_open = true;
+        let mut state = kasane_core::state::AppState::default();
+        state.runtime.log_path = Some(std::path::PathBuf::from("/nonexistent/path/kasane.log"));
+        let view = AppView::new(&state);
+        let result = plugin.handle_key_pre_dispatch(&ev(Key::Enter, Modifiers::empty()), &view);
+        match result {
+            KeyPreDispatchResult::Consumed { commands, .. } => {
+                assert_eq!(commands.len(), 1, "should emit one Kakoune command");
+            }
+            _ => panic!("expected Consumed"),
+        }
+        assert!(!plugin.is_open);
+    }
+
+    #[test]
+    fn resolve_active_log_file_returns_configured_when_dir_missing() {
+        let p = std::path::PathBuf::from("/definitely/not/a/dir/kasane.log");
+        assert_eq!(resolve_active_log_file(&p), p);
     }
 
     #[test]
