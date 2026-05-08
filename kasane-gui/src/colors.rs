@@ -1,5 +1,5 @@
 use kasane_core::config::ColorsConfig;
-use kasane_core::protocol::{Attributes, Brush, Color, NamedColor, Style, WireFace};
+use kasane_core::protocol::{Brush, Color, NamedColor, Style};
 
 /// Resolves kasane-core `Color` values to GPU-ready `[f32; 4]` (sRGB, alpha=1.0).
 ///
@@ -50,45 +50,23 @@ impl ColorResolver {
         }
     }
 
-    /// Resolve face fg/bg to GPU colors, applying REVERSE attribute.
+    /// Sync default fg/bg from Kakoune's resolved `default_style`.
     ///
-    /// Returns `(visual_fg, visual_bg, needs_bg)`.
-    /// Terminal REVERSE semantics: resolve Default first, then swap.
-    pub fn resolve_face_colors(&self, face: &WireFace) -> ([f32; 4], [f32; 4], bool) {
-        let raw_fg = self.resolve(face.fg, true);
-        let raw_bg = self.resolve(face.bg, false);
-        if face.attributes.contains(Attributes::REVERSE) {
-            (raw_bg, raw_fg, true)
-        } else {
-            (raw_fg, raw_bg, face.bg != Color::Default)
+    /// The draw event sends a default style with the theme's resolved default
+    /// colours. Use those instead of the static `ColorsConfig` fallback so
+    /// that `Brush::Default` resolves to the active colorscheme's defaults.
+    pub fn sync_defaults(&mut self, style: &Style) {
+        if !style.fg.is_inherit() {
+            self.palette[0] = self.resolve_brush(style.fg, true);
         }
-    }
-
-    /// Sync default fg/bg from Kakoune's `default_face`.
-    ///
-    /// The draw event sends a `default_face` with the theme's resolved default
-    /// colors. Use those instead of the static `ColorsConfig` fallback so that
-    /// `Color::Default` resolves to the active colorscheme's defaults.
-    pub fn sync_defaults(&mut self, face: &WireFace) {
-        if face.fg != Color::Default {
-            self.palette[0] = self.resolve(face.fg, true);
-        }
-        if face.bg != Color::Default {
-            self.palette[1] = self.resolve(face.bg, false);
+        if !style.bg.is_inherit() {
+            self.palette[1] = self.resolve_brush(style.bg, false);
         }
     }
 
     /// Convert a kasane-core `Color` to a GPU-ready `[f32; 4]` in **linear** color space.
     pub fn resolve_linear(&self, color: Color, is_fg: bool) -> [f32; 4] {
         srgb_color_to_linear(self.resolve(color, is_fg))
-    }
-
-    /// Resolve face fg/bg to GPU colors in **linear** color space, applying REVERSE.
-    ///
-    /// Returns `(visual_fg, visual_bg, needs_bg)`.
-    pub fn resolve_face_colors_linear(&self, face: &WireFace) -> ([f32; 4], [f32; 4], bool) {
-        let (fg, bg, needs_bg) = self.resolve_face_colors(face);
-        (srgb_color_to_linear(fg), srgb_color_to_linear(bg), needs_bg)
     }
 
     /// Default background color as `[f32; 4]`.
@@ -128,11 +106,6 @@ impl ColorResolver {
 
     /// Resolve a [`Style`]'s fg/bg to GPU colors (sRGB), applying the
     /// `reverse` attribute. Returns `(visual_fg, visual_bg, needs_bg)`.
-    ///
-    /// Mirrors [`Self::resolve_face_colors`] but operates on the
-    /// post-resolve [`Style`] type, eliminating the
-    /// `Style → WireFace → Style` round-trip that historically lived at
-    /// every callsite.
     pub fn resolve_style_colors(&self, style: &Style) -> ([f32; 4], [f32; 4], bool) {
         let raw_fg = self.resolve_brush(style.fg, true);
         let raw_bg = self.resolve_brush(style.bg, false);
@@ -275,82 +248,63 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_face_colors_no_reverse() {
+    fn test_resolve_style_colors_no_reverse() {
         let config = ColorsConfig::default();
         let resolver = ColorResolver::from_config(&config);
-        let face = WireFace {
-            fg: Color::Named(NamedColor::Red),
-            bg: Color::Named(NamedColor::Blue),
-            ..WireFace::default()
+        let style = Style {
+            fg: Brush::Named(NamedColor::Red),
+            bg: Brush::Named(NamedColor::Blue),
+            ..Style::default()
         };
-        let (vfg, vbg, needs_bg) = resolver.resolve_face_colors(&face);
-        let expected_fg = resolver.resolve(Color::Named(NamedColor::Red), true);
-        let expected_bg = resolver.resolve(Color::Named(NamedColor::Blue), false);
+        let (vfg, vbg, needs_bg) = resolver.resolve_style_colors(&style);
+        let expected_fg = resolver.resolve_brush(Brush::Named(NamedColor::Red), true);
+        let expected_bg = resolver.resolve_brush(Brush::Named(NamedColor::Blue), false);
         assert_eq!(vfg, expected_fg);
         assert_eq!(vbg, expected_bg);
         assert!(needs_bg);
     }
 
     #[test]
-    fn test_resolve_face_colors_reverse_swaps() {
+    fn test_resolve_style_colors_reverse_default_swap() {
         let config = ColorsConfig::default();
         let resolver = ColorResolver::from_config(&config);
-        let face = WireFace {
-            fg: Color::Named(NamedColor::Red),
-            bg: Color::Named(NamedColor::Blue),
-            attributes: Attributes::REVERSE,
-            ..WireFace::default()
+        let style = Style {
+            fg: Brush::Default,
+            bg: Brush::Default,
+            reverse: true,
+            ..Style::default()
         };
-        let (vfg, vbg, _) = resolver.resolve_face_colors(&face);
-        // REVERSE: fg gets bg's color, bg gets fg's color
-        let expected_fg = resolver.resolve(Color::Named(NamedColor::Blue), false);
-        let expected_bg = resolver.resolve(Color::Named(NamedColor::Red), true);
-        assert_eq!(vfg, expected_fg);
-        assert_eq!(vbg, expected_bg);
-    }
-
-    #[test]
-    fn test_resolve_face_colors_reverse_default() {
-        let config = ColorsConfig::default();
-        let resolver = ColorResolver::from_config(&config);
-        let face = WireFace {
-            fg: Color::Default,
-            bg: Color::Default,
-            attributes: Attributes::REVERSE,
-            ..WireFace::default()
-        };
-        let (vfg, vbg, _) = resolver.resolve_face_colors(&face);
-        // Default fg and bg get resolved then swapped
-        let default_fg = resolver.resolve(Color::Default, true);
-        let default_bg = resolver.resolve(Color::Default, false);
+        let (vfg, vbg, _) = resolver.resolve_style_colors(&style);
+        let default_fg = resolver.resolve_brush(Brush::Default, true);
+        let default_bg = resolver.resolve_brush(Brush::Default, false);
         assert_eq!(vfg, default_bg);
         assert_eq!(vbg, default_fg);
     }
 
     #[test]
-    fn test_resolve_face_colors_needs_bg() {
+    fn test_resolve_style_colors_needs_bg() {
         let config = ColorsConfig::default();
         let resolver = ColorResolver::from_config(&config);
 
         // REVERSE → always needs_bg
-        let face_rev = WireFace {
-            attributes: Attributes::REVERSE,
-            ..WireFace::default()
+        let style_rev = Style {
+            reverse: true,
+            ..Style::default()
         };
-        let (_, _, needs_bg) = resolver.resolve_face_colors(&face_rev);
+        let (_, _, needs_bg) = resolver.resolve_style_colors(&style_rev);
         assert!(needs_bg);
 
         // No REVERSE, bg=Default → no needs_bg
-        let face_default = WireFace::default();
-        let (_, _, needs_bg) = resolver.resolve_face_colors(&face_default);
+        let style_default = Style::default();
+        let (_, _, needs_bg) = resolver.resolve_style_colors(&style_default);
         assert!(!needs_bg);
 
         // No REVERSE, explicit bg → needs_bg
-        let face_explicit = WireFace {
-            bg: Color::Named(NamedColor::Green),
-            ..WireFace::default()
+        let style_explicit = Style {
+            bg: Brush::Named(NamedColor::Green),
+            ..Style::default()
         };
-        let (_, _, needs_bg) = resolver.resolve_face_colors(&face_explicit);
+        let (_, _, needs_bg) = resolver.resolve_style_colors(&style_explicit);
         assert!(needs_bg);
     }
 
@@ -363,21 +317,13 @@ mod tests {
         let old_fg = resolver.resolve(Color::Default, true);
         assert!((old_fg[0] - 0.831).abs() < 0.01); // #d4d4d4
 
-        // Sync with Gruvbox Light default_face
-        let gruvbox_face = WireFace {
-            fg: Color::Rgb {
-                r: 0x3c,
-                g: 0x38,
-                b: 0x36,
-            },
-            bg: Color::Rgb {
-                r: 0xfb,
-                g: 0xf1,
-                b: 0xc7,
-            },
-            ..WireFace::default()
+        // Sync with Gruvbox Light default style
+        let gruvbox_style = Style {
+            fg: Brush::rgb(0x3c, 0x38, 0x36),
+            bg: Brush::rgb(0xfb, 0xf1, 0xc7),
+            ..Style::default()
         };
-        resolver.sync_defaults(&gruvbox_face);
+        resolver.sync_defaults(&gruvbox_style);
 
         // After sync: defaults match Gruvbox Light
         let new_fg = resolver.resolve(Color::Default, true);
@@ -390,18 +336,18 @@ mod tests {
     fn test_sync_defaults_named() {
         let config = ColorsConfig::default();
         let mut resolver = ColorResolver::from_config(&config);
-        let face = WireFace {
-            fg: Color::Named(NamedColor::Red),
-            bg: Color::Default, // should keep ColorsConfig fallback
-            ..WireFace::default()
+        let style = Style {
+            fg: Brush::Named(NamedColor::Red),
+            bg: Brush::Default, // should keep ColorsConfig fallback
+            ..Style::default()
         };
-        resolver.sync_defaults(&face);
+        resolver.sync_defaults(&style);
 
         let fg = resolver.resolve(Color::Default, true);
         let red = resolver.resolve(Color::Named(NamedColor::Red), true);
         assert_eq!(fg, red); // default_fg now matches red
 
-        // bg unchanged (face.bg was Default)
+        // bg unchanged (style.bg was Default)
         let bg = resolver.resolve(Color::Default, false);
         assert!((bg[0] - 0.118).abs() < 0.01); // still #1e1e1e
     }
@@ -412,8 +358,8 @@ mod tests {
         let mut resolver = ColorResolver::from_config(&config);
         let old_fg = resolver.resolve(Color::Default, true);
 
-        // Sync with face that has fg=Default → should not change
-        resolver.sync_defaults(&WireFace::default());
+        // Sync with style that has fg=Default → should not change
+        resolver.sync_defaults(&Style::default());
 
         let new_fg = resolver.resolve(Color::Default, true);
         assert_eq!(old_fg, new_fg);
@@ -459,43 +405,6 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_style_colors_matches_face_round_trip() {
-        // Pin the contract: resolve_style_colors must produce the same
-        // (fg, bg, needs_bg) triple as the legacy
-        //   `let face = style.to_face(); resolve_face_colors(&face)`
-        // round-trip, for every combination that round-trips losslessly.
-        // This is the regression test that protects callers migrating
-        // off the round-trip.
-        let config = ColorsConfig::default();
-        let resolver = ColorResolver::from_config(&config);
-
-        let cases = [
-            Style::default(),
-            Style {
-                fg: Brush::Named(NamedColor::Red),
-                bg: Brush::Named(NamedColor::Blue),
-                ..Style::default()
-            },
-            Style {
-                fg: Brush::Named(NamedColor::Cyan),
-                bg: Brush::Default,
-                reverse: true,
-                ..Style::default()
-            },
-            Style {
-                fg: Brush::Solid([255, 128, 64, 255]),
-                bg: Brush::Solid([16, 32, 48, 255]),
-                ..Style::default()
-            },
-        ];
-        for style in &cases {
-            let via_style = resolver.resolve_style_colors(style);
-            let via_face = resolver.resolve_face_colors(&style.to_face());
-            assert_eq!(via_style, via_face, "style/face mismatch for {style:?}");
-        }
-    }
-
-    #[test]
     fn test_resolve_style_colors_reverse_swaps() {
         let config = ColorsConfig::default();
         let resolver = ColorResolver::from_config(&config);
@@ -518,32 +427,14 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_style_colors_linear_matches_face_linear() {
-        let config = ColorsConfig::default();
-        let resolver = ColorResolver::from_config(&config);
-        let style = Style {
-            fg: Brush::Named(NamedColor::Yellow),
-            bg: Brush::Solid([10, 20, 30, 255]),
-            ..Style::default()
-        };
-        let via_style = resolver.resolve_style_colors_linear(&style);
-        let via_face = resolver.resolve_face_colors_linear(&style.to_face());
-        assert_eq!(via_style, via_face);
-    }
-
-    #[test]
     fn test_sync_defaults_updates_default_bg() {
         let config = ColorsConfig::default();
         let mut resolver = ColorResolver::from_config(&config);
-        let face = WireFace {
-            bg: Color::Rgb {
-                r: 0xfb,
-                g: 0xf1,
-                b: 0xc7,
-            },
-            ..WireFace::default()
+        let style = Style {
+            bg: Brush::rgb(0xfb, 0xf1, 0xc7),
+            ..Style::default()
         };
-        resolver.sync_defaults(&face);
+        resolver.sync_defaults(&style);
 
         // default_bg() should return the synced value
         let bg = resolver.default_bg();

@@ -45,7 +45,7 @@ where
         self.color_resolver
             .as_mut()
             .expect("resolver checked above")
-            .sync_defaults(&self.state.observed.default_style.to_face());
+            .sync_defaults(&self.state.observed.default_style);
         tracing::debug!(
             "[app] render_frame start ({}x{})",
             self.state.runtime.cols,
