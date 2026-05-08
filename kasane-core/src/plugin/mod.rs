@@ -83,10 +83,6 @@ pub use registry::{
     PluginView,
 };
 
-/// Deprecated alias — use [`PluginRuntime`] instead.
-#[deprecated(note = "renamed to PluginRuntime")]
-pub type PluginRegistry = PluginRuntime;
-
 pub use handler_registry::{Transparency, VirtualEditContext};
 
 // Re-export display types for plugin API

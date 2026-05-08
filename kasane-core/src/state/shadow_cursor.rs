@@ -1,68 +1,45 @@
 //! Shadow cursor state for editable virtual text (BDT).
 //!
-//! A `ShadowCursor` represents a cursor within an editable virtual text span.
-//! It operates outside the Kakoune protocol: text editing happens locally in
-//! `working_text`, and only on commit (Enter) is the result projected back to
-//! the buffer via `exec -draft`.
+//! A [`ShadowCursor`] represents a cursor within an editable virtual
+//! text span. It operates outside the Kakoune protocol: text editing
+//! happens locally in `working_text`, and only on commit (Enter) is
+//! the result projected back to the buffer via `exec -draft`.
 //!
-//! ## ADR-035 §Migration — multi-phase re-host on Selection / Time
+//! ## Coordinates
 //!
-//! ADR-035's §Migration line on re-hosting `state::shadow_cursor`
-//! atop the new `Selection` and `Time` primitives is staged because
-//! the existing types serve a fundamentally different domain than
-//! `Selection`.
+//! The shadow cursor's position lives in *synthetic* `working_text`
+//! bytes. `cursor_grapheme_offset` indexes graphemes within the
+//! editable span, not buffer columns. Keyboard handling
+//! ([`handle_shadow_cursor_key`]) is grapheme arithmetic; it does
+//! not re-shape onto buffer-space `SelectionSet` algebra.
 //!
-//! - `Selection` (in `state::selection`) addresses positions in a real
-//!   buffer (`BufferPos { line, column }`).
-//! - `ShadowCursor`'s "cursor" lives in *synthetic* `working_text`
-//!   bytes — its `cursor_grapheme_offset` indexes graphemes within
-//!   the editable span, not buffer columns. The keyboard handling
-//!   logic (`handle_shadow_cursor_key`) is grapheme arithmetic that
-//!   doesn't naturally re-shape onto multi-cursor algebra.
+//! [`EditableSpan::projection_target`] is the buffer-space target
+//! a Mirror commit lands at — a single [`Selection`] whose anchor
+//! and cursor share one buffer line, with their columns delimiting
+//! the byte range.
 //!
-//! What *can* be re-hosted on `Selection` is the **projection target**:
-//! the buffer-space range that the active edit will commit into via
-//! `exec -draft`. `EditableSpan` now stores this as a single
-//! `projection_target: Selection` field (anchor and cursor share
-//! one buffer line; their columns are the byte-range bounds).
-//! `ShadowCursor::buffer_projection_target` indexes into the parent
-//! span vector and returns that field.
+//! ## Commit pipeline
 //!
-//! Phase 3 splits the commit pipeline into an algebraic and a
-//! serialization layer:
+//! Commits flow through two layers:
 //!
-//! - `mirror_edit(shadow, span, line_count) -> Option<BufferEdit>`
-//!   computes the algebraic shape of the commit — a `Selection`
-//!   target plus pre/post text — and is the natural payload for a
-//!   future plugin commit-intercept hook.
-//! - `edit_to_commands(edit) -> Vec<Command>` serializes a
-//!   `BufferEdit` into the Kakoune `exec -draft` command(s) that
-//!   land it.
-//! - `build_mirror_commit` remains a thin composition of the two,
-//!   preserving the dispatch-side entry point.
+//! - [`mirror_edit`] computes the algebraic [`BufferEdit`] from a
+//!   shadow cursor + its [`EditableSpan`]. This is the payload for
+//!   the plugin commit-intercept hook (`on_buffer_edit_intercept`).
+//! - [`edit_to_commands`] serialises a [`BufferEdit`] into the
+//!   Kakoune `exec -draft` commands that land it.
+//! - [`build_mirror_commit`] composes the two for the dispatch-side
+//!   entry point.
 //!
-//! The keyboard-handling state machine (`handle_shadow_cursor_key`)
-//! still operates in synthetic grapheme space — it does not
-//! re-shape onto buffer-space `SelectionSet` algebra, so that part
-//! of the original Phase 3 sketch is intentionally not pursued.
+//! ## Version stamping
 //!
-//! Phase 4 stamps the active edit with the history `VersionId` at
-//! activation time:
-//!
-//! - `ShadowPhase::Editing` gains a `base_version: VersionId`
-//!   field, set at the `Navigating → Editing` transition and
-//!   preserved across in-place keystroke edits.
-//! - `handle_shadow_cursor_key` takes `current_version: VersionId`
-//!   (consulted only at the activation transition).
-//! - `BufferEdit` surfaces the stamp; `is_stale_against(current)`
-//!   tells a downstream consumer whether the buffer has advanced
-//!   past the version the edit was authored against. The stamp
-//!   also lets callers compose the edit with `Time::At(v)` queries
-//!   to materialise the buffer state it was authored against.
-//!
-//! With Phase 4 landed, the ADR-035 ShadowCursor §Migration is
-//! complete to the extent the keyboard-handler half permits — no
-//! further deferred phases remain in this module.
+//! When an edit transitions `Navigating → Editing`, the current
+//! history [`VersionId`] is recorded in
+//! [`ShadowPhase::Editing::base_version`] and propagated through to
+//! [`BufferEdit::base_version`]. [`BufferEdit::is_stale_against`]
+//! lets a downstream consumer detect that the buffer advanced past
+//! the version the edit was authored against; callers can also
+//! compose with `Time::At(v)` queries to materialise the buffer
+//! state the edit targeted.
 
 use std::ops::Range;
 
