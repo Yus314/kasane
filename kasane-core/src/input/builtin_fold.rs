@@ -7,8 +7,8 @@
 //! override fold toggle behavior via `navigation_action()`.
 
 use crate::display::navigation::{ActionResult, NavigationAction};
-use crate::display::unit::{DisplayUnit, UnitSource};
-use crate::plugin::{PluginBackend, PluginCapabilities, PluginId};
+use crate::display::unit::UnitSource;
+use crate::plugin::{HandlerRegistry, Plugin, PluginId};
 
 /// Built-in plugin for fold toggle handling.
 ///
@@ -16,28 +16,24 @@ use crate::plugin::{PluginBackend, PluginCapabilities, PluginId};
 /// making it overridable by user plugins registered at higher priority.
 pub struct BuiltinFoldPlugin;
 
-crate::impl_migrated_caps_default!(BuiltinFoldPlugin);
+impl Plugin for BuiltinFoldPlugin {
+    type State = ();
 
-impl PluginBackend for BuiltinFoldPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.fold".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::NAVIGATION_ACTION
-    }
-
-    fn navigation_action(
-        &mut self,
-        unit: &DisplayUnit,
-        action: NavigationAction,
-    ) -> Option<ActionResult> {
-        if let NavigationAction::ToggleFold = action
-            && let UnitSource::LineRange(ref range) = unit.source
-        {
-            return Some(ActionResult::ToggleFold(range.clone()));
-        }
-        None
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_navigation_action(|_state, unit, action| {
+            let result = if let NavigationAction::ToggleFold = action
+                && let UnitSource::LineRange(ref range) = unit.source
+            {
+                ActionResult::ToggleFold(range.clone())
+            } else {
+                ActionResult::Pass
+            };
+            ((), result)
+        });
     }
 }
 
@@ -46,6 +42,7 @@ mod tests {
     use super::*;
     use crate::display::InteractionPolicy;
     use crate::display::unit::{DisplayUnit, DisplayUnitId, SemanticRole, UnitSource};
+    use crate::plugin::{PluginBackend, PluginBridge};
 
     fn make_fold_unit(range: std::ops::Range<usize>) -> DisplayUnit {
         let source = UnitSource::LineRange(range);
@@ -61,7 +58,7 @@ mod tests {
 
     #[test]
     fn toggle_fold_returns_range() {
-        let mut plugin = BuiltinFoldPlugin;
+        let mut plugin = PluginBridge::new(BuiltinFoldPlugin);
         let unit = make_fold_unit(2..5);
         let result = plugin.navigation_action(&unit, NavigationAction::ToggleFold);
         assert_eq!(result, Some(ActionResult::ToggleFold(2..5)));
@@ -69,7 +66,7 @@ mod tests {
 
     #[test]
     fn non_fold_action_passes() {
-        let mut plugin = BuiltinFoldPlugin;
+        let mut plugin = PluginBridge::new(BuiltinFoldPlugin);
         let unit = make_fold_unit(2..5);
         let result = plugin.navigation_action(&unit, NavigationAction::None);
         assert!(result.is_none());
@@ -77,7 +74,7 @@ mod tests {
 
     #[test]
     fn non_range_source_passes() {
-        let mut plugin = BuiltinFoldPlugin;
+        let mut plugin = PluginBridge::new(BuiltinFoldPlugin);
         let source = UnitSource::Line(3);
         let role = SemanticRole::BufferContent;
         let unit = DisplayUnit {

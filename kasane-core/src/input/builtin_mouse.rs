@@ -1,9 +1,7 @@
 //! Built-in plugin for mouse-to-Kakoune fallback.
 
-use crate::input::{self, MouseEvent};
-use crate::plugin::{
-    AppView, Command, FrameworkAccess, PluginBackend, PluginCapabilities, PluginId,
-};
+use crate::input;
+use crate::plugin::{Command, FrameworkAccess, HandlerRegistry, Plugin, PluginId};
 
 /// Built-in plugin that forwards unhandled mouse events to Kakoune.
 ///
@@ -12,31 +10,25 @@ use crate::plugin::{
 /// by registering their own `MOUSE_FALLBACK` handler.
 pub struct BuiltinMouseFallbackPlugin;
 
-crate::impl_migrated_caps_default!(BuiltinMouseFallbackPlugin);
+impl Plugin for BuiltinMouseFallbackPlugin {
+    type State = ();
 
-impl PluginBackend for BuiltinMouseFallbackPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.mouse_fallback".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::MOUSE_FALLBACK
-    }
-
-    fn handle_mouse_fallback(
-        &mut self,
-        event: &MouseEvent,
-        scroll_amount: i32,
-        state: &AppView<'_>,
-    ) -> Option<Vec<Command>> {
-        let app = state.as_app_state();
-        let req = input::mouse_to_kakoune(
-            event,
-            scroll_amount,
-            app.runtime.display_map.as_deref(),
-            app.runtime.display_scroll_offset,
-            app.runtime.segment_map.as_deref(),
-        )?;
-        Some(vec![Command::SendToKakoune(req)])
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_mouse_fallback(|_state, event, scroll_amount, view| {
+            let app = view.as_app_state();
+            let result = input::mouse_to_kakoune(
+                event,
+                scroll_amount,
+                app.runtime.display_map.as_deref(),
+                app.runtime.display_scroll_offset,
+                app.runtime.segment_map.as_deref(),
+            )
+            .map(|req| vec![Command::SendToKakoune(req)]);
+            ((), result)
+        });
     }
 }

@@ -5,8 +5,8 @@
 //! `RuntimeState.drag` from plugin effects rather than hardcoded logic in
 //! `update.rs`.
 
-use crate::input::{MouseEvent, MouseEventKind};
-use crate::plugin::{AppView, MousePreDispatchResult, PluginBackend, PluginCapabilities, PluginId};
+use crate::input::MouseEventKind;
+use crate::plugin::{HandlerRegistry, MousePreDispatchResult, Plugin, PluginId, StateUpdates};
 use crate::state::DragState;
 
 /// Built-in plugin that tracks mouse drag state.
@@ -16,45 +16,40 @@ use crate::state::DragState;
 /// new drag state without an out-of-band side channel.
 pub struct BuiltinDragPlugin;
 
-crate::impl_migrated_caps_default!(BuiltinDragPlugin);
+impl Plugin for BuiltinDragPlugin {
+    type State = ();
 
-impl PluginBackend for BuiltinDragPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.drag".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::MOUSE_PRE_DISPATCH
-    }
-
-    fn handle_mouse_pre_dispatch(
-        &mut self,
-        event: &MouseEvent,
-        _state: &AppView<'_>,
-    ) -> MousePreDispatchResult {
-        match event.kind {
-            MouseEventKind::Press(button) => MousePreDispatchResult::Pass {
-                commands: vec![],
-                state_updates: crate::plugin::StateUpdates {
-                    drag: Some(DragState::Active {
-                        button,
-                        start_line: event.line,
-                        start_column: event.column,
-                    }),
-                    ..Default::default()
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_mouse_pre_dispatch(|_state, event, _app| {
+            let result = match event.kind {
+                MouseEventKind::Press(button) => MousePreDispatchResult::Pass {
+                    commands: vec![],
+                    state_updates: StateUpdates {
+                        drag: Some(DragState::Active {
+                            button,
+                            start_line: event.line,
+                            start_column: event.column,
+                        }),
+                        ..Default::default()
+                    },
                 },
-            },
-            MouseEventKind::Release(_) => MousePreDispatchResult::Pass {
-                commands: vec![],
-                state_updates: crate::plugin::StateUpdates {
-                    drag: Some(DragState::None),
-                    ..Default::default()
+                MouseEventKind::Release(_) => MousePreDispatchResult::Pass {
+                    commands: vec![],
+                    state_updates: StateUpdates {
+                        drag: Some(DragState::None),
+                        ..Default::default()
+                    },
                 },
-            },
-            _ => MousePreDispatchResult::Pass {
-                commands: vec![],
-                state_updates: crate::plugin::StateUpdates::default(),
-            },
-        }
+                _ => MousePreDispatchResult::Pass {
+                    commands: vec![],
+                    state_updates: StateUpdates::default(),
+                },
+            };
+            ((), result)
+        });
     }
 }

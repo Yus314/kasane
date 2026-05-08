@@ -347,8 +347,8 @@ fn test_update_mouse_miss_forwards_to_kakoune() {
     state.runtime.cols = 80;
     state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(crate::input::BuiltinDragPlugin));
-    registry.register_backend(Box::new(crate::input::BuiltinMouseFallbackPlugin));
+    registry.register(crate::input::BuiltinDragPlugin);
+    registry.register(crate::input::BuiltinMouseFallbackPlugin);
     // Empty HitMap (no interactive regions)
 
     let mouse = MouseEvent {
@@ -706,7 +706,7 @@ fn mouse_press_on_fold_summary_suppressed() {
     state.runtime.cols = 80;
     state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(BuiltinFoldPlugin));
+    registry.register(BuiltinFoldPlugin);
 
     // Build a non-identity display map with a fold at lines 2..5
     let directives = vec![DisplayDirective::Fold {
@@ -752,8 +752,8 @@ fn mouse_press_on_normal_line_forwards_to_kakoune() {
     state.runtime.cols = 80;
     state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(crate::input::BuiltinDragPlugin));
-    registry.register_backend(Box::new(crate::input::BuiltinMouseFallbackPlugin));
+    registry.register(crate::input::BuiltinDragPlugin);
+    registry.register(crate::input::BuiltinMouseFallbackPlugin);
 
     let directives = vec![DisplayDirective::Fold {
         range: 2..5,
@@ -793,7 +793,7 @@ fn mouse_click_fold_summary_toggles_fold_state() {
     state.runtime.cols = 80;
     state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(BuiltinFoldPlugin));
+    registry.register(BuiltinFoldPlugin);
 
     let directives = vec![DisplayDirective::Fold {
         range: 3..7,
@@ -893,7 +893,7 @@ fn fold_summary_click_dispatches_through_builtin_fold_plugin() {
     state.runtime.cols = 80;
     state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(BuiltinFoldPlugin));
+    registry.register(BuiltinFoldPlugin);
 
     let directives = vec![DisplayDirective::Fold {
         range: 2..5,

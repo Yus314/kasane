@@ -3,10 +3,10 @@
 //! Registered as the lowest-priority plugin so that any user plugin
 //! can override these keys via `handle_key()`.
 
-use crate::input::{Key, KeyEvent};
-use crate::plugin::{AppView, Command, PluginBackend, PluginCapabilities, PluginId};
+use crate::input::Key;
+use crate::plugin::{Command, HandlerRegistry, Plugin, PluginId};
 use crate::protocol::KasaneRequest;
-use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
+use crate::scroll::ScrollPolicyResult;
 
 /// Built-in plugin for default key bindings and the production scroll policy fallback.
 ///
@@ -14,61 +14,55 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 /// first-wins priority on these keys and on default scroll policy decisions.
 pub struct BuiltinInputPlugin;
 
-crate::impl_migrated_caps_default!(BuiltinInputPlugin);
+impl Plugin for BuiltinInputPlugin {
+    type State = ();
 
-impl PluginBackend for BuiltinInputPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.input".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::INPUT_HANDLER | PluginCapabilities::SCROLL_POLICY
-    }
-
-    fn handle_key(&mut self, key: &KeyEvent, state: &AppView<'_>) -> Option<Vec<Command>> {
-        if !key.modifiers.is_empty() {
-            return None;
-        }
-        match key.key {
-            Key::PageUp => {
-                let cmd = Command::SendToKakoune(KasaneRequest::Scroll {
-                    amount: -(state.available_height() as i32),
-                    line: state.cursor_line() as u32,
-                    column: state.cursor_col() as u32,
-                });
-                Some(vec![cmd])
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_key(|_state, key, app| {
+            if !key.modifiers.is_empty() {
+                return None;
             }
-            Key::PageDown => {
-                let cmd = Command::SendToKakoune(KasaneRequest::Scroll {
-                    amount: state.available_height() as i32,
-                    line: state.cursor_line() as u32,
-                    column: state.cursor_col() as u32,
-                });
-                Some(vec![cmd])
-            }
-            _ => None,
-        }
-    }
+            let cmd = match key.key {
+                Key::PageUp => Command::SendToKakoune(KasaneRequest::Scroll {
+                    amount: -(app.available_height() as i32),
+                    line: app.cursor_line() as u32,
+                    column: app.cursor_col() as u32,
+                }),
+                Key::PageDown => Command::SendToKakoune(KasaneRequest::Scroll {
+                    amount: app.available_height() as i32,
+                    line: app.cursor_line() as u32,
+                    column: app.cursor_col() as u32,
+                }),
+                _ => return None,
+            };
+            Some(((), vec![cmd]))
+        });
 
-    fn handle_default_scroll(
-        &mut self,
-        candidate: DefaultScrollCandidate,
-        _state: &AppView<'_>,
-    ) -> Option<ScrollPolicyResult> {
-        Some(ScrollPolicyResult::Immediate(candidate.resolved))
+        r.on_default_scroll(|_state, candidate, _app| {
+            Some(((), ScrollPolicyResult::Immediate(candidate.resolved)))
+        });
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input::Modifiers;
-    use crate::scroll::resolve_default_scroll_policy;
+    use crate::input::{KeyEvent, Modifiers};
+    use crate::plugin::{AppView, PluginBackend, PluginBridge};
+    use crate::scroll::{DefaultScrollCandidate, resolve_default_scroll_policy};
     use crate::state::AppState;
+
+    fn bridge() -> PluginBridge {
+        PluginBridge::new(BuiltinInputPlugin)
+    }
 
     #[test]
     fn test_builtin_handles_pageup() {
-        let mut plugin = BuiltinInputPlugin;
+        let mut plugin = bridge();
         let state = AppState::default();
         let view = AppView::new(&state);
         let key = KeyEvent {
@@ -86,7 +80,7 @@ mod tests {
 
     #[test]
     fn test_builtin_handles_pagedown() {
-        let mut plugin = BuiltinInputPlugin;
+        let mut plugin = bridge();
         let state = AppState::default();
         let view = AppView::new(&state);
         let key = KeyEvent {
@@ -104,7 +98,7 @@ mod tests {
 
     #[test]
     fn test_builtin_ignores_modified_pageup() {
-        let mut plugin = BuiltinInputPlugin;
+        let mut plugin = bridge();
         let state = AppState::default();
         let view = AppView::new(&state);
         let key = KeyEvent {
@@ -116,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_builtin_ignores_other_keys() {
-        let mut plugin = BuiltinInputPlugin;
+        let mut plugin = bridge();
         let state = AppState::default();
         let view = AppView::new(&state);
         let key = KeyEvent {
@@ -129,7 +123,7 @@ mod tests {
     #[test]
     fn test_user_plugin_overrides_builtin() {
         use crate::input::Modifiers;
-        use crate::plugin::PluginRuntime;
+        use crate::plugin::{PluginBackend, PluginCapabilities, PluginRuntime};
         use crate::state::{Msg, update_in_place};
 
         struct CustomPageUpPlugin;
@@ -137,6 +131,9 @@ mod tests {
         impl PluginBackend for CustomPageUpPlugin {
             fn id(&self) -> PluginId {
                 PluginId("custom_pageup".into())
+            }
+            fn capabilities(&self) -> PluginCapabilities {
+                PluginCapabilities::INPUT_HANDLER
             }
             fn handle_key(&mut self, key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
                 if key.key == Key::PageUp {
@@ -153,7 +150,7 @@ mod tests {
         let mut registry = PluginRuntime::new();
         // Custom plugin registered BEFORE builtin → gets priority
         registry.register_backend(Box::new(CustomPageUpPlugin));
-        registry.register_backend(Box::new(BuiltinInputPlugin));
+        registry.register(BuiltinInputPlugin);
         let key = KeyEvent {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
@@ -171,7 +168,7 @@ mod tests {
     #[test]
     fn test_builtin_fallback_when_no_override() {
         use crate::input::Modifiers;
-        use crate::plugin::PluginRuntime;
+        use crate::plugin::{PluginBackend, PluginRuntime};
         use crate::state::{Msg, update_in_place};
 
         // Plugin that doesn't handle PageUp
@@ -186,7 +183,7 @@ mod tests {
         let mut state = Box::new(AppState::default());
         let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(NoOpPlugin));
-        registry.register_backend(Box::new(BuiltinInputPlugin));
+        registry.register(BuiltinInputPlugin);
         let key = KeyEvent {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
@@ -202,7 +199,7 @@ mod tests {
 
     #[test]
     fn test_builtin_scroll_policy_immediate_when_smooth_disabled() {
-        let mut plugin = BuiltinInputPlugin;
+        let mut plugin = bridge();
         let state = AppState::default();
         let view = AppView::new(&state);
         let candidate = DefaultScrollCandidate::new(
@@ -226,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_builtin_scroll_returns_immediate() {
-        let mut plugin = BuiltinInputPlugin;
+        let mut plugin = bridge();
         let state = AppState::default();
         let view = AppView::new(&state);
         let candidate = DefaultScrollCandidate::new(
@@ -276,7 +273,7 @@ mod tests {
         );
         let mut registry = crate::plugin::PluginRuntime::new();
         registry.register_backend(Box::new(OverrideScrollPlugin));
-        registry.register_backend(Box::new(BuiltinInputPlugin));
+        registry.register(BuiltinInputPlugin);
 
         assert_eq!(
             resolve_default_scroll_policy(&mut registry, &state, candidate),

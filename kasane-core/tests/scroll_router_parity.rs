@@ -175,9 +175,9 @@ fn parity_pageup_trace() {
         column: 5,
     };
     let mut legacy_registry = registry_empty();
-    legacy_registry.register_backend(Box::new(BuiltinInputPlugin));
+    legacy_registry.register(BuiltinInputPlugin);
     let mut new_registry = registry_empty();
-    new_registry.register_backend(Box::new(BuiltinInputPlugin));
+    new_registry.register(BuiltinInputPlugin);
     let mut legacy_harness = LegacyHarness::new(state.clone(), legacy_registry);
     let legacy = legacy_harness.run_trace(&trace);
     let mut new_harness = NewHarness::new(state, new_registry);

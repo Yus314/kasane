@@ -333,18 +333,22 @@ fn build_plugin_manager(
     providers.push(Box::new(provider));
     let mut builtin_factories: Vec<Arc<dyn PluginFactory>> = vec![
         builtin_plugin("builtin-input", "kasane.builtin.input", || {
-            kasane_core::input::BuiltinInputPlugin
+            kasane_core::plugin::PluginBridge::new(kasane_core::input::BuiltinInputPlugin)
         }),
         builtin_plugin("builtin-fold", "kasane.builtin.fold", || {
-            kasane_core::input::BuiltinFoldPlugin
+            kasane_core::plugin::PluginBridge::new(kasane_core::input::BuiltinFoldPlugin)
         }),
         builtin_plugin("builtin-drag", "kasane.builtin.drag", || {
-            kasane_core::input::BuiltinDragPlugin
+            kasane_core::plugin::PluginBridge::new(kasane_core::input::BuiltinDragPlugin)
         }),
         builtin_plugin(
             "builtin-mouse-fallback",
             "kasane.builtin.mouse_fallback",
-            || kasane_core::input::BuiltinMouseFallbackPlugin,
+            || {
+                kasane_core::plugin::PluginBridge::new(
+                    kasane_core::input::BuiltinMouseFallbackPlugin,
+                )
+            },
         ),
         builtin_plugin(
             "projection-status",
@@ -527,10 +531,10 @@ mod tests {
         providers.push(Box::new(provider));
         providers.push(Box::new(StaticPluginProvider::new([
             builtin_plugin("builtin-input", "kasane.builtin.input", || {
-                kasane_core::input::BuiltinInputPlugin
+                kasane_core::plugin::PluginBridge::new(kasane_core::input::BuiltinInputPlugin)
             }),
             builtin_plugin("builtin-fold", "kasane.builtin.fold", || {
-                kasane_core::input::BuiltinFoldPlugin
+                kasane_core::plugin::PluginBridge::new(kasane_core::input::BuiltinFoldPlugin)
             }),
         ])));
         PluginManager::new(providers)

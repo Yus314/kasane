@@ -163,7 +163,7 @@ fn pageup_builtin_emits_negative_scroll_of_available_height() {
         column: 5,
     };
     let mut registry = registry_empty();
-    registry.register_backend(Box::new(BuiltinInputPlugin));
+    registry.register(BuiltinInputPlugin);
     let mut harness = LegacyHarness::new(state, registry);
 
     let outcome = harness.dispatch_input(key_pageup());
@@ -181,7 +181,7 @@ fn pageup_builtin_emits_negative_scroll_of_available_height() {
 #[test]
 fn modified_pageup_is_forwarded_as_key_not_scroll() {
     let mut registry = registry_empty();
-    registry.register_backend(Box::new(BuiltinInputPlugin));
+    registry.register(BuiltinInputPlugin);
     let mut harness = LegacyHarness::new(state_80x24(), registry);
 
     let outcome = harness.dispatch_input(key_ctrl_pageup());

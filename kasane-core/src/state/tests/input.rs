@@ -9,7 +9,7 @@ use crate::state::{AppState, DragState};
 fn test_drag_state_press_activates() {
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(crate::input::BuiltinDragPlugin));
+    registry.register(crate::input::BuiltinDragPlugin);
 
     let mouse = crate::input::MouseEvent {
         kind: crate::input::MouseEventKind::Press(crate::input::MouseButton::Left),
@@ -37,7 +37,7 @@ fn test_drag_state_release_clears() {
         start_column: 0,
     };
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(crate::input::BuiltinDragPlugin));
+    registry.register(crate::input::BuiltinDragPlugin);
 
     let mouse = crate::input::MouseEvent {
         kind: crate::input::MouseEventKind::Release(crate::input::MouseButton::Left),
@@ -58,8 +58,8 @@ fn test_drag_state_drag_keeps_active() {
         start_column: 0,
     };
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(crate::input::BuiltinDragPlugin));
-    registry.register_backend(Box::new(crate::input::BuiltinMouseFallbackPlugin));
+    registry.register(crate::input::BuiltinDragPlugin);
+    registry.register(crate::input::BuiltinMouseFallbackPlugin);
 
     let mouse = crate::input::MouseEvent {
         kind: crate::input::MouseEventKind::Drag(crate::input::MouseButton::Left),
@@ -184,7 +184,7 @@ fn test_pageup_intercept() {
         column: 5,
     };
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(crate::input::BuiltinInputPlugin));
+    registry.register(crate::input::BuiltinInputPlugin);
 
     let key = crate::input::KeyEvent {
         key: crate::input::Key::PageUp,
@@ -215,7 +215,7 @@ fn test_pagedown_intercept() {
         column: 5,
     };
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(crate::input::BuiltinInputPlugin));
+    registry.register(crate::input::BuiltinInputPlugin);
 
     let key = crate::input::KeyEvent {
         key: crate::input::Key::PageDown,
@@ -235,7 +235,7 @@ fn test_pagedown_intercept() {
 fn test_pageup_with_modifier_not_intercepted() {
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(crate::input::BuiltinInputPlugin));
+    registry.register(crate::input::BuiltinInputPlugin);
 
     let key = crate::input::KeyEvent {
         key: crate::input::Key::PageUp,
