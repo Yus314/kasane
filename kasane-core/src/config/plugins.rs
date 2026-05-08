@@ -23,6 +23,11 @@ pub struct PluginsConfig {
     pub deny_authorities: HashMap<String, Vec<String>>,
     /// Per-plugin active-set selection policy.
     pub selection: HashMap<String, PluginSelection>,
+    /// When true, edits to `plugins` and `settings` in `kasane.kdl` automatically
+    /// re-resolve `plugins.lock` and trigger a live plugin reload. When false
+    /// (default), the user must run `kasane plugin resolve` and restart for
+    /// `plugins`/`settings` changes to take effect.
+    pub auto_reload: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

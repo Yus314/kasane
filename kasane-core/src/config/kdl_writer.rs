@@ -401,6 +401,10 @@ fn plugins_to_kdl(p: &PluginsConfig) -> kdl::KdlNode {
         children.push(section_with_children("selection", sel_children));
     }
 
+    if p.auto_reload {
+        children.push(bool_child("auto_reload", p.auto_reload));
+    }
+
     section_with_children("plugins", children)
 }
 

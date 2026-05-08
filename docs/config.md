@@ -355,6 +355,7 @@ Plugin discovery and loading settings.
 | `enabled` | array of strings | `[]` | Bundled plugin IDs to enable (opt-in). See [using-plugins.md](./using-plugins.md#bundled-wasm-plugins) for the full list |
 | `path` | string or omit | *(auto)* | Custom plugins directory. Default: `$XDG_DATA_HOME/kasane/plugins/` or `~/.local/share/kasane/plugins/` |
 | `disabled` | array of strings | `[]` | Plugin IDs to disable when building `plugins.lock` via `kasane plugin resolve` / `install` / `dev` |
+| `auto_reload` | bool | `#false` | When `#true`, edits to `plugins` and `settings` in `kasane.kdl` automatically re-run `kasane plugin resolve` and trigger a live plugin reload. When `#false` (default), the user must run `kasane plugin resolve` and restart for those changes to take effect. |
 
 Example plugins are embedded in the Kasane binary but are **not loaded by default**. Add their IDs to `enabled`, then run `kasane plugin resolve` (or `install` / `dev`) to write them into `plugins.lock`:
 

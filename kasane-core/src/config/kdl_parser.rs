@@ -536,6 +536,7 @@ fn parse_plugins(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> PluginsC
         "deny_capabilities",
         "deny_authorities",
         "selection",
+        "auto_reload",
     ];
     validate_children(node, "plugins", KNOWN, errors);
 
@@ -554,6 +555,9 @@ fn parse_plugins(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> PluginsC
     }
     if let Some(child) = doc.get("disabled") {
         p.disabled = all_strings(child);
+    }
+    if let Some(v) = child_or_prop_bool(node, Some(doc), "auto_reload") {
+        p.auto_reload = v;
     }
 
     // deny_capabilities { plugin_id "cap1" "cap2" ; ... }

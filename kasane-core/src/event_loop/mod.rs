@@ -5,6 +5,7 @@
 
 mod context;
 mod dispatch;
+mod reload_orchestrator;
 mod session;
 mod surface;
 
@@ -29,6 +30,7 @@ pub use dispatch::{
     apply_bootstrap_effects, handle_command_batch, handle_deferred_commands,
     handle_sourced_surface_commands, maybe_flush_active_session_ready, sync_session_ready_gate,
 };
+pub use reload_orchestrator::{NoopReloadOrchestrator, ReloadOrchestrator, ResolveOutcome};
 pub use session::{
     SessionMutContext, SessionReadyGate, SharedSessionRuntime, apply_ready_batch,
     close_session_core, handle_pane_death, restore_panes, send_pane_resizes, spawn_session_core,
@@ -357,14 +359,20 @@ pub trait DiagnosticOverlayScheduler {
     fn schedule_expiry(&self, delay: std::time::Duration, generation: u64);
 }
 
-/// Schedule a diagnostic overlay display with auto-dismiss.
+/// Schedule a diagnostic overlay display with auto-dismiss, and record
+/// the same diagnostics into the persistent history buffer.
+///
+/// History is recorded first so that even when the overlay is suppressed
+/// (e.g. empty diagnostics) every entry still reaches the history.
 ///
 /// Common logic shared by TUI and GUI backends.
 pub fn schedule_diagnostic_overlay(
     scheduler: &impl DiagnosticOverlayScheduler,
     overlay: &mut PluginDiagnosticOverlayState,
+    history: &mut crate::plugin::diagnostics::DiagnosticHistory,
     diagnostics: &[PluginDiagnostic],
 ) {
+    history.record(diagnostics);
     let Some(generation) = overlay.record(diagnostics) else {
         return;
     };

@@ -475,6 +475,32 @@ window {
         assert!(config.plugins.enabled.is_empty());
         assert!(config.plugins.disabled.is_empty());
         assert!(config.plugins.selection.is_empty());
+        assert!(!config.plugins.auto_reload);
+    }
+
+    #[test]
+    fn test_plugins_auto_reload_parses() {
+        let kdl_str = r#"
+plugins {
+    auto_reload #true
+    enabled "cursor_line"
+}
+"#;
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
+        assert!(config.plugins.auto_reload);
+        assert_eq!(config.plugins.enabled, vec!["cursor_line"]);
+    }
+
+    #[test]
+    fn test_plugins_auto_reload_round_trips() {
+        let mut config = Config::default();
+        config.plugins.auto_reload = true;
+        let nodes = kdl_writer::config_to_kdl_nodes(&config);
+        let mut doc = kdl::KdlDocument::new();
+        *doc.nodes_mut() = nodes;
+        let serialized = doc.to_string();
+        let (round_trip, _, _, _) = unified::parse_unified(&serialized).unwrap();
+        assert!(round_trip.plugins.auto_reload);
     }
 
     #[test]
