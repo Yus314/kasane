@@ -39,6 +39,21 @@
         };
         isLinux = pkgs.stdenv.isLinux;
 
+        # Single source of truth for the kasane version: the kasane bin
+        # crate's `Cargo.toml`. Auto-syncing here means a release bump
+        # touches only the Rust crates (Cargo.toml + Cargo.lock) and the
+        # flake follows mechanically — no separate `version = "x.y.z"`
+        # field to forget. (`contrib/nixpkgs/package.nix` is excluded from
+        # this scheme on purpose: it builds from a `fetchFromGitHub`
+        # tarball with no working tree to read, so it is bumped manually as
+        # part of the contrib-to-nixpkgs flow.)
+        #
+        # If a future release moves the kasane bin crate to
+        # `version.workspace = true`, replace the read below with the
+        # workspace Cargo.toml's `[workspace.package].version`.
+        kasaneVersion =
+          (builtins.fromTOML (builtins.readFile ./kasane/Cargo.toml)).package.version;
+
         # Common GUI dependencies (Linux only)
         guiBuildInputs = pkgs.lib.optionals isLinux [
           pkgs.vulkan-loader
@@ -68,7 +83,7 @@
         # `--suffix` rationale below.
         mkKasane = { withGui ? true, kakoune ? kakouneLatest }: pkgs.rustPlatform.buildRustPackage {
           pname = "kasane";
-          version = "0.5.0";
+          version = kasaneVersion;
 
           src = lib.cleanSourceWith {
             src = ./.;
