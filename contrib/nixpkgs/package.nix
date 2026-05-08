@@ -69,9 +69,20 @@ rustPlatform.buildRustPackage (finalAttrs: {
     freetype
   ];
 
+  # `--suffix` (not `--prefix`): if the user already has `kak` on PATH (e.g.
+  # a wrapKakoune carrying their plugins + KAKOUNE_RUNTIME via home-manager
+  # `programs.kakoune`), it wins. The bundled `kakoune` is only the fallback
+  # for users who haven't installed Kakoune separately. Prepending would
+  # replace the user's plugin-aware runtime with a plugin-less unwrapped
+  # binary, which breaks any kakrc that references plugin-declared options
+  # (e.g. `autothemes_dark_theme`). The required-version floor is enforced
+  # at startup by kasane's own `verify_kak_version()`, so a too-old user kak
+  # fails fast with an actionable message rather than silently corrupting
+  # protocol parsing. This matches kasane's primary compatibility constraint
+  # (existing kakrc / autoload / plugins must keep working).
   postInstall = ''
     wrapProgram $out/bin/kasane \
-      --prefix PATH : ${lib.makeBinPath [ kakoune ]}
+      --suffix PATH : ${lib.makeBinPath [ kakoune ]}
   '';
 
   # Vulkan, Wayland, and libxkbcommon are loaded via dlopen at runtime.

@@ -59,7 +59,14 @@
           pkgs.libxkbcommon
         ];
 
-        mkKasane = { withGui ? true }: pkgs.rustPlatform.buildRustPackage {
+        # `kakoune` is an override hook: by default kasane bundles the
+        # version-pinned `kakouneLatest` as a PATH fallback, but downstream
+        # consumers (e.g. home-manager users with `wrapKakoune` + plugins) can
+        # pass their own derivation so that kasane defers to the same Kakoune
+        # they invoke directly. Compatibility with the user's kakrc / autoload
+        # / plugins is the primary constraint (ADR-004A); see also the
+        # `--suffix` rationale below.
+        mkKasane = { withGui ? true, kakoune ? kakouneLatest }: pkgs.rustPlatform.buildRustPackage {
           pname = "kasane";
           version = "0.5.0";
 
@@ -97,8 +104,18 @@
           buildInputs = lib.optionals withGui guiBuildInputs;
 
           postInstall = let
+            # `--suffix` (not `--prefix`): if the user already has `kak` on
+            # PATH (e.g. a home-manager wrapKakoune carrying their plugins +
+            # KAKOUNE_RUNTIME), it wins. Our bundled kakoune is only the
+            # fallback for stock installs. Prepending would replace the
+            # user's plugin-aware runtime with a plugin-less unwrapped
+            # binary, which breaks any kakrc that references plugin-declared
+            # options (autothemes_dark_theme, etc.) — see ADR-004A. The
+            # version floor is still enforced by `verify_kak_version()` at
+            # startup, so a too-old user kak fails fast with an actionable
+            # message rather than silently corrupting protocol parsing.
             wrapArgs = lib.concatStringsSep " " ([
-              "--prefix PATH : ${lib.makeBinPath [ kakouneLatest ]}"
+              "--suffix PATH : ${lib.makeBinPath [ kakoune ]}"
             ] ++ lib.optionals (withGui && isLinux) [
               "--prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath guiRuntimeLibs}"
             ]);
