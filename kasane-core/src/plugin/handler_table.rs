@@ -27,7 +27,9 @@ use super::element_patch::ElementPatch;
 use super::extension_point::{ExtensionContribution, ExtensionDefinition};
 use super::process_task::ProcessTaskEntry;
 use super::pubsub::{PublishEntry, SubscribeEntry};
-use super::traits::KeyHandleResult;
+use super::traits::{
+    KeyHandleResult, KeyPreDispatchResult, MousePreDispatchResult, TextInputPreDispatchResult,
+};
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, IoEvent, OrnamentBatch, OverlayContext, OverlayContribution,
@@ -132,6 +134,43 @@ pub(crate) type ErasedDefaultScrollHandler = Box<
             DefaultScrollCandidate,
             &AppView<'_>,
         ) -> Option<(Box<dyn PluginState>, ScrollPolicyResult)>
+        + Send
+        + Sync,
+>;
+pub(crate) type ErasedKeyPreDispatchHandler = Box<
+    dyn Fn(
+            &dyn PluginState,
+            &KeyEvent,
+            &AppView<'_>,
+        ) -> (Box<dyn PluginState>, KeyPreDispatchResult)
+        + Send
+        + Sync,
+>;
+pub(crate) type ErasedMousePreDispatchHandler = Box<
+    dyn Fn(
+            &dyn PluginState,
+            &MouseEvent,
+            &AppView<'_>,
+        ) -> (Box<dyn PluginState>, MousePreDispatchResult)
+        + Send
+        + Sync,
+>;
+pub(crate) type ErasedTextInputPreDispatchHandler = Box<
+    dyn Fn(
+            &dyn PluginState,
+            &str,
+            &AppView<'_>,
+        ) -> (Box<dyn PluginState>, TextInputPreDispatchResult)
+        + Send
+        + Sync,
+>;
+pub(crate) type ErasedMouseFallbackHandler = Box<
+    dyn Fn(
+            &dyn PluginState,
+            &MouseEvent,
+            i32,
+            &AppView<'_>,
+        ) -> (Box<dyn PluginState>, Option<Vec<Command>>)
         + Send
         + Sync,
 >;
@@ -424,6 +463,10 @@ pub(crate) struct HandlerTable {
     pub(crate) observe_drop_handler: Option<ErasedObserveDropHandler>,
     pub(crate) handle_drop_handler: Option<ErasedHandleDropHandler>,
     pub(crate) default_scroll_handler: Option<ErasedDefaultScrollHandler>,
+    pub(crate) key_pre_dispatch_handler: Option<ErasedKeyPreDispatchHandler>,
+    pub(crate) mouse_pre_dispatch_handler: Option<ErasedMousePreDispatchHandler>,
+    pub(crate) text_input_pre_dispatch_handler: Option<ErasedTextInputPreDispatchHandler>,
+    pub(crate) mouse_fallback_handler: Option<ErasedMouseFallbackHandler>,
 
     // --- Key Map (Phase 2) ---
     pub(crate) key_map: Option<CompiledKeyMap>,
@@ -514,6 +557,10 @@ impl HandlerTable {
             observe_drop_handler: None,
             handle_drop_handler: None,
             default_scroll_handler: None,
+            key_pre_dispatch_handler: None,
+            mouse_pre_dispatch_handler: None,
+            text_input_pre_dispatch_handler: None,
+            mouse_fallback_handler: None,
             key_map: None,
             key_map_builder: None,
             action_handler: None,
@@ -625,6 +672,18 @@ impl HandlerTable {
         }
         if self.inline_box_paint_handler.is_some() {
             caps |= PluginCapabilities::INLINE_BOX_PAINTER;
+        }
+        if self.key_pre_dispatch_handler.is_some() {
+            caps |= PluginCapabilities::KEY_PRE_DISPATCH;
+        }
+        if self.mouse_pre_dispatch_handler.is_some() {
+            caps |= PluginCapabilities::MOUSE_PRE_DISPATCH;
+        }
+        if self.text_input_pre_dispatch_handler.is_some() {
+            caps |= PluginCapabilities::TEXT_INPUT_PRE_DISPATCH;
+        }
+        if self.mouse_fallback_handler.is_some() {
+            caps |= PluginCapabilities::MOUSE_FALLBACK;
         }
         caps
     }

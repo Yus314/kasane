@@ -197,6 +197,7 @@ bitflags! {
         const KEY_PRE_DISPATCH   = 1 << 29;
         const MOUSE_PRE_DISPATCH = 1 << 30;
         const MOUSE_FALLBACK     = 1 << 31;
+        const TEXT_INPUT_PRE_DISPATCH = 1 << 0;
     }
 }
 

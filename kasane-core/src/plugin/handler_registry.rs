@@ -50,7 +50,9 @@ use super::handler_table::{
 use super::kakoune_safe_effects::KakouneSafeEffects;
 use super::process_task::{ProcessTaskEntry, ProcessTaskResult, ProcessTaskSpec};
 use super::pubsub::{PublishEntry, SubscribeEntry, Topic, TopicId};
-use super::traits::KeyHandleResult;
+use super::traits::{
+    KeyHandleResult, KeyPreDispatchResult, MousePreDispatchResult, TextInputPreDispatchResult,
+};
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, IoEvent, KakouneSafeCommand, OrnamentBatch, OverlayContext,
@@ -439,6 +441,28 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         }
     }
 
+    /// Register a key pre-dispatch handler — runs before observers and middleware.
+    ///
+    /// Pre-dispatch handlers can `Consume` the key (terminating dispatch) or
+    /// `Pass` it through with optional state updates and commands. Used by
+    /// shadow-cursor-class plugins that need first-look at every keystroke.
+    pub fn on_key_pre_dispatch(
+        &mut self,
+        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> (S, KeyPreDispatchResult)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.key_pre_dispatch_handler = Some(Box::new(move |state, key, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, result) = handler(s, key, app);
+            (Box::new(new_state) as Box<dyn PluginState>, result)
+        }));
+    }
+
     /// Register a key observer (notification only, cannot consume).
     pub fn on_observe_key(
         &mut self,
@@ -489,6 +513,71 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 .downcast_ref::<S>()
                 .expect("state type mismatch");
             Box::new(handler(s, text, app)) as Box<dyn PluginState>
+        }));
+    }
+
+    /// Register a text-input pre-dispatch handler — runs before the input handler chain.
+    ///
+    /// Pre-dispatch handlers can `Consume` the input (terminating dispatch) or
+    /// `Pass` it through with optional state updates and commands.
+    pub fn on_text_input_pre_dispatch(
+        &mut self,
+        handler: impl Fn(&S, &str, &AppView<'_>) -> (S, TextInputPreDispatchResult)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.text_input_pre_dispatch_handler = Some(Box::new(move |state, text, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, result) = handler(s, text, app);
+            (Box::new(new_state) as Box<dyn PluginState>, result)
+        }));
+    }
+
+    /// Register a mouse pre-dispatch handler — runs before observers and hit-test dispatch.
+    ///
+    /// Pre-dispatch handlers can `Consume` the event (terminating dispatch) or
+    /// `Pass` it through with optional state updates and commands. Used by
+    /// drag-tracking and shadow-cursor-class plugins.
+    pub fn on_mouse_pre_dispatch(
+        &mut self,
+        handler: impl Fn(&S, &MouseEvent, &AppView<'_>) -> (S, MousePreDispatchResult)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.mouse_pre_dispatch_handler = Some(Box::new(move |state, event, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, result) = handler(s, event, app);
+            (Box::new(new_state) as Box<dyn PluginState>, result)
+        }));
+    }
+
+    /// Register a mouse fallback handler — invoked when no plugin consumes a mouse event.
+    ///
+    /// Used by `BuiltinMouseFallbackPlugin` to forward unhandled mouse events
+    /// to Kakoune. User plugins can override default mouse-to-Kakoune behaviour
+    /// by registering a higher-priority `on_mouse_fallback`.
+    pub fn on_mouse_fallback(
+        &mut self,
+        handler: impl Fn(&S, &MouseEvent, i32, &AppView<'_>) -> (S, Option<Vec<Command>>)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.mouse_fallback_handler = Some(Box::new(move |state, event, scroll, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, commands) = handler(s, event, scroll, app);
+            (Box::new(new_state) as Box<dyn PluginState>, commands)
         }));
     }
 

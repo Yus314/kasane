@@ -21,6 +21,7 @@ use super::process_task::{
 };
 use super::pubsub::TopicBus;
 use super::state::{Plugin, PluginState};
+use super::traits::{KeyPreDispatchResult, MousePreDispatchResult, TextInputPreDispatchResult};
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, KeyHandleResult, LineAnnotation,
@@ -435,6 +436,70 @@ impl PluginBackend for PluginBridge {
                 None => KeyHandleResult::Passthrough,
             }
         }
+    }
+
+    fn handle_key_pre_dispatch(
+        &mut self,
+        key: &KeyEvent,
+        app: &AppView<'_>,
+    ) -> KeyPreDispatchResult {
+        if let Some(handler) = &self.table.key_pre_dispatch_handler {
+            let (new_state, result) = handler(&*self.state, key, app);
+            self.state = new_state;
+            self.check_state_change();
+            result
+        } else {
+            KeyPreDispatchResult::Pass {
+                commands: Vec::new(),
+                state_updates: super::effects::StateUpdates::default(),
+            }
+        }
+    }
+
+    fn handle_mouse_pre_dispatch(
+        &mut self,
+        event: &MouseEvent,
+        app: &AppView<'_>,
+    ) -> MousePreDispatchResult {
+        if let Some(handler) = &self.table.mouse_pre_dispatch_handler {
+            let (new_state, result) = handler(&*self.state, event, app);
+            self.state = new_state;
+            self.check_state_change();
+            result
+        } else {
+            MousePreDispatchResult::Pass {
+                commands: Vec::new(),
+                state_updates: super::effects::StateUpdates::default(),
+            }
+        }
+    }
+
+    fn handle_text_input_pre_dispatch(
+        &mut self,
+        text: &str,
+        app: &AppView<'_>,
+    ) -> TextInputPreDispatchResult {
+        if let Some(handler) = &self.table.text_input_pre_dispatch_handler {
+            let (new_state, result) = handler(&*self.state, text, app);
+            self.state = new_state;
+            self.check_state_change();
+            result
+        } else {
+            TextInputPreDispatchResult::Pass
+        }
+    }
+
+    fn handle_mouse_fallback(
+        &mut self,
+        event: &MouseEvent,
+        scroll_amount: i32,
+        app: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        let handler = self.table.mouse_fallback_handler.as_ref()?;
+        let (new_state, commands) = handler(&*self.state, event, scroll_amount, app);
+        self.state = new_state;
+        self.check_state_change();
+        commands
     }
 
     fn handle_mouse(
@@ -1464,12 +1529,16 @@ mod tests {
             "shutdown",
             "update",
             "key",
+            "key_pre_dispatch",
             "key_middleware",
             "observe_key",
             "text_input",
+            "text_input_pre_dispatch",
             "observe_text_input",
             "observe_mouse",
             "handle_mouse",
+            "mouse_pre_dispatch",
+            "mouse_fallback",
             "default_scroll",
             "contribute",
             "transform",
@@ -1555,6 +1624,18 @@ mod tests {
                 });
 
                 let inv = self.invoked.clone();
+                r.on_key_pre_dispatch(move |s, _key, _app| {
+                    inv.lock().unwrap().insert("key_pre_dispatch");
+                    (
+                        *s,
+                        KeyPreDispatchResult::Pass {
+                            commands: Vec::new(),
+                            state_updates: super::super::effects::StateUpdates::default(),
+                        },
+                    )
+                });
+
+                let inv = self.invoked.clone();
                 r.on_observe_key(move |s, _key, _app| {
                     inv.lock().unwrap().insert("observe_key");
                     *s
@@ -1573,6 +1654,12 @@ mod tests {
                 });
 
                 let inv = self.invoked.clone();
+                r.on_text_input_pre_dispatch(move |s, _text, _app| {
+                    inv.lock().unwrap().insert("text_input_pre_dispatch");
+                    (*s, TextInputPreDispatchResult::Pass)
+                });
+
+                let inv = self.invoked.clone();
                 r.on_observe_mouse(move |s, _event, _app| {
                     inv.lock().unwrap().insert("observe_mouse");
                     *s
@@ -1582,6 +1669,24 @@ mod tests {
                 r.on_handle_mouse(move |s, _event, _id, _app| {
                     inv.lock().unwrap().insert("handle_mouse");
                     Some((*s, Vec::<Command>::new()))
+                });
+
+                let inv = self.invoked.clone();
+                r.on_mouse_pre_dispatch(move |s, _event, _app| {
+                    inv.lock().unwrap().insert("mouse_pre_dispatch");
+                    (
+                        *s,
+                        MousePreDispatchResult::Pass {
+                            commands: Vec::new(),
+                            state_updates: super::super::effects::StateUpdates::default(),
+                        },
+                    )
+                });
+
+                let inv = self.invoked.clone();
+                r.on_mouse_fallback(move |s, _event, _scroll, _app| {
+                    inv.lock().unwrap().insert("mouse_fallback");
+                    (*s, None)
                 });
 
                 let inv = self.invoked.clone();
@@ -1751,11 +1856,15 @@ mod tests {
         // Input
         bridge.handle_key(&key, &app);
         bridge.handle_key_middleware(&key, &app);
+        bridge.handle_key_pre_dispatch(&key, &app);
         bridge.observe_key(&key, &app);
         bridge.handle_text_input("text", &app);
+        bridge.handle_text_input_pre_dispatch("text", &app);
         bridge.observe_text_input("text", &app);
         bridge.observe_mouse(&mouse, &app);
         bridge.handle_mouse(&mouse, InteractiveId::framework(0), &app);
+        bridge.handle_mouse_pre_dispatch(&mouse, &app);
+        bridge.handle_mouse_fallback(&mouse, 0, &app);
         let candidate = DefaultScrollCandidate::new(
             0,
             0,
