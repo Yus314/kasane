@@ -4729,9 +4729,37 @@ This ADR moves to **Accepted** when:
 
 ## ADR-038: Plugin Authoring Path Consolidation
 
-**Status**: Current (2026-05-05)
+**Status**: Superseded by [ADR-039](#adr-039-plugin-path-consolidation-r2x) (2026-05-08).
+Original status: Current (2026-05-05).
 
-### Context
+### Reconsidered context (2026-05-08)
+
+A workspace-wide grep for narrow capability-trait consumers
+(`&dyn Lifecycle | &dyn InputHandler | &dyn Contributor |
+&dyn Transformer | &dyn Annotator | &dyn DisplayTransform |
+&dyn Renderer | &dyn WorkspaceMember | &dyn PluginMeta |
+&dyn PubSubMember | &dyn ExtensionParticipant | &dyn Io`)
+returns **zero hits** outside `capability_traits.rs:108`
+(itself a doc comment justifying the file).
+
+The R1.x super-trait migration's stated value — "call sites that
+only need one capability can take `&dyn CapTrait` and benefit
+from a narrower trait surface" — is empirically unrealised.
+`capability_traits.rs` is 1040 lines of unused infrastructure;
+`impl_migrated_caps_default!` adds 21 macro sites without a
+corresponding consumer benefit.
+
+ADR-038's decision points 1 ("R1.7+ frozen, capability_traits.rs
+stays as-is") and 3 ("opportunistic builtin migration") rest on
+this unverified premise. ADR-039 supersedes ADR-038 with the
+inverse decision: complete the consolidation by deleting
+capability_traits.rs, force-migrating all 9 builtin plugins to
+`Plugin + HandlerRegistry`, and making `PluginBackend` an
+internal `pub(crate)` ABI consumed only by the WASM adapter.
+
+The original context section below is preserved for audit trail.
+
+### Context (original, 2026-05-05)
 
 The plugin system maintains two parallel authoring paths:
 
@@ -4871,6 +4899,163 @@ authoring surface.
    translations with no current consumer benefit. The adapter's
    parallel-method structure is a faithful translation of the WIT
    surface; restructuring is mechanical churn.
+
+## ADR-039: Plugin Path Consolidation (R2.x)
+
+**Status**: Accepted (2026-05-08). Supersedes [ADR-038](#adr-038-plugin-authoring-path-consolidation).
+
+### Context
+
+ADR-038 (2026-05-05) froze the R1.x super-trait migration at R1.6
+on the premise that `capability_traits.rs` provided value via
+narrow trait views — call sites taking `&dyn Lifecycle`,
+`&dyn Contributor`, etc. instead of the full `&dyn PluginBackend`.
+
+A 2026-05-08 audit grepping for that pattern across the workspace
+returned **zero consumers**. The 1040-line `capability_traits.rs`
+is dead architecture; the `impl_migrated_caps_default!` macro is
+a 21-site scaffolding cost producing no realised benefit. ADR-038
+decision points 1 and 3 (freeze + opportunistic builtin migration)
+are therefore unjustified and ADR-039 reverses them.
+
+The wider refactor program also unlocks a chain of transitional-API
+deletions previously blocked by backwards-compatibility concerns
+(now waived):
+
+- `has_decomposed_annotations` (legacy/decomposed annotator
+  discriminator) becomes obsolete once all builtins use
+  `HandlerRegistry`.
+- `annotate_line_with_ctx` (61-line joiner in `bridge.rs`) is the
+  only `inject_owner` call site post-builtin migration.
+- `WireFace` public visibility (`plugin_prelude.rs:50-53`) is
+  blocked on 22 files still consuming it directly. With
+  `detect_cursors` rewritten to read `UnresolvedStyle.final_*`
+  fields, the public surface can collapse.
+- `Atom::from_wire` vs `Atom::with_style` semantic split (memory
+  `project_adr_031_phase_b3_semantic_split.md`) was preserved
+  because `Atom::from_wire` is the only entry point that carries
+  Kakoune `final_*` resolution flags through. `Style` builders
+  (`Style::with_final_fg` etc.) make `Atom::with_style` sufficient.
+- `#[deprecated] type PluginRegistry = PluginRuntime` (`plugin/mod.rs:88`)
+  has been deprecated for one release.
+
+### Decision
+
+Execute a 12-PR program (R2.x) that:
+
+1. **Deletes `capability_traits.rs`** (1040 LoC) and the
+   `impl_migrated_caps_default!` macro across 21 sites.
+2. **Migrates all 9 builtin plugins** to `Plugin + HandlerRegistry`
+   (~525 LoC of `impl PluginBackend` rewritten):
+   `BuiltinInputPlugin`, `BuiltinDragPlugin`, `BuiltinFoldPlugin`,
+   `BuiltinMouseFallbackPlugin`, `BuiltinShadowCursorPlugin`,
+   `BuiltinInfoPlugin`, `BuiltinMenuPlugin`,
+   `ProjectionStatusPlugin`, plus any test fixtures.
+3. **Reduces `PluginBackend` to an internal `pub(crate)` ABI**
+   consumed by `PluginRuntime` and the WASM adapter
+   (`WasmPlugin`). The trait stays — but as ABI, not authoring
+   surface.
+4. **Deletes transitional APIs** unblocked by builtin migration:
+   `has_decomposed_annotations`, `annotate_line_with_ctx`,
+   `Atom::from_wire`, `WireFace` public visibility,
+   `#[deprecated] PluginRegistry` alias.
+5. **Mechanises Bridge dispatch fully** via a new
+   `dispatch_owner_inject!` macro covering the `inject_owner`
+   pattern (5 methods); remaining hand-coded methods reduce to
+   `try_process_task_event` and similar genuine outliers.
+   `bridge.rs` target: 1900 → ~700 LoC.
+6. **Splits 3 large modules** along natural axes:
+   `state/shadow_cursor.rs` (types/keyboard/commit),
+   `registry/collection.rs` (6 collection axes),
+   `handler_registry.rs` (6 registration axes).
+7. **Contracts `kasane-core` public module surface** from 28 to
+   ~12 by `pub(crate)`-gating the 5 Salsa modules and gating
+   `test_support` behind `cfg(any(test, feature = "test_support"))`.
+
+The 12 PRs sequence as P0 (this ADR + roadmap entry) → P1a–P1d
+(builtin migration) → P2 (vestigial deletes) → P3
+(`capability_traits.rs` delete) → P4
+(`has_decomposed_annotations` + `annotate_line_with_ctx` delete)
+→ P5 (`PluginCapabilities` bitflag scope reduction) → P6
+(`PluginBackend` `pub(crate)`) → P7 (`WireFace` visibility) → P8
+(Bridge dispatch mechanisation) → P9 (`Atom::from_wire` delete)
+→ P10a–P10c (structural splits) → P11 (`kasane-core` surface
+contraction). Total estimate ~12 working days; parallelisable to
+~8 days.
+
+### Implications
+
+- `Plugin + HandlerRegistry` is the **only** native plugin
+  authoring path. There is no `PluginBackend`-based path for
+  external consumers.
+- `PluginBackend` is documented as internal ABI; the prelude
+  re-export is removed.
+- Build time improves modestly post-P3 (1040 LoC of generic
+  blanket-impls compiled in every kasane-core build).
+- The "two ways to author plugins" cognitive overhead disappears
+  from documentation and from the public API surface.
+- The `Atom::from_wire` / `Atom::with_style` semantic split is
+  retired in favour of explicit `Style::with_final_*` builders;
+  the wire parser path becomes a single-purpose internal helper.
+- `WireFace` becomes `pub(in crate::protocol)`; the wire-format
+  type leaves the plugin surface entirely.
+
+### Acceptance Evidence
+
+- `kasane-core/src/plugin/capability_traits.rs` does not exist
+  (verified by `find`).
+- `grep impl_migrated_caps_default!` returns zero hits in
+  production code; test fixtures use a minimal helper if
+  needed.
+- `grep 'impl PluginBackend for'` returns hits only for
+  `PluginBridge`, `WasmPlugin`, and intentional legacy-path
+  test fixtures (with inline justification comments).
+- `kasane-core/src/lib.rs` `pub mod` count is ≤ 12.
+- `cargo bench --bench rendering_pipeline frame_warm_24_lines`
+  shows no regression vs the pre-program baseline (≤ 70 µs at
+  80×24).
+- All workspace tests pass.
+
+### Rejected Alternatives
+
+1. **Honour ADR-038 freeze and accept the dead architecture.**
+   Rejected: 1040 LoC of unused code is documented technical
+   debt that compounds future plugin extension work. The
+   `capability_traits.rs` file's existence forces every new
+   plugin extension point to consider whether it should also
+   become a capability trait — a decision that has zero
+   correct answer because the trait views have no consumers.
+2. **Migrate WASM adapter to HandlerRegistry as part of this
+   program.** Rejected for the same reason as in ADR-038
+   §Rejected #4: ~1600-line mechanical WIT translation with no
+   consumer benefit. Out of scope.
+3. **Extract `PluginBackend` to a separate `kasane-plugin-abi`
+   crate.** Considered as P6 alternative. Rejected for this
+   program: `pub(crate)` achieves the encapsulation goal
+   without the cross-crate refactor cost. Re-evaluate if a
+   future workstream surfaces ABI-stability requirements.
+4. **Keep `Atom::from_wire` indefinitely as a wire-parser
+   helper.** Rejected: the wire parser is a single internal
+   call site; an explicit `parse_wire_atom()` function in
+   `protocol::parser` keeps the call site clear without
+   bifurcating the public `Atom` constructor surface.
+
+### Migration Notes
+
+This ADR is implemented incrementally; no single PR carries the
+full migration. Each P# is independently revertible. The
+reversibility chain is:
+
+- P3 / P4 / P5 / P6 form a forward-only chain (each strips a
+  layer that the next removes); reverting P5 requires also
+  reverting P6 (and so on).
+- P1, P2, P7, P8, P9, P10, P11 are each independently revertible
+  in isolation.
+
+If unforeseen consumers of `capability_traits.rs` surface during
+P3, the PR is held until they migrate to `PluginBackend` directly
+or to `HandlerRegistry`. The narrow-trait-views design is not
+restored.
 
 ## Related Documents
 

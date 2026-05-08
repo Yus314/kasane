@@ -73,6 +73,46 @@ Open follow-up debts surfaced during the Phase 5 landing (2026-04-29). Most reso
 - ✅ GPU color pipeline sRGB bypass — documented in `semantics.md` ("Brush colour space").
 - Pending: ShadowCursor × InlineBox boundary semantics — landed in `semantics.md` ("InlineBox boundary against ShadowCursor"); a runtime assertion that drops/diagnoses overlap is still on the backlog.
 
+**Plugin Path Consolidation (R2.x) — opened 2026-05-08.**
+[ADR-039](./decisions.md#adr-039-plugin-path-consolidation-r2x)
+supersedes ADR-038. A workspace-wide grep confirmed
+`capability_traits.rs` (1040 LoC) has zero narrow-trait
+consumers; the R1.x super-trait migration is dead architecture.
+ADR-039 reverses ADR-038's freeze and defines a 12-PR program
+to:
+
+- Migrate all 9 builtin plugins to `Plugin + HandlerRegistry`
+  (~525 LoC of `impl PluginBackend` rewritten).
+- Delete `capability_traits.rs` (1040 LoC) and the
+  `impl_migrated_caps_default!` macro across 21 sites.
+- Reduce `PluginBackend` to internal `pub(crate)` ABI consumed
+  only by `PluginRuntime` and the WASM adapter.
+- Delete transitional APIs unblocked by builtin migration:
+  `has_decomposed_annotations`, `annotate_line_with_ctx`,
+  `Atom::from_wire`, `WireFace` public visibility,
+  `#[deprecated] PluginRegistry` alias.
+- Mechanise Bridge dispatch (`bridge.rs`: 1900 → ~700 LoC).
+- Split 3 large modules (shadow_cursor, registry/collection,
+  handler_registry) along natural axes.
+- Contract `kasane-core` public module surface from 28 to ~12.
+
+| Phase | Status | Notes |
+|---|---|---|
+| P0 — ADR-039 + roadmap entry | ✅ 2026-05-08 | This entry; ADR-038 marked Superseded |
+| P1a–d — Builtin migration | Pending | 4 sub-PRs (input, render, shadow_cursor, projection_status) |
+| P2 — Vestigial deletes | Pending | `PluginRegistry` alias, shadow_cursor docstring rewrite |
+| P3 — Delete capability_traits.rs | Pending | Blocked on P1; 1040 LoC removal |
+| P4 — Delete `has_decomposed_annotations` + `annotate_line_with_ctx` | Pending | Blocked on P1 |
+| P5 — `PluginCapabilities` bitflag scope reduction | Pending | Blocked on P3+P4 |
+| P6 — `PluginBackend` `pub(crate)` | Pending | Blocked on P5 |
+| P7 — `WireFace` full visibility downgrade | Pending | Blocked on P1; cascades 22 files |
+| P8 — Bridge dispatch full mechanisation | Pending | Blocked on P4 |
+| P9 — `Atom::from_wire` delete | Pending | Blocked on P7 |
+| P10a–c — Structural splits | Pending | Parallelisable: shadow_cursor, registry/collection, handler_registry |
+| P11 — kasane-core public surface contraction | Pending | Salsa 5 modules → `pub(crate)`; `test_support` cfg-gate |
+
+Total estimate ~12 working days; ~8 days with parallel execution.
+
 ### 2.2 Backlog
 
 | Workstream | Notes |
@@ -89,7 +129,7 @@ Open follow-up debts surfaced during the Phase 5 landing (2026-04-29). Most reso
 | ADR-031 post-closure perf opportunities | (1) ✅ `StyledLine` allocation reuse (`StyledLineScratch` threaded through SceneRenderer; landed post-closure, lifted warm 80×24 from 63.3 µs → 56.7 µs). **Follow-up open**: re-measure `parley_pipeline/one_line_changed` against the post-Scratch baseline — the ADR-031 closure recorded 81.6 µs vs 64.4 µs pre-Scratch warm, so the ~7 µs Scratch saving may have already absorbed part of the +18 % gap that closure formally attributed to `shape_warm`. (2) `atom_styles: Vec<Arc<Style>>` — **rejected (2026-05)**. Per-line `atom_styles` is built fresh from interned `Atom.style: Arc<UnresolvedStyle>` (the B-wide intern point); post-resolve `Arc` would only deduplicate when two atoms across different lines produce identical resolved `Style`, and the StyleRun merger in `styled_line.rs:160-181` already collapses identical-style adjacency within a line. Reopen only if profiling shows post-resolve `Style::clone` as a hot allocation. (3) Sub-line word/cluster shape cache — the only structural lever against `shape_warm = 13.58 µs` per L1 miss. SLO has 3.5× headroom (current warm 56.7 µs vs 200 µs); deliberately deferred. **Reopen triggers** (any one suffices): (a) `parley_pipeline/one_line_changed` > 100 µs at 80×24, (b) an ADR-032 Vello spike confirms the shape stage remains the dominant CPU cost, (c) 200×60 warm exceeds 50 % of the 200 µs SLO (i.e. linear-scaling assumption breaks). **Frozen during the W5 measurement window** (declared 2026-05-01, cross-referenced from [`decisions.md` ADR-032 §Decision Gates "Pre-W5" row](./decisions.md#adr-032-gpu-rendering-strategy--vello-evaluation-framework)): the (a)/(b)/(c) reopen triggers are *suspended* for the duration of W5 spike preparation and execution so that ADR-032 §Spike Measurement Matrix readings compare against a stable baseline rather than a moving target. The suspension expires automatically when ADR-032 §Spike Findings is finalised with a verdict (Accepted / Deferred / Rejected). If a self-optimisation lands during the suspension window despite this rule, it invalidates pre-self-opt W5 measurements and the matrix must be recomputed against the new baseline. The freeze does not block (1)'s "re-measure `parley_pipeline/one_line_changed`" follow-up (a measurement against the existing baseline, not a baseline-moving change). |
 | ADR-031 post-closure visibility tightening | `WireFace` rename ✅ landed post-closure (workspace-wide sed). **0.6.0 ships step (a) only** (per 2026-05-06 release decision): `kasane_core::protocol::wire` submodule landed (`d2d4384`); plugin_prelude re-export now flows through `protocol::wire`, contracting the surface visible to plugin authors. **Step (b) and (c) deferred to 0.7+**: 22 external workspace files (kasane-wasm convert, kasane-gui colors / ime / diagnostics, kasane-tui diagnostics, kasane builtins, benches and macro tests) still hold `WireFace` directly; the `pub(in crate::protocol)` visibility downgrade is blocked on migrating those sites + the prelude consumer set to `Style`. `#[doc(hidden)]` keeps `WireFace` invisible from the rendered API surface in the meantime. Reopen for 0.7 planning once Style coverage of the wire-helper sites is complete |
 | ADR-031 Phase 10 pixel goldens | Subpixel positioning (4-step quantisation), variable font axes, rich underlines (curly/dotted/dashed/double), and InlineBox text flow — all landed as features in Phase 10 with unit-level coverage at `shaper.rs` / `layout_cache.rs` / `styled_line.rs`, but no GPU pixel snapshot pins the final rendered output. Originally deferred under ADR-032 W2 per the `tests/golden_grid.rs:14-22` rationale (W2's `SceneRenderer::render_inner` surface-decoupling is the prerequisite refactor). **Tracked separately here** so this work is not gated on the Vello triggers (a/b/c above) — the goldens themselves are valuable regardless of Vello adoption. Path forward: (a) ✅ `SceneRenderer::render_inner` decoupled via `FrameTarget` enum (2026-05-01); `tests/golden_render.rs` drives SceneRenderer headlessly with the `monochrome_grid` smoke fixture pinned. (b) Add Phase 10 feature snapshots (subpixel / variable font / curly underline / InlineBox / RTL) — each follows the `monochrome_grid` template, requires a GPU environment for first-run snapshot bootstrap (`KASANE_GOLDEN_UPDATE=1`) |
-| Plugin authoring path consolidation (ADR-038) | Governance entry: `Plugin` + `HandlerRegistry` (ADR-025) is the sole authoring path; `PluginBackend` is the internal dispatch ABI consumed by `PluginRuntime` and `WasmPlugin`. R1.7+ capability-trait migration is frozen. New extension points are added via `HandlerRegistry::on_X(...)` registrations, not via new `PluginBackend` methods. Built-in plugins (`BuiltinDragPlugin`, `BuiltinFoldPlugin`, `BuiltinMouseFallbackPlugin`, `BuiltinInputPlugin`, `BuiltinShadowCursorPlugin`, `BuiltinMenuPlugin`, `BuiltinInfoPlugin`, `BuiltinDiagnosticsPlugin`, `ProjectionStatusPlugin`) migrate to `Plugin` + `HandlerRegistry` opportunistically when adjacent work touches them — no coordinated push. WASM adapter (`WasmPlugin`) keeps `impl PluginBackend` directly. See [ADR-038](./decisions.md#adr-038-plugin-authoring-path-consolidation) for rationale and rejected alternatives. |
+| ~~Plugin authoring path consolidation (ADR-038)~~ | **Superseded** by ADR-039 (2026-05-08) — see §2.1 "Plugin Path Consolidation (R2.x)" entry. ADR-038's freeze rested on the unverified premise that `capability_traits.rs` had narrow-trait consumers; a workspace grep returned zero. R2.x reverses the freeze and executes the consolidation. |
 
 ## 3. Completed Workstreams
 
