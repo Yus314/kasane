@@ -353,7 +353,7 @@ fn build_plugin_manager(
         builtin_plugin(
             "projection-status",
             "kasane.builtin.projection-status",
-            || kasane_core::plugin::ProjectionStatusPlugin,
+            || kasane_core::plugin::PluginBridge::new(kasane_core::plugin::ProjectionStatusPlugin),
         ),
         builtin_plugin("semantic-zoom", "kasane.semantic-zoom", || {
             kasane_core::plugin::PluginBridge::new(

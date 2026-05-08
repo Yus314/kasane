@@ -5,78 +5,66 @@
 //! Examples: `[Outline]`, `[+ErrorLens]`, `[Outline +ErrorLens +DiffMarks]`.
 
 use crate::element::Element;
-use crate::plugin::app_view::AppView;
-use crate::plugin::context::{ContribSizeHint, ContributeContext, Contribution};
-use crate::plugin::traits::PluginBackend;
-use crate::plugin::{PluginCapabilities, PluginId, SlotId};
+use crate::plugin::context::{ContribSizeHint, Contribution};
+use crate::plugin::state::Plugin;
+use crate::plugin::{HandlerRegistry, PluginId, SlotId};
 
 /// Builtin plugin that displays active projection state in STATUS_RIGHT.
 pub struct ProjectionStatusPlugin;
 
-crate::impl_migrated_caps_default!(ProjectionStatusPlugin);
+impl Plugin for ProjectionStatusPlugin {
+    type State = ();
 
-impl PluginBackend for ProjectionStatusPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.projection-status".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CONTRIBUTOR
-    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_contribute(SlotId::STATUS_RIGHT, |_state, app, _ctx| {
+            let policy = app.projection_policy();
+            let descriptors = app.available_projections();
 
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        state: &AppView<'_>,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        if region != &SlotId::STATUS_RIGHT {
-            return None;
-        }
+            let structural = policy.active_structural();
+            let additive = policy.active_additive();
 
-        let policy = state.projection_policy();
-        let descriptors = state.available_projections();
+            if structural.is_none() && additive.is_empty() {
+                return None;
+            }
 
-        let structural = policy.active_structural();
-        let additive = policy.active_additive();
+            let mut parts = Vec::new();
 
-        if structural.is_none() && additive.is_empty() {
-            return None;
-        }
-
-        let mut parts = Vec::new();
-
-        if let Some(id) = structural {
-            let name = descriptors
-                .iter()
-                .find(|d| &d.id == id)
-                .map(|d| d.name.as_str())
-                .unwrap_or(&id.0);
-            parts.push(name.to_string());
-        }
-
-        let mut additive_names: Vec<_> = additive
-            .iter()
-            .map(|id| {
+            if let Some(id) = structural {
                 let name = descriptors
                     .iter()
                     .find(|d| &d.id == id)
                     .map(|d| d.name.as_str())
                     .unwrap_or(&id.0);
-                format!("+{name}")
+                parts.push(name.to_string());
+            }
+
+            let mut additive_names: Vec<_> = additive
+                .iter()
+                .map(|id| {
+                    let name = descriptors
+                        .iter()
+                        .find(|d| &d.id == id)
+                        .map(|d| d.name.as_str())
+                        .unwrap_or(&id.0);
+                    format!("+{name}")
+                })
+                .collect();
+            additive_names.sort();
+            parts.extend(additive_names);
+
+            let label = format!(" [{}] ", parts.join(" "));
+            let style = app.status_default_style().clone();
+
+            Some(Contribution {
+                element: Element::text_with_style(&label, style),
+                priority: 900,
+                size_hint: ContribSizeHint::Auto,
             })
-            .collect();
-        additive_names.sort();
-        parts.extend(additive_names);
-
-        let label = format!(" [{}] ", parts.join(" "));
-        let style = state.status_default_style().clone();
-
-        Some(Contribution {
-            element: Element::text_with_style(&label, style),
-            priority: 900,
-            size_hint: ContribSizeHint::Auto,
-        })
+        });
     }
 }
 
@@ -104,6 +92,10 @@ pub fn format_projection_label(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugin::PluginBridge;
+    use crate::plugin::app_view::AppView;
+    use crate::plugin::context::ContributeContext;
+    use crate::plugin::traits::PluginBackend;
 
     #[test]
     fn format_none_active() {
@@ -139,7 +131,7 @@ mod tests {
         let state = crate::state::AppState::default();
         let view = AppView::new(&state);
         let ctx = ContributeContext::new(&view, None);
-        let plugin = ProjectionStatusPlugin;
+        let plugin = PluginBridge::new(ProjectionStatusPlugin);
         assert!(
             plugin
                 .contribute_to(&SlotId::STATUS_RIGHT, &view, &ctx)
@@ -163,11 +155,10 @@ mod tests {
 
         let view = AppView::new(&state);
         let ctx = ContributeContext::new(&view, None);
-        let plugin = ProjectionStatusPlugin;
+        let plugin = PluginBridge::new(ProjectionStatusPlugin);
         let contrib = plugin
             .contribute_to(&SlotId::STATUS_RIGHT, &view, &ctx)
             .expect("should contribute when structural is active");
-        // The element should be Text containing "[Outline]"
         match &contrib.element {
             Element::Text(s, _) => assert!(s.contains("Outline"), "got: {s}"),
             other => panic!("expected Text element, got: {other:?}"),
