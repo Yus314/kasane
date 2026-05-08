@@ -111,42 +111,43 @@ impl PaintVisitor for GridPaintVisitor<'_> {
     fn visit_container_pre(&mut self, info: &ContainerPaintInfo) {
         // Shadow (drawn first, behind the container)
         if info.shadow {
-            let shadow_fallback = crate::protocol::Style::from_face(&WireFace {
-                attributes: crate::protocol::Attributes::DIM,
-                ..WireFace::default()
-            });
-            let shadow_face = self
-                .theme
-                .resolve(
-                    &crate::element::ElementStyle::Token(crate::element::StyleToken::SHADOW),
-                    &shadow_fallback,
-                )
-                .to_face();
-            paint_shadow(self.grid, &info.area, &shadow_face);
+            let shadow_fallback = crate::protocol::Style {
+                dim: true,
+                ..crate::protocol::Style::default()
+            };
+            let shadow_style = self.theme.resolve(
+                &crate::element::ElementStyle::Token(crate::element::StyleToken::SHADOW),
+                &shadow_fallback,
+            );
+            paint_shadow(self.grid, &info.area, &shadow_style.to_face());
         }
 
         // Fill entire container area with face
-        let info_style = crate::render::TerminalStyle::from_face(&info.face);
-        self.grid.clear_region(&info.area, &info_style);
+        let info_term = crate::render::TerminalStyle::from_style(&info.style);
+        self.grid.clear_region(&info.area, &info_term);
 
         // Split divider glyphs
         if info.is_split_divider {
             if info.area.w == 1 {
                 for y in info.area.y..info.area.y + info.area.h {
                     self.grid
-                        .put_char(info.area.x, y, info.divider_vertical, &info_style);
+                        .put_char(info.area.x, y, info.divider_vertical, &info_term);
                 }
             } else {
                 for x in info.area.x..info.area.x + info.area.w {
                     self.grid
-                        .put_char(x, info.area.y, info.divider_horizontal, &info_style);
+                        .put_char(x, info.area.y, info.divider_horizontal, &info_term);
                 }
             }
         }
 
         // Border
         if let Some(border_config) = info.border {
-            let border_face = info.border_face.unwrap_or(info.face);
+            let border_style = info
+                .border_style
+                .clone()
+                .unwrap_or_else(|| info.style.clone());
+            let border_face = border_style.to_face();
             paint_border(
                 self.grid,
                 &info.area,

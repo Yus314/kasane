@@ -8,11 +8,11 @@ use kasane_core::plugin::{
 };
 use kasane_core::protocol::{Atom, KasaneRequest, WireFace};
 
-/// Test helper: build a `wit::Style` from the legacy face-equivalent
+/// Test helper: build a `wit::Style` from legacy WireFace-equivalent
 /// fields. The legacy `WireFace` had four fields (fg, bg, underline,
-/// attributes); the new `Style` has 12. This helper mirrors what
-/// `Style::from_face` does on the host side, letting test literals
-/// stay compact while exercising the WIT-level conversion path.
+/// attributes); the new `Style` has 12. This helper bridges through
+/// `Style::from_face` so test literals stay compact while exercising
+/// the WIT-level conversion path.
 fn wit_style_from_face_fields(
     fg: wit::Brush,
     bg: wit::Brush,
@@ -25,7 +25,7 @@ fn wit_style_from_face_fields(
         underline: super::wit_brush_to_color(&underline),
         attributes: kasane_core::protocol::Attributes::from_bits_truncate(attributes),
     };
-    super::face_to_wit(&face)
+    super::style_to_wit(&kasane_core::protocol::Style::from_face(&face))
 }
 use kasane_core::render::CursorStyle;
 use kasane_core::scroll::{
@@ -81,7 +81,7 @@ fn convert_face_with_attributes() {
         wit::Brush::DefaultColor,
         0x20, // BOLD
     );
-    let f = wit_style_to_face(&ws);
+    let f = super::wit_style_to_style(&ws).to_face();
     assert_eq!(f.fg, Color::Named(NamedColor::Red));
     assert_eq!(
         f.bg,
@@ -785,8 +785,8 @@ fn convert_face_roundtrip() {
         underline: Color::Default,
         attributes: Attributes::BOLD | Attributes::ITALIC,
     };
-    let wit_f = face_to_wit(&native);
-    let back = wit_style_to_face(&wit_f);
+    let wit_f = super::style_to_wit(&kasane_core::protocol::Style::from_face(&native));
+    let back = super::wit_style_to_style(&wit_f).to_face();
     assert_eq!(native.fg, back.fg);
     assert_eq!(native.bg, back.bg);
     assert_eq!(native.underline, back.underline);

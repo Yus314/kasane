@@ -137,7 +137,7 @@ impl KakouneSafeCommand {
         Self(Command::UnregisterSurfaceKey { surface_key })
     }
 
-    pub fn register_theme_tokens(tokens: Vec<(String, WireFace)>) -> Self {
+    pub fn register_theme_tokens(tokens: Vec<(String, crate::protocol::Style)>) -> Self {
         Self(Command::RegisterThemeTokens(tokens))
     }
 

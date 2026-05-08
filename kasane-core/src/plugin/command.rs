@@ -176,8 +176,8 @@ pub enum Command {
     UnregisterSurfaceKey {
         surface_key: String,
     },
-    /// Register custom theme tokens with default faces.
-    RegisterThemeTokens(Vec<(String, WireFace)>),
+    /// Register custom theme tokens with default styles.
+    RegisterThemeTokens(Vec<(String, crate::protocol::Style)>),
     /// Spawn an external process.
     SpawnProcess {
         job_id: u64,

@@ -223,22 +223,6 @@ pub(crate) fn style_to_wit(s: &Style) -> wit::Style {
     }
 }
 
-// --- WireFace bridge ---
-//
-// `wit_style_to_face` keeps host call sites that still hold a `WireFace`
-// (decoration / annotation conversions) source-stable. `face_to_wit`
-// is test-only — production code goes through `style_to_wit` directly
-// after the HostState Style migration.
-
-pub(crate) fn wit_style_to_face(ws: &wit::Style) -> WireFace {
-    wit_style_to_style(ws).to_face()
-}
-
-#[cfg(test)]
-pub(crate) fn face_to_wit(f: &WireFace) -> wit::Style {
-    style_to_wit(&Style::from_face(f))
-}
-
 pub(crate) fn wit_style_to_unresolved_style(ws: &wit::Style) -> UnresolvedStyle {
     // The wire `Style` is post-resolve, so the unresolved `final_*` flags
     // are all false. This matches the WIT contract: plugins do not see
@@ -424,7 +408,7 @@ fn wit_cursor_style_orn(w: &wit::CursorStyleOrn) -> Option<CursorStyleOrn> {
 fn wit_cursor_effect_orn(w: &wit::CursorEffectOrn) -> CursorEffectOrn {
     CursorEffectOrn {
         kind: wit_cursor_effect_to_effect(w.kind),
-        face: wit_style_to_face(&w.style),
+        style: wit_style_to_style(&w.style),
         priority: w.priority,
         modality: wit_ornament_modality_to_modality(w.modality),
     }
@@ -453,7 +437,7 @@ fn wit_surface_orn_to_surface_orn(w: &wit::SurfaceOrn) -> SurfaceOrn {
     SurfaceOrn {
         anchor: wit_surface_orn_anchor_to_anchor(&w.anchor),
         kind: wit_surface_orn_kind_to_kind(w.kind),
-        face: wit_style_to_face(&w.style),
+        style: wit_style_to_style(&w.style),
         priority: w.priority,
         modality: wit_ornament_modality_to_modality(w.modality),
     }

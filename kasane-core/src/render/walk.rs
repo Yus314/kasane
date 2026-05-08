@@ -34,10 +34,10 @@ pub(crate) struct ContainerPaintInfo<'a> {
     pub child_area: Option<Rect>,
     pub border: &'a Option<BorderConfig>,
     pub shadow: bool,
-    /// Resolved container face.
-    pub face: WireFace,
-    /// Resolved border face (if border is present).
-    pub border_face: Option<WireFace>,
+    /// Resolved container style.
+    pub style: crate::protocol::Style,
+    /// Resolved border style (if border is present).
+    pub border_style: Option<crate::protocol::Style>,
     /// Optional border title atoms.
     pub title: Option<&'a [Atom]>,
     /// Whether this container is a split divider (fill with box-drawing chars).
@@ -216,12 +216,11 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
             title,
         } => {
             let face_style = theme.resolve(el_style, &state.observed.default_style);
-            let face = face_style.to_face();
-            let border_face = border.as_ref().map(|bc| {
+            let border_style = border.as_ref().map(|bc| {
                 bc.style
                     .as_ref()
-                    .map(|s| theme.resolve(s, &face_style).to_face())
-                    .unwrap_or(face)
+                    .map(|s| theme.resolve(s, &face_style))
+                    .unwrap_or_else(|| face_style.clone())
             });
             let child_area = layout.children.first().map(|cl| cl.area);
             let is_split_divider = matches!(
@@ -233,8 +232,8 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
                 child_area,
                 border,
                 shadow: *shadow,
-                face,
-                border_face,
+                style: face_style,
+                border_style,
                 title: title.as_deref(),
                 is_split_divider,
                 divider_vertical: &state.config.divider_vertical,

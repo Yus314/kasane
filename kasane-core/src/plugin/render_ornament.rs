@@ -105,7 +105,7 @@ pub enum CursorEffect {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CursorEffectOrn {
     pub kind: CursorEffect,
-    pub face: WireFace,
+    pub style: crate::protocol::Style,
     pub priority: i16,
     pub modality: OrnamentModality,
 }
@@ -136,7 +136,7 @@ pub enum SurfaceOrnKind {
 pub struct SurfaceOrn {
     pub anchor: SurfaceOrnAnchor,
     pub kind: SurfaceOrnKind,
-    pub face: WireFace,
+    pub style: crate::protocol::Style,
     pub priority: i16,
     pub modality: OrnamentModality,
 }

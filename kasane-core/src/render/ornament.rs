@@ -1,7 +1,7 @@
 use crate::element::BorderLineStyle;
 use crate::layout::Rect;
 use crate::plugin::{FaceMerge, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind};
-use crate::protocol::WireFace;
+use crate::protocol::Style;
 use crate::render::grid::CellGrid;
 use crate::render::scene::{CellSize, DrawCommand, to_pixel_rect};
 use crate::surface::{SurfaceId, SurfaceRegistry};
@@ -11,7 +11,7 @@ pub(crate) struct ResolvedSurfaceOrn {
     pub surface_id: Option<SurfaceId>,
     pub rect: Rect,
     pub kind: SurfaceOrnKind,
-    pub face: WireFace,
+    pub style: crate::protocol::Style,
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +70,7 @@ pub(crate) fn resolve_surface_ornaments(
                     surface_id: focused_surface_id,
                     rect,
                     kind: orn.kind,
-                    face: orn.face,
+                    style: orn.style.clone(),
                 }
             }
             SurfaceOrnAnchor::SurfaceKey(surface_key) => {
@@ -96,7 +96,7 @@ pub(crate) fn resolve_surface_ornaments(
                     surface_id: Some(surface_id),
                     rect,
                     kind: orn.kind,
-                    face: orn.face,
+                    style: orn.style.clone(),
                 }
             }
         };
@@ -117,10 +117,10 @@ pub(crate) fn apply_surface_ornaments_tui(grid: &mut CellGrid, ornaments: &[Reso
     for orn in ornaments {
         match orn.kind {
             SurfaceOrnKind::InactiveTint => {
-                apply_rect_face(grid, &orn.rect, &orn.face, FaceMerge::Background)
+                apply_rect_style(grid, &orn.rect, &orn.style, FaceMerge::Background)
             }
             SurfaceOrnKind::FocusFrame => {
-                apply_rect_perimeter_face(grid, &orn.rect, &orn.face, FaceMerge::Overlay)
+                apply_rect_perimeter_style(grid, &orn.rect, &orn.style, FaceMerge::Overlay)
             }
         }
     }
@@ -135,13 +135,13 @@ pub(crate) fn lower_surface_ornaments_gui(
         match orn.kind {
             SurfaceOrnKind::InactiveTint => commands.push(DrawCommand::FillRect {
                 rect: to_pixel_rect(&orn.rect, cell_size),
-                face: orn.face.into(),
+                face: orn.style.clone(),
                 elevated: false,
             }),
             SurfaceOrnKind::FocusFrame => commands.push(DrawCommand::DrawBorder {
                 rect: to_pixel_rect(&orn.rect, cell_size),
                 line_style: BorderLineStyle::Single,
-                face: orn.face.into(),
+                face: orn.style.clone(),
                 fill_face: None,
             }),
         }
@@ -149,8 +149,13 @@ pub(crate) fn lower_surface_ornaments_gui(
     commands
 }
 
-fn apply_rect_face(grid: &mut CellGrid, rect: &Rect, face: &WireFace, merge: FaceMerge) {
-    let style = crate::protocol::Style::from_face(face);
+fn apply_rect_style(
+    grid: &mut CellGrid,
+    rect: &Rect,
+    style: &crate::protocol::Style,
+    merge: FaceMerge,
+) {
+    let style = style.clone();
     let x_end = rect.x.saturating_add(rect.w).min(grid.width());
     let y_end = rect.y.saturating_add(rect.h).min(grid.height());
     for y in rect.y..y_end {
@@ -162,8 +167,13 @@ fn apply_rect_face(grid: &mut CellGrid, rect: &Rect, face: &WireFace, merge: Fac
     }
 }
 
-fn apply_rect_perimeter_face(grid: &mut CellGrid, rect: &Rect, face: &WireFace, merge: FaceMerge) {
-    let style = crate::protocol::Style::from_face(face);
+fn apply_rect_perimeter_style(
+    grid: &mut CellGrid,
+    rect: &Rect,
+    style: &crate::protocol::Style,
+    merge: FaceMerge,
+) {
+    let style = style.clone();
     let x_end = rect.x.saturating_add(rect.w).min(grid.width());
     let y_end = rect.y.saturating_add(rect.h).min(grid.height());
     if rect.w == 0 || rect.h == 0 || rect.x >= x_end || rect.y >= y_end {
@@ -210,10 +220,10 @@ mod tests {
     use crate::surface::status::StatusBarSurface;
     use crate::test_support::TestSurfaceBuilder;
 
-    fn face(bg: NamedColor) -> WireFace {
-        WireFace {
-            bg: Color::Named(bg),
-            ..WireFace::default()
+    fn style(bg: NamedColor) -> Style {
+        Style {
+            bg: crate::protocol::Brush::Named(bg),
+            ..Style::default()
         }
     }
 
@@ -251,21 +261,21 @@ mod tests {
             SurfaceOrn {
                 anchor: SurfaceOrnAnchor::FocusedSurface,
                 kind: SurfaceOrnKind::FocusFrame,
-                face: face(NamedColor::Blue),
+                style: style(NamedColor::Blue),
                 priority: 1,
                 modality: OrnamentModality::Approximate,
             },
             SurfaceOrn {
                 anchor: SurfaceOrnAnchor::FocusedSurface,
                 kind: SurfaceOrnKind::FocusFrame,
-                face: face(NamedColor::Red),
+                style: style(NamedColor::Red),
                 priority: 5,
                 modality: OrnamentModality::Must,
             },
             SurfaceOrn {
                 anchor: SurfaceOrnAnchor::SurfaceKey("test.right".into()),
                 kind: SurfaceOrnKind::InactiveTint,
-                face: face(NamedColor::Yellow),
+                style: style(NamedColor::Yellow),
                 priority: 2,
                 modality: OrnamentModality::Approximate,
             },
@@ -275,7 +285,10 @@ mod tests {
         assert_eq!(resolved.len(), 2);
         assert_eq!(resolved[0].kind, SurfaceOrnKind::InactiveTint);
         assert_eq!(resolved[1].kind, SurfaceOrnKind::FocusFrame);
-        assert_eq!(resolved[1].face.bg, Color::Named(NamedColor::Red));
+        assert_eq!(
+            resolved[1].style.bg,
+            crate::protocol::Brush::Named(NamedColor::Red)
+        );
         assert_eq!(resolved[1].surface_id, Some(SurfaceId::BUFFER));
         assert_eq!(resolved[0].surface_id, Some(SurfaceId(200)));
     }
@@ -314,21 +327,21 @@ mod tests {
             SurfaceOrn {
                 anchor: SurfaceOrnAnchor::FocusedSurface,
                 kind: SurfaceOrnKind::InactiveTint,
-                face: face(NamedColor::Yellow),
+                style: style(NamedColor::Yellow),
                 priority: 1,
                 modality: OrnamentModality::Approximate,
             },
             SurfaceOrn {
                 anchor: SurfaceOrnAnchor::SurfaceKey("kasane.buffer".into()),
                 kind: SurfaceOrnKind::FocusFrame,
-                face: face(NamedColor::Blue),
+                style: style(NamedColor::Blue),
                 priority: 1,
                 modality: OrnamentModality::Approximate,
             },
             SurfaceOrn {
                 anchor: SurfaceOrnAnchor::SurfaceKey("kasane.buffer".into()),
                 kind: SurfaceOrnKind::InactiveTint,
-                face: face(NamedColor::Red),
+                style: style(NamedColor::Red),
                 priority: 1,
                 modality: OrnamentModality::Approximate,
             },
@@ -343,11 +356,11 @@ mod tests {
     #[test]
     fn apply_surface_ornaments_tui_tints_interior_and_frames_perimeter() {
         let mut grid = CellGrid::new(6, 4);
-        let default_face = WireFace {
-            bg: Color::Named(NamedColor::Black),
-            ..WireFace::default()
+        let default_face = Style {
+            bg: crate::protocol::Brush::Named(NamedColor::Black),
+            ..Style::default()
         };
-        grid.clear(&crate::render::TerminalStyle::from_face(&default_face));
+        grid.clear(&crate::render::TerminalStyle::from_style(&default_face));
 
         let ornaments = vec![
             ResolvedSurfaceOrn {
@@ -359,7 +372,7 @@ mod tests {
                     h: 2,
                 },
                 kind: SurfaceOrnKind::InactiveTint,
-                face: face(NamedColor::Blue),
+                style: style(NamedColor::Blue),
             },
             ResolvedSurfaceOrn {
                 surface_id: Some(SurfaceId(2)),
@@ -370,7 +383,7 @@ mod tests {
                     h: 4,
                 },
                 kind: SurfaceOrnKind::FocusFrame,
-                face: face(NamedColor::Red),
+                style: style(NamedColor::Red),
             },
         ];
 
@@ -378,19 +391,19 @@ mod tests {
 
         assert_eq!(
             grid.get(2, 2).unwrap().style.bg,
-            Color::Named(NamedColor::Blue)
+            crate::protocol::Color::Named(NamedColor::Blue)
         );
         assert_eq!(
             grid.get(0, 0).unwrap().style.bg,
-            Color::Named(NamedColor::Red)
+            crate::protocol::Color::Named(NamedColor::Red)
         );
         assert_eq!(
             grid.get(4, 3).unwrap().style.bg,
-            Color::Named(NamedColor::Red)
+            crate::protocol::Color::Named(NamedColor::Red)
         );
         assert_eq!(
             grid.get(5, 3).unwrap().style.bg,
-            Color::Named(NamedColor::Black)
+            crate::protocol::Color::Named(NamedColor::Black)
         );
     }
 
@@ -407,7 +420,7 @@ mod tests {
                         h: 4,
                     },
                     kind: SurfaceOrnKind::InactiveTint,
-                    face: face(NamedColor::Blue),
+                    style: style(NamedColor::Blue),
                 },
                 ResolvedSurfaceOrn {
                     surface_id: Some(SurfaceId(2)),
@@ -418,7 +431,7 @@ mod tests {
                         h: 6,
                     },
                     kind: SurfaceOrnKind::FocusFrame,
-                    face: face(NamedColor::Red),
+                    style: style(NamedColor::Red),
                 },
             ],
             CellSize {

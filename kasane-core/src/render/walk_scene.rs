@@ -300,7 +300,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         // Background fill — floating containers (shadow=true) use elevated
         self.out.push(DrawCommand::FillRect {
             rect: pr,
-            face: info.face.into(),
+            face: info.style.clone(),
             elevated: info.shadow,
         });
 
@@ -315,7 +315,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             y: (info.area.y + row) as f32 * cs.height,
                         },
                         text: info.divider_vertical.into(),
-                        face: info.face.into(),
+                        face: info.style.clone(),
                         max_width: cs.width,
                     });
                 }
@@ -326,7 +326,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         y: info.area.y as f32 * cs.height,
                     },
                     text: info.divider_horizontal.repeat(info.area.w as usize).into(),
-                    face: info.face.into(),
+                    face: info.style.clone(),
                     max_width: info.area.w as f32 * cs.width,
                 });
             }
@@ -334,23 +334,25 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
 
         // Border
         if let Some(border_config) = info.border {
-            let border_face = info.border_face.unwrap_or(info.face);
+            let border_style = info
+                .border_style
+                .clone()
+                .unwrap_or_else(|| info.style.clone());
 
             self.out.push(DrawCommand::DrawBorder {
                 rect: border_rect.clone(),
                 line_style: border_config.line_style.clone(),
-                face: border_face.into(),
+                face: border_style.clone(),
                 fill_face: None,
             });
 
             // Title
             if let Some(title_atoms) = info.title {
-                let border_style = crate::protocol::Style::from_face(&border_face);
                 let resolved_title = resolve_atoms(title_atoms, Some(&border_style));
                 self.out.push(DrawCommand::DrawBorderTitle {
                     rect: border_rect,
                     title: resolved_title,
-                    border_face: border_face.into(),
+                    border_face: border_style,
                     elevated: info.shadow,
                 });
             }
