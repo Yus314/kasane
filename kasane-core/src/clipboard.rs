@@ -30,4 +30,17 @@ impl SystemClipboard {
     pub fn get(&mut self) -> Option<String> {
         self.inner.as_mut()?.get_text().ok()
     }
+
+    /// Write text to the system clipboard. Silently no-ops when the
+    /// platform clipboard is unavailable; logs at debug level on
+    /// transient failures (e.g. headless CI sessions where arboard
+    /// initialised but `set_text` rejects the write).
+    pub fn set(&mut self, text: &str) {
+        let Some(inner) = self.inner.as_mut() else {
+            return;
+        };
+        if let Err(err) = inner.set_text(text.to_string()) {
+            tracing::debug!(?err, "system clipboard set_text failed");
+        }
+    }
 }
