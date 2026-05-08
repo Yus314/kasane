@@ -4,6 +4,7 @@
 //! as lowest-priority plugins, allowing user plugins to override them.
 
 mod diagnostics;
+mod diagnostics_panel;
 mod info;
 mod menu;
 mod shadow_cursor;
@@ -26,6 +27,11 @@ pub fn builtin_plugin_factories() -> Vec<Arc<dyn PluginFactory>> {
         builtin_plugin("builtin-diagnostics", "kasane.builtin.diagnostics", || {
             diagnostics::BuiltinDiagnosticsPlugin
         }),
+        builtin_plugin(
+            "builtin-diagnostics-panel",
+            "kasane.builtin.diagnostics_panel",
+            diagnostics_panel::BuiltinDiagnosticsPanelPlugin::default,
+        ),
         builtin_plugin(
             "builtin-shadow-cursor",
             "kasane.builtin.shadow_cursor",
