@@ -21,17 +21,19 @@
 }:
 
 rustPlatform.buildRustPackage (finalAttrs: {
+  __structuredAttrs = true;
+
   pname = "kasane";
-  version = "0.4.0";
+  version = "0.6.0";
 
   src = fetchFromGitHub {
     owner = "Yus314";
     repo = "kasane";
     tag = "v${finalAttrs.version}";
-    hash = "sha256-KPD3d2AZ/1uvT7xcRsx5U4wLsL5xPAfgiuJH1BG8Bl8=";
+    hash = "sha256-1RyZfIRLviW3PTfQn7uTpt6OEtgrbZu6LFFIUVC+Wwc=";
   };
 
-  cargoHash = "sha256-3dSauBVS6DLo718VW6YoRRgAsfbwyGub6MVDUWD9rzs=";
+  cargoHash = "sha256-WQEpg5+AxpgsldKcYkfMEx0SSXHfnU6H1pXXiXPLQN8=";
 
   cargoBuildFlags = [
     "-p"

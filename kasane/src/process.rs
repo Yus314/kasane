@@ -282,6 +282,61 @@ pub fn get_kak_version() -> String {
     }
 }
 
+/// Minimum dated Kakoune release Kasane's protocol parser supports.
+/// Mirrors the message in `kasane-core/src/protocol/parse.rs` (OldProtocol).
+const REQUIRED_KAK_VERSION: (u16, u16, u16) = (2026, 4, 12);
+
+/// Verify the `kak` on PATH is new enough before we spawn a session.
+///
+/// Returns Ok for tagged releases ≥ v2026.04.12 and for unparseable strings
+/// (e.g. master/dev builds like `kak unknown`) — those still get caught by the
+/// runtime `set_cursor` check in the protocol parser, but for tagged releases
+/// failing fast with an actionable message beats a cryptic `OldProtocol` after
+/// the daemon is already up.
+pub fn verify_kak_version() -> Result<()> {
+    let output = Command::new("kak").arg("-version").output().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!(
+                "kak binary not found. Kasane requires Kakoune.\n\
+                 \n\
+                 Install Kakoune: https://kakoune.org"
+            )
+        } else {
+            anyhow::anyhow!("failed to run `kak -version`: {e}")
+        }
+    })?;
+    let raw = String::from_utf8_lossy(&output.stdout);
+    let line = raw.lines().next().unwrap_or("").trim();
+    if let Some(found) = parse_dated_kak_version(line)
+        && found < REQUIRED_KAK_VERSION
+    {
+        let (ry, rm, rd) = REQUIRED_KAK_VERSION;
+        let (fy, fm, fd) = found;
+        bail!(
+            "Kakoune v{fy:04}.{fm:02}.{fd:02} is too old for Kasane.\n\
+             Kasane requires Kakoune v{ry:04}.{rm:02}.{rd:02} or later.\n\
+             Update Kakoune: https://github.com/mawww/kakoune"
+        );
+    }
+    Ok(())
+}
+
+/// Parse a dated Kakoune version like `Kakoune v2026.04.12` into `(year, month, day)`.
+/// Returns None for development builds, empty input, or any string without a `vYYYY.MM.DD` token.
+fn parse_dated_kak_version(s: &str) -> Option<(u16, u16, u16)> {
+    let token = s.split_whitespace().find(|w| {
+        w.starts_with('v') && w[1..].chars().next().is_some_and(|c| c.is_ascii_digit())
+    })?;
+    let mut parts = token.trim_start_matches('v').split('.');
+    let y = parts.next()?.parse().ok()?;
+    let m = parts.next()?.parse().ok()?;
+    let d = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((y, m, d))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,5 +413,36 @@ mod tests {
         assert_eq!(argv[4], "-e");
         assert_eq!(argv[5], "colorscheme gruvbox");
         assert_eq!(argv[6], "file.txt");
+    }
+
+    #[test]
+    fn parses_tagged_release_string() {
+        assert_eq!(
+            parse_dated_kak_version("Kakoune v2026.04.12"),
+            Some((2026, 4, 12))
+        );
+        assert_eq!(
+            parse_dated_kak_version("Kakoune v2024.05.10"),
+            Some((2024, 5, 10))
+        );
+    }
+
+    #[test]
+    fn rejects_dev_and_garbage_versions() {
+        assert_eq!(parse_dated_kak_version(""), None);
+        assert_eq!(parse_dated_kak_version("Kakoune unknown"), None);
+        assert_eq!(parse_dated_kak_version("kak master-3dd6f30d"), None);
+        assert_eq!(parse_dated_kak_version("Kakoune v2024"), None);
+        assert_eq!(parse_dated_kak_version("Kakoune v2024.05.10.1"), None);
+        assert_eq!(parse_dated_kak_version("v"), None);
+    }
+
+    #[test]
+    fn ordering_matches_calendar_order() {
+        let new = parse_dated_kak_version("Kakoune v2026.04.12").unwrap();
+        let old = parse_dated_kak_version("Kakoune v2024.05.10").unwrap();
+        assert!(old < new);
+        assert!(old < REQUIRED_KAK_VERSION);
+        assert!(new == REQUIRED_KAK_VERSION);
     }
 }
