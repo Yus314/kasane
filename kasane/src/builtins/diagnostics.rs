@@ -9,7 +9,8 @@ use kasane_core::plugin::diagnostics::PluginDiagnosticOverlayState;
 use kasane_core::plugin::{
     AppView, OverlayContext, OverlayContribution, PluginBackend, PluginCapabilities, PluginId,
 };
-use kasane_core::protocol::{Atom, Style, WireFace};
+use kasane_core::protocol::{Atom, Color, Style, WireFace};
+use unicode_width::UnicodeWidthStr;
 
 /// Built-in plugin for diagnostics overlay rendering.
 ///
@@ -38,7 +39,9 @@ impl PluginBackend for BuiltinDiagnosticsPlugin {
 
         let cols = state.cols();
         let rows = state.rows();
-        let (element, anchor) = build_diagnostic_element(overlay_state, cols, rows)?;
+        let log_path = state.log_path().and_then(|p| p.to_str().map(str::to_owned));
+        let (element, anchor) =
+            build_diagnostic_element(overlay_state, cols, rows, log_path.as_deref())?;
 
         Some(OverlayContribution {
             element,
@@ -49,10 +52,78 @@ impl PluginBackend for BuiltinDiagnosticsPlugin {
     }
 }
 
+/// Build the footer hint line shown below the diagnostic body.
+///
+/// Returns `None` when `inner_width` is too small to show even the
+/// hotkey hint legibly.
+fn build_footer_atoms(
+    inner_width: u16,
+    log_path: Option<&str>,
+    body_face: &WireFace,
+) -> Option<Vec<Atom>> {
+    if inner_width < 8 {
+        return None;
+    }
+    let hint_face = WireFace {
+        fg: Color::Rgb {
+            r: 160,
+            g: 160,
+            b: 160,
+        },
+        bg: body_face.bg,
+        ..WireFace::default()
+    };
+    let mut atoms = Vec::new();
+    if let Some(path) = log_path {
+        let prefix = "log: ";
+        let prefix_w = prefix.len() as u16;
+        let path_room = inner_width.saturating_sub(prefix_w);
+        let displayed = if (UnicodeWidthStr::width(path) as u16) <= path_room {
+            path.to_string()
+        } else {
+            shorten_path_to_width(path, path_room)
+        };
+        atoms.push(Atom::with_style(prefix, Style::from_face(&hint_face)));
+        atoms.push(Atom::with_style(displayed, Style::from_face(&hint_face)));
+    } else {
+        atoms.push(Atom::with_style(
+            "see log (KASANE_LOG_STDERR=1)",
+            Style::from_face(&hint_face),
+        ));
+    }
+    Some(atoms)
+}
+
+/// Truncate a path string from the left so the trailing filename is preserved.
+/// Keeps the last component visible; replaces stripped middle with "…/".
+fn shorten_path_to_width(path: &str, max_width: u16) -> String {
+    let max = max_width as usize;
+    if max == 0 {
+        return String::new();
+    }
+    if UnicodeWidthStr::width(path) <= max {
+        return path.to_string();
+    }
+    // Fall back: keep tail. Reserve 2 cells for "…/".
+    let tail_room = max.saturating_sub(2);
+    let mut tail = String::new();
+    let mut used = 0usize;
+    for ch in path.chars().rev() {
+        let w = UnicodeWidthStr::width(ch.to_string().as_str());
+        if used + w > tail_room {
+            break;
+        }
+        tail.insert(0, ch);
+        used += w;
+    }
+    format!("…/{tail}")
+}
+
 fn build_diagnostic_element(
     overlay_state: &PluginDiagnosticOverlayState,
     cols: u16,
     rows: u16,
+    log_path: Option<&str>,
 ) -> Option<(Element, kasane_core::element::OverlayAnchor)> {
     let spec = overlay_state.paint_spec(cols, rows)?;
     let layout = &spec.layout;
@@ -85,6 +156,20 @@ fn build_diagnostic_element(
         body_children.push(FlexChild::fixed(Element::StyledLine(atoms)));
     }
 
+    // Footer hint line (log path / hotkey).
+    // Adds one extra row to the container if the layout has vertical room.
+    let inner_width = layout.width.saturating_sub(2);
+    let extra_height = if layout.y + layout.height < rows {
+        if let Some(footer_atoms) = build_footer_atoms(inner_width, log_path, &spec.body_face) {
+            body_children.push(FlexChild::fixed(Element::StyledLine(footer_atoms)));
+            1
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
     let body = Element::column(body_children);
 
     let border_face = WireFace {
@@ -109,7 +194,7 @@ fn build_diagnostic_element(
         x: layout.x,
         y: layout.y,
         w: layout.width,
-        h: layout.height,
+        h: layout.height + extra_height,
     };
 
     Some((container, anchor))

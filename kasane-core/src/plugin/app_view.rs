@@ -507,6 +507,26 @@ impl<'a> AppView<'a> {
         &self.state.runtime.diagnostic_overlay
     }
 
+    /// Persistent diagnostic history buffer (read-only).
+    ///
+    /// Internal API for the builtin diagnostics panel. Not part of the
+    /// stable plugin API; the shape may change.
+    #[doc(hidden)]
+    #[inline]
+    pub fn diagnostic_history(&self) -> &super::diagnostics::DiagnosticHistory {
+        &self.state.runtime.diagnostic_history
+    }
+
+    /// Resolved path to the active diagnostic log file, when one exists.
+    ///
+    /// Used by the diagnostic overlay/panel to surface where the full
+    /// trace can be reviewed. Returns `None` when stderr logging is
+    /// active or no writable log directory was resolved.
+    #[inline]
+    pub fn log_path(&self) -> Option<&std::path::Path> {
+        self.state.runtime.log_path.as_deref()
+    }
+
     /// Syntax analysis provider for the current buffer (e.g., tree-sitter).
     #[inline]
     pub fn syntax_provider(&self) -> Option<&Arc<dyn SyntaxProvider>> {

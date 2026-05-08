@@ -4,6 +4,7 @@ use crate::surface::SurfaceRegistrationError;
 
 use super::{PluginDescriptor, PluginId};
 
+mod history;
 mod painter;
 mod scoring;
 mod types;
@@ -11,6 +12,7 @@ mod types;
 #[cfg(test)]
 mod tests;
 
+pub use history::{DEFAULT_DIAGNOSTIC_HISTORY_CAPACITY, DiagnosticHistory, DiagnosticHistoryEntry};
 pub use painter::*;
 pub use scoring::diagnostic_overlay_lines;
 pub use types::*;

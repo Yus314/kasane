@@ -4,6 +4,7 @@
 //! nor session metadata. These fields are not serialized or preserved
 //! across session switches (except cols/rows/focused which are preserved).
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::display::segment_map::SegmentMap;
@@ -45,6 +46,15 @@ pub struct RuntimeState {
     pub suppressed_builtins: std::collections::HashSet<crate::plugin::BuiltinTarget>,
     /// Plugin diagnostics overlay state (shown on plugin load/reload errors).
     pub diagnostic_overlay: crate::plugin::PluginDiagnosticOverlayState,
+    /// Bounded history of plugin diagnostics, fanned out alongside the
+    /// transient overlay so a UI surface can review past entries.
+    pub diagnostic_history: crate::plugin::diagnostics::DiagnosticHistory,
+    /// Resolved path to the persistent diagnostic log file, when one is
+    /// active. Surfaced in popup overlays / panels so users can review
+    /// the full diagnostic trace after a popup auto-dismisses.
+    /// `None` when stderr logging is in use or no writable log directory
+    /// could be resolved.
+    pub log_path: Option<PathBuf>,
     /// Inference strategy for cursor/selection/mode detection.
     ///
     /// Set once at startup. Default: [`DefaultInferenceStrategy`](super::derived::DefaultInferenceStrategy).
@@ -87,6 +97,8 @@ impl Default for RuntimeState {
             shadow_cursor: None,
             suppressed_builtins: std::collections::HashSet::new(),
             diagnostic_overlay: Default::default(),
+            diagnostic_history: Default::default(),
+            log_path: None,
             inference_strategy: Arc::new(super::derived::DefaultInferenceStrategy),
         }
     }
