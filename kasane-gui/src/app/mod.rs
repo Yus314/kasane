@@ -940,7 +940,7 @@ where
                         }
                     }
                 }
-                tracing::info!("hot-reloaded plugins");
+                log_reload_summary(&reload.deltas);
             }
             Err(err) => {
                 tracing::error!("failed to hot-reload plugins: {err}");
@@ -1257,4 +1257,35 @@ where
             }
         }
     }
+}
+
+/// Log a one-line summary of which plugins were added, removed, or replaced
+/// during a hot-reload. Mirrors the TUI helper so behavior is consistent
+/// across backends.
+fn log_reload_summary(deltas: &[kasane_core::plugin::AppliedWinnerDelta]) {
+    if deltas.is_empty() {
+        tracing::debug!("hot-reloaded plugins: no changes");
+        return;
+    }
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut replaced = Vec::new();
+    for delta in deltas {
+        if delta.is_added() {
+            added.push(delta.id.0.as_str());
+        } else if delta.is_removed() {
+            removed.push(delta.id.0.as_str());
+        } else if delta.is_replaced() {
+            replaced.push(delta.id.0.as_str());
+        }
+    }
+    tracing::info!(
+        added = added.len(),
+        removed = removed.len(),
+        replaced = replaced.len(),
+        added_ids = ?added,
+        removed_ids = ?removed,
+        replaced_ids = ?replaced,
+        "hot-reloaded plugins"
+    );
 }
