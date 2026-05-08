@@ -51,10 +51,10 @@ where
             self.state.runtime.cols,
             self.state.runtime.rows
         );
-        let ime_overlay_face = if self.state.is_prompt_mode() {
-            self.state.observed.status_default_style.to_face()
+        let ime_overlay_style = if self.state.is_prompt_mode() {
+            self.state.observed.status_default_style.clone()
         } else {
-            self.state.observed.default_style.to_face()
+            self.state.observed.default_style.clone()
         };
 
         let Some(ref mut sr) = self.scene_renderer else {
@@ -147,8 +147,12 @@ where
                 self.state.runtime.cols,
                 self.state.runtime.rows,
             );
-            let ime_overlay_commands =
-                build_ime_overlay_commands(&self.ime, &result, cell_size, ime_overlay_face);
+            let ime_overlay_commands = build_ime_overlay_commands(
+                &self.ime,
+                &result,
+                cell_size,
+                ime_overlay_style.clone(),
+            );
             let mut overlay_commands = overlay_commands;
             overlay_commands.extend(ime_overlay_commands);
             let frame_commands = append_overlay_commands(commands, overlay_commands);
@@ -203,8 +207,12 @@ where
                 self.state.runtime.cols,
                 self.state.runtime.rows,
             );
-            let ime_overlay_commands =
-                build_ime_overlay_commands(&self.ime, &result, cell_size, ime_overlay_face);
+            let ime_overlay_commands = build_ime_overlay_commands(
+                &self.ime,
+                &result,
+                cell_size,
+                ime_overlay_style.clone(),
+            );
             let mut overlay_commands = overlay_commands;
             overlay_commands.extend(ime_overlay_commands);
             let frame_commands = append_overlay_commands(commands, overlay_commands);

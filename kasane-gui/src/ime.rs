@@ -1,5 +1,5 @@
 use kasane_core::input::ResolvedTextInputTarget;
-use kasane_core::protocol::{Attributes, WireFace};
+use kasane_core::protocol::{Brush, DecorationStyle, Style, TextDecoration};
 use kasane_core::render::scene::{PixelPos, PixelRect, line_display_width_str};
 use kasane_core::render::{CellSize, DrawCommand, RenderResult};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -85,7 +85,7 @@ fn push_preedit_text(
     x: f32,
     y: f32,
     text: &str,
-    face: WireFace,
+    style: Style,
     cell_size: CellSize,
 ) {
     if text.is_empty() {
@@ -95,7 +95,7 @@ fn push_preedit_text(
     commands.push(DrawCommand::DrawText {
         pos: PixelPos { x, y },
         text: text.into(),
-        face: face.into(),
+        face: style,
         max_width: line_display_width_str(text).max(1) as f32 * cell_size.width,
     });
 }
@@ -104,16 +104,20 @@ pub(crate) fn build_ime_overlay_commands(
     ime: &GuiImeState,
     render: &RenderResult,
     cell_size: CellSize,
-    face: WireFace,
+    style: Style,
 ) -> Vec<DrawCommand> {
     if ime.preedit.is_empty() {
         return vec![];
     }
 
-    let mut base_face = face;
-    base_face.attributes |= Attributes::UNDERLINE;
-    let mut active_face = base_face;
-    active_face.attributes |= Attributes::REVERSE;
+    let mut base_style = style;
+    base_style.underline = Some(TextDecoration {
+        style: DecorationStyle::Solid,
+        color: Brush::Default,
+        thickness: None,
+    });
+    let mut active_style = base_style.clone();
+    active_style.reverse = true;
 
     let base_x = render.cursor_x as f32 * cell_size.width;
     let base_y = render.cursor_y as f32 * cell_size.height;
@@ -134,7 +138,7 @@ pub(crate) fn build_ime_overlay_commands(
                 prefix_x,
                 base_y,
                 prefix,
-                base_face,
+                base_style.clone(),
                 cell_size,
             );
             push_preedit_text(
@@ -142,7 +146,7 @@ pub(crate) fn build_ime_overlay_commands(
                 active_x,
                 base_y,
                 active,
-                active_face,
+                active_style,
                 cell_size,
             );
             push_preedit_text(
@@ -150,7 +154,7 @@ pub(crate) fn build_ime_overlay_commands(
                 suffix_x,
                 base_y,
                 suffix,
-                base_face,
+                base_style,
                 cell_size,
             );
         }
@@ -159,10 +163,17 @@ pub(crate) fn build_ime_overlay_commands(
             let suffix = &ime.preedit[start..];
             let caret_x = base_x + line_display_width_str(prefix) as f32 * cell_size.width;
             let caret_width = (cell_size.width * 0.08).max(1.0);
-            let mut caret_face = base_face;
-            caret_face.attributes |= Attributes::REVERSE;
+            let mut caret_style = base_style.clone();
+            caret_style.reverse = true;
 
-            push_preedit_text(&mut commands, base_x, base_y, prefix, base_face, cell_size);
+            push_preedit_text(
+                &mut commands,
+                base_x,
+                base_y,
+                prefix,
+                base_style.clone(),
+                cell_size,
+            );
             commands.push(DrawCommand::FillRect {
                 rect: PixelRect {
                     x: caret_x,
@@ -170,10 +181,17 @@ pub(crate) fn build_ime_overlay_commands(
                     w: caret_width,
                     h: cell_size.height,
                 },
-                face: caret_face.into(),
+                face: caret_style,
                 elevated: false,
             });
-            push_preedit_text(&mut commands, caret_x, base_y, suffix, base_face, cell_size);
+            push_preedit_text(
+                &mut commands,
+                caret_x,
+                base_y,
+                suffix,
+                base_style,
+                cell_size,
+            );
         }
         None => {
             push_preedit_text(
@@ -181,7 +199,7 @@ pub(crate) fn build_ime_overlay_commands(
                 base_x,
                 base_y,
                 &ime.preedit,
-                base_face,
+                base_style,
                 cell_size,
             );
         }
@@ -218,7 +236,7 @@ mod tests {
         TextInputTargetAuthority, TextInputTargetKind, resolve_text_input_target,
     };
     use kasane_core::protocol::StatusStyle;
-    use kasane_core::protocol::{Attributes, WireFace};
+    use kasane_core::protocol::Style;
     use kasane_core::session::SessionId;
     use kasane_core::state::AppState;
     use kasane_core::state::derived::EditorMode;
@@ -252,7 +270,7 @@ mod tests {
                 width: 10.0,
                 height: 20.0,
             },
-            WireFace::default(),
+            Style::default(),
         );
 
         assert!(matches!(commands.first(), Some(DrawCommand::BeginOverlay)));
@@ -286,13 +304,13 @@ mod tests {
                 width: 10.0,
                 height: 20.0,
             },
-            WireFace::default(),
+            Style::default(),
         );
 
         let text_segments: Vec<_> = commands
             .iter()
             .filter_map(|command| match command {
-                DrawCommand::DrawText { text, face, .. } => Some((text.as_str(), face.to_face())),
+                DrawCommand::DrawText { text, face, .. } => Some((text.as_str(), face.clone())),
                 _ => None,
             })
             .collect();
@@ -302,19 +320,10 @@ mod tests {
         assert_eq!(text_segments[1].0, "b");
         assert_eq!(text_segments[2].0, "c");
         assert!(
-            text_segments[1].1.attributes.contains(Attributes::REVERSE),
+            text_segments[1].1.reverse,
             "active preedit span should be visually distinguished"
         );
-        assert!(
-            text_segments[0]
-                .1
-                .attributes
-                .contains(Attributes::UNDERLINE)
-                && text_segments[2]
-                    .1
-                    .attributes
-                    .contains(Attributes::UNDERLINE)
-        );
+        assert!(text_segments[0].1.underline.is_some() && text_segments[2].1.underline.is_some());
     }
 
     #[test]
@@ -339,7 +348,7 @@ mod tests {
                 width: 10.0,
                 height: 20.0,
             },
-            WireFace::default(),
+            Style::default(),
         );
 
         assert!(commands.iter().any(|command| {
@@ -375,14 +384,12 @@ mod tests {
                 width: 10.0,
                 height: 20.0,
             },
-            WireFace::default(),
+            Style::default(),
         );
 
         assert!(commands.iter().any(|command| {
             match command {
-                DrawCommand::DrawText { text, face, .. } => {
-                    text == "あ" && face.to_face().attributes.contains(Attributes::REVERSE)
-                }
+                DrawCommand::DrawText { text, face, .. } => text == "あ" && face.reverse,
                 _ => false,
             }
         }));
