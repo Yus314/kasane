@@ -1,6 +1,7 @@
 pub mod clipboard;
 pub mod config;
 pub mod display;
+#[doc(hidden)]
 pub mod display_algebra;
 pub mod element;
 pub mod event_loop;
@@ -15,9 +16,11 @@ pub mod plugin_prelude;
 pub mod protocol;
 pub mod render;
 pub mod salsa_db;
-pub mod salsa_inputs;
+pub(crate) mod salsa_inputs;
+#[doc(hidden)]
 pub mod salsa_queries;
 pub mod salsa_sync;
+#[doc(hidden)]
 pub mod salsa_views;
 pub mod scroll;
 pub mod session;
