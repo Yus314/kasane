@@ -80,17 +80,17 @@
     "kakoune-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1775960649,
-        "narHash": "sha256-m8q1+TooDREbQD848ciHxeHwMajmlmhAhCqGmdbThIU=",
+        "lastModified": 1778143726,
+        "narHash": "sha256-fYWl9sOkMzEyZzCd9QKwlyuI6xmsUfY6vfvO1LcwdnY=",
         "owner": "mawww",
         "repo": "kakoune",
-        "rev": "5a5bd5fe5ca1a24ad4519b94d633c6e893c9c1fc",
+        "rev": "717c665e0a1796ce04c9d4518471991f6f83d375",
         "type": "github"
       },
       "original": {
         "owner": "mawww",
-        "ref": "v2026.04.12",
         "repo": "kakoune",
+        "rev": "717c665e0a1796ce04c9d4518471991f6f83d375",
         "type": "github"
       }
     },

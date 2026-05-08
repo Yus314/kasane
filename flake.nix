@@ -16,7 +16,7 @@
     # tagged stable, so we pin the upstream source ourselves and override
     # kakoune-unwrapped instead of relying on whatever pkgs.kakoune happens to ship.
     kakoune-src = {
-      url = "github:mawww/kakoune/v2026.04.12";
+      url = "github:mawww/kakoune/717c665e0a1796ce04c9d4518471991f6f83d375";
       flake = false;
     };
   };
@@ -30,7 +30,7 @@
         # Override nixpkgs' kakoune-unwrapped with the pinned upstream src so the
         # PATH wrapper guarantees a Kakoune new enough for Kasane's protocol parser.
         kakouneLatest = pkgs.kakoune-unwrapped.overrideAttrs (_old: {
-          version = "2026.04.12";
+          version = "2026.04.12-unstable-2026-05-07";
           src = kakoune-src;
         });
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
