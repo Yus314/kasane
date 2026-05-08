@@ -179,6 +179,24 @@ fn handle_key(
         );
     }
 
+    // r: trigger a plugin reload (whole-set; per-plugin reload is on
+    // the roadmap). Closes the panel because the live plugin
+    // instances will be torn down and re-instantiated, rendering
+    // the in-flight panel state stale.
+    if key.modifiers.is_empty() && key.key == Key::Char('r') {
+        let mut next = state.clone();
+        next.is_open = false;
+        return (
+            next,
+            KeyPreDispatchResult::Consumed {
+                flags: DirtyFlags::ALL,
+                commands: vec![Command::TriggerPluginReload],
+                state_updates: StateUpdates::default(),
+                pending_buffer_edit: None,
+            },
+        );
+    }
+
     // y: copy a structured representation of the selected diagnostic
     // to the system clipboard for inclusion in bug reports.
     if key.modifiers.is_empty() && key.key == Key::Char('y') {
@@ -454,7 +472,7 @@ fn header_atom(history: &DiagnosticHistory, inner_w: u16, face: &WireFace) -> At
 }
 
 fn footer_keys_text(inner_w: u16) -> String {
-    let s = " ↑↓/jk nav │ g/G top/bottom │ enter open log │ y yank │ q close ";
+    let s = " ↑↓/jk nav │ g/G top/bot │ r reload │ enter open log │ y yank │ q close ";
     truncate_to_width(s, inner_w)
 }
 
@@ -1009,6 +1027,38 @@ mod tests {
     fn resolve_active_log_file_returns_configured_when_dir_missing() {
         let p = std::path::PathBuf::from("/definitely/not/a/dir/kasane.log");
         assert_eq!(resolve_active_log_file(&p), p);
+    }
+
+    #[test]
+    fn r_emits_trigger_plugin_reload_and_closes() {
+        let state = open_state();
+        let app_state = kasane_core::state::AppState::default();
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Char('r'), Modifiers::empty()), &view);
+        match result {
+            KeyPreDispatchResult::Consumed { commands, .. } => {
+                assert_eq!(commands.len(), 1);
+                assert_eq!(commands[0].variant_name(), "TriggerPluginReload");
+            }
+            _ => panic!("expected Consumed"),
+        }
+        assert!(!next.is_open, "r should close the panel");
+    }
+
+    #[test]
+    fn open_emits_dismiss_diagnostic_overlay() {
+        let state = DiagnosticsPanelState::default();
+        let app_state = kasane_core::state::AppState::default();
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Char('?'), Modifiers::CTRL), &view);
+        match result {
+            KeyPreDispatchResult::Consumed { commands, .. } => {
+                assert_eq!(commands.len(), 1);
+                assert_eq!(commands[0].variant_name(), "DismissDiagnosticOverlay");
+            }
+            _ => panic!("expected Consumed"),
+        }
+        assert!(next.is_open);
     }
 
     #[test]

@@ -136,6 +136,7 @@ where
     state.runtime.cols = cols;
     state.runtime.rows = rows;
     state.runtime.log_path = log_path;
+    state.runtime.plugins_dir = Some(config.plugins.plugins_dir());
     state.apply_config(&config);
     let mut session_states = SessionStateStore::new();
     session_states.sync_from_active(active_session, &state);

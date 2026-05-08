@@ -153,6 +153,7 @@ where
 
         let mut state = Box::new(AppState::default());
         state.runtime.log_path = log_path;
+        state.runtime.plugins_dir = Some(config.plugins.plugins_dir());
         let mut session_states = SessionStateStore::new();
         if let Some(active) = session_manager.active_session_id() {
             session_states.sync_from_active(active, &state);

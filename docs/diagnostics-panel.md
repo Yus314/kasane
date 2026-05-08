@@ -41,6 +41,7 @@ diagnostics exist than the popup can display.
 | `PageDown` / `<c-d>`   | Move 10 entries down                        |
 | `PageUp` / `<c-u>`     | Move 10 entries up                          |
 | `y`                    | Yank a structured copy of the selected entry to the system clipboard |
+| `r`                    | Trigger a plugin reload (whole-set; closes the panel) |
 | `Enter`                | Open the active log file in Kakoune (closes the panel) |
 | `q` / `Esc` / `<c-?>`  | Close the panel                             |
 
@@ -135,11 +136,26 @@ Capacity is currently a build-time constant
 `kasane-core/src/plugin/diagnostics/history.rs`); making it
 configurable is in the roadmap.
 
+### Reload trigger
+
+`r` touches the plugin reload sentinel file (`<plugins_dir>/.reload`),
+which the long-running watcher thread polls every 500 ms. The watcher
+fires `PluginReload`, the resolve pipeline re-runs, and any new or
+changed plugin sources are loaded. Reload is whole-set: the existing
+infrastructure has no per-plugin reload path. The panel closes on `r`
+because the live plugin instances are about to be torn down and the
+in-flight panel state would be stale.
+
+If the configured plugins directory cannot be created (sandboxed
+environment, read-only home directory), the reload is a no-op and a
+debug-level tracing entry is logged. Per-plugin retry — bound to the
+selected diagnostic's `plugin_id` rather than the whole set — is on
+the roadmap.
+
 ## Out of scope (not yet implemented)
 
 - Filter mode (`/`) to narrow by plugin name / severity / keyword
-- Reload-from-panel: re-trigger the resolve pipeline against the
-  selected entry's plugin
+- Per-plugin reload (currently `r` triggers a whole-set reload)
 - Persistent history across kasane restarts
 - Public plugin API for reading diagnostic history (currently only
   the internal `BuiltinDiagnosticsPanelPlugin` reads it)

@@ -216,6 +216,16 @@ pub(super) fn handle_deferred_commands_inner(
                 ctx.state.runtime.diagnostic_overlay.dismiss_all();
                 Some(false)
             }
+            Command::TriggerPluginReload => {
+                if let Some(dir) = ctx.state.runtime.plugins_dir.as_deref() {
+                    touch_plugin_reload_sentinel(dir);
+                } else {
+                    tracing::debug!(
+                        "TriggerPluginReload: plugins_dir not configured, skipping sentinel touch"
+                    );
+                }
+                Some(false)
+            }
             // Immediate commands should not reach the deferred handler
             _ => unreachable!("immediate commands filtered by partition_commands"),
         };
@@ -284,6 +294,31 @@ fn handle_inter_plugin_command(
 /// Handle `ExposeVariable` by storing the value in the plugin variable store,
 /// recording ownership so the entry can be cleaned up when the plugin
 /// unloads.
+/// Touch the plugin reload sentinel so the long-running watcher thread
+/// (kasane-tui or kasane-gui) detects an mtime change and fires a
+/// `PluginReload` event into its event channel. This is the same
+/// trigger path used by the kdl auto-reload pipeline; we go through
+/// the filesystem rather than the event proxy directly so this
+/// command stays backend-agnostic.
+fn touch_plugin_reload_sentinel(plugins_dir: &std::path::Path) {
+    let sentinel = plugins_dir.join(".reload");
+    if let Err(err) = std::fs::create_dir_all(plugins_dir) {
+        tracing::warn!(?err, dir = %plugins_dir.display(), "could not create plugins dir for reload sentinel");
+        return;
+    }
+    // Open with create+truncate to update mtime even when the file
+    // already exists. We don't write any content; the watcher only
+    // looks at metadata().modified().
+    if let Err(err) = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&sentinel)
+    {
+        tracing::warn!(?err, path = %sentinel.display(), "could not touch reload sentinel");
+    }
+}
+
 fn handle_expose_variable(
     cmd: Command,
     ctx: &mut DeferredContext<'_>,

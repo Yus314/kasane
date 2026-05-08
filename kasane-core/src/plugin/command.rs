@@ -120,6 +120,13 @@ pub enum Command {
     /// the modal, and so error popups (whose auto-dismiss is now
     /// `None`) have an explicit close path.
     DismissDiagnosticOverlay,
+    /// Touch the plugin reload sentinel file, prompting the existing
+    /// sentinel-watcher thread to fire a `PluginReload` event. Used
+    /// by the diagnostics panel `r` binding to retry a failed plugin
+    /// without leaving the editor. Reload is whole-set (the existing
+    /// resolve pipeline has no per-plugin reload path); per-plugin
+    /// retry is on the roadmap.
+    TriggerPluginReload,
     Quit,
     RequestRedraw(DirtyFlags),
     /// Schedule a timer that fires after `delay`, delivering `payload` to `target` plugin.
@@ -309,6 +316,7 @@ impl Command {
         "SpawnProcess",
         "StartProcessTask",
         "ToggleAdditiveProjection",
+        "TriggerPluginReload",
         "UnbindSurfaceSession",
         "UnregisterSurface",
         "UnregisterSurfaceKey",
@@ -353,6 +361,7 @@ impl Command {
             Command::PasteClipboard => false,
             Command::SetClipboard(_) => false,
             Command::DismissDiagnosticOverlay => false,
+            Command::TriggerPluginReload => false,
             Command::Quit => false,
             Command::RequestRedraw(_) => false,
             Command::ScheduleTimer { .. } => false,
@@ -403,6 +412,7 @@ impl Command {
             Command::PasteClipboard => false,
             Command::SetClipboard(_) => false,
             Command::DismissDiagnosticOverlay => true,
+            Command::TriggerPluginReload => true,
             Command::Quit => false,
             Command::ScheduleTimer { .. } => false,
             Command::PluginMessage { .. } => false,
@@ -444,6 +454,7 @@ impl Command {
             Command::PasteClipboard => false,
             Command::SetClipboard(_) => false,
             Command::DismissDiagnosticOverlay => true,
+            Command::TriggerPluginReload => true,
             Command::Quit => false,
             Command::RequestRedraw(_) => false,
             Command::EditBuffer { .. } => false,
@@ -515,6 +526,7 @@ impl Command {
             Command::PasteClipboard => EffectCategory::CLIPBOARD,
             Command::SetClipboard(_) => EffectCategory::CLIPBOARD,
             Command::DismissDiagnosticOverlay => EffectCategory::REDRAW,
+            Command::TriggerPluginReload => EffectCategory::CONFIG_MUTATION,
             Command::RegisterThemeTokens(_) => EffectCategory::THEME,
             Command::HttpRequest { .. } => EffectCategory::HTTP_MANAGEMENT,
             Command::CancelHttpRequest { .. } => EffectCategory::HTTP_MANAGEMENT,
@@ -533,6 +545,7 @@ impl Command {
             Command::PasteClipboard => "PasteClipboard",
             Command::SetClipboard(_) => "SetClipboard",
             Command::DismissDiagnosticOverlay => "DismissDiagnosticOverlay",
+            Command::TriggerPluginReload => "TriggerPluginReload",
             Command::Quit => "Quit",
             Command::RequestRedraw(_) => "RequestRedraw",
             Command::ScheduleTimer { .. } => "ScheduleTimer",
@@ -625,6 +638,7 @@ pub fn execute_commands(
             Command::RequestRedraw(_) => {} // handled earlier by extract_redraw_flags
             // Deferred commands should be extracted before reaching execute_commands
             Command::DismissDiagnosticOverlay
+            | Command::TriggerPluginReload
             | Command::ScheduleTimer { .. }
             | Command::PluginMessage { .. }
             | Command::SetConfig { .. }

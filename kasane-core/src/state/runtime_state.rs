@@ -55,6 +55,12 @@ pub struct RuntimeState {
     /// `None` when stderr logging is in use or no writable log directory
     /// could be resolved.
     pub log_path: Option<PathBuf>,
+    /// Resolved plugins directory. Used by `Command::TriggerPluginReload`
+    /// to touch the `.reload` sentinel file the long-running watcher
+    /// thread polls. Set at startup from `Config::plugins.plugins_dir()`;
+    /// `None` for tests / minimal harnesses that don't need plugin
+    /// reloading.
+    pub plugins_dir: Option<PathBuf>,
     /// Inference strategy for cursor/selection/mode detection.
     ///
     /// Set once at startup. Default: [`DefaultInferenceStrategy`](super::derived::DefaultInferenceStrategy).
@@ -99,6 +105,7 @@ impl Default for RuntimeState {
             diagnostic_overlay: Default::default(),
             diagnostic_history: Default::default(),
             log_path: None,
+            plugins_dir: None,
             inference_strategy: Arc::new(super::derived::DefaultInferenceStrategy),
         }
     }
