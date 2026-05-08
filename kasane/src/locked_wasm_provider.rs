@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
 use kasane_core::plugin::{
     PluginBackend, PluginCollect, PluginDescriptor, PluginDiagnostic, PluginFactory, PluginId,
     PluginProvider, PluginRank, PluginRevision, PluginSource, ProviderArtifactStage,
-    plugin_factory,
+    ProviderConfigUpdate, plugin_factory,
 };
 use kasane_plugin_package::package;
 use kasane_wasm::{
@@ -22,8 +22,8 @@ const LOCKED_WASM_PROVIDER_NAME: &str = "kasane::LockedWasmPluginProvider";
 pub struct LockedWasmPluginProvider {
     lock_path: PathBuf,
     store: PluginStore,
-    plugins_config: kasane_core::config::PluginsConfig,
-    config_settings: HashMap<String, HashMap<String, kasane_core::plugin::SettingValue>>,
+    plugins_config: RwLock<kasane_core::config::PluginsConfig>,
+    config_settings: RwLock<HashMap<String, HashMap<String, kasane_core::plugin::SettingValue>>>,
 }
 
 impl LockedWasmPluginProvider {
@@ -36,8 +36,8 @@ impl LockedWasmPluginProvider {
         Self {
             lock_path: lock_path.into(),
             store,
-            plugins_config,
-            config_settings,
+            plugins_config: RwLock::new(plugins_config),
+            config_settings: RwLock::new(config_settings),
         }
     }
 
@@ -90,7 +90,19 @@ impl PluginProvider for LockedWasmPluginProvider {
                 return Ok(resolved);
             }
         };
-        let wasi_config = WasiCapabilityConfig::from_plugins_config(&self.plugins_config);
+        // Snapshot dynamic config under a short-lived read lock so we don't
+        // hold the lock across the (potentially slow) plugin collection loop.
+        let plugins_config = self
+            .plugins_config
+            .read()
+            .map_err(|_| anyhow::anyhow!("plugins_config rwlock poisoned"))?
+            .clone();
+        let config_settings = self
+            .config_settings
+            .read()
+            .map_err(|_| anyhow::anyhow!("config_settings rwlock poisoned"))?
+            .clone();
+        let wasi_config = WasiCapabilityConfig::from_plugins_config(&plugins_config);
 
         let mut lock_updates: Vec<(String, LockedPluginEntry)> = Vec::new();
 
@@ -99,7 +111,7 @@ impl PluginProvider for LockedWasmPluginProvider {
                 key,
                 entry,
                 &self.store,
-                &self.config_settings,
+                &config_settings,
                 &wasi_config,
                 &mut resolved,
                 &mut lock_updates,
@@ -118,6 +130,20 @@ impl PluginProvider for LockedWasmPluginProvider {
         }
 
         Ok(resolved)
+    }
+
+    fn update_config(&self, update: ProviderConfigUpdate<'_>) -> Result<()> {
+        *self
+            .plugins_config
+            .write()
+            .map_err(|_| anyhow::anyhow!("plugins_config rwlock poisoned"))? =
+            update.plugins.clone();
+        *self
+            .config_settings
+            .write()
+            .map_err(|_| anyhow::anyhow!("config_settings rwlock poisoned"))? =
+            update.settings.clone();
+        Ok(())
     }
 }
 
@@ -766,5 +792,114 @@ flags = ["contributor"]
             .get(&artifact.plugin_id)
             .expect("entry should still exist");
         assert_eq!(updated_entry.artifact_digest, artifact.artifact_digest);
+    }
+
+    #[test]
+    fn update_config_refreshes_settings_for_next_collect() {
+        use kasane_core::plugin::SettingValue;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let plugins_dir = tmp.path().join("plugins");
+        let store = PluginStore::from_plugins_dir(&plugins_dir);
+
+        let source = build_fixture_package(tmp.path(), "sel_badge", "example/sel-badge");
+        let artifact = store.put_verified_package(&source).unwrap();
+
+        let mut lock = PluginsLock::new();
+        lock.plugins.insert(
+            artifact.plugin_id.clone(),
+            LockedPluginEntry {
+                plugin_id: artifact.plugin_id.clone(),
+                package: Some(artifact.package_name.clone()),
+                version: Some(artifact.package_version.clone()),
+                artifact_digest: artifact.artifact_digest.clone(),
+                code_digest: Some(artifact.code_digest.clone()),
+                source_kind: "filesystem".to_string(),
+                abi_version: Some(artifact.abi_version.clone()),
+            },
+        );
+        let lock_path = tmp.path().join("plugins.lock");
+        lock.save_to_path(&lock_path).unwrap();
+
+        let plugins_config = kasane_core::config::PluginsConfig {
+            path: Some(plugins_dir.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let provider =
+            LockedWasmPluginProvider::new(lock_path, plugins_config.clone(), HashMap::new());
+
+        // First collect: no settings overrides.
+        let collected = provider.collect().unwrap();
+        assert_eq!(collected.factories.len(), 1);
+
+        // Push new settings via update_config.
+        let mut new_settings: HashMap<String, HashMap<String, SettingValue>> = HashMap::new();
+        new_settings.insert(
+            "sel_badge".to_string(),
+            HashMap::from([("intensity".to_string(), SettingValue::Integer(99))]),
+        );
+        let update = ProviderConfigUpdate {
+            plugins: &plugins_config,
+            settings: &new_settings,
+        };
+        provider.update_config(update).unwrap();
+
+        // Subsequent collect should observe the new settings (the manifest may
+        // not declare `intensity`, in which case it's filtered out by
+        // validate_config_settings — we only assert that update_config did not
+        // panic and the collect path still works after a config swap).
+        let collected2 = provider.collect().unwrap();
+        assert_eq!(collected2.factories.len(), 1);
+    }
+
+    #[test]
+    fn update_config_replaces_plugins_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let plugins_dir = tmp.path().join("plugins");
+        let store = PluginStore::from_plugins_dir(&plugins_dir);
+
+        let source = build_fixture_package(tmp.path(), "sel_badge", "example/sel-badge");
+        let artifact = store.put_verified_package(&source).unwrap();
+
+        let mut lock = PluginsLock::new();
+        lock.plugins.insert(
+            artifact.plugin_id.clone(),
+            LockedPluginEntry {
+                plugin_id: artifact.plugin_id.clone(),
+                package: Some(artifact.package_name.clone()),
+                version: Some(artifact.package_version.clone()),
+                artifact_digest: artifact.artifact_digest.clone(),
+                code_digest: Some(artifact.code_digest.clone()),
+                source_kind: "filesystem".to_string(),
+                abi_version: Some(artifact.abi_version.clone()),
+            },
+        );
+        let lock_path = tmp.path().join("plugins.lock");
+        lock.save_to_path(&lock_path).unwrap();
+
+        let initial_config = kasane_core::config::PluginsConfig {
+            path: Some(plugins_dir.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let provider =
+            LockedWasmPluginProvider::new(lock_path, initial_config.clone(), HashMap::new());
+
+        // Replace with a new PluginsConfig that adds a deny_capabilities entry.
+        let mut updated_config = initial_config.clone();
+        updated_config
+            .deny_capabilities
+            .insert("sel_badge".to_string(), vec!["filesystem".to_string()]);
+        let empty_settings: HashMap<String, HashMap<String, kasane_core::plugin::SettingValue>> =
+            HashMap::new();
+        let update = ProviderConfigUpdate {
+            plugins: &updated_config,
+            settings: &empty_settings,
+        };
+        provider.update_config(update).unwrap();
+
+        // Collect should succeed and the wasi_config derived from updated
+        // plugins_config takes effect on the next call (no panic, no error).
+        let collected = provider.collect().unwrap();
+        assert_eq!(collected.factories.len(), 1);
     }
 }

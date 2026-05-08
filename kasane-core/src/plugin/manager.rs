@@ -6,6 +6,7 @@ use anyhow::Result;
 
 use super::AppView;
 use super::diagnostics::{PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticTarget};
+use super::provider::ProviderConfigUpdate;
 use super::setting::SettingValue;
 use super::{Effects, PluginDescriptor, PluginFactory, PluginId, PluginProvider, PluginRuntime};
 
@@ -192,6 +193,38 @@ impl PluginManager {
     /// syntax provider) before the render frame.
     pub fn add_pre_render_hook(&mut self, hook: Box<dyn crate::event_loop::PreRenderHook>) {
         self.pre_render_hooks.push(hook);
+    }
+
+    /// Propagate dynamic configuration changes to all registered providers.
+    ///
+    /// Should be called when the user-facing configuration changes (e.g.,
+    /// after a `kasane.kdl` hot-reload) and before [`Self::reload`] so that
+    /// the next collect cycle reflects the new configuration. Providers that
+    /// don't depend on dynamic config (e.g. [`super::StaticPluginProvider`])
+    /// are no-ops.
+    ///
+    /// Returns diagnostics for providers whose `update_config` failed; the
+    /// other providers are still updated. The caller decides how to surface
+    /// these diagnostics (overlay, log, etc.).
+    pub fn update_provider_config(
+        &self,
+        plugins: &crate::config::PluginsConfig,
+        settings: &std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, SettingValue>,
+        >,
+    ) -> Vec<PluginDiagnostic> {
+        let update = ProviderConfigUpdate { plugins, settings };
+        let mut diagnostics = Vec::new();
+        for provider in &self.providers {
+            if let Err(err) = provider.update_config(update) {
+                diagnostics.push(PluginDiagnostic::provider_collect_failed(
+                    provider.name(),
+                    format!("update_config: {err}"),
+                ));
+            }
+        }
+        diagnostics
     }
 
     /// Run all pre-render hooks on the given state.
@@ -743,5 +776,79 @@ mod tests {
                 .map(|descriptor| descriptor.revision.0.as_str()),
             Some("r1")
         );
+    }
+
+    #[derive(Default)]
+    struct ConfigCapturingProvider {
+        captured: Arc<Mutex<Option<crate::config::PluginsConfig>>>,
+        captured_settings: Arc<Mutex<HashMap<String, HashMap<String, SettingValue>>>>,
+        fail: bool,
+    }
+
+    impl PluginProvider for ConfigCapturingProvider {
+        fn name(&self) -> &'static str {
+            "config-capturing"
+        }
+
+        fn collect(&self) -> Result<PluginCollect> {
+            Ok(PluginCollect::default())
+        }
+
+        fn update_config(&self, update: ProviderConfigUpdate<'_>) -> Result<()> {
+            if self.fail {
+                return Err(anyhow!("update_config refused"));
+            }
+            *self.captured.lock().unwrap() = Some(update.plugins.clone());
+            *self.captured_settings.lock().unwrap() = update.settings.clone();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn update_provider_config_propagates_to_all_providers() {
+        let captured = Arc::new(Mutex::new(None));
+        let captured_settings = Arc::new(Mutex::new(HashMap::new()));
+        let provider = ConfigCapturingProvider {
+            captured: captured.clone(),
+            captured_settings: captured_settings.clone(),
+            fail: false,
+        };
+        let manager = PluginManager::new(vec![Box::new(provider)]);
+
+        let mut plugins = crate::config::PluginsConfig::default();
+        plugins.enabled.push("cursor_line".to_string());
+        let mut settings: HashMap<String, HashMap<String, SettingValue>> = HashMap::new();
+        settings.insert(
+            "cursor_line".to_string(),
+            HashMap::from([("intensity".to_string(), SettingValue::Integer(7))]),
+        );
+
+        let diags = manager.update_provider_config(&plugins, &settings);
+        assert!(diags.is_empty());
+
+        let snapshot = captured.lock().unwrap();
+        assert_eq!(snapshot.as_ref().unwrap().enabled, vec!["cursor_line"]);
+        let settings_snapshot = captured_settings.lock().unwrap();
+        assert_eq!(
+            settings_snapshot
+                .get("cursor_line")
+                .and_then(|m| m.get("intensity")),
+            Some(&SettingValue::Integer(7))
+        );
+    }
+
+    #[test]
+    fn update_provider_config_collects_diagnostics_from_failing_provider() {
+        let provider = ConfigCapturingProvider {
+            fail: true,
+            ..Default::default()
+        };
+        let manager = PluginManager::new(vec![Box::new(provider)]);
+
+        let plugins = crate::config::PluginsConfig::default();
+        let settings: HashMap<String, HashMap<String, SettingValue>> = HashMap::new();
+        let diags = manager.update_provider_config(&plugins, &settings);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("update_config"));
     }
 }

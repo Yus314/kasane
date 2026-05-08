@@ -73,12 +73,35 @@ impl PluginCollect {
     }
 }
 
+/// A snapshot of configuration values relevant to plugin providers.
+///
+/// Passed to [`PluginProvider::update_config`] when the user-facing
+/// configuration changes (e.g., via `kasane.kdl` hot-reload). Providers
+/// that depend on dynamic configuration (like `LockedWasmPluginProvider`)
+/// should refresh their internal state from this snapshot.
+#[derive(Copy, Clone)]
+pub struct ProviderConfigUpdate<'a> {
+    pub plugins: &'a crate::config::PluginsConfig,
+    pub settings: &'a HashMap<String, HashMap<String, SettingValue>>,
+}
+
 pub trait PluginProvider: Send + Sync {
     fn name(&self) -> &'static str {
         std::any::type_name::<Self>()
     }
 
     fn collect(&self) -> Result<PluginCollect>;
+
+    /// Refresh the provider's view of dynamic configuration.
+    ///
+    /// Default implementation is a no-op. Providers backed by static data
+    /// (built-in factories, host-registered plugins) do not need to override.
+    /// Providers that read from the configuration at collection time should
+    /// override and update their internal cache so that the next call to
+    /// [`PluginProvider::collect`] reflects the new configuration.
+    fn update_config(&self, _update: ProviderConfigUpdate<'_>) -> Result<()> {
+        Ok(())
+    }
 }
 
 struct ClosurePluginFactory<F> {
@@ -214,5 +237,12 @@ impl PluginProvider for CompositePluginProvider {
             }
         }
         Ok(collect)
+    }
+
+    fn update_config(&self, update: ProviderConfigUpdate<'_>) -> Result<()> {
+        for provider in &self.providers {
+            provider.update_config(update)?;
+        }
+        Ok(())
     }
 }

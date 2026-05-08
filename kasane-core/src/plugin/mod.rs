@@ -58,8 +58,8 @@ pub use kasane_plugin_model::{PluginId, SettingValue};
 pub use manager::{AppliedWinnerDelta, PluginApplyResult, PluginManager, ResolvedPluginSnapshot};
 pub use provider::{
     CompositePluginProvider, PluginCollect, PluginDescriptor, PluginFactory, PluginProvider,
-    PluginRank, PluginRevision, PluginSource, StaticPluginProvider, builtin_plugin, host_plugin,
-    host_plugin_with_provider, plugin_factory,
+    PluginRank, PluginRevision, PluginSource, ProviderConfigUpdate, StaticPluginProvider,
+    builtin_plugin, host_plugin, host_plugin_with_provider, plugin_factory,
 };
 
 // Re-export io module types
