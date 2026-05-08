@@ -15,7 +15,7 @@ Or, if `$XDG_CONFIG_HOME` is set:
 $XDG_CONFIG_HOME/kasane/kasane.kdl
 ```
 
-Partial configs are fine — any omitted field uses its default value. If no config file exists, all defaults apply. Most settings take effect within 2 seconds when the file is saved. The following require a restart: `ui.backend`, `ui.border_style`, `ui.image_protocol`, `scroll.lines_per_scroll`, `window`, `font`, `log`, `plugins`.
+Partial configs are fine — any omitted field uses its default value. If no config file exists, all defaults apply. Most settings take effect within 2 seconds when the file is saved. The following require a restart: `ui.backend`, `ui.border_style`, `ui.image_protocol`, `scroll.lines_per_scroll`, `window`, `font`, `log`, `plugins`, `settings`.
 
 Configuration and widget definitions live in the same file. Top-level nodes whose names match a known config section (`ui`, `scroll`, `log`, `theme`, `menu`, `search`, `clipboard`, `mouse`, `window`, `font`, `colors`, `plugins`, `settings`) are parsed as configuration. Everything else is treated as a [widget definition](widgets.md).
 

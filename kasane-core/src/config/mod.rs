@@ -223,6 +223,9 @@ impl Config {
         if self.plugins != new.plugins {
             fields.push("plugins");
         }
+        if self.settings != new.settings {
+            fields.push("settings");
+        }
         fields
     }
 
@@ -893,6 +896,57 @@ settings {
         let diff = old.restart_required_diff(&new);
         assert!(diff.contains(&"ui.backend"));
         assert!(diff.contains(&"log"));
+    }
+
+    #[test]
+    fn test_restart_required_diff_detects_settings_change() {
+        let old = Config::default();
+        let mut new = Config::default();
+        new.settings.insert(
+            "cursor_line".to_string(),
+            HashMap::from([("intensity".to_string(), SettingValue::Integer(42))]),
+        );
+        let diff = old.restart_required_diff(&new);
+        assert!(diff.contains(&"settings"));
+    }
+
+    #[test]
+    fn test_restart_required_diff_detects_settings_value_change() {
+        let mut old = Config::default();
+        let mut new = Config::default();
+        old.settings.insert(
+            "cursor_line".to_string(),
+            HashMap::from([("intensity".to_string(), SettingValue::Integer(42))]),
+        );
+        new.settings.insert(
+            "cursor_line".to_string(),
+            HashMap::from([("intensity".to_string(), SettingValue::Integer(99))]),
+        );
+        let diff = old.restart_required_diff(&new);
+        assert!(diff.contains(&"settings"));
+    }
+
+    #[test]
+    fn test_restart_required_diff_detects_deny_capabilities_change() {
+        let old = Config::default();
+        let mut new = Config::default();
+        new.plugins
+            .deny_capabilities
+            .insert("untrusted".to_string(), vec!["filesystem".to_string()]);
+        let diff = old.restart_required_diff(&new);
+        assert!(diff.contains(&"plugins"));
+    }
+
+    #[test]
+    fn test_restart_required_diff_empty_for_identical_settings() {
+        let mut old = Config::default();
+        let mut new = Config::default();
+        let value = HashMap::from([("intensity".to_string(), SettingValue::Integer(42))]);
+        old.settings
+            .insert("cursor_line".to_string(), value.clone());
+        new.settings.insert("cursor_line".to_string(), value);
+        let diff = old.restart_required_diff(&new);
+        assert!(!diff.contains(&"settings"));
     }
 
     #[test]
