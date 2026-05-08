@@ -9,10 +9,12 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::element::Element;
-use crate::protocol::{Atom, WireFace};
+use crate::protocol::Atom;
 use crate::state::shadow_cursor::EditableSpan;
 
-use super::primitives::{AnchorPosition, Content, Display, EditSpec, Rect, Side, Span, Style};
+use super::primitives::{
+    AnchorPosition, Content, DecorateStyle, Display, EditSpec, Rect, Side, Span,
+};
 
 /// Hide a range of buffer lines entirely (legacy `Hide`).
 ///
@@ -111,25 +113,25 @@ pub fn inline_box(
     }
 }
 
-/// Apply face styling to a byte range (legacy `StyleInline`).
+/// Apply style to a byte range (legacy `StyleInline`).
 pub fn style_inline(
     line: usize,
     byte_range: Range<usize>,
-    face: WireFace,
+    style: crate::protocol::Style,
     priority: i16,
 ) -> Display {
     Display::Decorate {
         range: Span::new(line, byte_range),
-        style: Style { face, priority },
+        style: DecorateStyle { style, priority },
     }
 }
 
-/// Apply a background face to an entire buffer line (legacy `StyleLine`).
-pub fn style_line(line: usize, face: WireFace, z_order: i16) -> Display {
+/// Apply a background style to an entire buffer line (legacy `StyleLine`).
+pub fn style_line(line: usize, style: crate::protocol::Style, z_order: i16) -> Display {
     Display::Decorate {
         range: Span::new(line, 0..usize::MAX),
-        style: Style {
-            face,
+        style: DecorateStyle {
+            style,
             priority: z_order,
         },
     }

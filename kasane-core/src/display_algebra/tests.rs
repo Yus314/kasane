@@ -8,7 +8,7 @@
 use compact_str::CompactString;
 
 use crate::plugin::PluginId;
-use crate::protocol::{Atom, WireFace};
+use crate::protocol::{Atom, Style};
 
 use super::derived::*;
 use super::normalize::{TaggedDisplay, disjoint, normalize, pass_c_filter_evt};
@@ -26,8 +26,8 @@ fn atom(s: &str) -> Atom {
     Atom::with_style(CompactString::from(s), crate::protocol::Style::default())
 }
 
-fn face() -> WireFace {
-    WireFace::default()
+fn face() -> Style {
+    Style::default()
 }
 
 // =============================================================================

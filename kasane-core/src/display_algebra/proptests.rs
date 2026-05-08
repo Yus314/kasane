@@ -48,7 +48,7 @@ fn arb_style() -> impl Strategy<Value = Display> {
             style_inline(
                 line as usize,
                 s as usize..e as usize,
-                crate::protocol::WireFace::default(),
+                crate::protocol::Style::default(),
                 prio,
             )
         })

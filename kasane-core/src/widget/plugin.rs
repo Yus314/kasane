@@ -134,9 +134,7 @@ impl Plugin for WidgetPlugin {
                             let cursor_line = app.cursor_line();
                             if cursor_line >= 0 && line == cursor_line as usize {
                                 return Some(BackgroundLayer {
-                                    style: crate::protocol::Style::from_face(&resolve_face(
-                                        &bg.face, app,
-                                    )),
+                                    style: resolve_face(&bg.face, app),
                                     z_order: priority,
                                     blend: BlendMode::Opaque,
                                 });
@@ -148,9 +146,7 @@ impl Plugin for WidgetPlugin {
                                 let hi = sel.anchor.line.max(sel.cursor.line) as usize;
                                 if line >= lo && line <= hi {
                                     return Some(BackgroundLayer {
-                                        style: crate::protocol::Style::from_face(&resolve_face(
-                                            &bg.face, app,
-                                        )),
+                                        style: resolve_face(&bg.face, app),
                                         z_order: priority,
                                         blend: BlendMode::Opaque,
                                     });
@@ -179,18 +175,20 @@ impl Plugin for WidgetPlugin {
                     }
                     match &transform.patch {
                         WidgetPatch::ModifyFace(rules) => ElementPatch::ModifyStyle {
-                            overlay: std::sync::Arc::new(
-                                crate::protocol::UnresolvedStyle::from_face(&resolve_face_rules(
-                                    rules, &resolver, app,
-                                )),
-                            ),
+                            overlay: std::sync::Arc::new(crate::protocol::UnresolvedStyle {
+                                style: resolve_face_rules(rules, &resolver, app),
+                                final_fg: false,
+                                final_bg: false,
+                                final_style: false,
+                            }),
                         },
                         WidgetPatch::WrapContainer(rules) => ElementPatch::WrapContainer {
-                            style: std::sync::Arc::new(
-                                crate::protocol::UnresolvedStyle::from_face(&resolve_face_rules(
-                                    rules, &resolver, app,
-                                )),
-                            ),
+                            style: std::sync::Arc::new(crate::protocol::UnresolvedStyle {
+                                style: resolve_face_rules(rules, &resolver, app),
+                                final_fg: false,
+                                final_bg: false,
+                                final_style: false,
+                            }),
                         },
                     }
                 });
@@ -219,12 +217,9 @@ impl Plugin for WidgetPlugin {
                             continue;
                         }
                         let text = branch.template.expand(&line_resolver);
-                        let face = resolve_face_rules(&branch.face_rules, &line_resolver, app);
+                        let style = resolve_face_rules(&branch.face_rules, &line_resolver, app);
                         let element = crate::element::Element::styled_line(vec![
-                            crate::protocol::Atom::with_style(
-                                text,
-                                crate::protocol::Style::from_face(&face),
-                            ),
+                            crate::protocol::Atom::with_style(text, style),
                         ]);
                         return Some(element);
                     }
@@ -268,12 +263,9 @@ impl Plugin for WidgetPlugin {
                     if text.is_empty() {
                         return Vec::new();
                     }
-                    let face = resolve_face_rules(&vt.face_rules, &resolver, app);
+                    let style = resolve_face_rules(&vt.face_rules, &resolver, app);
                     vec![VirtualTextItem {
-                        atoms: vec![crate::protocol::Atom::with_style(
-                            text,
-                            crate::protocol::Style::from_face(&face),
-                        )],
+                        atoms: vec![crate::protocol::Atom::with_style(text, style)],
                         priority,
                     }]
                 });
@@ -295,7 +287,7 @@ fn build_inline_decoration(
         return None;
     }
 
-    let face = resolve_face(face_or_token, app);
+    let style = resolve_face(face_or_token, app);
 
     // Concatenate atom contents to get line text.
     let line_atoms = &lines[line];
@@ -320,7 +312,7 @@ fn build_inline_decoration(
                 let byte_end = byte_start + pat.len();
                 ops.push(crate::render::InlineOp::Style {
                     range: byte_start..byte_end,
-                    face,
+                    style: style.clone(),
                 });
                 search_start = byte_end;
             }
@@ -329,7 +321,7 @@ fn build_inline_decoration(
             for m in re.find_iter(&full_text) {
                 ops.push(crate::render::InlineOp::Style {
                     range: m.start()..m.end(),
-                    face,
+                    style: style.clone(),
                 });
             }
         }

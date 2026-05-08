@@ -865,13 +865,13 @@ mod tests {
         use crate::render::inline_decoration::InlineOp;
         let lines = vec![make_line("hello")];
         let params = make_params(&lines, &[]);
-        let deco_face = WireFace {
-            fg: crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
-            ..WireFace::default()
+        let deco_style = crate::protocol::Style {
+            fg: crate::protocol::Brush::rgb(0, 255, 0),
+            ..crate::protocol::Style::default()
         };
         let deco = InlineDecoration::new(vec![InlineOp::Style {
             range: 0..5,
-            face: deco_face,
+            style: deco_style,
         }]);
         let decos: Vec<Option<InlineDecoration>> = vec![Some(deco)];
         match analyze_buffer_line(&params, 0, None, None, Some(&decos), None, false) {
@@ -1082,13 +1082,13 @@ mod tests {
         state.runtime.cols = 20;
         state.runtime.rows = 1;
 
-        let deco_face = WireFace {
-            fg: crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
-            ..WireFace::default()
+        let deco_style = crate::protocol::Style {
+            fg: crate::protocol::Brush::rgb(0, 255, 0),
+            ..crate::protocol::Style::default()
         };
         let deco = InlineDecoration::new(vec![InlineOp::Style {
             range: 0..5,
-            face: deco_face,
+            style: deco_style,
         }]);
         let decos: Vec<Option<InlineDecoration>> = vec![Some(deco)];
 
@@ -1122,7 +1122,10 @@ mod tests {
 
         // Decorated content present
         assert_eq!(grid.get(0, 0).unwrap().grapheme, "h");
-        assert_eq!(grid.get(0, 0).unwrap().style.fg, deco_face.fg);
+        assert_eq!(
+            grid.get(0, 0).unwrap().style.fg,
+            crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 }
+        );
         // Virtual text after content
         assert_eq!(grid.get(5, 0).unwrap().grapheme, " ");
         assert_eq!(grid.get(6, 0).unwrap().grapheme, "v");

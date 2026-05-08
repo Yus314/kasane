@@ -29,7 +29,7 @@ use crate::display::{
 };
 use crate::element::Element;
 use crate::plugin::PluginId;
-use crate::protocol::{Atom, WireFace};
+use crate::protocol::{Atom, Style};
 
 use super::{directive_to_display, display_to_directive, resolve_via_algebra};
 
@@ -113,7 +113,7 @@ fn arb_fold() -> impl Strategy<Value = DisplayDirective> {
 fn arb_style_line() -> impl Strategy<Value = DisplayDirective> {
     (0usize..LINE_COUNT, -8i16..8).prop_map(|(line, z)| DisplayDirective::StyleLine {
         line,
-        face: WireFace::default(),
+        style: Style::default(),
         z_order: z,
     })
 }
@@ -124,7 +124,7 @@ fn arb_style_inline() -> impl Strategy<Value = DisplayDirective> {
         .prop_map(|(line, s, e)| DisplayDirective::StyleInline {
             line,
             byte_range: s..e,
-            face: WireFace::default(),
+            style: Style::default(),
         })
 }
 

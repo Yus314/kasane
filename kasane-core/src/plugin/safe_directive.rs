@@ -11,7 +11,7 @@ use crate::display::{
     DisplayDirective, GutterSide, InlineBoxAlignment, InlineInteraction, VirtualTextPosition,
 };
 use crate::element::Element;
-use crate::protocol::{Atom, WireFace};
+use crate::protocol::{Atom, Style};
 use crate::state::shadow_cursor::EditableSpan;
 
 /// A display directive guaranteed not to be destructive.
@@ -80,20 +80,20 @@ impl SafeDisplayDirective {
         })
     }
 
-    /// Apply face styling to a byte range within a buffer line.
-    pub fn style_inline(line: usize, byte_range: Range<usize>, face: WireFace) -> Self {
+    /// Apply style to a byte range within a buffer line.
+    pub fn style_inline(line: usize, byte_range: Range<usize>, style: Style) -> Self {
         Self(DisplayDirective::StyleInline {
             line,
             byte_range,
-            face,
+            style,
         })
     }
 
-    /// Apply a background face to an entire buffer line.
-    pub fn style_line(line: usize, face: WireFace, z_order: i16) -> Self {
+    /// Apply a background style to an entire buffer line.
+    pub fn style_line(line: usize, style: Style, z_order: i16) -> Self {
         Self(DisplayDirective::StyleLine {
             line,
-            face,
+            style,
             z_order,
         })
     }

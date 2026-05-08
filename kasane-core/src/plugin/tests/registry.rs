@@ -873,10 +873,10 @@ impl Plugin for DecomposedAnnotatorPlugin {
         r.on_decorate_background(|_state, line, _app, _ctx| {
             if line == 0 {
                 Some(BackgroundLayer {
-                    style: crate::protocol::Style::from_face(&WireFace {
-                        bg: crate::protocol::Color::Named(crate::protocol::NamedColor::Blue),
-                        ..WireFace::default()
-                    }),
+                    style: crate::protocol::Style {
+                        bg: crate::protocol::Brush::Named(crate::protocol::NamedColor::Blue),
+                        ..crate::protocol::Style::default()
+                    },
                     z_order: 0,
                     blend: BlendMode::Opaque,
                 })
@@ -1497,9 +1497,9 @@ impl Plugin for UnifiedDisplayPlugin {
                 // Decoration: background
                 DisplayDirective::StyleLine {
                     line: 0,
-                    face: WireFace {
-                        bg: crate::protocol::Color::Named(crate::protocol::NamedColor::Red),
-                        ..WireFace::default()
+                    style: crate::protocol::Style {
+                        bg: crate::protocol::Brush::Named(crate::protocol::NamedColor::Red),
+                        ..crate::protocol::Style::default()
                     },
                     z_order: 0,
                 },
@@ -1527,9 +1527,9 @@ impl Plugin for UnifiedDisplayPlugin {
                 DisplayDirective::StyleInline {
                     line: 1,
                     byte_range: 0..3,
-                    face: WireFace {
-                        fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Green),
-                        ..WireFace::default()
+                    style: crate::protocol::Style {
+                        fg: crate::protocol::Brush::Named(crate::protocol::NamedColor::Green),
+                        ..crate::protocol::Style::default()
                     },
                 },
             ]

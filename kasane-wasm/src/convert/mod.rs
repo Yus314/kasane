@@ -357,7 +357,7 @@ use kasane_core::render::{CursorStyle, CursorStyleHint};
 fn wit_cell_decoration_to_decoration(w: &wit::CellDecoration) -> CellDecoration {
     CellDecoration {
         target: wit_decoration_target_to_target(&w.target),
-        style: kasane_core::protocol::Style::from_face(&wit_style_to_face(&w.style)),
+        style: wit_style_to_style(&w.style),
         merge: wit_face_merge_to_merge(w.merge),
         priority: w.priority,
     }

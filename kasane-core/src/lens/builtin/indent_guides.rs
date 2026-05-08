@@ -9,7 +9,7 @@
 //! use kasane_core::lens::builtin::IndentGuidesLens;
 //! use kasane_core::protocol::WireFace;
 //!
-//! let lens = IndentGuidesLens::new(4, WireFace::default());
+//! let lens = IndentGuidesLens::new(4, Style::default());
 //! let id = lens.id();
 //! state.lens_registry.register(Arc::new(lens));
 //! state.lens_registry.enable(&id);
@@ -56,14 +56,14 @@
 use crate::display::DisplayDirective;
 use crate::lens::{CacheStrategy, Lens, LensId};
 use crate::plugin::{AppView, PluginId};
-use crate::protocol::WireFace;
+use crate::protocol::Style;
 
 /// Highlights indent columns on each line. `indent_width` is the
 /// number of space characters per indent level (typical: 2 or 4).
 #[derive(Debug, Clone)]
 pub struct IndentGuidesLens {
     indent_width: u32,
-    style: WireFace,
+    style: Style,
     name: String,
 }
 
@@ -73,7 +73,7 @@ impl IndentGuidesLens {
     /// setting — the lens emits no markers at all in that case
     /// (the "every 0 bytes" loop terminates immediately); the
     /// constructor accepts it without checking.
-    pub fn new(indent_width: u32, style: WireFace) -> Self {
+    pub fn new(indent_width: u32, style: Style) -> Self {
         Self {
             indent_width,
             style,
@@ -122,7 +122,7 @@ impl Lens for IndentGuidesLens {
                 out.push(DisplayDirective::StyleInline {
                     line: line_idx,
                     byte_range: col..col + 1,
-                    face: self.style,
+                    style: self.style.clone(),
                 });
             }
         }
@@ -142,7 +142,7 @@ impl Lens for IndentGuidesLens {
             .map(|col| DisplayDirective::StyleInline {
                 line,
                 byte_range: col..col + 1,
-                face: self.style,
+                style: self.style.clone(),
             })
             .collect()
     }
@@ -201,7 +201,7 @@ mod tests {
     fn run(indent_width: u32, lines: Vec<Line>) -> Vec<DisplayDirective> {
         let mut state = AppState::default();
         state.observed.lines = StdArc::new(lines);
-        let lens = IndentGuidesLens::new(indent_width, WireFace::default());
+        let lens = IndentGuidesLens::new(indent_width, Style::default());
         let view = AppView::new(&state);
         lens.display(&view)
     }
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn id_uses_builtin_plugin_namespace_with_indent_width_in_name() {
-        let lens = IndentGuidesLens::new(4, WireFace::default());
+        let lens = IndentGuidesLens::new(4, Style::default());
         let id = lens.id();
         assert_eq!(id.plugin.0, "kasane.builtin");
         assert_eq!(id.name, "indent-guides-4");
@@ -379,32 +379,32 @@ mod tests {
 
     #[test]
     fn with_name_overrides_lens_name() {
-        let lens = IndentGuidesLens::new(2, WireFace::default()).with_name("yaml-guides");
+        let lens = IndentGuidesLens::new(2, Style::default()).with_name("yaml-guides");
         assert_eq!(lens.id().name, "yaml-guides");
     }
 
     #[test]
     fn label_includes_indent_width() {
-        let lens = IndentGuidesLens::new(4, WireFace::default());
+        let lens = IndentGuidesLens::new(4, Style::default());
         assert_eq!(lens.label(), "Indent guides (4 sp)");
     }
 
     #[test]
     fn indent_width_accessor_returns_construction_value() {
-        let lens = IndentGuidesLens::new(8, WireFace::default());
+        let lens = IndentGuidesLens::new(8, Style::default());
         assert_eq!(lens.indent_width(), 8);
     }
 
     #[test]
     fn priority_defaults_to_zero() {
-        let lens = IndentGuidesLens::new(4, WireFace::default());
+        let lens = IndentGuidesLens::new(4, Style::default());
         assert_eq!(lens.priority(), 0);
     }
 
     #[test]
     fn two_indent_lenses_with_different_widths_coexist() {
-        let two = IndentGuidesLens::new(2, WireFace::default());
-        let four = IndentGuidesLens::new(4, WireFace::default());
+        let two = IndentGuidesLens::new(2, Style::default());
+        let four = IndentGuidesLens::new(4, Style::default());
         assert_ne!(two.id(), four.id());
     }
 }

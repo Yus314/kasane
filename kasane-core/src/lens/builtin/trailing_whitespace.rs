@@ -8,7 +8,7 @@
 //! use kasane_core::lens::builtin::TrailingWhitespaceLens;
 //! use kasane_core::protocol::WireFace;
 //!
-//! let lens = TrailingWhitespaceLens::new(WireFace::default());
+//! let lens = TrailingWhitespaceLens::new(Style::default());
 //! let id = lens.id();
 //! state.lens_registry.register(Arc::new(lens));
 //! state.lens_registry.enable(&id);
@@ -37,12 +37,12 @@
 use crate::display::DisplayDirective;
 use crate::lens::{CacheStrategy, Lens, LensId};
 use crate::plugin::{AppView, PluginId};
-use crate::protocol::WireFace;
+use crate::protocol::Style;
 
 /// Highlights trailing whitespace runs on each line.
 #[derive(Debug, Clone)]
 pub struct TrailingWhitespaceLens {
-    style: WireFace,
+    style: Style,
     name: String,
 }
 
@@ -51,7 +51,7 @@ impl TrailingWhitespaceLens {
     /// and the supplied highlight style. A typical choice is a
     /// faint red background so the marker is noticeable but not
     /// distracting.
-    pub fn new(style: WireFace) -> Self {
+    pub fn new(style: Style) -> Self {
         Self {
             style,
             name: "trailing-whitespace".into(),
@@ -94,7 +94,7 @@ impl Lens for TrailingWhitespaceLens {
             out.push(DisplayDirective::StyleInline {
                 line: line_idx,
                 byte_range,
-                face: self.style,
+                style: self.style.clone(),
             });
         }
         out
@@ -114,7 +114,7 @@ impl Lens for TrailingWhitespaceLens {
         vec![DisplayDirective::StyleInline {
             line,
             byte_range,
-            face: self.style,
+            style: self.style.clone(),
         }]
     }
 }
@@ -160,7 +160,7 @@ mod tests {
     fn run(lines: Vec<Line>) -> Vec<DisplayDirective> {
         let mut state = AppState::default();
         state.observed.lines = StdArc::new(lines);
-        let lens = TrailingWhitespaceLens::new(WireFace::default());
+        let lens = TrailingWhitespaceLens::new(Style::default());
         let view = AppView::new(&state);
         lens.display(&view)
     }
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn id_uses_builtin_plugin_namespace() {
-        let lens = TrailingWhitespaceLens::new(WireFace::default());
+        let lens = TrailingWhitespaceLens::new(Style::default());
         let id = lens.id();
         assert_eq!(id.plugin.0, "kasane.builtin");
         assert_eq!(id.name, "trailing-whitespace");
@@ -306,19 +306,19 @@ mod tests {
 
     #[test]
     fn with_name_overrides_lens_name() {
-        let lens = TrailingWhitespaceLens::new(WireFace::default()).with_name("ws-rust");
+        let lens = TrailingWhitespaceLens::new(Style::default()).with_name("ws-rust");
         assert_eq!(lens.id().name, "ws-rust");
     }
 
     #[test]
     fn label_is_human_readable() {
-        let lens = TrailingWhitespaceLens::new(WireFace::default());
+        let lens = TrailingWhitespaceLens::new(Style::default());
         assert_eq!(lens.label(), "Trailing whitespace");
     }
 
     #[test]
     fn priority_defaults_to_zero() {
-        let lens = TrailingWhitespaceLens::new(WireFace::default());
+        let lens = TrailingWhitespaceLens::new(Style::default());
         assert_eq!(lens.priority(), 0);
     }
 }

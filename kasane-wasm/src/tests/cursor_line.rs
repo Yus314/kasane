@@ -28,16 +28,9 @@ fn highlight_active_line() {
     let directives = plugin.unified_display(&AppView::new(&state));
     assert_eq!(directives.len(), 1);
     match &directives[0] {
-        DisplayDirective::StyleLine { line, face, .. } => {
+        DisplayDirective::StyleLine { line, style, .. } => {
             assert_eq!(*line, 3);
-            assert_eq!(
-                face.bg,
-                Color::Rgb {
-                    r: 40,
-                    g: 40,
-                    b: 50
-                }
-            );
+            assert_eq!(style.bg, kasane_core::protocol::Brush::rgb(40, 40, 50));
         }
         other => panic!("expected StyleLine, got {:?}", other),
     }

@@ -16,7 +16,7 @@ use std::ops::Range;
 use crate::protocol::Atom;
 
 use super::normalize::{NormalizedDisplay, TaggedDisplay};
-use super::primitives::{AnchorPosition, Content, Display, Side, Span, Style};
+use super::primitives::{AnchorPosition, Content, DecorateStyle, Display, Side, Span};
 
 /// Per-buffer-line render plan.
 ///
@@ -65,7 +65,7 @@ pub struct Replacement {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Decoration {
     pub byte_range: Range<usize>,
-    pub style: Style,
+    pub style: DecorateStyle,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -221,7 +221,7 @@ mod tests {
     use compact_str::CompactString;
 
     use crate::plugin::PluginId;
-    use crate::protocol::{Atom, WireFace};
+    use crate::protocol::{Atom, Style};
 
     use super::super::derived::{fold, hide_inline, style_inline};
     use super::super::normalize::{TaggedDisplay, normalize};
@@ -272,7 +272,7 @@ mod tests {
     fn decorate_and_replace_on_same_line_share_one_render() {
         let n = normalize(vec![
             t(hide_inline(0, 0..2), 0, "p", 0),
-            t(style_inline(0, 5..10, WireFace::default(), 0), 0, "q", 0),
+            t(style_inline(0, 5..10, Style::default(), 0), 0, "q", 0),
         ]);
         let renders = apply(&n, &[20]);
         assert_eq!(renders.len(), 1);

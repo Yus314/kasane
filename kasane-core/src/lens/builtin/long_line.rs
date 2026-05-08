@@ -9,7 +9,7 @@
 //! use kasane_core::lens::builtin::LongLineLens;
 //! use kasane_core::protocol::WireFace;
 //!
-//! let lens = LongLineLens::new(80, WireFace::default());
+//! let lens = LongLineLens::new(80, Style::default());
 //! let id = lens.id();
 //! state.lens_registry.register(Arc::new(lens));
 //! state.lens_registry.enable(&id);
@@ -43,7 +43,7 @@
 use crate::display::DisplayDirective;
 use crate::lens::{CacheStrategy, Lens, LensId};
 use crate::plugin::{AppView, PluginId};
-use crate::protocol::WireFace;
+use crate::protocol::Style;
 
 /// Highlights characters past `column` on each line. `column` is
 /// 1-indexed in the user-facing sense ("column 80") but the
@@ -52,7 +52,7 @@ use crate::protocol::WireFace;
 #[derive(Debug, Clone)]
 pub struct LongLineLens {
     threshold_chars: u32,
-    style: WireFace,
+    style: Style,
     name: String,
 }
 
@@ -65,7 +65,7 @@ impl LongLineLens {
     /// non-empty line in its entirety; the constructor accepts
     /// it without checking — the embedder is responsible for
     /// validation.
-    pub fn new(column: u32, style: WireFace) -> Self {
+    pub fn new(column: u32, style: Style) -> Self {
         Self {
             threshold_chars: column,
             style,
@@ -113,7 +113,7 @@ impl Lens for LongLineLens {
             out.push(DisplayDirective::StyleInline {
                 line: line_idx,
                 byte_range,
-                face: self.style,
+                style: self.style.clone(),
             });
         }
         out
@@ -130,7 +130,7 @@ impl Lens for LongLineLens {
         vec![DisplayDirective::StyleInline {
             line,
             byte_range,
-            face: self.style,
+            style: self.style.clone(),
         }]
     }
 }
@@ -168,7 +168,7 @@ mod tests {
     fn run(threshold: u32, lines: Vec<Line>) -> Vec<DisplayDirective> {
         let mut state = AppState::default();
         state.observed.lines = StdArc::new(lines);
-        let lens = LongLineLens::new(threshold, WireFace::default());
+        let lens = LongLineLens::new(threshold, Style::default());
         let view = AppView::new(&state);
         lens.display(&view)
     }
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn id_uses_builtin_plugin_namespace_with_threshold_in_name() {
-        let lens = LongLineLens::new(80, WireFace::default());
+        let lens = LongLineLens::new(80, Style::default());
         let id = lens.id();
         assert_eq!(id.plugin.0, "kasane.builtin");
         assert_eq!(id.name, "long-line-80");
@@ -302,25 +302,25 @@ mod tests {
 
     #[test]
     fn with_name_overrides_lens_name() {
-        let lens = LongLineLens::new(120, WireFace::default()).with_name("style-guide-error");
+        let lens = LongLineLens::new(120, Style::default()).with_name("style-guide-error");
         assert_eq!(lens.id().name, "style-guide-error");
     }
 
     #[test]
     fn label_includes_threshold() {
-        let lens = LongLineLens::new(100, WireFace::default());
+        let lens = LongLineLens::new(100, Style::default());
         assert_eq!(lens.label(), "Long line (> 100)");
     }
 
     #[test]
     fn threshold_accessor_returns_construction_value() {
-        let lens = LongLineLens::new(120, WireFace::default());
+        let lens = LongLineLens::new(120, Style::default());
         assert_eq!(lens.threshold(), 120);
     }
 
     #[test]
     fn priority_defaults_to_zero() {
-        let lens = LongLineLens::new(80, WireFace::default());
+        let lens = LongLineLens::new(80, Style::default());
         assert_eq!(lens.priority(), 0);
     }
 
@@ -328,8 +328,8 @@ mod tests {
     fn two_long_line_lenses_with_different_thresholds_coexist() {
         // Distinct thresholds → distinct default names → both
         // can register without conflict.
-        let warn = LongLineLens::new(80, WireFace::default());
-        let err = LongLineLens::new(120, WireFace::default());
+        let warn = LongLineLens::new(80, Style::default());
+        let err = LongLineLens::new(120, Style::default());
         assert_ne!(warn.id(), err.id());
     }
 }

@@ -76,12 +76,12 @@ impl<'a> PluginView<'a> {
                 match &td.directive {
                     crate::display::DisplayDirective::StyleLine {
                         line,
-                        face,
+                        style,
                         z_order,
                     } if *line < line_count => {
                         uni_bg.entry(*line).or_default().push((
                             BackgroundLayer {
-                                style: crate::protocol::Style::from_face(face),
+                                style: style.clone(),
                                 z_order: *z_order,
                                 blend: crate::plugin::context::BlendMode::Opaque,
                             },
@@ -187,14 +187,14 @@ impl<'a> PluginView<'a> {
                     crate::display::DisplayDirective::StyleInline {
                         line,
                         byte_range,
-                        face,
+                        style,
                     } if *line < line_count => {
                         uni_inline
                             .entry(*line)
                             .or_default()
                             .push(crate::render::InlineOp::Style {
                                 range: byte_range.clone(),
-                                face: *face,
+                                style: style.clone(),
                             });
                         has_inline = true;
                     }

@@ -1478,20 +1478,20 @@ fn resolve_face_token_from_theme() {
 
     let fot = super::types::FaceOrToken::Token(token);
     let resolved = super::backend::resolve_face(&fot, &view);
-    assert_eq!(resolved, expected_face);
+    assert_eq!(resolved, crate::protocol::Style::from(expected_face));
 }
 
 #[test]
 fn resolve_face_token_missing_returns_default() {
     use crate::element::StyleToken;
-    use crate::protocol::WireFace;
+    use crate::protocol::Style;
 
     let state = AppState::default();
     let view = AppView::new(&state);
 
     let fot = super::types::FaceOrToken::Token(StyleToken::new("nonexistent.token"));
     let resolved = super::backend::resolve_face(&fot, &view);
-    assert_eq!(resolved, WireFace::default());
+    assert_eq!(resolved, Style::default());
 }
 
 #[test]
@@ -1507,7 +1507,7 @@ fn resolve_face_direct_passthrough() {
     };
     let fot = super::types::FaceOrToken::Direct(expected);
     let resolved = super::backend::resolve_face(&fot, &view);
-    assert_eq!(resolved, expected);
+    assert_eq!(resolved, crate::protocol::Style::from(expected));
 }
 
 // =============================================================================

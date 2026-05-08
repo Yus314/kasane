@@ -127,7 +127,7 @@ pub fn display_directives_at_time(
                 style_inline(
                     sel.min().line as usize,
                     (sel.min().column as usize)..(sel.max().column as usize),
-                    crate::protocol::WireFace::default(),
+                    crate::protocol::Style::default(),
                     0, // decorate priority
                 ),
                 0,                                    // tag priority

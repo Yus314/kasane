@@ -2,7 +2,7 @@
 
 use crate::element::{Element, ElementStyle};
 use crate::plugin::{AppView, PluginDiagnostic, PluginId};
-use crate::protocol::{Atom, Style, WireFace};
+use crate::protocol::{Atom, Style};
 
 use super::parse::WidgetNodeError;
 use super::types::{ContributionWidget, FaceOrToken, FaceRule};
@@ -18,23 +18,20 @@ pub(super) fn to_style(face_or_token: &FaceOrToken) -> ElementStyle {
     }
 }
 
-/// Resolve a `FaceOrToken` to a concrete `WireFace` using the current theme.
-pub(super) fn resolve_face(face_or_token: &FaceOrToken, state: &AppView<'_>) -> WireFace {
+/// Resolve a `FaceOrToken` to a concrete `Style` using the current theme.
+pub(super) fn resolve_face(face_or_token: &FaceOrToken, state: &AppView<'_>) -> Style {
     match face_or_token {
-        FaceOrToken::Direct(face) => *face,
-        FaceOrToken::Token(token) => state
-            .theme_style(token)
-            .map(|s| s.to_face())
-            .unwrap_or_default(),
+        FaceOrToken::Direct(face) => Style::from(*face),
+        FaceOrToken::Token(token) => state.theme_style(token).cloned().unwrap_or_default(),
     }
 }
 
-/// Evaluate face rules and return the face for the first matching rule.
+/// Evaluate face rules and return the style for the first matching rule.
 pub(super) fn resolve_face_rules(
     rules: &[FaceRule],
     resolver: &dyn VariableResolver,
     state: &AppView<'_>,
-) -> WireFace {
+) -> Style {
     for rule in rules {
         if rule
             .when
@@ -44,7 +41,7 @@ pub(super) fn resolve_face_rules(
             return resolve_face(&rule.face, state);
         }
     }
-    WireFace::default()
+    Style::default()
 }
 
 /// Try to resolve face rules to a `Style` without eagerly resolving tokens.
@@ -77,8 +74,8 @@ pub(super) fn build_contribution_element(
         }
 
         let text = part.template.expand(resolver);
-        let face = resolve_face_rules(&part.face_rules, resolver, state);
-        atoms.push(Atom::with_style(text, Style::from_face(&face)));
+        let style = resolve_face_rules(&part.face_rules, resolver, state);
+        atoms.push(Atom::with_style(text, style));
     }
 
     if atoms.is_empty() {
@@ -413,9 +410,7 @@ mod legacy {
                             let cursor_line = state.cursor_line();
                             if cursor_line >= 0 && line == cursor_line as usize {
                                 return Some(BackgroundLayer {
-                                    style: crate::protocol::Style::from_face(&resolve_face(
-                                        &bg.face, state,
-                                    )),
+                                    style: resolve_face(&bg.face, state),
                                     z_order: widget.priority(),
                                     blend: BlendMode::Opaque,
                                 });
@@ -427,9 +422,7 @@ mod legacy {
                                 let hi = sel.anchor.line.max(sel.cursor.line) as usize;
                                 if line >= lo && line <= hi {
                                     return Some(BackgroundLayer {
-                                        style: crate::protocol::Style::from_face(&resolve_face(
-                                            &bg.face, state,
-                                        )),
+                                        style: resolve_face(&bg.face, state),
                                         z_order: widget.priority(),
                                         blend: BlendMode::Opaque,
                                     });
@@ -474,20 +467,22 @@ mod legacy {
                     match &transform.patch {
                         WidgetPatch::ModifyFace(rules) => {
                             return Some(ElementPatch::ModifyStyle {
-                                overlay: std::sync::Arc::new(
-                                    crate::protocol::UnresolvedStyle::from_face(
-                                        &resolve_face_rules(rules, &resolver, state),
-                                    ),
-                                ),
+                                overlay: std::sync::Arc::new(crate::protocol::UnresolvedStyle {
+                                    style: resolve_face_rules(rules, &resolver, state),
+                                    final_fg: false,
+                                    final_bg: false,
+                                    final_style: false,
+                                }),
                             });
                         }
                         WidgetPatch::WrapContainer(rules) => {
                             return Some(ElementPatch::WrapContainer {
-                                style: std::sync::Arc::new(
-                                    crate::protocol::UnresolvedStyle::from_face(
-                                        &resolve_face_rules(rules, &resolver, state),
-                                    ),
-                                ),
+                                style: std::sync::Arc::new(crate::protocol::UnresolvedStyle {
+                                    style: resolve_face_rules(rules, &resolver, state),
+                                    final_fg: false,
+                                    final_bg: false,
+                                    final_style: false,
+                                }),
                             });
                         }
                     }
@@ -536,11 +531,10 @@ mod legacy {
                         }
 
                         let text = branch.template.expand(&line_resolver);
-                        let face = resolve_face_rules(&branch.face_rules, &line_resolver, state);
+                        let style = resolve_face_rules(&branch.face_rules, &line_resolver, state);
                         let element =
                             Element::styled_line(vec![crate::protocol::Atom::with_style(
-                                text,
-                                crate::protocol::Style::from_face(&face),
+                                text, style,
                             )]);
                         return Some((widget.priority(), element));
                     }

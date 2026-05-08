@@ -66,7 +66,7 @@ use crate::display::{
 
 use super::derived;
 use super::normalize::{TaggedDisplay, normalize as algebra_normalize};
-use super::primitives::{AnchorPosition, Content, Display, EditSpec, Side, Span, Style};
+use super::primitives::{AnchorPosition, Content, DecorateStyle, Display, EditSpec, Side, Span};
 
 // =============================================================================
 // Forward translation: legacy → algebra
@@ -104,13 +104,13 @@ pub fn directive_to_display(d: &DisplayDirective) -> Display {
         DisplayDirective::StyleInline {
             line,
             byte_range,
-            face,
-        } => derived::style_inline(*line, byte_range.clone(), *face, 0),
+            style,
+        } => derived::style_inline(*line, byte_range.clone(), style.clone(), 0),
         DisplayDirective::StyleLine {
             line,
-            face,
+            style,
             z_order,
-        } => derived::style_line(*line, *face, *z_order),
+        } => derived::style_line(*line, style.clone(), *z_order),
         DisplayDirective::Gutter {
             line,
             side,
@@ -269,19 +269,19 @@ fn replace_to_directive(range: &Span, content: &Content) -> Option<DisplayDirect
     }
 }
 
-fn decorate_to_directive(range: &Span, style: &Style) -> Option<DisplayDirective> {
+fn decorate_to_directive(range: &Span, style: &DecorateStyle) -> Option<DisplayDirective> {
     let is_full_line = range.byte_range.start == 0 && range.byte_range.end == usize::MAX;
     if is_full_line {
         Some(DisplayDirective::StyleLine {
             line: range.line,
-            face: style.face,
+            style: style.style.clone(),
             z_order: style.priority,
         })
     } else {
         Some(DisplayDirective::StyleInline {
             line: range.line,
             byte_range: range.byte_range.clone(),
-            face: style.face,
+            style: style.style.clone(),
         })
     }
 }

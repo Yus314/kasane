@@ -61,11 +61,11 @@ fn make_all_directive_instances() -> Vec<DisplayDirective> {
         DisplayDirective::StyleInline {
             line: 0,
             byte_range: 0..1,
-            face: crate::protocol::WireFace::default(),
+            style: crate::protocol::Style::default(),
         },
         DisplayDirective::StyleLine {
             line: 0,
-            face: crate::protocol::WireFace::default(),
+            style: crate::protocol::Style::default(),
             z_order: 0,
         },
         DisplayDirective::VirtualText {

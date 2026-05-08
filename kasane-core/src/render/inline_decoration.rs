@@ -2,7 +2,7 @@
 
 use crate::display::InlineBoxAlignment;
 use crate::plugin::PluginId;
-use crate::protocol::{Atom, Style, WireFace};
+use crate::protocol::{Atom, Brush, Style};
 
 /// Metadata for an inline-box slot reserved within a line.
 ///
@@ -37,10 +37,10 @@ pub struct InlineBoxSlotMeta {
 pub enum InlineOp {
     /// Insert virtual text atoms at the given byte gap position.
     Insert { at: usize, content: Vec<Atom> },
-    /// Override the face for the given byte range.
+    /// Override the style for the given byte range.
     Style {
         range: std::ops::Range<usize>,
-        face: WireFace,
+        style: crate::protocol::Style,
     },
     /// Hide the given byte range (omit from output).
     Hide { range: std::ops::Range<usize> },
@@ -310,7 +310,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                     contents,
                     pos - atom_start,
                     atom_end - atom_start,
-                    atom.unresolved_style().to_face(),
+                    &atom.style_resolved_default(),
                     &mut result,
                 );
                 break;
@@ -327,7 +327,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                         contents,
                         pos - atom_start,
                         gap_end - atom_start,
-                        atom.unresolved_style().to_face(),
+                        &atom.style_resolved_default(),
                         &mut result,
                     );
                     pos = gap_end;
@@ -339,7 +339,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                         atom_end,
                         contents,
                         atom_start,
-                        atom_face: atom.unresolved_style().to_face(),
+                        atom_style: atom.style_resolved_default(),
                         result: &mut result,
                     };
                     if advance_hide(range, &mut cx) {
@@ -348,7 +348,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                 }
                 InlineOp::Style {
                     range,
-                    face: op_face,
+                    style: op_style,
                 } => {
                     let mut cx = InlineOpContext {
                         op_idx: &mut op_idx,
@@ -356,10 +356,10 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                         atom_end,
                         contents,
                         atom_start,
-                        atom_face: atom.unresolved_style().to_face(),
+                        atom_style: atom.style_resolved_default(),
                         result: &mut result,
                     };
-                    if advance_style(range, op_face, &mut cx) {
+                    if advance_style(range, op_style, &mut cx) {
                         continue;
                     }
                 }
@@ -379,7 +379,7 @@ struct InlineOpContext<'a> {
     atom_end: usize,
     contents: &'a str,
     atom_start: usize,
-    atom_face: WireFace,
+    atom_style: Style,
     result: &'a mut Vec<Atom>,
 }
 
@@ -396,7 +396,7 @@ fn advance_hide(range: &std::ops::Range<usize>, cx: &mut InlineOpContext<'_>) ->
             cx.contents,
             *cx.pos - cx.atom_start,
             gap_end - cx.atom_start,
-            cx.atom_face,
+            &cx.atom_style,
             cx.result,
         );
         *cx.pos = gap_end;
@@ -415,7 +415,7 @@ fn advance_hide(range: &std::ops::Range<usize>, cx: &mut InlineOpContext<'_>) ->
 /// Returns `true` when the caller's `while` loop should `continue`.
 fn advance_style(
     range: &std::ops::Range<usize>,
-    op_face: &WireFace,
+    op_style: &Style,
     cx: &mut InlineOpContext<'_>,
 ) -> bool {
     if range.end <= *cx.pos {
@@ -428,21 +428,28 @@ fn advance_style(
             cx.contents,
             *cx.pos - cx.atom_start,
             gap_end - cx.atom_start,
-            cx.atom_face,
+            &cx.atom_style,
             cx.result,
         );
         *cx.pos = gap_end;
         return true;
     }
-    // Style overlaps — emit with resolved face
+    // Style overlaps — emit with resolved style. Layer op_style over the
+    // atom's style as base via UnresolvedStyle (default `final_*` flags).
     let effective_start = (*cx.pos).max(range.start);
     let effective_end = cx.atom_end.min(range.end);
     let local_start = clamp_to_char_boundary(cx.contents, effective_start - cx.atom_start);
     let local_end = clamp_to_char_boundary(cx.contents, effective_end - cx.atom_start);
     if local_start < local_end {
+        let unresolved = crate::protocol::UnresolvedStyle {
+            style: op_style.clone(),
+            final_fg: false,
+            final_bg: false,
+            final_style: false,
+        };
         cx.result.push(Atom::with_style(
             &cx.contents[local_start..local_end],
-            Style::from_face(&crate::protocol::resolve_face(op_face, &cx.atom_face)),
+            crate::protocol::resolve_style(&unresolved, &cx.atom_style),
         ));
     }
     *cx.pos = effective_end;
@@ -487,7 +494,7 @@ fn emit_sub_atom(
     contents: &str,
     local_start: usize,
     local_end: usize,
-    face: WireFace,
+    style: &Style,
     result: &mut Vec<Atom>,
 ) {
     let start = clamp_to_char_boundary(contents, local_start);
@@ -495,7 +502,7 @@ fn emit_sub_atom(
     if start < end {
         let sub = &contents[start..end];
         if !sub.is_empty() {
-            result.push(Atom::with_style(sub, Style::from_face(&face)));
+            result.push(Atom::with_style(sub, style.clone()));
         }
     }
 }
@@ -524,28 +531,28 @@ fn clamp_to_char_boundary(s: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Color, NamedColor, WireFace};
+    use crate::protocol::NamedColor;
 
-    fn default_face() -> WireFace {
-        WireFace::default()
+    fn default_style() -> Style {
+        Style::default()
     }
 
-    fn red_face() -> WireFace {
-        WireFace {
-            fg: Color::Named(NamedColor::Red),
-            ..WireFace::default()
+    fn red_style() -> Style {
+        Style {
+            fg: Brush::Named(NamedColor::Red),
+            ..Style::default()
         }
     }
 
-    fn blue_face() -> WireFace {
-        WireFace {
-            fg: Color::Named(NamedColor::Blue),
-            ..WireFace::default()
+    fn blue_style() -> Style {
+        Style {
+            fg: Brush::Named(NamedColor::Blue),
+            ..Style::default()
         }
     }
 
-    fn make_atom(text: &str, face: WireFace) -> Atom {
-        Atom::with_style(text, Style::from_face(&face))
+    fn make_atom(text: &str, style: Style) -> Atom {
+        Atom::with_style(text, style)
     }
 
     // ---- Existing tests (Style/Hide) ----
@@ -561,7 +568,7 @@ mod tests {
         // ADR-031 Phase 10 Step 2-renderer B: InlineOp::InlineBox emits
         // width_cells placeholder spaces in the atom output (TUI cell-grid
         // contract). GUI consumers strip these via inline_box_slots().
-        let atoms = vec![make_atom("ab", default_face())];
+        let atoms = vec![make_atom("ab", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::InlineBox {
             at: 1,
             width_cells: 3.0,
@@ -599,7 +606,7 @@ mod tests {
         let deco = InlineDecoration::new(vec![
             InlineOp::Insert {
                 at: 0,
-                content: vec![make_atom(">>", red_face())],
+                content: vec![make_atom(">>", red_style())],
             },
             InlineOp::InlineBox {
                 at: 1,
@@ -625,11 +632,11 @@ mod tests {
         // ADR-031 Phase 10 Step 2-renderer C: when no InlineBox ops are
         // present, the GPU helper produces the same atoms as the regular
         // pipeline (the only difference is empty slot list).
-        let atoms = vec![make_atom("hello world", default_face())];
+        let atoms = vec![make_atom("hello world", default_style())];
         let deco = InlineDecoration::new(vec![
             InlineOp::Style {
                 range: 0..5,
-                face: red_face(),
+                style: red_style(),
             },
             InlineOp::Hide { range: 6..11 },
         ]);
@@ -642,7 +649,7 @@ mod tests {
     #[test]
     fn apply_inline_ops_for_gpu_strips_inlinebox_placeholders() {
         // GPU path skips placeholder space emission for InlineBox.
-        let atoms = vec![make_atom("ab", default_face())];
+        let atoms = vec![make_atom("ab", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::InlineBox {
             at: 1,
             width_cells: 3.0,
@@ -666,7 +673,7 @@ mod tests {
         let deco = InlineDecoration::new(vec![
             InlineOp::Insert {
                 at: 3,
-                content: vec![make_atom("XX", default_face())],
+                content: vec![make_atom("XX", default_style())],
             },
             InlineOp::InlineBox {
                 at: 5,
@@ -742,7 +749,7 @@ mod tests {
         let deco = InlineDecoration::new(vec![
             InlineOp::Insert {
                 at: 0,
-                content: vec![make_atom("AAA", default_face())],
+                content: vec![make_atom("AAA", default_style())],
             },
             InlineOp::InlineBox {
                 at: 2,
@@ -770,7 +777,7 @@ mod tests {
 
     #[test]
     fn inline_box_zero_width_emits_no_placeholder() {
-        let atoms = vec![make_atom("ab", default_face())];
+        let atoms = vec![make_atom("ab", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::InlineBox {
             at: 1,
             width_cells: 0.0,
@@ -789,7 +796,7 @@ mod tests {
 
     #[test]
     fn empty_decoration_returns_clone() {
-        let atoms = vec![make_atom("hello", default_face())];
+        let atoms = vec![make_atom("hello", default_style())];
         let deco = InlineDecoration::default();
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result, atoms);
@@ -798,7 +805,7 @@ mod tests {
     #[test]
     fn single_hide() {
         // "hello world" — hide "world" (bytes 6..11)
-        let atoms = vec![make_atom("hello world", default_face())];
+        let atoms = vec![make_atom("hello world", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Hide { range: 6..11 }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 1);
@@ -808,31 +815,31 @@ mod tests {
     #[test]
     fn single_style() {
         // "hello world" — style "world" (bytes 6..11) red
-        let atoms = vec![make_atom("hello world", default_face())];
+        let atoms = vec![make_atom("hello world", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Style {
             range: 6..11,
-            face: red_face(),
+            style: red_style(),
         }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].contents.as_str(), "hello ");
-        assert_eq!(result[0].unresolved_style().to_face(), default_face());
+        assert_eq!(result[0].style_resolved_default(), default_style());
         assert_eq!(result[1].contents.as_str(), "world");
         assert_eq!(
-            result[1].unresolved_style().to_face().fg,
-            Color::Named(NamedColor::Red)
+            result[1].style_resolved_default().fg,
+            Brush::Named(NamedColor::Red)
         );
     }
 
     #[test]
     fn multiple_ops() {
         // "abcdefgh" — hide "cd" (2..4), style "gh" (6..8) red
-        let atoms = vec![make_atom("abcdefgh", default_face())];
+        let atoms = vec![make_atom("abcdefgh", default_style())];
         let deco = InlineDecoration::new(vec![
             InlineOp::Hide { range: 2..4 },
             InlineOp::Style {
                 range: 6..8,
-                face: red_face(),
+                style: red_style(),
             },
         ]);
         let result = apply_inline_ops(&atoms, &deco);
@@ -842,8 +849,8 @@ mod tests {
         assert_eq!(result[1].contents.as_str(), "ef");
         assert_eq!(result[2].contents.as_str(), "gh");
         assert_eq!(
-            result[2].unresolved_style().to_face().fg,
-            Color::Named(NamedColor::Red)
+            result[2].style_resolved_default().fg,
+            Brush::Named(NamedColor::Red)
         );
     }
 
@@ -852,56 +859,56 @@ mod tests {
         // Two atoms: "hel" + "lo world"
         // Style bytes 0..5 ("hello") red — spans both atoms
         let atoms = vec![
-            make_atom("hel", default_face()),
-            make_atom("lo world", default_face()),
+            make_atom("hel", default_style()),
+            make_atom("lo world", default_style()),
         ];
         let deco = InlineDecoration::new(vec![InlineOp::Style {
             range: 0..5,
-            face: red_face(),
+            style: red_style(),
         }]);
         let result = apply_inline_ops(&atoms, &deco);
         // "hel"(red) + "lo"(red) + " world"
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "hel");
         assert_eq!(
-            result[0].unresolved_style().to_face().fg,
-            Color::Named(NamedColor::Red)
+            result[0].style_resolved_default().fg,
+            Brush::Named(NamedColor::Red)
         );
         assert_eq!(result[1].contents.as_str(), "lo");
         assert_eq!(
-            result[1].unresolved_style().to_face().fg,
-            Color::Named(NamedColor::Red)
+            result[1].style_resolved_default().fg,
+            Brush::Named(NamedColor::Red)
         );
         assert_eq!(result[2].contents.as_str(), " world");
-        assert_eq!(result[2].unresolved_style().to_face(), default_face());
+        assert_eq!(result[2].style_resolved_default(), default_style());
     }
 
     #[test]
     fn op_on_atom_boundary() {
         // Two atoms: "hello" + " world" — style first atom exactly (0..5)
         let atoms = vec![
-            make_atom("hello", default_face()),
-            make_atom(" world", default_face()),
+            make_atom("hello", default_style()),
+            make_atom(" world", default_style()),
         ];
         let deco = InlineDecoration::new(vec![InlineOp::Style {
             range: 0..5,
-            face: red_face(),
+            style: red_style(),
         }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].contents.as_str(), "hello");
         assert_eq!(
-            result[0].unresolved_style().to_face().fg,
-            Color::Named(NamedColor::Red)
+            result[0].style_resolved_default().fg,
+            Brush::Named(NamedColor::Red)
         );
         assert_eq!(result[1].contents.as_str(), " world");
-        assert_eq!(result[1].unresolved_style().to_face(), default_face());
+        assert_eq!(result[1].style_resolved_default(), default_style());
     }
 
     #[test]
     fn utf8_multibyte() {
         // "あいう" — each char is 3 bytes. Hide "い" (bytes 3..6)
-        let atoms = vec![make_atom("あいう", default_face())];
+        let atoms = vec![make_atom("あいう", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Hide { range: 3..6 }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 2);
@@ -911,7 +918,7 @@ mod tests {
 
     #[test]
     fn hide_at_line_start() {
-        let atoms = vec![make_atom("hello", default_face())];
+        let atoms = vec![make_atom("hello", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Hide { range: 0..3 }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 1);
@@ -920,7 +927,7 @@ mod tests {
 
     #[test]
     fn hide_at_line_end() {
-        let atoms = vec![make_atom("hello", default_face())];
+        let atoms = vec![make_atom("hello", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Hide { range: 3..5 }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 1);
@@ -929,7 +936,7 @@ mod tests {
 
     #[test]
     fn hide_entire_line() {
-        let atoms = vec![make_atom("hello", default_face())];
+        let atoms = vec![make_atom("hello", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Hide { range: 0..5 }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert!(result.is_empty());
@@ -940,18 +947,18 @@ mod tests {
         // "a🎉b" — 🎉 is 4 bytes (offset 1..5)
         let text = "a🎉b";
         assert_eq!(text.len(), 6); // a(1) + 🎉(4) + b(1)
-        let atoms = vec![make_atom(text, default_face())];
+        let atoms = vec![make_atom(text, default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Style {
             range: 1..5,
-            face: red_face(),
+            style: red_style(),
         }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "a");
         assert_eq!(result[1].contents.as_str(), "🎉");
         assert_eq!(
-            result[1].unresolved_style().to_face().fg,
-            Color::Named(NamedColor::Red)
+            result[1].style_resolved_default().fg,
+            Brush::Named(NamedColor::Red)
         );
         assert_eq!(result[2].contents.as_str(), "b");
     }
@@ -973,7 +980,7 @@ mod tests {
             InlineOp::Hide { range: 0..3 },
             InlineOp::Style {
                 range: 3..6,
-                face: red_face(),
+                style: red_style(),
             },
         ]);
         assert_eq!(deco.ops().len(), 2);
@@ -983,24 +990,24 @@ mod tests {
 
     #[test]
     fn insert_at_start() {
-        let atoms = vec![make_atom("hello", default_face())];
+        let atoms = vec![make_atom("hello", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Insert {
             at: 0,
-            content: vec![make_atom(">>", red_face())],
+            content: vec![make_atom(">>", red_style())],
         }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].contents.as_str(), ">>");
-        assert_eq!(result[0].unresolved_style().to_face(), red_face());
+        assert_eq!(result[0].style_resolved_default(), red_style());
         assert_eq!(result[1].contents.as_str(), "hello");
     }
 
     #[test]
     fn insert_at_end() {
-        let atoms = vec![make_atom("hello", default_face())];
+        let atoms = vec![make_atom("hello", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Insert {
             at: 5,
-            content: vec![make_atom("<<", red_face())],
+            content: vec![make_atom("<<", red_style())],
         }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 2);
@@ -1010,16 +1017,16 @@ mod tests {
 
     #[test]
     fn insert_in_middle() {
-        let atoms = vec![make_atom("hello", default_face())];
+        let atoms = vec![make_atom("hello", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Insert {
             at: 3,
-            content: vec![make_atom("|", red_face())],
+            content: vec![make_atom("|", red_style())],
         }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "hel");
         assert_eq!(result[1].contents.as_str(), "|");
-        assert_eq!(result[1].unresolved_style().to_face(), red_face());
+        assert_eq!(result[1].style_resolved_default(), red_style());
         assert_eq!(result[2].contents.as_str(), "lo");
     }
 
@@ -1027,12 +1034,12 @@ mod tests {
     fn insert_at_atom_boundary() {
         // Two atoms: "hel" + "lo" — insert at byte 3 (boundary)
         let atoms = vec![
-            make_atom("hel", default_face()),
-            make_atom("lo", default_face()),
+            make_atom("hel", default_style()),
+            make_atom("lo", default_style()),
         ];
         let deco = InlineDecoration::new(vec![InlineOp::Insert {
             at: 3,
-            content: vec![make_atom("|", red_face())],
+            content: vec![make_atom("|", red_style())],
         }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 3);
@@ -1045,19 +1052,19 @@ mod tests {
     fn insert_inside_hide() {
         // S1 semantics: Hide{2..8} + Insert{at:5} on "abcdefghij"
         // → "ab" + [Insert content] + "ij"
-        let atoms = vec![make_atom("abcdefghij", default_face())];
+        let atoms = vec![make_atom("abcdefghij", default_style())];
         let deco = InlineDecoration::new(vec![
             InlineOp::Hide { range: 2..8 },
             InlineOp::Insert {
                 at: 5,
-                content: vec![make_atom("NEW", red_face())],
+                content: vec![make_atom("NEW", red_style())],
             },
         ]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "ab");
         assert_eq!(result[1].contents.as_str(), "NEW");
-        assert_eq!(result[1].unresolved_style().to_face(), red_face());
+        assert_eq!(result[1].style_resolved_default(), red_style());
         assert_eq!(result[2].contents.as_str(), "ij");
     }
 
@@ -1065,11 +1072,11 @@ mod tests {
     fn insert_at_hide_start() {
         // Insert{at:2} + Hide{2..5} on "abcde"
         // → "ab" + [Insert] (rest hidden)
-        let atoms = vec![make_atom("abcde", default_face())];
+        let atoms = vec![make_atom("abcde", default_style())];
         let deco = InlineDecoration::new(vec![
             InlineOp::Insert {
                 at: 2,
-                content: vec![make_atom("X", red_face())],
+                content: vec![make_atom("X", red_style())],
             },
             InlineOp::Hide { range: 2..5 },
         ]);
@@ -1083,41 +1090,41 @@ mod tests {
     fn insert_with_style() {
         // Insert{at:3} + Style{3..6, red} on "abcdef"
         // → "abc" + [Insert] + "def"(red)
-        let atoms = vec![make_atom("abcdef", default_face())];
+        let atoms = vec![make_atom("abcdef", default_style())];
         let deco = InlineDecoration::new(vec![
             InlineOp::Insert {
                 at: 3,
-                content: vec![make_atom("!", blue_face())],
+                content: vec![make_atom("!", blue_style())],
             },
             InlineOp::Style {
                 range: 3..6,
-                face: red_face(),
+                style: red_style(),
             },
         ]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "abc");
         assert_eq!(result[1].contents.as_str(), "!");
-        assert_eq!(result[1].unresolved_style().to_face(), blue_face());
+        assert_eq!(result[1].style_resolved_default(), blue_style());
         assert_eq!(result[2].contents.as_str(), "def");
         assert_eq!(
-            result[2].unresolved_style().to_face().fg,
-            Color::Named(NamedColor::Red)
+            result[2].style_resolved_default().fg,
+            Brush::Named(NamedColor::Red)
         );
     }
 
     #[test]
     fn multiple_inserts_same_position() {
         // Two Insert ops at position 3 — both should appear in order
-        let atoms = vec![make_atom("hello", default_face())];
+        let atoms = vec![make_atom("hello", default_style())];
         let deco = InlineDecoration::new(vec![
             InlineOp::Insert {
                 at: 3,
-                content: vec![make_atom("X", red_face())],
+                content: vec![make_atom("X", red_style())],
             },
             InlineOp::Insert {
                 at: 3,
-                content: vec![make_atom("Y", blue_face())],
+                content: vec![make_atom("Y", blue_style())],
             },
         ]);
         let result = apply_inline_ops(&atoms, &deco);
@@ -1131,10 +1138,10 @@ mod tests {
     #[test]
     fn insert_multibyte() {
         // "あいう" — insert after "あ" (byte 3)
-        let atoms = vec![make_atom("あいう", default_face())];
+        let atoms = vec![make_atom("あいう", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Insert {
             at: 3,
-            content: vec![make_atom("|", red_face())],
+            content: vec![make_atom("|", red_style())],
         }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 3);
@@ -1146,13 +1153,13 @@ mod tests {
     #[test]
     fn insert_content_multiple_atoms() {
         // Insert with multiple atoms in content
-        let atoms = vec![make_atom("hello", default_face())];
+        let atoms = vec![make_atom("hello", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Insert {
             at: 3,
             content: vec![
-                make_atom("[", red_face()),
-                make_atom("new", blue_face()),
-                make_atom("]", red_face()),
+                make_atom("[", red_style()),
+                make_atom("new", blue_style()),
+                make_atom("]", red_style()),
             ],
         }]);
         let result = apply_inline_ops(&atoms, &deco);
@@ -1167,7 +1174,7 @@ mod tests {
     #[test]
     fn insert_empty_content() {
         // Insert with empty content — no change to output
-        let atoms = vec![make_atom("hello", default_face())];
+        let atoms = vec![make_atom("hello", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Insert {
             at: 3,
             content: vec![],
@@ -1182,10 +1189,10 @@ mod tests {
     #[test]
     fn insert_past_end() {
         // Insert at position beyond text — trailing drain catches it
-        let atoms = vec![make_atom("hello", default_face())];
+        let atoms = vec![make_atom("hello", default_style())];
         let deco = InlineDecoration::new(vec![InlineOp::Insert {
             at: 100,
-            content: vec![make_atom("!", red_face())],
+            content: vec![make_atom("!", red_style())],
         }]);
         let result = apply_inline_ops(&atoms, &deco);
         assert_eq!(result.len(), 2);
@@ -1199,11 +1206,11 @@ mod tests {
         let deco = InlineDecoration::new(vec![
             InlineOp::Insert {
                 at: 3,
-                content: vec![make_atom("X", red_face())],
+                content: vec![make_atom("X", red_style())],
             },
             InlineOp::Style {
                 range: 3..5,
-                face: red_face(),
+                style: red_style(),
             },
         ]);
         assert_eq!(deco.ops().len(), 2);
@@ -1217,11 +1224,11 @@ mod tests {
         InlineDecoration::new(vec![
             InlineOp::Style {
                 range: 3..5,
-                face: red_face(),
+                style: red_style(),
             },
             InlineOp::Insert {
                 at: 2,
-                content: vec![make_atom("X", red_face())],
+                content: vec![make_atom("X", red_style())],
             },
         ]);
     }
@@ -1230,11 +1237,11 @@ mod tests {
     fn hide_plus_insert_replace_pattern() {
         // Replace pattern: Hide{3..6} + Insert{at:3, "new"} on "abcdefghi"
         // → "abc" + "new" + "ghi"
-        let atoms = vec![make_atom("abcdefghi", default_face())];
+        let atoms = vec![make_atom("abcdefghi", default_style())];
         let deco = InlineDecoration::new(vec![
             InlineOp::Insert {
                 at: 3,
-                content: vec![make_atom("new", red_face())],
+                content: vec![make_atom("new", red_style())],
             },
             InlineOp::Hide { range: 3..6 },
         ]);
@@ -1242,7 +1249,7 @@ mod tests {
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].contents.as_str(), "abc");
         assert_eq!(result[1].contents.as_str(), "new");
-        assert_eq!(result[1].unresolved_style().to_face(), red_face());
+        assert_eq!(result[1].style_resolved_default(), red_style());
         assert_eq!(result[2].contents.as_str(), "ghi");
     }
 }

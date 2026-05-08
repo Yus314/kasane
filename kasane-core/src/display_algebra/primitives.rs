@@ -198,12 +198,12 @@ pub struct Rect {
 }
 
 /// Style spec for `Decorate`. The `priority` resolves L5 stacking when
-/// multiple decorates overlap. Not `Hash` because `WireFace` is not
-/// `Hash`; conflict resolution uses `TaggedDisplay::cmp_key` over
+/// multiple decorates overlap. Not `Hash` because `Style` carries `f32`
+/// fields; conflict resolution uses `TaggedDisplay::cmp_key` over
 /// `(priority, plugin_id, seq)` rather than the style payload.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Style {
-    pub face: crate::protocol::WireFace,
+pub struct DecorateStyle {
+    pub style: crate::protocol::Style,
     pub priority: i16,
 }
 
@@ -219,7 +219,7 @@ pub enum Display {
     Replace { range: Span, content: Content },
 
     /// Apply `style` over `range`. No positional effect.
-    Decorate { range: Span, style: Style },
+    Decorate { range: Span, style: DecorateStyle },
 
     /// Attach `content` to a non-text anchor; no buffer-cell consumption.
     Anchor {

@@ -3,7 +3,7 @@
 use super::{CacheStrategy, Lens, LensId, LensRegistry};
 use crate::display::DisplayDirective;
 use crate::plugin::{AppView, PluginId};
-use crate::protocol::WireFace;
+use crate::protocol::Style;
 use crate::state::AppState;
 use std::sync::{
     Arc,
@@ -60,7 +60,7 @@ impl Lens for FixedLens {
 fn style_line(line: u32) -> DisplayDirective {
     DisplayDirective::StyleLine {
         line: line as usize,
-        face: WireFace::default(),
+        style: Style::default(),
         z_order: 0,
     }
 }
@@ -619,7 +619,7 @@ impl Lens for PerLineCounter {
         let _ = view;
         vec![DisplayDirective::StyleLine {
             line,
-            face: WireFace::default(),
+            style: Style::default(),
             z_order: 0,
         }]
     }
@@ -692,12 +692,12 @@ fn perline_default_display_line_filters_whole_buffer_by_anchor_line() {
             vec![
                 DisplayDirective::StyleLine {
                     line: 0,
-                    face: WireFace::default(),
+                    style: Style::default(),
                     z_order: 0,
                 },
                 DisplayDirective::StyleLine {
                     line: 2,
-                    face: WireFace::default(),
+                    style: Style::default(),
                     z_order: 0,
                 },
             ]

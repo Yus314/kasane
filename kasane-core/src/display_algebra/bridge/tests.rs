@@ -17,7 +17,7 @@ use crate::display::{
 };
 use crate::element::Element;
 use crate::plugin::PluginId;
-use crate::protocol::{Atom, WireFace};
+use crate::protocol::{Atom, Style};
 
 use super::resolve_via_algebra;
 
@@ -135,7 +135,7 @@ fn single_style_line_round_trips() {
     set.push(
         DisplayDirective::StyleLine {
             line: 3,
-            face: WireFace::default(),
+            style: Style::default(),
             z_order: 0,
         },
         0,
@@ -238,7 +238,7 @@ fn mixed_hide_and_decorate_both_survive() {
     set.push(
         DisplayDirective::StyleLine {
             line: 5,
-            face: WireFace::default(),
+            style: Style::default(),
             z_order: 0,
         },
         0,
@@ -258,7 +258,7 @@ fn many_decorates_on_same_range_all_survive() {
             DisplayDirective::StyleInline {
                 line: 0,
                 byte_range: 0..10,
-                face: WireFace::default(),
+                style: Style::default(),
             },
             i,
             pid(&format!("p{}", i)),

@@ -203,9 +203,12 @@ pub(crate) fn wit_element_patch_ops_to_patch(
     while i < ops.len() {
         let patch = match &ops[i] {
             wit::ElementPatchOp::WrapContainer(style) => ElementPatch::WrapContainer {
-                style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
-                    &super::wit_style_to_face(style),
-                )),
+                style: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle {
+                    style: super::wit_style_to_style(style),
+                    final_fg: false,
+                    final_bg: false,
+                    final_style: false,
+                }),
             },
             wit::ElementPatchOp::Prepend(handle) => ElementPatch::Prepend {
                 element: take_element(*handle),
@@ -217,9 +220,12 @@ pub(crate) fn wit_element_patch_ops_to_patch(
                 element: take_element(*handle),
             },
             wit::ElementPatchOp::ModifyStyle(style) => ElementPatch::ModifyStyle {
-                overlay: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle::from_face(
-                    &super::wit_style_to_face(style),
-                )),
+                overlay: std::sync::Arc::new(kasane_core::protocol::UnresolvedStyle {
+                    style: super::wit_style_to_style(style),
+                    final_fg: false,
+                    final_bg: false,
+                    final_style: false,
+                }),
             },
             wit::ElementPatchOp::When(when) => {
                 let predicate = wit_predicate_ops_to_predicate(&when.predicate);

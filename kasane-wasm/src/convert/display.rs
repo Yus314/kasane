@@ -57,13 +57,13 @@ pub(crate) fn wit_display_directive_to_directive_with_resolver(
         wit::DisplayDirective::StyleInline(d) => DisplayDirective::StyleInline {
             line: d.line as usize,
             byte_range: d.byte_start as usize..d.byte_end as usize,
-            face: super::wit_style_to_face(&d.style),
+            style: super::wit_style_to_style(&d.style),
         },
 
         // === Decoration ===
         wit::DisplayDirective::StyleLine(d) => DisplayDirective::StyleLine {
             line: d.line as usize,
-            face: super::wit_style_to_face(&d.style),
+            style: super::wit_style_to_style(&d.style),
             z_order: d.z_order,
         },
         wit::DisplayDirective::Gutter(d) => DisplayDirective::Gutter {
@@ -222,22 +222,22 @@ pub(crate) fn display_directive_to_wit(directive: &DisplayDirective) -> wit::Dis
         DisplayDirective::StyleInline {
             line,
             byte_range,
-            face,
+            style,
         } => wit::DisplayDirective::StyleInline(wit::StyleInlineDirective {
             line: *line as u32,
             byte_start: byte_range.start as u32,
             byte_end: byte_range.end as u32,
-            style: super::face_to_wit(face),
+            style: super::style_to_wit(style),
         }),
 
         // === Decoration ===
         DisplayDirective::StyleLine {
             line,
-            face,
+            style,
             z_order,
         } => wit::DisplayDirective::StyleLine(wit::StyleLineDirective {
             line: *line as u32,
-            style: super::face_to_wit(face),
+            style: super::style_to_wit(style),
             z_order: *z_order,
         }),
         DisplayDirective::Gutter {

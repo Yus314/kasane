@@ -20,7 +20,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::element::{Element, InteractiveId};
-use crate::protocol::{Atom, WireFace};
+use crate::protocol::{Atom, Style};
 use crate::state::shadow_cursor::EditableSpan;
 
 /// A buffer line index (0-based).
@@ -184,18 +184,18 @@ pub enum DisplayDirective {
         box_id: u64,
         alignment: InlineBoxAlignment,
     },
-    /// Apply face styling to a byte range within a buffer line.
+    /// Apply style to a byte range within a buffer line.
     StyleInline {
         line: usize,
         byte_range: Range<usize>,
-        face: WireFace,
+        style: Style,
     },
 
     // === Decoration ===
-    /// Apply a background face to an entire buffer line.
+    /// Apply a background style to an entire buffer line.
     StyleLine {
         line: usize,
-        face: WireFace,
+        style: Style,
         z_order: i16,
     },
     /// Add content to the gutter of a buffer line.
