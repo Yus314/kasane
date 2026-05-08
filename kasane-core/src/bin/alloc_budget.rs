@@ -56,7 +56,9 @@ fn main() {
     use kasane_core::layout::Rect;
     use kasane_core::layout::flex;
     use kasane_core::plugin::PluginRuntime;
-    use kasane_core::protocol::{Atom, Color, Coord, NamedColor, WireFace, parse_request};
+    use kasane_core::protocol::{
+        Atom, Brush, Color, Coord, NamedColor, Style, WireFace, parse_request,
+    };
     use kasane_core::render::CellGrid;
     use kasane_core::render::paint;
     use kasane_core::render::view;
@@ -66,61 +68,38 @@ fn main() {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = WireFace {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    }
-    .into();
+    state.observed.default_style = Style {
+        fg: Brush::Named(NamedColor::White),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
+    };
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = WireFace {
-        fg: Color::Named(NamedColor::Cyan),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    }
-    .into();
+    state.observed.status_default_style = Style {
+        fg: Brush::Named(NamedColor::Cyan),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
+    };
+    let kw_style = Style {
+        fg: Brush::rgb(255, 100, 0),
+        ..Style::default()
+    };
+    let var_style = Style {
+        fg: Brush::rgb(0, 200, 100),
+        ..Style::default()
+    };
+    let str_style = Style {
+        fg: Brush::rgb(100, 100, 255),
+        ..Style::default()
+    };
     state.observed.lines = std::sync::Arc::new(
         (0..23)
             .map(|i| {
                 vec![
-                    Atom::from_wire(
-                        WireFace {
-                            fg: Color::Rgb {
-                                r: 255,
-                                g: 100,
-                                b: 0,
-                            },
-                            bg: Color::Default,
-                            ..WireFace::default()
-                        },
-                        "let",
-                    ),
+                    Atom::with_style("let", kw_style.clone()),
                     Atom::plain(" "),
-                    Atom::from_wire(
-                        WireFace {
-                            fg: Color::Rgb {
-                                r: 0,
-                                g: 200,
-                                b: 100,
-                            },
-                            bg: Color::Default,
-                            ..WireFace::default()
-                        },
-                        format!("var_{i}"),
-                    ),
+                    Atom::with_style(format!("var_{i}"), var_style.clone()),
                     Atom::plain(" = "),
-                    Atom::from_wire(
-                        WireFace {
-                            fg: Color::Rgb {
-                                r: 100,
-                                g: 100,
-                                b: 255,
-                            },
-                            bg: Color::Default,
-                            ..WireFace::default()
-                        },
-                        format!("\"{i}_value\""),
-                    ),
+                    Atom::with_style(format!("\"{i}_value\""), str_style.clone()),
                     Atom::plain(";"),
                 ]
             })

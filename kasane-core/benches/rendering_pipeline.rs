@@ -259,9 +259,9 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
     // Now simulate editing 1 line with BUFFER|STATUS dirty
     let mut edited = state.clone();
     std::sync::Arc::make_mut(&mut edited.observed.lines)[10] =
-        vec![kasane_core::protocol::Atom::from_wire(
-            kasane_core::protocol::WireFace::default(),
+        vec![kasane_core::protocol::Atom::with_style(
             "EDITED_LINE",
+            kasane_core::protocol::Style::default(),
         )];
     edited.inference.lines_dirty = vec![false; 23];
     edited.inference.lines_dirty[10] = true;
@@ -463,15 +463,15 @@ fn bench_incremental_edit(c: &mut Criterion) {
 fn bench_message_sequence(c: &mut Criterion) {
     let registry = PluginRuntime::new();
     let draw_status = kasane_core::protocol::KakouneRequest::DrawStatus {
-        prompt: vec![kasane_core::protocol::Atom::from_wire(
-            kasane_core::protocol::WireFace::default(),
+        prompt: vec![kasane_core::protocol::Atom::with_style(
             " INSERT ",
+            kasane_core::protocol::Style::default(),
         )],
         content: Vec::new(),
         content_cursor_pos: -1,
-        mode_line: vec![kasane_core::protocol::Atom::from_wire(
-            kasane_core::protocol::WireFace::default(),
+        mode_line: vec![kasane_core::protocol::Atom::with_style(
             "insert",
+            kasane_core::protocol::Style::default(),
         )],
         default_style: kasane_core::protocol::default_unresolved_style(),
         style: kasane_core::protocol::StatusStyle::Status,
@@ -578,15 +578,15 @@ fn bench_state_apply(c: &mut Criterion) {
     // DrawStatus
     {
         let request = kasane_core::protocol::KakouneRequest::DrawStatus {
-            prompt: vec![kasane_core::protocol::Atom::from_wire(
-                kasane_core::protocol::WireFace::default(),
+            prompt: vec![kasane_core::protocol::Atom::with_style(
                 " NORMAL ",
+                kasane_core::protocol::Style::default(),
             )],
             content: Vec::new(),
             content_cursor_pos: -1,
-            mode_line: vec![kasane_core::protocol::Atom::from_wire(
-                kasane_core::protocol::WireFace::default(),
+            mode_line: vec![kasane_core::protocol::Atom::with_style(
                 "normal",
+                kasane_core::protocol::Style::default(),
             )],
             default_style: kasane_core::protocol::default_unresolved_style(),
             style: kasane_core::protocol::StatusStyle::Status,
@@ -605,9 +605,9 @@ fn bench_state_apply(c: &mut Criterion) {
     {
         let items: Vec<kasane_core::protocol::Line> = (0..50)
             .map(|i| {
-                vec![kasane_core::protocol::Atom::from_wire(
-                    kasane_core::protocol::WireFace::default(),
+                vec![kasane_core::protocol::Atom::with_style(
                     format!("completion_{i}"),
+                    kasane_core::protocol::Style::default(),
                 )]
             })
             .collect();
@@ -970,7 +970,7 @@ fn bench_detect_cursors_incremental(c: &mut Criterion) {
             style: kasane_core::protocol::default_unresolved_style(),
             contents: "hel".into(),
         },
-        Atom::from_wire(cursor_face, "l"),
+        Atom::with_style("l", kasane_core::protocol::Style::from_face(&cursor_face)),
         Atom {
             style: kasane_core::protocol::default_unresolved_style(),
             contents: "o world".into(),

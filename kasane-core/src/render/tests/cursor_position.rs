@@ -35,13 +35,22 @@ fn make_cursor_line(pre: &str, cursor_char: &str, post: &str) -> Vec<Atom> {
     let normal = WireFace::default();
     let mut atoms = Vec::new();
     if !pre.is_empty() {
-        atoms.push(Atom::from_wire(normal, pre));
+        atoms.push(Atom::with_style(
+            pre,
+            crate::protocol::Style::from_face(&normal),
+        ));
     }
     // Wire-aware: cursor_face() carries FINAL_FG/FINAL_BG that detect_cursors
     // must observe. `Style::from_face` would strip them (post-resolve form).
-    atoms.push(Atom::from_wire(cursor_face(), cursor_char));
+    atoms.push(Atom::with_style(
+        cursor_char,
+        crate::protocol::Style::from_face(&cursor_face()),
+    ));
     if !post.is_empty() {
-        atoms.push(Atom::from_wire(normal, post));
+        atoms.push(Atom::with_style(
+            post,
+            crate::protocol::Style::from_face(&normal),
+        ));
     }
     atoms
 }
@@ -188,11 +197,11 @@ fn buffer_cursor_with_widget_columns() {
     };
     let normal = WireFace::default();
     state.observed.lines = (vec![vec![
-        Atom::from_wire(gutter_face, " 1│"),
-        Atom::from_wire(normal, "hello "),
+        Atom::with_style(" 1│", crate::protocol::Style::from_face(&gutter_face)),
+        Atom::with_style("hello ", crate::protocol::Style::from_face(&normal)),
         // Wire-aware (cursor_face has FINAL_FG/REVERSE): see Style::from_face docstring.
-        Atom::from_wire(cursor_face(), "w"),
-        Atom::from_wire(normal, "orld\n"),
+        Atom::with_style("w", crate::protocol::Style::from_face(&cursor_face())),
+        Atom::with_style("orld\n", crate::protocol::Style::from_face(&normal)),
     ]])
     .into();
 
@@ -287,7 +296,7 @@ fn extract_cursor_color_ascii() {
     };
     state.observed.lines = (vec![vec![
         Atom::plain("hello"),
-        Atom::from_wire(cf, "w"),
+        Atom::with_style("w", crate::protocol::Style::from_face(&cf)),
         Atom::plain("orld\n"),
     ]])
     .into();
@@ -320,7 +329,7 @@ fn extract_cursor_color_after_cjk() {
     };
     state.observed.lines = (vec![vec![
         Atom::plain("hi世"),
-        Atom::from_wire(cf, "w"),
+        Atom::with_style("w", crate::protocol::Style::from_face(&cf)),
         Atom::plain("orld\n"),
     ]])
     .into();

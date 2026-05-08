@@ -7,10 +7,11 @@ use serde::{Deserialize, Serialize};
 use super::color::WireFace;
 use super::style::{Style, UnresolvedStyle};
 
-// `WireFace` is wire-format-aware. `Atom::from_wire` and the parser
-// construct atoms from it while preserving Kakoune `final_*`
-// resolution flags. Post-resolve callers use `Atom::with_style`.
-// `KakouneRequest` carries `Arc<UnresolvedStyle>` end-to-end.
+// Post-resolve atom construction goes through `Atom::with_style`. The wire
+// parser interns `Arc<UnresolvedStyle>` directly via `from_style`. The
+// legacy `Atom::from_wire(WireFace, _)` public constructor was retired in
+// R2.x P9 (ADR-039); the `final_*`-preserving path is now `pub(crate)`
+// for the JSON parser and `test_support::wire`'s cursor fixtures only.
 
 // ---------------------------------------------------------------------------
 // Atom / Line / Coord
@@ -29,23 +30,11 @@ pub struct Atom {
 }
 
 impl Atom {
-    /// **Wire-format-aware** atom constructor. Allocates a fresh `Arc`
-    /// wrapping an [`UnresolvedStyle`] that **preserves the Kakoune
-    /// `final_*` resolution flags** carried by the input wire `WireFace`.
-    ///
-    /// Use this only for code that mirrors the wire-format shape: the
-    /// protocol parser itself, fixtures that simulate Kakoune's `draw_*`
-    /// JSON output, and the `detect_cursors` test harness (which keys on
-    /// `FINAL_FG | REVERSE` to identify the cursor atom). New host /
-    /// plugin / rendering code that holds a [`Style`] should use
-    /// [`Atom::with_style`] instead — it bypasses the wire-format
-    /// representation entirely and skips the `Style → WireFace → Style`
-    /// round-trip.
-    ///
-    /// Sites that build many atoms from the same `WireFace` should reach for
-    /// [`crate::protocol::parse`]'s frame-local intern path so the `Arc`
-    /// allocation is shared.
-    pub fn from_wire(face: WireFace, contents: impl Into<CompactString>) -> Self {
+    /// **Wire-format-aware** atom constructor that preserves Kakoune
+    /// `final_*` resolution flags. Internal to the protocol parser and
+    /// `test_support::wire`'s cursor fixtures (`detect_cursors` keys on
+    /// `FINAL_FG | REVERSE`); not part of the public API.
+    pub(crate) fn from_wire(face: WireFace, contents: impl Into<CompactString>) -> Self {
         Self {
             contents: contents.into(),
             style: Arc::new(UnresolvedStyle::from_face(&face)),
@@ -57,10 +46,10 @@ impl Atom {
     /// `final_*` flags **set to `false`** (i.e. fully resolved already; no
     /// further deferral against a base style is expected).
     ///
-    /// This is the canonical constructor for new host, plugin, and
-    /// rendering code that already holds a `Style`. It does **not**
-    /// preserve Kakoune `final_*` resolution semantics — for that, see
-    /// [`Atom::from_wire`].
+    /// This is the canonical constructor for host, plugin, and rendering
+    /// code that holds a `Style`. Sites that observe Kakoune `final_*`
+    /// flags (e.g. `detect_cursors`) feed the wire parser path directly,
+    /// not this constructor.
     #[inline]
     pub fn with_style(contents: impl Into<CompactString>, style: Style) -> Self {
         Self {

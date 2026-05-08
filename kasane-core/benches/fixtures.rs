@@ -85,12 +85,21 @@ fn make_colored_line(i: usize) -> Line {
     let plain_face = WireFace::default();
 
     vec![
-        Atom::from_wire(keyword_face, "let"),
-        Atom::from_wire(plain_face, " "),
-        Atom::from_wire(ident_face, format!("var_{i}")),
-        Atom::from_wire(plain_face, " = "),
-        Atom::from_wire(literal_face, format!("\"{i}_value\"")),
-        Atom::from_wire(plain_face, ";"),
+        Atom::with_style(
+            "let",
+            kasane_core::protocol::Style::from_face(&keyword_face),
+        ),
+        Atom::with_style(" ", kasane_core::protocol::Style::from_face(&plain_face)),
+        Atom::with_style(
+            format!("var_{i}"),
+            kasane_core::protocol::Style::from_face(&ident_face),
+        ),
+        Atom::with_style(" = ", kasane_core::protocol::Style::from_face(&plain_face)),
+        Atom::with_style(
+            format!("\"{i}_value\""),
+            kasane_core::protocol::Style::from_face(&literal_face),
+        ),
+        Atom::with_style(";", kasane_core::protocol::Style::from_face(&plain_face)),
     ]
 }
 
@@ -227,48 +236,105 @@ fn constant_face() -> WireFace {
 }
 
 fn short_comment_line(i: usize) -> Line {
-    vec![Atom::from_wire(
-        comment_face(),
+    vec![Atom::with_style(
         format!("// comment line {i}"),
+        kasane_core::protocol::Style::from_face(&comment_face()),
     )]
 }
 
 fn function_def_line(i: usize) -> Line {
     vec![
-        Atom::from_wire(keyword_face(), "fn "),
-        Atom::from_wire(ident_face(), format!("process_{i}")),
-        Atom::from_wire(operator_face(), "("),
-        Atom::from_wire(type_face(), "u32"),
-        Atom::from_wire(operator_face(), ") {"),
+        Atom::with_style(
+            "fn ",
+            kasane_core::protocol::Style::from_face(&keyword_face()),
+        ),
+        Atom::with_style(
+            format!("process_{i}"),
+            kasane_core::protocol::Style::from_face(&ident_face()),
+        ),
+        Atom::with_style(
+            "(",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
+        Atom::with_style("u32", kasane_core::protocol::Style::from_face(&type_face())),
+        Atom::with_style(
+            ") {",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
     ]
 }
 
 fn long_code_line(i: usize) -> Line {
     vec![
-        Atom::from_wire(keyword_face(), "    let "),
-        Atom::from_wire(ident_face(), format!("result_{i}")),
-        Atom::from_wire(operator_face(), " = "),
-        Atom::from_wire(namespace_face(), "self"),
-        Atom::from_wire(operator_face(), "."),
-        Atom::from_wire(ident_face(), format!("compute_{i}")),
-        Atom::from_wire(operator_face(), "("),
-        Atom::from_wire(literal_face(), format!("{}", i * 42)),
-        Atom::from_wire(operator_face(), ", "),
-        Atom::from_wire(string_face(), format!("\"value_{i}\"")),
-        Atom::from_wire(operator_face(), ");"),
+        Atom::with_style(
+            "    let ",
+            kasane_core::protocol::Style::from_face(&keyword_face()),
+        ),
+        Atom::with_style(
+            format!("result_{i}"),
+            kasane_core::protocol::Style::from_face(&ident_face()),
+        ),
+        Atom::with_style(
+            " = ",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
+        Atom::with_style(
+            "self",
+            kasane_core::protocol::Style::from_face(&namespace_face()),
+        ),
+        Atom::with_style(
+            ".",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
+        Atom::with_style(
+            format!("compute_{i}"),
+            kasane_core::protocol::Style::from_face(&ident_face()),
+        ),
+        Atom::with_style(
+            "(",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
+        Atom::with_style(
+            format!("{}", i * 42),
+            kasane_core::protocol::Style::from_face(&literal_face()),
+        ),
+        Atom::with_style(
+            ", ",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
+        Atom::with_style(
+            format!("\"value_{i}\""),
+            kasane_core::protocol::Style::from_face(&string_face()),
+        ),
+        Atom::with_style(
+            ");",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
     ]
 }
 
 fn string_heavy_line(i: usize) -> Line {
     vec![
-        Atom::from_wire(keyword_face(), "    const "),
-        Atom::from_wire(constant_face(), format!("MSG_{i}")),
-        Atom::from_wire(operator_face(), ": &str = "),
-        Atom::from_wire(
-            string_face(),
-            format!("\"Hello from module {i}, processing data\""),
+        Atom::with_style(
+            "    const ",
+            kasane_core::protocol::Style::from_face(&keyword_face()),
         ),
-        Atom::from_wire(operator_face(), ";"),
+        Atom::with_style(
+            format!("MSG_{i}"),
+            kasane_core::protocol::Style::from_face(&constant_face()),
+        ),
+        Atom::with_style(
+            ": &str = ",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
+        Atom::with_style(
+            format!("\"Hello from module {i}, processing data\""),
+            kasane_core::protocol::Style::from_face(&string_face()),
+        ),
+        Atom::with_style(
+            ";",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
     ]
 }
 
@@ -278,37 +344,55 @@ fn indented_block_line(i: usize) -> Line {
             style: kasane_core::protocol::default_unresolved_style(),
             contents: "    ".into(),
         },
-        Atom::from_wire(keyword_face(), "if "),
-        Atom::from_wire(ident_face(), format!("count_{i}")),
-        Atom::from_wire(operator_face(), " > "),
-        Atom::from_wire(literal_face(), format!("{}", i * 10)),
-        Atom::from_wire(operator_face(), " {"),
+        Atom::with_style(
+            "if ",
+            kasane_core::protocol::Style::from_face(&keyword_face()),
+        ),
+        Atom::with_style(
+            format!("count_{i}"),
+            kasane_core::protocol::Style::from_face(&ident_face()),
+        ),
+        Atom::with_style(
+            " > ",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
+        Atom::with_style(
+            format!("{}", i * 10),
+            kasane_core::protocol::Style::from_face(&literal_face()),
+        ),
+        Atom::with_style(
+            " {",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
     ]
 }
 
 fn cjk_comment_line(i: usize) -> Line {
-    vec![Atom::from_wire(
-        comment_face(),
+    vec![Atom::with_style(
         format!("// 処理{i}: データ変換と検証"),
+        kasane_core::protocol::Style::from_face(&comment_face()),
     )]
 }
 
 fn attribute_heavy_line(i: usize) -> Line {
     vec![
-        Atom::from_wire(
-            WireFace {
+        Atom::with_style(
+            "ERROR",
+            kasane_core::protocol::Style::from_face(&WireFace {
                 attributes: Attributes::BOLD,
                 ..error_face()
-            },
-            "ERROR",
+            }),
         ),
-        Atom::from_wire(operator_face(), ": "),
-        Atom::from_wire(
-            WireFace {
+        Atom::with_style(
+            ": ",
+            kasane_core::protocol::Style::from_face(&operator_face()),
+        ),
+        Atom::with_style(
+            format!("\"unexpected token at line {i}\""),
+            kasane_core::protocol::Style::from_face(&WireFace {
                 attributes: Attributes::ITALIC | Attributes::UNDERLINE,
                 ..string_face()
-            },
-            format!("\"unexpected token at line {i}\""),
+            }),
         ),
     ]
 }
@@ -385,13 +469,13 @@ pub fn state_with_edit(base: &AppState, start_line: usize, n: usize) -> AppState
     let mut state = base.clone();
     for i in start_line..(start_line + n).min(state.observed.lines.len()) {
         std::sync::Arc::make_mut(&mut state.observed.lines)[i] = vec![
-            Atom::from_wire(
-                WireFace {
+            Atom::with_style(
+                format!("edited_line_{i}"),
+                kasane_core::protocol::Style::from_face(&WireFace {
                     fg: Color::Rgb { r: 255, g: 0, b: 0 },
                     bg: Color::Default,
                     ..WireFace::default()
-                },
-                format!("edited_line_{i}"),
+                }),
             ),
             Atom::plain(" // modified"),
         ];

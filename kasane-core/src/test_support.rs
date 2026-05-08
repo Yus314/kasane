@@ -299,7 +299,7 @@ impl Surface for TestSurfaceImpl {
 /// `kasane-core/src/state/derived/cursor.rs` and the closure rationale
 /// in `project_adr_031_phase_b3_semantic_split.md` (memory).
 pub mod wire {
-    use crate::protocol::{Atom, Attributes, Color, NamedColor, WireFace};
+    use crate::protocol::{Atom, Attributes, Color, NamedColor, Style, WireFace};
 
     /// Plain default face. Equivalent to `WireFace::default()` but named
     /// for symmetry with the other constructors below.
@@ -388,7 +388,9 @@ pub mod wire {
         )
     }
 
-    /// Atom with the supplied wire-format face.
+    /// Atom with the supplied wire-format face. Preserves Kakoune
+    /// `final_*` resolution flags via the crate-internal wire-aware
+    /// constructor — necessary for the `detect_cursors` test harness.
     pub fn atom_with_face(face: WireFace, text: impl Into<String>) -> Atom {
         Atom::from_wire(face, text.into())
     }
