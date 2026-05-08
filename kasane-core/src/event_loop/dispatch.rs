@@ -209,7 +209,7 @@ pub(super) fn handle_deferred_commands_inner(
                 handle_start_process_task(cmd, ctx, command_source_plugin, depth)
             }
             Command::ExposeVariable { .. } => {
-                handle_expose_variable(cmd, ctx);
+                handle_expose_variable(cmd, ctx, command_source_plugin);
                 Some(false)
             }
             // Immediate commands should not reach the deferred handler
@@ -277,10 +277,23 @@ fn handle_inter_plugin_command(
     Some(false)
 }
 
-/// Handle `ExposeVariable` by storing the value in the plugin variable store.
-fn handle_expose_variable(cmd: Command, ctx: &mut DeferredContext<'_>) {
+/// Handle `ExposeVariable` by storing the value in the plugin variable store,
+/// recording ownership so the entry can be cleaned up when the plugin
+/// unloads.
+fn handle_expose_variable(
+    cmd: Command,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+) {
     if let Command::ExposeVariable { name, value } = cmd {
-        ctx.registry.variable_store_mut().set(&name, value);
+        // Commands that bubble up without an attributable source (e.g. from a
+        // host pre-render hook) get a sentinel owner so they're never reaped
+        // by clear_for_plugin. This matches the prior behavior where such
+        // entries persisted indefinitely.
+        let owner = command_source_plugin
+            .cloned()
+            .unwrap_or_else(|| PluginId("kasane.host".to_string()));
+        ctx.registry.variable_store_mut().set(&name, value, owner);
     }
 }
 

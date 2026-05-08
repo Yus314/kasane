@@ -290,6 +290,7 @@ impl PluginRuntime {
     pub fn remove_plugin(&mut self, id: &PluginId) -> bool {
         if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == *id) {
             self.slots.remove(pos);
+            self.variable_store.clear_for_plugin(id);
             self.unloaded_ids.push(id.clone());
             true
         } else {
@@ -302,6 +303,11 @@ impl PluginRuntime {
         if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == *id) {
             self.slots[pos].backend.on_shutdown();
             self.slots.remove(pos);
+            // Reap any variables this plugin had exposed via
+            // Command::ExposeVariable. Without this, the entries would
+            // outlive the plugin instance and re-loading the same plugin
+            // would briefly see its old values.
+            self.variable_store.clear_for_plugin(id);
             self.unloaded_ids.push(id.clone());
             true
         } else {
