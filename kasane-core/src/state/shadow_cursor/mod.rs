@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn hippocratic_unchanged_returns_empty_commands() {
-        let cmds = build_commit_commands("hello", "hello", 0);
+        let cmds = keyboard::build_commit_commands("hello", "hello", 0);
         assert!(cmds.is_empty());
     }
 
@@ -671,7 +671,7 @@ mod tests {
 
     #[test]
     fn mirror_commit_cjk_escape() {
-        let escaped = escape_for_kakoune_insert("日<本>語\n行");
+        let escaped = commit::escape_for_kakoune_insert("日<本>語\n行");
         assert_eq!(escaped, "日<lt>本<gt>語<ret>行");
     }
 

@@ -166,7 +166,7 @@ pub fn build_mirror_commit(
 }
 
 /// Escape text for Kakoune insert mode within `exec -draft`.
-fn escape_for_kakoune_insert(text: &str) -> String {
+pub(super) fn escape_for_kakoune_insert(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     for c in text.chars() {
         match c {

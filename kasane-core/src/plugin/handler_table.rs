@@ -673,9 +673,6 @@ impl HandlerTable {
         if self.navigation_action_handler.is_some() {
             caps |= PluginCapabilities::NAVIGATION_ACTION;
         }
-        if self.virtual_edit_handler.is_some() {
-            caps |= PluginCapabilities::VIRTUAL_EDIT;
-        }
         if self.inline_box_paint_handler.is_some() {
             caps |= PluginCapabilities::INLINE_BOX_PAINTER;
         }
@@ -684,9 +681,6 @@ impl HandlerTable {
         }
         if self.mouse_pre_dispatch_handler.is_some() {
             caps |= PluginCapabilities::MOUSE_PRE_DISPATCH;
-        }
-        if self.text_input_pre_dispatch_handler.is_some() {
-            caps |= PluginCapabilities::TEXT_INPUT_PRE_DISPATCH;
         }
         if self.mouse_fallback_handler.is_some() {
             caps |= PluginCapabilities::MOUSE_FALLBACK;

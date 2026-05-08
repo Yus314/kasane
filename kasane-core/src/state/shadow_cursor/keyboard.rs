@@ -198,7 +198,7 @@ pub fn handle_shadow_cursor_key(
 ///
 /// Implements the Hippocratic condition: if working_text == original_text,
 /// return empty commands (no-op).
-fn build_commit_commands(
+pub(super) fn build_commit_commands(
     working_text: &str,
     original_text: &str,
     _span_index: usize,

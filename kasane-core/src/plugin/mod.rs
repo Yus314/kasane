@@ -186,13 +186,11 @@ bitflags! {
         const DROP_HANDLER       = 1 << 23;
         const RENDER_ORNAMENT    = 1 << 24;
         const CONTENT_ANNOTATOR  = 1 << 25;
-        const VIRTUAL_EDIT       = 1 << 26;
         const MENU_RENDERER      = 1 << 27;
         const INFO_RENDERER      = 1 << 28;
         const KEY_PRE_DISPATCH   = 1 << 29;
         const MOUSE_PRE_DISPATCH = 1 << 30;
         const MOUSE_FALLBACK     = 1 << 31;
-        const TEXT_INPUT_PRE_DISPATCH = 1 << 0;
     }
 }
 
