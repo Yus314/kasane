@@ -519,7 +519,6 @@ mod intercept_tests {
         id: PluginId,
         verdict: BufferEditVerdict,
     }
-    crate::impl_migrated_caps_default!(FixedVerdictBackend);
 
     impl PluginBackend for FixedVerdictBackend {
         fn id(&self) -> PluginId {
@@ -619,7 +618,6 @@ mod intercept_tests {
             invoked: std::sync::Arc<std::sync::atomic::AtomicUsize>,
             verdict: BufferEditVerdict,
         }
-        crate::impl_migrated_caps_default!(CountingBackend);
         impl PluginBackend for CountingBackend {
             fn id(&self) -> PluginId {
                 self.id.clone()

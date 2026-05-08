@@ -4,8 +4,6 @@ use crate::plugin::{
     RenderOrnamentContext, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
 };
 
-crate::impl_migrated_caps_default!(ObservingPlugin, IconPlugin, RenderOrnamentPlugin);
-
 // --- Input observation tests ---
 
 struct ObservingPlugin {
@@ -223,7 +221,6 @@ fn test_cursor_effects_accumulate() {
         id: &'static str,
         effect: CursorEffect,
     }
-    crate::impl_migrated_caps_default!(EffectPlugin);
     impl PluginBackend for EffectPlugin {
         fn id(&self) -> PluginId {
             PluginId(self.id.to_string())
@@ -274,7 +271,6 @@ fn test_cursor_style_modality_wins_over_priority() {
         priority: i16,
         modality: OrnamentModality,
     }
-    crate::impl_migrated_caps_default!(CursorStylePlugin);
     impl PluginBackend for CursorStylePlugin {
         fn id(&self) -> PluginId {
             PluginId(self.id.to_string())

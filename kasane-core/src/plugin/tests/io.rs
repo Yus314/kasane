@@ -2,9 +2,6 @@ use super::*;
 use crate::plugin::Effects;
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 
-crate::impl_pubsub_member_default!(IoHandlerPlugin);
-crate::impl_extension_participant_default!(IoHandlerPlugin);
-
 // --- I/O event construction tests ---
 
 #[test]
@@ -89,9 +86,7 @@ impl PluginBackend for IoHandlerPlugin {
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::IO_HANDLER
     }
-}
 
-impl crate::plugin::capability_traits::Io for IoHandlerPlugin {
     fn on_io_event_effects(&mut self, event: &IoEvent, _state: &AppView<'_>) -> Effects {
         match event {
             IoEvent::Process(pe) => match pe {
@@ -266,14 +261,10 @@ fn test_plugin_allows_process_spawn_default_true() {
 #[test]
 fn test_plugin_allows_process_spawn_denied() {
     struct DenySpawnPlugin;
-    crate::impl_pubsub_member_default!(DenySpawnPlugin);
-    crate::impl_extension_participant_default!(DenySpawnPlugin);
     impl PluginBackend for DenySpawnPlugin {
         fn id(&self) -> PluginId {
             PluginId("deny_spawn".to_string())
         }
-    }
-    impl crate::plugin::capability_traits::Io for DenySpawnPlugin {
         fn allows_process_spawn(&self) -> bool {
             false
         }

@@ -1488,9 +1488,9 @@ impl PluginBackend for WasmPlugin {
             Effects::default()
         }
     }
-}
 
-impl kasane_core::plugin::capability_traits::PubSubMember for WasmPlugin {
+    // --- Pub/Sub (formerly impl PubSubMember for WasmPlugin) ---
+
     fn collect_publications(&self, bus: &mut kasane_core::plugin::TopicBus, state: &AppView<'_>) {
         if self.shared.publish_topics.is_empty() {
             return;
@@ -1552,9 +1552,9 @@ impl kasane_core::plugin::capability_traits::PubSubMember for WasmPlugin {
         }
         changed
     }
-}
 
-impl kasane_core::plugin::capability_traits::ExtensionParticipant for WasmPlugin {
+    // --- Extension points (formerly impl ExtensionParticipant for WasmPlugin) ---
+
     fn extension_definitions(
         &self,
     ) -> &[kasane_core::plugin::extension_point::ExtensionDefinition] {
@@ -1593,9 +1593,9 @@ impl kasane_core::plugin::capability_traits::ExtensionParticipant for WasmPlugin
             None => vec![],
         }
     }
-}
 
-impl kasane_core::plugin::capability_traits::Io for WasmPlugin {
+    // --- I/O (formerly impl Io for WasmPlugin) ---
+
     fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppView<'_>) -> Effects {
         let shared = Arc::clone(&self.shared);
         self.shared

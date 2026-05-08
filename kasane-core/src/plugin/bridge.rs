@@ -868,9 +868,9 @@ impl PluginBackend for PluginBridge {
     fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
         std::mem::take(&mut self.pending_diagnostics)
     }
-}
 
-impl super::capability_traits::PubSubMember for PluginBridge {
+    // --- Pub/Sub (formerly impl PubSubMember for PluginBridge) ---
+
     fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
         let plugin_id = self.id.clone();
         for entry in &self.table.publishers {
@@ -894,9 +894,9 @@ impl super::capability_traits::PubSubMember for PluginBridge {
         }
         changed
     }
-}
 
-impl super::capability_traits::ExtensionParticipant for PluginBridge {
+    // --- Extension points (formerly impl ExtensionParticipant for PluginBridge) ---
+
     fn extension_definitions(&self) -> &[ExtensionDefinition] {
         &self.table.extension_definitions
     }
@@ -930,9 +930,9 @@ impl super::capability_traits::ExtensionParticipant for PluginBridge {
         }
         outputs
     }
-}
 
-impl super::capability_traits::Io for PluginBridge {
+    // --- I/O (formerly impl Io for PluginBridge) ---
+
     fn on_io_event_effects(&mut self, event: &IoEvent, app: &AppView<'_>) -> Effects {
         // Route process events through active task handles first.
         if let IoEvent::Process(proc_event) = event
@@ -983,7 +983,6 @@ impl IsBridgedPlugin for PluginBridge {
 
 #[cfg(test)]
 mod tests {
-    use super::super::capability_traits::{Io, PubSubMember};
     use super::super::state::tests::{ColorPreviewPure, CursorLinePure, CursorLineState};
     use super::*;
     use crate::layout::Rect;

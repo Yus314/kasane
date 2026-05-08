@@ -18,8 +18,6 @@ mod io;
 mod projection;
 mod registry;
 
-crate::impl_migrated_caps_default!(TestPlugin, LifecyclePlugin, SurfacePlugin, StatefulPlugin);
-
 struct TestPlugin;
 
 impl PluginBackend for TestPlugin {

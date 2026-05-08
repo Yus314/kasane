@@ -822,8 +822,6 @@ fn inject_input_respects_depth_limit() {
 /// PluginMessage to itself, creating an infinite cascade.
 struct CascadingMessagePlugin;
 
-crate::impl_migrated_caps_default!(CascadingMessagePlugin);
-
 impl PluginBackend for CascadingMessagePlugin {
     fn id(&self) -> PluginId {
         PluginId("cascading".to_string())
@@ -890,8 +888,6 @@ fn command_cascade_terminates_at_depth_limit() {
 /// Plugin that handles every key by injecting another key, creating
 /// an infinite injection cascade.
 struct CascadingInjectPlugin;
-
-crate::impl_migrated_caps_default!(CascadingInjectPlugin);
 
 impl PluginBackend for CascadingInjectPlugin {
     fn id(&self) -> PluginId {
@@ -967,8 +963,6 @@ fn inject_cascade_terminates_at_depth_limit() {
 struct SuppressPlugin {
     targets: std::collections::HashSet<crate::plugin::BuiltinTarget>,
 }
-
-crate::impl_migrated_caps_default!(SuppressPlugin);
 
 impl PluginBackend for SuppressPlugin {
     fn id(&self) -> PluginId {

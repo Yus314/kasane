@@ -1,7 +1,6 @@
 use kasane_core::element::{Direction, Element, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::Rect;
-pub(crate) use kasane_core::plugin::capability_traits::Io;
 use kasane_core::plugin::{
     AnnotateContext, AppView, Command, ContribSizeHint, ContributeContext, Contribution,
     DisplayDirective, IoEvent, OverlayContext, PluginBackend, PluginId, PluginRuntime,
@@ -157,8 +156,6 @@ fn default_surface_rect() -> Rect {
 }
 
 struct SurfaceProbeContributor;
-
-kasane_core::impl_migrated_caps_default!(SurfaceProbeContributor);
 
 impl PluginBackend for SurfaceProbeContributor {
     fn id(&self) -> PluginId {

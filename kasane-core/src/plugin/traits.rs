@@ -5,7 +5,11 @@ use crate::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent}
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{self, DirtyFlags};
 
+use super::channel::ChannelValue;
 use super::effects::StateUpdates;
+use super::extension_point::{ExtensionDefinition, ExtensionOutput, ExtensionPointId};
+use super::io::IoEvent;
+use super::pubsub::TopicBus;
 use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
 use crate::display::unit::DisplayUnit;
 
@@ -117,19 +121,12 @@ pub enum TextInputPreDispatchResult {
 /// introduced as `HandlerRegistry::on_X(...)` registrations. See
 /// ADR-038 for rationale and the narrow exception clause.
 ///
-/// Three super-traits (R1.4–R1.6) live on the path: `PubSubMember`,
-/// `ExtensionParticipant`, `Io`. Implementers provide them via either
-/// an explicit `impl CapTrait for X` block (overriders) or
-/// `impl_<cap>_default!` macros (non-overriders); see
-/// [`impl_migrated_caps_default!`](crate::impl_migrated_caps_default).
-/// Further capability-trait migration (R1.7+) is frozen per ADR-038.
+/// All methods are defined directly on this trait with default no-op
+/// impls. The R1.x super-trait migration (PubSubMember /
+/// ExtensionParticipant / Io) was retired in R2.x P3 (2026-05-08, ADR-039)
+/// because narrow capability-trait views had zero workspace consumers.
 #[doc(hidden)]
-pub trait PluginBackend:
-    super::capability_traits::PubSubMember
-    + super::capability_traits::ExtensionParticipant
-    + super::capability_traits::Io
-    + Any
-{
+pub trait PluginBackend: Any {
     fn id(&self) -> PluginId;
 
     /// Inject the framework-assigned plugin tag for interactive ID ownership.
@@ -160,7 +157,46 @@ pub trait PluginBackend:
     fn on_state_changed_effects(&mut self, _state: &AppView<'_>, _dirty: DirtyFlags) -> Effects {
         Effects::default()
     }
-    // `on_io_event_effects` migrated to `capability_traits::Io` (R1.6).
+
+    // --- I/O hooks ---
+
+    fn on_io_event_effects(&mut self, _event: &IoEvent, _state: &AppView<'_>) -> Effects {
+        Effects::default()
+    }
+
+    fn start_process_task(&mut self, _name: &str) -> Vec<Command> {
+        Vec::new()
+    }
+
+    /// Whether this plugin is allowed to spawn external processes.
+    /// Native plugins default to `true`. WASM plugins consult resolved
+    /// capability grants.
+    fn allows_process_spawn(&self) -> bool {
+        true
+    }
+
+    // --- Pub/Sub hooks ---
+
+    fn collect_publications(&self, _bus: &mut TopicBus, _state: &AppView<'_>) {}
+
+    fn deliver_subscriptions(&mut self, _bus: &TopicBus) -> bool {
+        false
+    }
+
+    // --- Extension-point hooks ---
+
+    fn extension_definitions(&self) -> &[ExtensionDefinition] {
+        &[]
+    }
+
+    fn evaluate_extension(
+        &self,
+        _id: &ExtensionPointId,
+        _input: &ChannelValue,
+        _state: &AppView<'_>,
+    ) -> Vec<ExtensionOutput> {
+        Vec::new()
+    }
 
     /// Intercept a shadow-cursor buffer-edit commit before
     /// serialization (ADR-035 ShadowCursor follow-up).
@@ -396,8 +432,6 @@ pub trait PluginBackend:
         PluginCapabilities::all()
     }
 
-    // `start_process_task` migrated to `capability_traits::Io` (R1.6).
-
     /// Host-level authorities required for privileged deferred effects.
     fn authorities(&self) -> PluginAuthorities {
         PluginAuthorities::empty()
@@ -409,8 +443,6 @@ pub trait PluginBackend:
             std::sync::LazyLock::new(std::collections::HashSet::new);
         &EMPTY
     }
-
-    // `allows_process_spawn` migrated to `capability_traits::Io` (R1.6).
 
     // --- Surface system hooks (Phase S) ---
 
@@ -695,15 +727,6 @@ pub trait PluginBackend:
     ) -> Option<Vec<Overlay>> {
         None
     }
-
-    // --- Pub/Sub ---
-    // Migrated to `capability_traits::PubSubMember` (R1.4); `PluginBackend`
-    // is now a super-trait of it, so every implementer must provide
-    // `impl PubSubMember for X` (overriders) or
-    // `impl_pubsub_member_default!(X)` (non-overriders).
-
-    // --- Extension Points ---
-    // Migrated to `capability_traits::ExtensionParticipant` (R1.5).
 
     // --- Capability Descriptor ---
 

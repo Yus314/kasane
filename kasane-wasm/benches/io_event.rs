@@ -3,7 +3,6 @@
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use kasane_core::input::{Key, KeyEvent, Modifiers};
-use kasane_core::plugin::capability_traits::Io;
 use kasane_core::plugin::{AppView, IoEvent, PluginBackend, ProcessEvent};
 use kasane_core::state::{AppState, DirtyFlags};
 

@@ -10,24 +10,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-crate::impl_migrated_caps_default!(
-    TypedLifecyclePlugin,
-    TypedRuntimePlugin,
-    ShutdownProbePlugin,
-    DisplayTransformPlugin,
-    WorkspaceObserverPlugin,
-    KeyMiddlewarePlugin,
-    AuthorityPlugin,
-    TargetedReadyPlugin,
-    ContributorPlugin,
-    AnnotatorPlugin,
-    LegacyAnnotatorPlugin,
-    MousePlugin42,
-    DecoyMousePlugin,
-    NavPolicyPlugin,
-    NavActionPlugin,
-);
-
 struct TypedLifecyclePlugin;
 
 impl PluginBackend for TypedLifecyclePlugin {
@@ -1753,8 +1735,6 @@ mod sync_lenses {
         }
     }
 
-    crate::impl_migrated_caps_default!(LensOwningPlugin);
-
     impl PluginBackend for LensOwningPlugin {
         fn id(&self) -> PluginId {
             self.id.clone()
@@ -1845,7 +1825,6 @@ mod sync_lenses {
         // A plugin that doesn't override register_lenses returns 0
         // by default.
         struct NoLensPlugin;
-        crate::impl_migrated_caps_default!(NoLensPlugin);
         impl PluginBackend for NoLensPlugin {
             fn id(&self) -> PluginId {
                 PluginId("no-lens".into())

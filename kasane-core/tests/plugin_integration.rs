@@ -21,7 +21,6 @@ use kasane_core::test_support::{make_line, render_with_registry, row_text};
 // migrated-capability default impls from the `#[kasane_plugin]`
 // macro itself (R1.4–R1.6 / ADR-038). Only the manually-defined
 // plugin structs below need the explicit invocation.
-kasane_core::impl_migrated_caps_default!(VerticalBandsPlugin, UnderlineCursorPlugin,);
 
 // ---------------------------------------------------------------------------
 // Shared helpers

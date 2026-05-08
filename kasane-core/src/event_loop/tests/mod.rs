@@ -19,30 +19,6 @@ mod dispatch;
 mod session;
 mod surface;
 
-crate::impl_pubsub_member_default!(
-    TestPlugin,
-    RuntimeMessagePlugin,
-    TextInputPlugin,
-    SurfacePlugin,
-    ReplacementSurfacePlugin,
-    InvalidSurfacePlugin,
-);
-crate::impl_extension_participant_default!(
-    TestPlugin,
-    RuntimeMessagePlugin,
-    TextInputPlugin,
-    SurfacePlugin,
-    ReplacementSurfacePlugin,
-    InvalidSurfacePlugin,
-);
-crate::impl_io_default!(
-    RuntimeMessagePlugin,
-    TextInputPlugin,
-    SurfacePlugin,
-    ReplacementSurfacePlugin,
-    InvalidSurfacePlugin,
-);
-
 pub(super) struct TestPlugin {
     pub id: PluginId,
     pub allow_spawn: bool,
@@ -57,9 +33,7 @@ impl PluginBackend for TestPlugin {
     fn authorities(&self) -> PluginAuthorities {
         self.authorities
     }
-}
 
-impl crate::plugin::capability_traits::Io for TestPlugin {
     fn allows_process_spawn(&self) -> bool {
         self.allow_spawn
     }

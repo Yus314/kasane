@@ -513,7 +513,6 @@ mod tests {
     }
 
     struct CursorLineOverridePlugin;
-    kasane_core::impl_migrated_caps_default!(CursorLineOverridePlugin);
 
     impl PluginBackend for CursorLineOverridePlugin {
         fn id(&self) -> PluginId {
@@ -572,8 +571,6 @@ mod tests {
     struct ReloadChainPlugin {
         variant: ReloadVariant,
     }
-
-    kasane_core::impl_migrated_caps_default!(ReloadChainPlugin);
 
     impl PluginBackend for ReloadChainPlugin {
         fn id(&self) -> PluginId {
@@ -651,8 +648,6 @@ mod tests {
     struct DiagnosticSurfacePlugin {
         variant: DiagnosticVariant,
     }
-
-    kasane_core::impl_migrated_caps_default!(DiagnosticSurfacePlugin);
 
     impl PluginBackend for DiagnosticSurfacePlugin {
         fn id(&self) -> PluginId {
