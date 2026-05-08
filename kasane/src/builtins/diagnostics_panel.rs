@@ -4,10 +4,12 @@
 //! (see `kasane_core::plugin::diagnostics::DiagnosticHistory`). Renders
 //! as a centered modal overlay; opens on `<c-?>` and closes on
 //! `Esc` / `q` / `<c-?>`. While open, all keys are intercepted via
-//! `handle_key_pre_dispatch` so the editor below stays inert.
+//! `on_key_pre_dispatch` so the editor below stays inert.
 //!
-//! Phase 2 MVP: skeleton + open/close toggle. Rendering and navigation
-//! are added in subsequent commits (2.3 / 2.4).
+//! Migrated to the `Plugin + HandlerRegistry` pattern: the panel's
+//! mutable state (open flag, selection cursor, scroll offset) lives on
+//! [`DiagnosticsPanelState`] instead of on the plugin instance, and
+//! handlers are registered declaratively via [`Plugin::register`].
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -22,8 +24,8 @@ use kasane_core::plugin::diagnostics::{
     summarize_plugin_diagnostic,
 };
 use kasane_core::plugin::{
-    AppView, Command, KeyPreDispatchResult, OverlayContext, OverlayContribution, PluginBackend,
-    PluginCapabilities, PluginId, StateUpdates,
+    AppView, Command, HandlerRegistry, KeyPreDispatchResult, OverlayContribution, Plugin, PluginId,
+    StateUpdates,
 };
 use kasane_core::plugin::{PluginDescriptor, PluginSource};
 use kasane_core::protocol::{Atom, Attributes, Color, NamedColor, Style, WireFace};
@@ -39,90 +41,89 @@ const DETAIL_ROWS: u16 = 4;
 const MIN_PANEL_W: u16 = 40;
 const MIN_PANEL_H: u16 = 12;
 
-/// Panel state. Stored on the plugin instance because diagnostics are
-/// framework-internal and we don't want to expose history navigation
-/// state on `AppState`/`RuntimeState`.
-#[derive(Default)]
-pub struct BuiltinDiagnosticsPanelPlugin {
+/// Panel state. Lives in the plugin's `Plugin::State` slot rather than on
+/// the plugin instance because `register()` handlers receive an
+/// immutable `&State` and return the next state — moving these fields off
+/// the struct keeps the new contract honest.
+#[derive(Clone, Default, Debug, PartialEq)]
+pub struct DiagnosticsPanelState {
     is_open: bool,
     selected: usize,
     scroll_offset: usize,
 }
 
-impl BuiltinDiagnosticsPanelPlugin {
-    fn open(&mut self) {
-        self.is_open = true;
-        self.selected = 0;
-        self.scroll_offset = 0;
-    }
-
-    fn close(&mut self) {
-        self.is_open = false;
-    }
-
-    /// Recognize the toggle key (`<c-?>`).
-    fn is_toggle_key(key: &KeyEvent) -> bool {
-        key.modifiers == Modifiers::CTRL && matches!(key.key, Key::Char('?'))
-    }
-
-    /// Recognize a "close panel" key while open.
-    fn is_close_key(key: &KeyEvent) -> bool {
-        if Self::is_toggle_key(key) {
-            return true;
+impl DiagnosticsPanelState {
+    fn opened() -> Self {
+        Self {
+            is_open: true,
+            selected: 0,
+            scroll_offset: 0,
         }
-        if !key.modifiers.is_empty() {
-            return false;
-        }
-        matches!(key.key, Key::Escape | Key::Char('q'))
     }
+}
 
-    /// Apply a navigation action to (selected, scroll_offset). Pure: returns
-    /// the new pair so logic is unit-testable without an `AppView`.
-    fn navigate(
-        action: NavAction,
-        total: usize,
-        viewport: usize,
-        selected: usize,
-        scroll: usize,
-    ) -> (usize, usize) {
-        if total == 0 {
-            return (0, 0);
-        }
-        let last = total.saturating_sub(1);
-        let new_selected = match action {
-            NavAction::Down(n) => selected.saturating_add(n).min(last),
-            NavAction::Up(n) => selected.saturating_sub(n),
-            NavAction::Top => 0,
-            NavAction::Bottom => last,
-        };
-        // Keep selected within viewport [scroll, scroll + viewport).
-        let new_scroll = if viewport == 0 {
-            0
-        } else if new_selected < scroll {
-            new_selected
-        } else if new_selected >= scroll + viewport {
-            new_selected + 1 - viewport
-        } else {
-            scroll
-        };
-        (new_selected, new_scroll)
+/// Recognize the toggle key (`<c-?>`).
+fn is_toggle_key(key: &KeyEvent) -> bool {
+    key.modifiers == Modifiers::CTRL && matches!(key.key, Key::Char('?'))
+}
+
+/// Recognize a "close panel" key while open.
+fn is_close_key(key: &KeyEvent) -> bool {
+    if is_toggle_key(key) {
+        return true;
     }
+    if !key.modifiers.is_empty() {
+        return false;
+    }
+    matches!(key.key, Key::Escape | Key::Char('q'))
+}
 
-    fn nav_action_for(key: &KeyEvent) -> Option<NavAction> {
-        if !key.modifiers.is_empty() && key.modifiers != Modifiers::CTRL {
-            return None;
-        }
-        match (key.modifiers, &key.key) {
-            (m, Key::Down) | (m, Key::Char('j')) if m.is_empty() => Some(NavAction::Down(1)),
-            (m, Key::Up) | (m, Key::Char('k')) if m.is_empty() => Some(NavAction::Up(1)),
-            (m, Key::Char('g')) if m.is_empty() => Some(NavAction::Top),
-            (m, Key::Char('G')) if m.is_empty() => Some(NavAction::Bottom),
-            (m, Key::PageDown) if m.is_empty() => Some(NavAction::Down(10)),
-            (m, Key::PageUp) if m.is_empty() => Some(NavAction::Up(10)),
-            (Modifiers::CTRL, Key::Char('d')) => Some(NavAction::Down(10)),
-            (Modifiers::CTRL, Key::Char('u')) => Some(NavAction::Up(10)),
-            _ => None,
-        }
+/// Apply a navigation action to (selected, scroll_offset). Pure: returns
+/// the new pair so logic is unit-testable without an `AppView`.
+fn navigate(
+    action: NavAction,
+    total: usize,
+    viewport: usize,
+    selected: usize,
+    scroll: usize,
+) -> (usize, usize) {
+    if total == 0 {
+        return (0, 0);
+    }
+    let last = total.saturating_sub(1);
+    let new_selected = match action {
+        NavAction::Down(n) => selected.saturating_add(n).min(last),
+        NavAction::Up(n) => selected.saturating_sub(n),
+        NavAction::Top => 0,
+        NavAction::Bottom => last,
+    };
+    // Keep selected within viewport [scroll, scroll + viewport).
+    let new_scroll = if viewport == 0 {
+        0
+    } else if new_selected < scroll {
+        new_selected
+    } else if new_selected >= scroll + viewport {
+        new_selected + 1 - viewport
+    } else {
+        scroll
+    };
+    (new_selected, new_scroll)
+}
+
+fn nav_action_for(key: &KeyEvent) -> Option<NavAction> {
+    if !key.modifiers.is_empty() && key.modifiers != Modifiers::CTRL {
+        return None;
+    }
+    match (key.modifiers, &key.key) {
+        (m, Key::Down) | (m, Key::Char('j')) if m.is_empty() => Some(NavAction::Down(1)),
+        (m, Key::Up) | (m, Key::Char('k')) if m.is_empty() => Some(NavAction::Up(1)),
+        (m, Key::Char('g')) if m.is_empty() => Some(NavAction::Top),
+        (m, Key::Char('G')) if m.is_empty() => Some(NavAction::Bottom),
+        (m, Key::PageDown) if m.is_empty() => Some(NavAction::Down(10)),
+        (m, Key::PageUp) if m.is_empty() => Some(NavAction::Up(10)),
+        (Modifiers::CTRL, Key::Char('d')) => Some(NavAction::Down(10)),
+        (Modifiers::CTRL, Key::Char('u')) => Some(NavAction::Up(10)),
+        _ => None,
     }
 }
 
@@ -134,138 +135,161 @@ enum NavAction {
     Bottom,
 }
 
-impl PluginBackend for BuiltinDiagnosticsPanelPlugin {
-    fn id(&self) -> PluginId {
-        PluginId("kasane.builtin.diagnostics_panel".into())
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::KEY_PRE_DISPATCH | PluginCapabilities::OVERLAY
-    }
-
-    fn handle_key_pre_dispatch(
-        &mut self,
-        key: &KeyEvent,
-        state: &AppView<'_>,
-    ) -> KeyPreDispatchResult {
-        if !self.is_open {
-            if Self::is_toggle_key(key) {
-                self.open();
-                // Clear any active popup so the modal owns the screen
-                // exclusively and an error popup that pre-dates the
-                // panel doesn't keep painting underneath.
-                return KeyPreDispatchResult::Consumed {
+/// Pure key-handling logic shared between the registered handler and tests.
+fn handle_key(
+    state: &DiagnosticsPanelState,
+    key: &KeyEvent,
+    app: &AppView<'_>,
+) -> (DiagnosticsPanelState, KeyPreDispatchResult) {
+    if !state.is_open {
+        if is_toggle_key(key) {
+            return (
+                DiagnosticsPanelState::opened(),
+                KeyPreDispatchResult::Consumed {
                     flags: DirtyFlags::ALL,
+                    // Clear any active popup so the modal owns the screen
+                    // exclusively and an error popup that pre-dates the
+                    // panel doesn't keep painting underneath.
                     commands: vec![Command::DismissDiagnosticOverlay],
                     state_updates: StateUpdates::default(),
                     pending_buffer_edit: None,
-                };
-            }
-            return KeyPreDispatchResult::Pass {
+                },
+            );
+        }
+        return (
+            state.clone(),
+            KeyPreDispatchResult::Pass {
                 commands: vec![],
                 state_updates: StateUpdates::default(),
-            };
-        }
+            },
+        );
+    }
 
-        if Self::is_close_key(key) {
-            self.close();
-            return KeyPreDispatchResult::Consumed {
+    if is_close_key(key) {
+        let mut next = state.clone();
+        next.is_open = false;
+        return (
+            next,
+            KeyPreDispatchResult::Consumed {
                 flags: DirtyFlags::ALL,
                 commands: vec![],
                 state_updates: StateUpdates::default(),
                 pending_buffer_edit: None,
-            };
-        }
+            },
+        );
+    }
 
-        // y: copy a structured representation of the selected diagnostic
-        // to the system clipboard for inclusion in bug reports.
-        if key.modifiers.is_empty() && key.key == Key::Char('y') {
-            let history = state.diagnostic_history();
-            let mut commands = Vec::new();
-            if let Some(entry) = history.entries().rev().nth(self.selected) {
-                commands.push(Command::SetClipboard(format_diagnostic_for_yank(
-                    &entry.diagnostic,
-                    state.log_path(),
-                )));
-            }
-            return KeyPreDispatchResult::Consumed {
+    // y: copy a structured representation of the selected diagnostic
+    // to the system clipboard for inclusion in bug reports.
+    if key.modifiers.is_empty() && key.key == Key::Char('y') {
+        let history = app.diagnostic_history();
+        let mut commands = Vec::new();
+        if let Some(entry) = history.entries().rev().nth(state.selected) {
+            commands.push(Command::SetClipboard(format_diagnostic_for_yank(
+                &entry.diagnostic,
+                app.log_path(),
+            )));
+        }
+        return (
+            state.clone(),
+            KeyPreDispatchResult::Consumed {
                 flags: DirtyFlags::empty(),
                 commands,
                 state_updates: StateUpdates::default(),
                 pending_buffer_edit: None,
-            };
-        }
+            },
+        );
+    }
 
-        // Enter: hand off to Kakoune to open the log file. We close the
-        // panel first so the user lands on the freshly-opened buffer.
-        if key.modifiers.is_empty() && key.key == Key::Enter {
-            let mut commands = Vec::new();
-            if let Some(path) = state.log_path() {
-                let resolved = resolve_active_log_file(path);
-                if let Some(path_str) = resolved.to_str() {
-                    commands.push(Command::kakoune_command(&format!("edit {path_str}")));
-                }
+    // Enter: hand off to Kakoune to open the log file. We close the
+    // panel first so the user lands on the freshly-opened buffer.
+    if key.modifiers.is_empty() && key.key == Key::Enter {
+        let mut commands = Vec::new();
+        if let Some(path) = app.log_path() {
+            let resolved = resolve_active_log_file(path);
+            if let Some(path_str) = resolved.to_str() {
+                commands.push(Command::kakoune_command(&format!("edit {path_str}")));
             }
-            self.close();
-            return KeyPreDispatchResult::Consumed {
+        }
+        let mut next = state.clone();
+        next.is_open = false;
+        return (
+            next,
+            KeyPreDispatchResult::Consumed {
                 flags: DirtyFlags::ALL,
                 commands,
                 state_updates: StateUpdates::default(),
                 pending_buffer_edit: None,
-            };
-        }
+            },
+        );
+    }
 
-        if let Some(action) = Self::nav_action_for(key) {
-            let total = state.diagnostic_history().len();
-            let viewport = panel_layout(state.cols(), state.rows())
-                .map(|l| l.entry_rows as usize)
-                .unwrap_or(0);
-            let (sel, off) =
-                Self::navigate(action, total, viewport, self.selected, self.scroll_offset);
-            self.selected = sel;
-            self.scroll_offset = off;
-        }
-        // All other keys are swallowed to keep the modal modal.
+    let mut next = state.clone();
+    if let Some(action) = nav_action_for(key) {
+        let total = app.diagnostic_history().len();
+        let viewport = panel_layout(app.cols(), app.rows())
+            .map(|l| l.entry_rows as usize)
+            .unwrap_or(0);
+        let (sel, off) = navigate(action, total, viewport, state.selected, state.scroll_offset);
+        next.selected = sel;
+        next.scroll_offset = off;
+    }
+    // All other keys are swallowed to keep the modal modal.
+    (
+        next,
         KeyPreDispatchResult::Consumed {
             flags: DirtyFlags::ALL,
             commands: vec![],
             state_updates: StateUpdates::default(),
             pending_buffer_edit: None,
-        }
+        },
+    )
+}
+
+/// Pure overlay-building logic shared between the registered handler and tests.
+fn build_overlay(state: &DiagnosticsPanelState, app: &AppView<'_>) -> Option<OverlayContribution> {
+    if !state.is_open {
+        return None;
+    }
+    let cols = app.cols();
+    let rows = app.rows();
+    let history = app.diagnostic_history();
+    let log_path = app.log_path().and_then(|p| p.to_str().map(str::to_owned));
+    let layout = panel_layout(cols, rows)?;
+    let element = build_panel_element(
+        history,
+        state.selected,
+        state.scroll_offset,
+        log_path.as_deref(),
+        &layout,
+        Instant::now(),
+    );
+    Some(OverlayContribution {
+        element,
+        anchor: OverlayAnchor::Absolute {
+            x: layout.x,
+            y: layout.y,
+            w: layout.w,
+            h: layout.h,
+        },
+        z_index: PANEL_Z_INDEX,
+        plugin_id: PluginId("kasane.builtin.diagnostics_panel".into()),
+    })
+}
+
+#[derive(Default)]
+pub struct BuiltinDiagnosticsPanelPlugin;
+
+impl Plugin for BuiltinDiagnosticsPanelPlugin {
+    type State = DiagnosticsPanelState;
+
+    fn id(&self) -> PluginId {
+        PluginId("kasane.builtin.diagnostics_panel".into())
     }
 
-    fn contribute_overlay_with_ctx(
-        &self,
-        state: &AppView<'_>,
-        _ctx: &OverlayContext,
-    ) -> Option<OverlayContribution> {
-        if !self.is_open {
-            return None;
-        }
-        let cols = state.cols();
-        let rows = state.rows();
-        let history = state.diagnostic_history();
-        let log_path = state.log_path().and_then(|p| p.to_str().map(str::to_owned));
-        let layout = panel_layout(cols, rows)?;
-        let element = build_panel_element(
-            history,
-            self.selected,
-            self.scroll_offset,
-            log_path.as_deref(),
-            &layout,
-            Instant::now(),
-        );
-        Some(OverlayContribution {
-            element,
-            anchor: OverlayAnchor::Absolute {
-                x: layout.x,
-                y: layout.y,
-                w: layout.w,
-                h: layout.h,
-            },
-            z_index: PANEL_Z_INDEX,
-            plugin_id: PluginId("kasane.builtin.diagnostics_panel".into()),
-        })
+    fn register(&self, r: &mut HandlerRegistry<DiagnosticsPanelState>) {
+        r.on_key_pre_dispatch(handle_key);
+        r.on_overlay(|state, app, _ctx| build_overlay(state, app));
     }
 }
 
@@ -787,198 +811,183 @@ mod tests {
         matches!(result, KeyPreDispatchResult::Consumed { .. })
     }
 
+    fn closed_state() -> DiagnosticsPanelState {
+        DiagnosticsPanelState::default()
+    }
+
+    fn open_state() -> DiagnosticsPanelState {
+        DiagnosticsPanelState::opened()
+    }
+
     #[test]
     fn closed_passes_unrelated_keys() {
-        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
-        let state = kasane_core::state::AppState::default();
-        let view = AppView::new(&state);
-        let result = plugin.handle_key_pre_dispatch(&ev(Key::Char('a'), Modifiers::empty()), &view);
+        let state = closed_state();
+        let app_state = kasane_core::state::AppState::default();
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Char('a'), Modifiers::empty()), &view);
         assert!(passes(&result));
-        assert!(!plugin.is_open);
+        assert!(!next.is_open);
     }
 
     #[test]
     fn closed_consumes_toggle_key_and_opens() {
-        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
-        let state = kasane_core::state::AppState::default();
-        let view = AppView::new(&state);
-        let result = plugin.handle_key_pre_dispatch(&ev(Key::Char('?'), Modifiers::CTRL), &view);
-        match &result {
-            KeyPreDispatchResult::Consumed { commands, .. } => {
-                assert_eq!(
-                    commands.len(),
-                    1,
-                    "open should emit DismissDiagnosticOverlay"
-                );
-                assert_eq!(commands[0].variant_name(), "DismissDiagnosticOverlay");
-            }
-            _ => panic!("expected Consumed"),
-        }
-        assert!(plugin.is_open);
-        assert_eq!(plugin.selected, 0);
-        assert_eq!(plugin.scroll_offset, 0);
+        let state = closed_state();
+        let app_state = kasane_core::state::AppState::default();
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Char('?'), Modifiers::CTRL), &view);
+        assert!(consumed(&result));
+        assert!(next.is_open);
+        assert_eq!(next.selected, 0);
+        assert_eq!(next.scroll_offset, 0);
     }
 
     #[test]
     fn open_consumes_all_keys() {
-        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
-        plugin.is_open = true;
-        let state = kasane_core::state::AppState::default();
-        let view = AppView::new(&state);
-        let result = plugin.handle_key_pre_dispatch(&ev(Key::Char('a'), Modifiers::empty()), &view);
+        let state = open_state();
+        let app_state = kasane_core::state::AppState::default();
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Char('a'), Modifiers::empty()), &view);
         assert!(consumed(&result));
-        assert!(plugin.is_open);
+        assert!(next.is_open);
     }
 
     #[test]
     fn open_esc_closes() {
-        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
-        plugin.is_open = true;
-        let state = kasane_core::state::AppState::default();
-        let view = AppView::new(&state);
-        let result = plugin.handle_key_pre_dispatch(&ev(Key::Escape, Modifiers::empty()), &view);
+        let state = open_state();
+        let app_state = kasane_core::state::AppState::default();
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Escape, Modifiers::empty()), &view);
         assert!(consumed(&result));
-        assert!(!plugin.is_open);
+        assert!(!next.is_open);
     }
 
     #[test]
     fn open_q_closes() {
-        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
-        plugin.is_open = true;
-        let state = kasane_core::state::AppState::default();
-        let view = AppView::new(&state);
-        let result = plugin.handle_key_pre_dispatch(&ev(Key::Char('q'), Modifiers::empty()), &view);
+        let state = open_state();
+        let app_state = kasane_core::state::AppState::default();
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Char('q'), Modifiers::empty()), &view);
         assert!(consumed(&result));
-        assert!(!plugin.is_open);
+        assert!(!next.is_open);
     }
 
     #[test]
     fn open_toggle_closes() {
-        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
-        plugin.is_open = true;
-        let state = kasane_core::state::AppState::default();
-        let view = AppView::new(&state);
-        let result = plugin.handle_key_pre_dispatch(&ev(Key::Char('?'), Modifiers::CTRL), &view);
+        let state = open_state();
+        let app_state = kasane_core::state::AppState::default();
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Char('?'), Modifiers::CTRL), &view);
         assert!(consumed(&result));
-        assert!(!plugin.is_open);
+        assert!(!next.is_open);
     }
 
     #[test]
     fn closed_does_not_consume_q() {
-        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
-        let state = kasane_core::state::AppState::default();
-        let view = AppView::new(&state);
-        let result = plugin.handle_key_pre_dispatch(&ev(Key::Char('q'), Modifiers::empty()), &view);
+        let state = closed_state();
+        let app_state = kasane_core::state::AppState::default();
+        let view = AppView::new(&app_state);
+        let (_, result) = handle_key(&state, &ev(Key::Char('q'), Modifiers::empty()), &view);
         assert!(passes(&result));
     }
 
-    // -------------------------------------------------------------------
-    // Navigation pure-function tests
-    // -------------------------------------------------------------------
-
     #[test]
     fn navigate_empty_history_is_noop() {
-        let (s, o) = BuiltinDiagnosticsPanelPlugin::navigate(NavAction::Down(1), 0, 5, 0, 0);
+        let (s, o) = navigate(NavAction::Down(1), 0, 5, 0, 0);
         assert_eq!((s, o), (0, 0));
     }
 
     #[test]
     fn navigate_down_within_viewport_keeps_scroll() {
-        let (s, o) = BuiltinDiagnosticsPanelPlugin::navigate(NavAction::Down(1), 10, 5, 0, 0);
+        let (s, o) = navigate(NavAction::Down(1), 10, 5, 0, 0);
         assert_eq!((s, o), (1, 0));
     }
 
     #[test]
     fn navigate_down_past_viewport_advances_scroll() {
-        let (s, o) = BuiltinDiagnosticsPanelPlugin::navigate(NavAction::Down(1), 10, 5, 4, 0);
+        let (s, o) = navigate(NavAction::Down(1), 10, 5, 4, 0);
         assert_eq!((s, o), (5, 1));
     }
 
     #[test]
     fn navigate_up_into_scroll_pulls_scroll_back() {
-        let (s, o) = BuiltinDiagnosticsPanelPlugin::navigate(NavAction::Up(1), 10, 5, 5, 5);
+        let (s, o) = navigate(NavAction::Up(1), 10, 5, 5, 5);
         assert_eq!((s, o), (4, 4));
     }
 
     #[test]
     fn navigate_clamps_to_bounds() {
-        let (s, _) = BuiltinDiagnosticsPanelPlugin::navigate(NavAction::Down(100), 10, 5, 0, 0);
+        let (s, _) = navigate(NavAction::Down(100), 10, 5, 0, 0);
         assert_eq!(s, 9);
-        let (s2, _) = BuiltinDiagnosticsPanelPlugin::navigate(NavAction::Up(100), 10, 5, 9, 5);
+        let (s2, _) = navigate(NavAction::Up(100), 10, 5, 9, 5);
         assert_eq!(s2, 0);
     }
 
     #[test]
     fn navigate_top_and_bottom() {
-        let (s, o) = BuiltinDiagnosticsPanelPlugin::navigate(NavAction::Top, 10, 5, 9, 5);
+        let (s, o) = navigate(NavAction::Top, 10, 5, 9, 5);
         assert_eq!((s, o), (0, 0));
-        let (s2, o2) = BuiltinDiagnosticsPanelPlugin::navigate(NavAction::Bottom, 10, 5, 0, 0);
+        let (s2, o2) = navigate(NavAction::Bottom, 10, 5, 0, 0);
         assert_eq!((s2, o2), (9, 5));
     }
 
     #[test]
     fn enter_emits_no_commands_when_log_path_unset() {
-        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
-        plugin.is_open = true;
-        let state = kasane_core::state::AppState::default();
-        // RuntimeState::log_path defaults to None.
-        let view = AppView::new(&state);
-        let result = plugin.handle_key_pre_dispatch(&ev(Key::Enter, Modifiers::empty()), &view);
+        let state = open_state();
+        let app_state = kasane_core::state::AppState::default();
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Enter, Modifiers::empty()), &view);
         match result {
             KeyPreDispatchResult::Consumed { commands, .. } => {
                 assert!(commands.is_empty());
             }
             _ => panic!("expected Consumed"),
         }
-        assert!(!plugin.is_open, "enter should close the panel");
+        assert!(!next.is_open, "enter should close the panel");
     }
 
     #[test]
     fn enter_with_log_path_emits_kakoune_command_and_closes() {
-        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
-        plugin.is_open = true;
-        let mut state = kasane_core::state::AppState::default();
-        state.runtime.log_path = Some(std::path::PathBuf::from("/nonexistent/path/kasane.log"));
-        let view = AppView::new(&state);
-        let result = plugin.handle_key_pre_dispatch(&ev(Key::Enter, Modifiers::empty()), &view);
+        let state = open_state();
+        let mut app_state = kasane_core::state::AppState::default();
+        app_state.runtime.log_path = Some(std::path::PathBuf::from("/nonexistent/path/kasane.log"));
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Enter, Modifiers::empty()), &view);
         match result {
             KeyPreDispatchResult::Consumed { commands, .. } => {
                 assert_eq!(commands.len(), 1, "should emit one Kakoune command");
             }
             _ => panic!("expected Consumed"),
         }
-        assert!(!plugin.is_open);
+        assert!(!next.is_open);
     }
 
     #[test]
     fn yank_with_no_history_emits_no_command() {
-        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
-        plugin.is_open = true;
-        let state = kasane_core::state::AppState::default();
-        let view = AppView::new(&state);
-        let result = plugin.handle_key_pre_dispatch(&ev(Key::Char('y'), Modifiers::empty()), &view);
+        let state = open_state();
+        let app_state = kasane_core::state::AppState::default();
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Char('y'), Modifiers::empty()), &view);
         match result {
             KeyPreDispatchResult::Consumed { commands, .. } => {
                 assert!(commands.is_empty());
             }
             _ => panic!("expected Consumed"),
         }
-        assert!(plugin.is_open, "y must not close the panel");
+        assert!(next.is_open, "y must not close the panel");
     }
 
     #[test]
     fn yank_with_history_emits_set_clipboard_command() {
-        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
-        plugin.is_open = true;
-        let mut state = kasane_core::state::AppState::default();
-        state.runtime.diagnostic_history.record(&[
+        let state = open_state();
+        let mut app_state = kasane_core::state::AppState::default();
+        app_state.runtime.diagnostic_history.record(&[
             kasane_core::plugin::diagnostics::PluginDiagnostic::instantiation_failed(
                 kasane_core::plugin::PluginId("session-ui".into()),
                 "wasm trap: unreachable",
             ),
         ]);
-        let view = AppView::new(&state);
-        let result = plugin.handle_key_pre_dispatch(&ev(Key::Char('y'), Modifiers::empty()), &view);
+        let view = AppView::new(&app_state);
+        let (next, result) = handle_key(&state, &ev(Key::Char('y'), Modifiers::empty()), &view);
         match result {
             KeyPreDispatchResult::Consumed { commands, .. } => {
                 assert_eq!(commands.len(), 1);
@@ -993,7 +1002,7 @@ mod tests {
             }
             _ => panic!("expected Consumed"),
         }
-        assert!(plugin.is_open);
+        assert!(next.is_open);
     }
 
     #[test]
@@ -1005,27 +1014,27 @@ mod tests {
     #[test]
     fn nav_action_recognized_for_arrows_and_letters() {
         assert_eq!(
-            BuiltinDiagnosticsPanelPlugin::nav_action_for(&ev(Key::Down, Modifiers::empty())),
+            nav_action_for(&ev(Key::Down, Modifiers::empty())),
             Some(NavAction::Down(1))
         );
         assert_eq!(
-            BuiltinDiagnosticsPanelPlugin::nav_action_for(&ev(Key::Char('j'), Modifiers::empty())),
+            nav_action_for(&ev(Key::Char('j'), Modifiers::empty())),
             Some(NavAction::Down(1))
         );
         assert_eq!(
-            BuiltinDiagnosticsPanelPlugin::nav_action_for(&ev(Key::Char('k'), Modifiers::empty())),
+            nav_action_for(&ev(Key::Char('k'), Modifiers::empty())),
             Some(NavAction::Up(1))
         );
         assert_eq!(
-            BuiltinDiagnosticsPanelPlugin::nav_action_for(&ev(Key::Char('G'), Modifiers::empty())),
+            nav_action_for(&ev(Key::Char('G'), Modifiers::empty())),
             Some(NavAction::Bottom)
         );
         assert_eq!(
-            BuiltinDiagnosticsPanelPlugin::nav_action_for(&ev(Key::Char('d'), Modifiers::CTRL)),
+            nav_action_for(&ev(Key::Char('d'), Modifiers::CTRL)),
             Some(NavAction::Down(10))
         );
         assert_eq!(
-            BuiltinDiagnosticsPanelPlugin::nav_action_for(&ev(Key::Char('a'), Modifiers::empty())),
+            nav_action_for(&ev(Key::Char('a'), Modifiers::empty())),
             None
         );
     }

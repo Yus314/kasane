@@ -30,7 +30,7 @@ pub fn builtin_plugin_factories() -> Vec<Arc<dyn PluginFactory>> {
         builtin_plugin(
             "builtin-diagnostics-panel",
             "kasane.builtin.diagnostics_panel",
-            diagnostics_panel::BuiltinDiagnosticsPanelPlugin::default,
+            || PluginBridge::new(diagnostics_panel::BuiltinDiagnosticsPanelPlugin),
         ),
         builtin_plugin(
             "builtin-shadow-cursor",
