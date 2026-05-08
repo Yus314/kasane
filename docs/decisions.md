@@ -5009,8 +5009,51 @@ contraction). Total estimate ~12 working days; parallelisable to
 - The `Atom::from_wire` / `Atom::with_style` semantic split is
   retired in favour of explicit `Style::with_final_*` builders;
   the wire parser path becomes a single-purpose internal helper.
-- `WireFace` becomes `pub(in crate::protocol)`; the wire-format
-  type leaves the plugin surface entirely.
+- `WireFace` becomes `#[doc(hidden)] pub` (the literal
+  `pub(in crate::protocol)` target is rejected — see Plan B
+  execution note below). The wire-format type is removed from
+  `plugin_prelude` and is invisible from rendered API docs.
+
+### Plan B execution (2026-05-08, P7+P9 expansion)
+
+The original P7 ("WireFace full visibility downgrade") was
+estimated at 1 day. Discovery during execution revealed the
+real scope: ~200 occurrences of `WireFace { ... }` literals
+across the workspace, plus 12 kasane-core public API surfaces
+holding `face: WireFace` fields (`DisplayDirective::StyleInline`/
+`StyleLine`, `InlineOp::Style`, `CursorEffectOrn`, `SurfaceOrn`,
+`ContainerPaintInfo`, `Command::RegisterThemeTokens`, etc.).
+
+Plan B (8 PRs, ~2.5 days) executed the full migration:
+
+- PR1 `7020bc52`: `Element::text(WireFace)` → `(Style)` unification
+- PR2 `c84933c8`: diagnostic overlay primitives → Style
+- PR3 `5f3cee58`: `ColorResolver` WireFace API removal
+- PR4 `519dec14`: IME preedit overlay → Style
+- PR5 `be7b25de`: bench/test fixtures → Style
+- PR6 (`6c11adec`+`7ebb643a`): DisplayDirective + InlineOp + lens
+  + ornament types + Container + RegisterThemeTokens → Style;
+  `wit_style_to_face` deleted
+- PR7 `ec95e691`: `Atom::from_wire` → `pub(crate)` (the original
+  P9; merged into the Plan B sequence since P7's cascade already
+  forced ~60 callers off the public API)
+- PR8 (this commit): `WireFace` removed from `plugin_prelude`;
+  `Atom::from_wire` doc updated; roadmap §2.2 closed; memory
+  updated.
+
+The literal `pub(in crate::protocol)` step (b) was not pursued:
+- The remaining external `WireFace` consumers are
+  `kasane-tui benches/backend.rs::WireAtomBench` (JSON wire
+  encoder) and `kasane-wasm convert/tests` (WIT round-trip).
+- Both legitimately mirror the on-the-wire JSON layout that
+  Kakoune emits; suppressing them would require either moving
+  the helpers into `kasane-core::test_support` (cross-crate
+  refactor with no payoff — these are bench/test code only) or
+  duplicating the four-field struct in those crates.
+- `#[doc(hidden)] pub` already hides `WireFace` from rendered
+  API docs and from `plugin_prelude`, so plugin authors never
+  see it. The hardened goal is met without the additional
+  restructure.
 
 ### Acceptance Evidence
 

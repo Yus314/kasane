@@ -50,18 +50,15 @@ use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::layout::Rect;
 use kasane_core::protocol::{
     Atom, Brush, Color, DecorationStyle, FontFeatures, FontSlant, FontVariation, FontWeight,
-    NamedColor, Style, TextDecoration, UnresolvedStyle, WireFace,
+    NamedColor, Style, TextDecoration, UnresolvedStyle,
 };
 
 // ---------------------------------------------------------------------------
 // Brush / Style conversions (WIT ↔ native)
 // ---------------------------------------------------------------------------
 //
-// ADR-031 Phase 4 (commit a56ddbb0): the wire format now uses `Style`
-// (post-resolve) and `Brush` (paint source) instead of the legacy
-// `WireFace` + `Color`. Host code that hasn't migrated still consumes
-// native `WireFace`; the bridge functions below route through `Style` on
-// the wire side and `WireFace` on the native side.
+// The wire format uses `Style` (post-resolve) and `Brush` (paint source).
+// Native host code consumes `Style` end-to-end after R2.x P7.
 
 bidirectional_enum! {
     wit_named_to_named: wit::NamedColor => NamedColor,
