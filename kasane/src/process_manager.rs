@@ -437,6 +437,24 @@ impl ProcessManager {
         self.per_plugin_count.clear();
     }
 
+    /// Abort and forget every job owned by `plugin_id`. Called when the
+    /// plugin is unloaded so its child processes are killed and the
+    /// per-plugin slot count is reset for any future re-load.
+    pub fn kill_all_for_plugin(&mut self, plugin_id: &PluginId) {
+        let keys: Vec<(PluginId, u64)> = self
+            .jobs
+            .keys()
+            .filter(|(pid, _)| pid == plugin_id)
+            .cloned()
+            .collect();
+        for key in keys {
+            if let Some(handle) = self.jobs.remove(&key) {
+                handle.abort_handle.abort();
+            }
+        }
+        self.per_plugin_count.remove(plugin_id);
+    }
+
     /// Remove finished jobs from tracking (called when Exited/SpawnFailed is delivered).
     pub fn remove_finished_job(&mut self, plugin_id: &PluginId, job_id: u64) {
         let key = (plugin_id.clone(), job_id);
@@ -484,6 +502,10 @@ impl ProcessDispatcher for ProcessManager {
         ProcessManager::remove_finished_job(self, plugin_id, job_id);
     }
 
+    fn kill_all_for_plugin(&mut self, plugin_id: &PluginId) {
+        ProcessManager::kill_all_for_plugin(self, plugin_id);
+    }
+
     fn shutdown(&mut self) {
         ProcessManager::shutdown(self);
     }
@@ -508,6 +530,10 @@ mod tests {
 
         fn events(&self) -> Vec<(PluginId, IoEvent)> {
             self.events.lock().unwrap().clone()
+        }
+
+        fn clear(&self) {
+            self.events.lock().unwrap().clear();
         }
 
         fn wait_for_events(&self, count: usize, timeout_ms: u64) -> Vec<(PluginId, IoEvent)> {
@@ -650,6 +676,68 @@ mod tests {
 
         // The task was aborted, so the job is removed
         assert!(!mgr.jobs.contains_key(&(test_plugin_id(), 1)));
+    }
+
+    #[test]
+    fn kill_all_for_plugin_aborts_only_that_plugin() {
+        let sink = TestSink::new();
+        let (_rt, mut mgr) = create_manager(sink.clone());
+
+        let alpha = PluginId("alpha".to_string());
+        let beta = PluginId("beta".to_string());
+
+        mgr.spawn_process(&alpha, 1, "sleep", &["60".into()], StdinMode::Null);
+        mgr.spawn_process(&alpha, 2, "sleep", &["60".into()], StdinMode::Null);
+        mgr.spawn_process(&beta, 1, "sleep", &["60".into()], StdinMode::Null);
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        assert_eq!(mgr.per_plugin_count.get(&alpha).copied(), Some(2));
+        assert_eq!(mgr.per_plugin_count.get(&beta).copied(), Some(1));
+
+        mgr.kill_all_for_plugin(&alpha);
+
+        assert!(!mgr.jobs.contains_key(&(alpha.clone(), 1)));
+        assert!(!mgr.jobs.contains_key(&(alpha.clone(), 2)));
+        assert!(mgr.jobs.contains_key(&(beta.clone(), 1)));
+        assert!(mgr.per_plugin_count.get(&alpha).is_none());
+        assert_eq!(mgr.per_plugin_count.get(&beta).copied(), Some(1));
+    }
+
+    #[test]
+    fn kill_all_for_plugin_resets_per_plugin_count() {
+        let sink = TestSink::new();
+        let (_rt, mut mgr) = create_manager(sink.clone());
+
+        // Saturate the per-plugin limit.
+        for i in 0..MAX_PROCESSES_PER_PLUGIN {
+            mgr.spawn_process(
+                &test_plugin_id(),
+                i as u64,
+                "sleep",
+                &["60".into()],
+                StdinMode::Null,
+            );
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Simulate plugin unload: the runtime calls kill_all_for_plugin and
+        // the slot count must reset so a re-loaded instance can spawn again.
+        mgr.kill_all_for_plugin(&test_plugin_id());
+
+        // A fresh spawn after cleanup should succeed instead of hitting the
+        // per-plugin limit.
+        sink.clear();
+        mgr.spawn_process(&test_plugin_id(), 99, "true", &[], StdinMode::Null);
+        let events = sink.events();
+        let has_limit_error = events.iter().any(|(_, e)| {
+            matches!(e, IoEvent::Process(ProcessEvent::SpawnFailed { error, .. }) if error.contains("per-plugin"))
+        });
+        assert!(
+            !has_limit_error,
+            "spawn after kill_all_for_plugin should not hit per-plugin limit"
+        );
     }
 
     #[test]

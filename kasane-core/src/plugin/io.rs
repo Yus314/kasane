@@ -141,6 +141,14 @@ pub trait ProcessDispatcher {
     /// Remove a finished job from tracking after its Exited or SpawnFailed event
     /// has been delivered. This frees the per-plugin process count slot.
     fn remove_finished_job(&mut self, plugin_id: &PluginId, job_id: u64);
+    /// Kill every running process owned by a plugin and forget its tracking
+    /// state. Called when the plugin is unloaded so its child processes don't
+    /// outlive the plugin instance and so the per-plugin process count is
+    /// reset for any future re-load.
+    ///
+    /// Default: no-op (suitable for dispatchers that don't track process
+    /// ownership, e.g. the null implementation used in tests).
+    fn kill_all_for_plugin(&mut self, _plugin_id: &PluginId) {}
     /// Abort all running processes. Called during shutdown.
     fn shutdown(&mut self) {}
 }

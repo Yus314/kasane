@@ -694,6 +694,14 @@ where
     // Composable Lenses auto-wire: drop lens entries owned by
     // unloaded plugins and re-register from the new set.
     ctx.registry.sync_lenses(&mut ctx.state.lens_registry);
+    // Kill child processes owned by removed plugins so they don't outlive
+    // the plugin instance and so per-plugin process slots are reset for
+    // any future re-load.
+    for delta in &reload.deltas {
+        if delta.is_removed() || delta.is_replaced() {
+            ctx.process_dispatcher.kill_all_for_plugin(&delta.id);
+        }
+    }
     report_plugin_diagnostics(&reload.diagnostics);
     schedule_diagnostic_overlay(
         &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(ctx.session_tx.clone())),

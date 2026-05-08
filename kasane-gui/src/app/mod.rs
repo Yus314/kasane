@@ -902,6 +902,13 @@ where
                 // owned by unloaded plugins and re-register from
                 // the new set.
                 self.registry.sync_lenses(&mut self.state.lens_registry);
+                // Kill child processes owned by removed/replaced plugins
+                // so they don't outlive the plugin instance.
+                for delta in &reload.deltas {
+                    if delta.is_removed() || delta.is_replaced() {
+                        self.process_dispatcher.kill_all_for_plugin(&delta.id);
+                    }
+                }
                 report_plugin_diagnostics(&reload.diagnostics);
                 schedule_diagnostic_overlay(
                     &kasane_core::event_loop::GenericDiagnosticScheduler(self.gui_sink.clone()),
