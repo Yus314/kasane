@@ -1115,11 +1115,10 @@ mod tests {
 // =============================================================================
 
 use crate::display::InteractionPolicy;
-use crate::input::MouseEvent;
 use crate::plugin::{
-    AppView, BuiltinTarget, CursorPositionOrn, Effects, FrameworkAccess, KeyPreDispatchResult,
-    MousePreDispatchResult, OrnamentBatch, OrnamentModality, PluginBackend, PluginCapabilities,
-    RenderOrnamentContext, TextInputPreDispatchResult,
+    BuiltinTarget, CursorPositionOrn, Effects, FrameworkAccess, HandlerRegistry,
+    KeyPreDispatchResult, MousePreDispatchResult, OrnamentBatch, OrnamentModality, Plugin,
+    StateUpdates, TextInputPreDispatchResult,
 };
 
 /// Builtin plugin that implements the shadow cursor key/text pre-dispatch.
@@ -1129,260 +1128,258 @@ use crate::plugin::{
 /// `Effects::state_updates.shadow_cursor` (R4 typed channel).
 pub struct BuiltinShadowCursorPlugin;
 
-crate::impl_migrated_caps_default!(BuiltinShadowCursorPlugin);
+impl Plugin for BuiltinShadowCursorPlugin {
+    type State = ();
 
-impl PluginBackend for BuiltinShadowCursorPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.shadow_cursor".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::KEY_PRE_DISPATCH
-            | PluginCapabilities::MOUSE_PRE_DISPATCH
-            | PluginCapabilities::RENDER_ORNAMENT
-    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.declare_interests(DirtyFlags::BUFFER_CONTENT);
 
-    fn on_state_changed_effects(&mut self, state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
-        if !dirty.contains(DirtyFlags::BUFFER_CONTENT) {
-            return Effects::default();
-        }
-        let app = state.as_app_state();
-        let shadow = match app.runtime.shadow_cursor.as_ref() {
-            Some(s) => s,
-            None => return Effects::default(),
-        };
-        if let Some(dum) = &app.runtime.display_unit_map {
-            if let Some(unit) = dum.unit_at_line(shadow.display_line) {
-                if let crate::display::UnitSource::ProjectedLine { anchor, .. } = &unit.source {
-                    if app
-                        .inference
-                        .lines_dirty
-                        .get(*anchor)
-                        .copied()
-                        .unwrap_or(true)
-                    {
-                        return Effects::default().with_shadow_cursor(None);
+        r.on_state_changed(|_state, app, dirty| {
+            if !dirty.contains(DirtyFlags::BUFFER_CONTENT) {
+                return ((), Effects::default());
+            }
+            let app_state = app.as_app_state();
+            let shadow = match app_state.runtime.shadow_cursor.as_ref() {
+                Some(s) => s,
+                None => return ((), Effects::default()),
+            };
+            if let Some(dum) = &app_state.runtime.display_unit_map {
+                if let Some(unit) = dum.unit_at_line(shadow.display_line) {
+                    if let crate::display::UnitSource::ProjectedLine { anchor, .. } = &unit.source {
+                        if app_state
+                            .inference
+                            .lines_dirty
+                            .get(*anchor)
+                            .copied()
+                            .unwrap_or(true)
+                        {
+                            return ((), Effects::default().with_shadow_cursor(None));
+                        }
+                    } else {
+                        return ((), Effects::default().with_shadow_cursor(None));
                     }
                 } else {
-                    // Display unit no longer projected -> deactivate
-                    return Effects::default().with_shadow_cursor(None);
+                    return ((), Effects::default().with_shadow_cursor(None));
                 }
-            } else {
-                // Display line no longer exists -> deactivate
-                return Effects::default().with_shadow_cursor(None);
             }
-        }
-        Effects::default()
-    }
+            ((), Effects::default())
+        });
 
-    fn handle_key_pre_dispatch(
-        &mut self,
-        key: &KeyEvent,
-        state: &AppView<'_>,
-    ) -> KeyPreDispatchResult {
-        let app_state = state.as_app_state();
-        let shadow = match app_state.runtime.shadow_cursor.as_ref() {
-            Some(s) => s,
-            None => {
-                return KeyPreDispatchResult::Pass {
-                    commands: vec![],
-                    state_updates: crate::plugin::StateUpdates::default(),
-                };
-            }
-        };
+        r.on_key_pre_dispatch(|_state, key, app| {
+            let app_state = app.as_app_state();
+            let shadow = match app_state.runtime.shadow_cursor.as_ref() {
+                Some(s) => s,
+                None => {
+                    return (
+                        (),
+                        KeyPreDispatchResult::Pass {
+                            commands: vec![],
+                            state_updates: StateUpdates::default(),
+                        },
+                    );
+                }
+            };
 
-        let display_line = shadow.display_line;
-        let span_index = shadow.span_index;
+            let display_line = shadow.display_line;
+            let span_index = shadow.span_index;
 
-        // Get the span text for transitioning from Navigating → Editing
-        let span_text = app_state
-            .runtime
-            .display_map
-            .as_ref()
-            .and_then(|dm| {
-                let entry = dm.entry(crate::display::DisplayLine(display_line))?;
-                let syn = entry.synthetic()?;
-                Some(syn.text())
-            })
-            .unwrap_or_default();
-
-        let mut shadow_mut = shadow.clone();
-        let current_version = {
-            use crate::history::HistoryBackend;
-            app_state.history.current_version()
-        };
-        match handle_shadow_cursor_key(&mut shadow_mut, key, &span_text, current_version) {
-            ShadowKeyResult::Consumed(flags) => KeyPreDispatchResult::Consumed {
-                flags,
-                commands: vec![],
-                state_updates: crate::plugin::StateUpdates {
-                    shadow_cursor: Some(Some(shadow_mut)),
-                    ..Default::default()
-                },
-                pending_buffer_edit: None,
-            },
-            ShadowKeyResult::Deactivate => KeyPreDispatchResult::Pass {
-                commands: vec![],
-                state_updates: crate::plugin::StateUpdates {
-                    shadow_cursor: Some(None),
-                    ..Default::default()
-                },
-            },
-            ShadowKeyResult::Commit(_) => {
-                // ADR-035 ShadowCursor follow-up: surface the algebraic
-                // BufferEdit for intercept-chain dispatch instead of
-                // pre-serializing. The dispatch loop runs
-                // `intercept_buffer_edit` across registered plugins,
-                // folds verdicts, and serializes the final edit (if any)
-                // into Kakoune commands before the dispatch result
-                // bubbles up.
-                let pending_buffer_edit = app_state.runtime.display_map.as_ref().and_then(|dm| {
+            let span_text = app_state
+                .runtime
+                .display_map
+                .as_ref()
+                .and_then(|dm| {
                     let entry = dm.entry(crate::display::DisplayLine(display_line))?;
-                    if let crate::display::SourceMapping::Projected { spans, .. } = entry.source() {
-                        let span = spans.get(span_index)?;
-                        mirror_edit(&shadow_mut, span, app_state.observed.lines.len())
-                    } else {
-                        None
+                    let syn = entry.synthetic()?;
+                    Some(syn.text())
+                })
+                .unwrap_or_default();
+
+            let mut shadow_mut = shadow.clone();
+            let current_version = {
+                use crate::history::HistoryBackend;
+                app_state.history.current_version()
+            };
+            let result =
+                match handle_shadow_cursor_key(&mut shadow_mut, key, &span_text, current_version) {
+                    ShadowKeyResult::Consumed(flags) => KeyPreDispatchResult::Consumed {
+                        flags,
+                        commands: vec![],
+                        state_updates: StateUpdates {
+                            shadow_cursor: Some(Some(shadow_mut)),
+                            ..Default::default()
+                        },
+                        pending_buffer_edit: None,
+                    },
+                    ShadowKeyResult::Deactivate => KeyPreDispatchResult::Pass {
+                        commands: vec![],
+                        state_updates: StateUpdates {
+                            shadow_cursor: Some(None),
+                            ..Default::default()
+                        },
+                    },
+                    ShadowKeyResult::Commit(_) => {
+                        // ADR-035 ShadowCursor follow-up: surface the algebraic
+                        // BufferEdit for intercept-chain dispatch instead of
+                        // pre-serializing. The dispatch loop runs
+                        // `intercept_buffer_edit` across registered plugins.
+                        let pending_buffer_edit =
+                            app_state.runtime.display_map.as_ref().and_then(|dm| {
+                                let entry = dm.entry(crate::display::DisplayLine(display_line))?;
+                                if let crate::display::SourceMapping::Projected { spans, .. } =
+                                    entry.source()
+                                {
+                                    let span = spans.get(span_index)?;
+                                    mirror_edit(&shadow_mut, span, app_state.observed.lines.len())
+                                } else {
+                                    None
+                                }
+                            });
+                        KeyPreDispatchResult::Consumed {
+                            flags: DirtyFlags::BUFFER_CONTENT,
+                            commands: vec![],
+                            state_updates: StateUpdates {
+                                shadow_cursor: Some(None),
+                                ..Default::default()
+                            },
+                            pending_buffer_edit,
+                        }
                     }
-                });
-                KeyPreDispatchResult::Consumed {
+                };
+            ((), result)
+        });
+
+        r.on_text_input_pre_dispatch(|_state, text, app| {
+            let app_state = app.as_app_state();
+            let shadow = match app_state.runtime.shadow_cursor.as_ref() {
+                Some(s) => s,
+                None => return ((), TextInputPreDispatchResult::Pass),
+            };
+
+            let mut shadow_mut = shadow.clone();
+            let result = if let ShadowPhase::Editing {
+                ref mut working_text,
+                ref mut cursor_grapheme_offset,
+                ..
+            } = shadow_mut.phase
+            {
+                let offset = *cursor_grapheme_offset;
+                let byte_pos: usize = working_text
+                    .graphemes(true)
+                    .take(offset)
+                    .map(|g| g.len())
+                    .sum();
+                working_text.insert_str(byte_pos, text);
+                *cursor_grapheme_offset += text.graphemes(true).count();
+                TextInputPreDispatchResult::Consumed {
                     flags: DirtyFlags::BUFFER_CONTENT,
                     commands: vec![],
-                    state_updates: crate::plugin::StateUpdates {
+                    state_updates: StateUpdates {
+                        shadow_cursor: Some(Some(shadow_mut)),
+                        ..Default::default()
+                    },
+                }
+            } else {
+                TextInputPreDispatchResult::Pass
+            };
+            ((), result)
+        });
+
+        r.on_mouse_pre_dispatch(|_state, event, app| {
+            let app_state = app.as_app_state();
+            if app_state.runtime.shadow_cursor.is_none() {
+                return (
+                    (),
+                    MousePreDispatchResult::Pass {
+                        commands: vec![],
+                        state_updates: StateUpdates::default(),
+                    },
+                );
+            }
+            if !matches!(event.kind, crate::input::MouseEventKind::Press(_)) {
+                return (
+                    (),
+                    MousePreDispatchResult::Pass {
+                        commands: vec![],
+                        state_updates: StateUpdates::default(),
+                    },
+                );
+            }
+            if app_state
+                .runtime
+                .suppressed_builtins
+                .contains(&BuiltinTarget::ShadowCursor)
+            {
+                return (
+                    (),
+                    MousePreDispatchResult::Pass {
+                        commands: vec![],
+                        state_updates: StateUpdates::default(),
+                    },
+                );
+            }
+            let hit_editable = app_state
+                .runtime
+                .display_unit_map
+                .as_ref()
+                .and_then(|dum| dum.hit_test(event.line, app_state.runtime.display_scroll_offset))
+                .is_some_and(|u| u.interaction == InteractionPolicy::Editable);
+            let result = if !hit_editable {
+                MousePreDispatchResult::Pass {
+                    commands: vec![],
+                    state_updates: StateUpdates {
                         shadow_cursor: Some(None),
                         ..Default::default()
                     },
-                    pending_buffer_edit,
                 }
-            }
-        }
-    }
+            } else {
+                MousePreDispatchResult::Pass {
+                    commands: vec![],
+                    state_updates: StateUpdates::default(),
+                }
+            };
+            ((), result)
+        });
 
-    fn handle_text_input_pre_dispatch(
-        &mut self,
-        text: &str,
-        state: &AppView<'_>,
-    ) -> TextInputPreDispatchResult {
-        let app_state = state.as_app_state();
-        let shadow = match app_state.runtime.shadow_cursor.as_ref() {
-            Some(s) => s,
-            None => return TextInputPreDispatchResult::Pass,
-        };
-
-        let mut shadow_mut = shadow.clone();
-        if let ShadowPhase::Editing {
-            ref mut working_text,
-            ref mut cursor_grapheme_offset,
-            ..
-        } = shadow_mut.phase
-        {
-            let offset = *cursor_grapheme_offset;
-            let byte_pos: usize = working_text
-                .graphemes(true)
-                .take(offset)
-                .map(|g| g.len())
-                .sum();
-            working_text.insert_str(byte_pos, text);
-            *cursor_grapheme_offset += text.graphemes(true).count();
-            TextInputPreDispatchResult::Consumed {
-                flags: DirtyFlags::BUFFER_CONTENT,
-                commands: vec![],
-                state_updates: crate::plugin::StateUpdates {
-                    shadow_cursor: Some(Some(shadow_mut)),
+        r.on_render_ornaments(|_state, app, ctx| {
+            let app_state = app.as_app_state();
+            let shadow = match app_state.runtime.shadow_cursor.as_ref() {
+                Some(s) => s,
+                None => return OrnamentBatch::default(),
+            };
+            if let ShadowPhase::Editing {
+                cursor_grapheme_offset,
+                working_text,
+                ..
+            } = &shadow.phase
+            {
+                use unicode_width::UnicodeWidthStr;
+                let display_col: u16 = working_text
+                    .graphemes(true)
+                    .take(*cursor_grapheme_offset)
+                    .map(|g| UnicodeWidthStr::width(g) as u16)
+                    .sum();
+                let cx = display_col + ctx.buffer_x_offset;
+                let display_scroll_offset = ctx.visible_line_start as u16;
+                let cy = (shadow.display_line as u16).saturating_sub(display_scroll_offset)
+                    + ctx.buffer_y_offset;
+                OrnamentBatch {
+                    cursor_position: Some(CursorPositionOrn {
+                        x: cx,
+                        y: cy,
+                        style: crate::render::CursorStyle::Bar,
+                        color: crate::protocol::Color::Default,
+                        priority: 100,
+                        modality: OrnamentModality::Must,
+                    }),
                     ..Default::default()
-                },
+                }
+            } else {
+                OrnamentBatch::default()
             }
-        } else {
-            TextInputPreDispatchResult::Pass
-        }
-    }
-
-    fn handle_mouse_pre_dispatch(
-        &mut self,
-        event: &MouseEvent,
-        state: &AppView<'_>,
-    ) -> MousePreDispatchResult {
-        let app = state.as_app_state();
-        if app.runtime.shadow_cursor.is_none() {
-            return MousePreDispatchResult::Pass {
-                commands: vec![],
-                state_updates: crate::plugin::StateUpdates::default(),
-            };
-        }
-        if !matches!(event.kind, crate::input::MouseEventKind::Press(_)) {
-            return MousePreDispatchResult::Pass {
-                commands: vec![],
-                state_updates: crate::plugin::StateUpdates::default(),
-            };
-        }
-        if app
-            .runtime
-            .suppressed_builtins
-            .contains(&BuiltinTarget::ShadowCursor)
-        {
-            return MousePreDispatchResult::Pass {
-                commands: vec![],
-                state_updates: crate::plugin::StateUpdates::default(),
-            };
-        }
-        let hit_editable = app
-            .runtime
-            .display_unit_map
-            .as_ref()
-            .and_then(|dum| dum.hit_test(event.line, app.runtime.display_scroll_offset))
-            .is_some_and(|u| u.interaction == InteractionPolicy::Editable);
-        if !hit_editable {
-            MousePreDispatchResult::Pass {
-                commands: vec![],
-                state_updates: crate::plugin::StateUpdates {
-                    shadow_cursor: Some(None),
-                    ..Default::default()
-                },
-            }
-        } else {
-            MousePreDispatchResult::Pass {
-                commands: vec![],
-                state_updates: crate::plugin::StateUpdates::default(),
-            }
-        }
-    }
-
-    fn render_ornaments(&self, state: &AppView<'_>, ctx: &RenderOrnamentContext) -> OrnamentBatch {
-        let app = state.as_app_state();
-        let shadow = match app.runtime.shadow_cursor.as_ref() {
-            Some(s) => s,
-            None => return OrnamentBatch::default(),
-        };
-        if let ShadowPhase::Editing {
-            cursor_grapheme_offset,
-            working_text,
-            ..
-        } = &shadow.phase
-        {
-            use unicode_width::UnicodeWidthStr;
-            // Compute display column from grapheme offset
-            let display_col: u16 = working_text
-                .graphemes(true)
-                .take(*cursor_grapheme_offset)
-                .map(|g| UnicodeWidthStr::width(g) as u16)
-                .sum();
-            let cx = display_col + ctx.buffer_x_offset;
-            let display_scroll_offset = ctx.visible_line_start as u16;
-            let cy = (shadow.display_line as u16).saturating_sub(display_scroll_offset)
-                + ctx.buffer_y_offset;
-            OrnamentBatch {
-                cursor_position: Some(CursorPositionOrn {
-                    x: cx,
-                    y: cy,
-                    style: crate::render::CursorStyle::Bar,
-                    color: crate::protocol::Color::Default,
-                    priority: 100,
-                    modality: OrnamentModality::Must,
-                }),
-                ..Default::default()
-            }
-        } else {
-            OrnamentBatch::default()
-        }
+        });
     }
 }

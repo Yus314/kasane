@@ -29,7 +29,7 @@ pub fn builtin_plugin_factories() -> Vec<Arc<dyn PluginFactory>> {
         builtin_plugin(
             "builtin-shadow-cursor",
             "kasane.builtin.shadow_cursor",
-            || shadow_cursor::BuiltinShadowCursorPlugin,
+            || PluginBridge::new(shadow_cursor::BuiltinShadowCursorPlugin),
         ),
     ]
 }
