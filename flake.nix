@@ -10,13 +10,29 @@
       url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Kasane's JSON-RPC parser requires Kakoune ≥ v2026.04.12 (the draw-with-cursor
+    # protocol — see ADR "Kakoune version: Latest stable only" and the OldProtocol
+    # error in kasane-core/src/protocol/parse.rs). nixpkgs may lag the latest
+    # tagged stable, so we pin the upstream source ourselves and override
+    # kakoune-unwrapped instead of relying on whatever pkgs.kakoune happens to ship.
+    kakoune-src = {
+      url = "github:mawww/kakoune/v2026.04.12";
+      flake = false;
+    };
   };
 
-  outputs = { nixpkgs, rust-overlay, flake-utils, git-hooks, ... }:
+  outputs = { nixpkgs, rust-overlay, flake-utils, git-hooks, kakoune-src, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
+
+        # Override nixpkgs' kakoune-unwrapped with the pinned upstream src so the
+        # PATH wrapper guarantees a Kakoune new enough for Kasane's protocol parser.
+        kakouneLatest = pkgs.kakoune-unwrapped.overrideAttrs (_old: {
+          version = "2026.04.12";
+          src = kakoune-src;
+        });
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rustfmt" "clippy" ];
           targets = [ "wasm32-unknown-unknown" "wasm32-wasip2" ];
@@ -82,7 +98,7 @@
 
           postInstall = let
             wrapArgs = lib.concatStringsSep " " ([
-              "--prefix PATH : ${lib.makeBinPath [ pkgs.kakoune ]}"
+              "--prefix PATH : ${lib.makeBinPath [ kakouneLatest ]}"
             ] ++ lib.optionals (withGui && isLinux) [
               "--prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath guiRuntimeLibs}"
             ]);
@@ -137,6 +153,7 @@
           buildInputs = [
             rustToolchain
             pkgs.pkg-config
+            kakouneLatest
           ] ++ pkgs.lib.optionals isLinux [
             pkgs.valgrind
 

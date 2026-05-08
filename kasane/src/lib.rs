@@ -152,6 +152,7 @@ fn run_inner(
     if let Some(msg) = kasane_core::config::legacy_config_warning() {
         eprintln!("{msg}");
     }
+    process::verify_kak_version()?;
     let config = Config::load();
     let _guard = setup_logging(&config);
 
