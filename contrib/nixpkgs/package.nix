@@ -21,6 +21,8 @@
 }:
 
 rustPlatform.buildRustPackage (finalAttrs: {
+  __structuredAttrs = true;
+
   pname = "kasane";
   version = "0.6.0";
 
