@@ -60,7 +60,7 @@ impl Plugin for ProjectionStatusPlugin {
             let style = app.status_default_style().clone();
 
             Some(Contribution {
-                element: Element::text_with_style(&label, style),
+                element: Element::text(&label, style),
                 priority: 900,
                 size_hint: ContribSizeHint::Auto,
             })

@@ -1882,7 +1882,7 @@ mod tests {
     fn inject_owner_replaces_unassigned() {
         let tag = PluginTag(5);
         let mut el = Element::Interactive {
-            child: Box::new(Element::text("test", crate::protocol::WireFace::default())),
+            child: Box::new(Element::text("test", crate::protocol::Style::default())),
             id: InteractiveId::unassigned(42),
         };
         inject_owner(&mut el, tag);
@@ -1900,7 +1900,7 @@ mod tests {
         let existing_tag = PluginTag(3);
         let injection_tag = PluginTag(5);
         let mut el = Element::Interactive {
-            child: Box::new(Element::text("test", crate::protocol::WireFace::default())),
+            child: Box::new(Element::text("test", crate::protocol::Style::default())),
             id: InteractiveId::new(42, existing_tag),
         };
         inject_owner(&mut el, injection_tag);

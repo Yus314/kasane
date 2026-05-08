@@ -179,7 +179,7 @@ impl PluginBackend for SurfaceProbeContributor {
                     ctx.min_width,
                     ctx.max_width.unwrap_or_default()
                 ),
-                Default::default(),
+                kasane_core::protocol::Style::default(),
             ),
             priority: 0,
             size_hint: ContribSizeHint::Auto,

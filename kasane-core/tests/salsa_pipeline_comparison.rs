@@ -373,7 +373,7 @@ impl PluginBackend for BufferTransformPlugin {
                 Element::column(vec![
                     kasane_core::element::FlexChild::fixed(Element::text(
                         "~banner~",
-                        WireFace::default(),
+                        kasane_core::protocol::Style::default(),
                     )),
                     kasane_core::element::FlexChild::flexible(element, 1.0),
                 ])

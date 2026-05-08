@@ -312,7 +312,7 @@ impl<'a> PluginView<'a> {
             right_parts.sort_by_key(|(prio, id, _)| (*prio, id.clone()));
 
             let left_cell = match left_parts.len() {
-                0 => Element::text(" ", crate::protocol::WireFace::default()),
+                0 => Element::text(" ", crate::protocol::Style::default()),
                 1 => left_parts.pop().unwrap().2,
                 _ => Element::row(
                     left_parts
@@ -324,7 +324,7 @@ impl<'a> PluginView<'a> {
             left_rows.push(FlexChild::fixed(left_cell));
 
             let right_cell = match right_parts.len() {
-                0 => Element::text(" ", crate::protocol::WireFace::default()),
+                0 => Element::text(" ", crate::protocol::Style::default()),
                 1 => right_parts.pop().unwrap().2,
                 _ => Element::row(
                     right_parts

@@ -776,7 +776,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
         content: String,
         style: bindings::kasane::plugin::types::Style,
     ) -> u32 {
-        let element = Element::text(content, convert::wit_style_to_face(&style));
+        let element = Element::text(content, convert::wit_style_to_style(&style));
         self.store_element(element)
     }
 

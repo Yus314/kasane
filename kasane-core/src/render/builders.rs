@@ -110,10 +110,7 @@ pub(crate) fn build_scrollbar(
         } else {
             track
         };
-        rows.push(FlexChild::fixed(Element::text_with_style(
-            ch,
-            style.clone(),
-        )));
+        rows.push(FlexChild::fixed(Element::text(ch, style.clone())));
     }
 
     Element::column(rows)

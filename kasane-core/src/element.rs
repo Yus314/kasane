@@ -566,22 +566,16 @@ pub enum Element {
 }
 
 impl Element {
-    /// Construct a styled text element from a wire-format [`WireFace`].
-    ///
-    /// Wire-aware: the `WireFace` is wrapped in an `UnresolvedStyle` that
-    /// preserves Kakoune's `final_*` resolution flags. New plugin /
-    /// host code that already holds a [`Style`](crate::protocol::Style)
-    /// should use [`Element::text_with_style`] instead.
-    pub fn text(s: impl Into<CompactString>, face: WireFace) -> Self {
-        Element::Text(s.into(), ElementStyle::from(face))
-    }
-
     /// Construct a styled text element from a post-resolve
-    /// [`Style`](crate::protocol::Style). The Phase B3 successor to
-    /// [`Element::text`] for plugin / host authoring code; sets all
-    /// `final_*` flags to `false`.
+    /// [`Style`](crate::protocol::Style).
+    ///
+    /// `Style` is the canonical post-resolve paint description; all
+    /// `final_*` resolution flags are dropped at this boundary. Wire-format
+    /// observation (e.g. `detect_cursors`) reads
+    /// [`UnresolvedStyle`](crate::protocol::UnresolvedStyle) directly and
+    /// does not call this constructor.
     #[inline]
-    pub fn text_with_style(s: impl Into<CompactString>, style: crate::protocol::Style) -> Self {
+    pub fn text(s: impl Into<CompactString>, style: crate::protocol::Style) -> Self {
         Element::Text(s.into(), ElementStyle::from(style))
     }
 

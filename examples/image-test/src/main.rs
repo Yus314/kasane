@@ -101,7 +101,7 @@ impl Plugin for ImageTestPlugin {
 
             // Wrap in a container with a border for visibility
             let element = Element::column(vec![
-                FlexChild::fixed(Element::text_with_style(
+                FlexChild::fixed(Element::text(
                     " Image Test ".to_string(),
                     Style {
                         fg: Brush::Named(NamedColor::Black),

@@ -209,10 +209,7 @@ fn build_info_prompt_pure(
             Some(custom) => &custom[idx],
             None => ASSISTANT_CLIPPY[idx],
         };
-        asst_rows.push(FlexChild::fixed(Element::text_with_style(
-            line_str,
-            info.face.clone(),
-        )));
+        asst_rows.push(FlexChild::fixed(Element::text(line_str, info.face.clone())));
     }
     let assistant_col = Element::column(asst_rows);
 
@@ -247,7 +244,7 @@ fn build_info_prompt_pure(
     let frame_w = win.width.saturating_sub(ASSISTANT_WIDTH);
     let base = Element::row(vec![
         FlexChild::fixed(assistant_col),
-        FlexChild::flexible(Element::text_with_style("", info.face.clone()), 1.0),
+        FlexChild::flexible(Element::text("", info.face.clone()), 1.0),
     ]);
     let container = Element::stack(
         Element::container(base, ElementStyle::from(info.face.clone())),

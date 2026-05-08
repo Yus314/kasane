@@ -9,7 +9,7 @@ use kasane_core::plugin::{
     PluginCapabilities, PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{
-    Atom, Attributes, Color, Coord, KakouneRequest, Line, MenuStyle, NamedColor, WireFace,
+    Atom, Attributes, Color, Coord, KakouneRequest, Line, MenuStyle, NamedColor, Style, WireFace,
 };
 use kasane_core::state::{AppState, DirtyFlags};
 use serde::Serialize;
@@ -39,7 +39,7 @@ impl PluginBackend for BenchPlugin {
     ) -> Option<Contribution> {
         if region == &SlotId::STATUS_RIGHT {
             Some(Contribution {
-                element: Element::text(format!("[{}]", self.id), Default::default()),
+                element: Element::text(format!("[{}]", self.id), Style::default()),
                 priority: 0,
                 size_hint: ContribSizeHint::Auto,
             })

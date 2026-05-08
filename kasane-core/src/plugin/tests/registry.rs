@@ -867,7 +867,7 @@ impl Plugin for DecomposedAnnotatorPlugin {
         r.on_decorate_gutter(GutterSide::Left, 10, |_state, line, _app, _ctx| {
             Some(crate::element::Element::text(
                 format!("{}", line + 1),
-                WireFace::default(),
+                crate::protocol::Style::default(),
             ))
         });
         r.on_decorate_background(|_state, line, _app, _ctx| {
@@ -908,7 +908,7 @@ impl PluginBackend for LegacyAnnotatorPlugin {
         Some(super::super::LineAnnotation {
             left_gutter: Some(crate::element::Element::text(
                 format!("L{}", line + 1),
-                WireFace::default(),
+                crate::protocol::Style::default(),
             )),
             right_gutter: None,
             background: None,

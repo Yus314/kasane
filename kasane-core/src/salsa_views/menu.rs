@@ -72,7 +72,7 @@ fn build_menu_item_element_pure(menu: &MenuSnapshot, item_idx: usize, width: u16
     let item = if item_idx < menu.items.len() {
         build_styled_line_with_base(&menu.items[item_idx], &style, width)
     } else {
-        Element::text_with_style("", style.clone())
+        Element::text("", style.clone())
     };
     Element::container(item, ElementStyle::from(style))
 }
@@ -93,10 +93,7 @@ fn build_split_item_element_pure(
     };
 
     if item_idx >= menu.items.len() {
-        return Element::container(
-            Element::text_with_style("", style.clone()),
-            ElementStyle::from(style),
-        );
+        return Element::container(Element::text("", style.clone()), ElementStyle::from(style));
     }
 
     let item = &menu.items[item_idx];
