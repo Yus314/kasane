@@ -4952,10 +4952,21 @@ Execute a 12-PR program (R2.x) that:
    `BuiltinMouseFallbackPlugin`, `BuiltinShadowCursorPlugin`,
    `BuiltinInfoPlugin`, `BuiltinMenuPlugin`,
    `ProjectionStatusPlugin`, plus any test fixtures.
-3. **Reduces `PluginBackend` to an internal `pub(crate)` ABI**
+3. **Reduces `PluginBackend` to an internal-marked ABI**
    consumed by `PluginRuntime` and the WASM adapter
    (`WasmPlugin`). The trait stays — but as ABI, not authoring
-   surface.
+   surface. *Execution note (2026-05-08, P6 closure):* the literal
+   `pub(crate)` target was not viable because `kasane-wasm` (WASM
+   adapter), `kasane-tui` / `kasane` builtins, the
+   `locked_wasm_provider` factory, and the `#[kasane_plugin]` proc
+   macro all hold `impl PluginBackend` or `Box<dyn PluginBackend>`
+   outside `kasane-core`. The achieved encapsulation is
+   `#[doc(hidden)] pub` (added in P3 at `traits.rs:128`),
+   removing the trait from rendered docs while preserving the
+   cross-crate ABI surface. True `pub(crate)` would require a
+   ~1000+ LoC WASM adapter rewrite plus migrating the proc-macro
+   generation path; deferred to a future ABI-extraction
+   workstream if a concrete consumer surfaces.
 4. **Deletes transitional APIs** unblocked by builtin migration:
    `has_decomposed_annotations`, `annotate_line_with_ctx`,
    `Atom::from_wire`, `WireFace` public visibility,
@@ -5009,8 +5020,12 @@ contraction). Total estimate ~12 working days; parallelisable to
   production code; test fixtures use a minimal helper if
   needed.
 - `grep 'impl PluginBackend for'` returns hits only for
-  `PluginBridge`, `WasmPlugin`, and intentional legacy-path
-  test fixtures (with inline justification comments).
+  `PluginBridge`, `WasmPlugin`, intentional legacy-path test
+  fixtures, and the `#[kasane_plugin]` proc-macro generated
+  impls plus the four `kasane`/`kasane-tui` top-level builtins
+  that use `PluginBackend` directly. The trait is
+  `#[doc(hidden)] pub` (post-P3) — invisible from rendered docs
+  but accessible across crates.
 - `kasane-core/src/lib.rs` `pub mod` count is ≤ 12.
 - `cargo bench --bench rendering_pipeline frame_warm_24_lines`
   shows no regression vs the pre-program baseline (≤ 70 µs at

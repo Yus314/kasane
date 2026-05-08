@@ -98,20 +98,26 @@ to:
 
 | Phase | Status | Notes |
 |---|---|---|
-| P0 — ADR-039 + roadmap entry | ✅ 2026-05-08 | This entry; ADR-038 marked Superseded |
-| P1a–d — Builtin migration | Pending | 4 sub-PRs (input, render, shadow_cursor, projection_status) |
-| P2 — Vestigial deletes | Pending | `PluginRegistry` alias, shadow_cursor docstring rewrite |
-| P3 — Delete capability_traits.rs | Pending | Blocked on P1; 1040 LoC removal |
-| P4 — Delete `has_decomposed_annotations` + `annotate_line_with_ctx` | Pending | Blocked on P1 |
-| P5 — `PluginCapabilities` bitflag scope reduction | Pending | Blocked on P3+P4 |
-| P6 — `PluginBackend` `pub(crate)` | Pending | Blocked on P5 |
+| P0 — ADR-039 + roadmap entry | ✅ 2026-05-08 (`6484224a`) | This entry; ADR-038 marked Superseded |
+| P1-prep — HandlerRegistry pre-dispatch hooks | ✅ 2026-05-08 (`ad9e4588`) | Added `on_key_pre_dispatch` / `on_mouse_pre_dispatch` / `on_text_input_pre_dispatch` / `on_mouse_fallback`. Discovery: HandlerRegistry was missing these, blocking P1a/P1c |
+| P1a — Input builtins (4) | ✅ 2026-05-08 (`65726e12`) | BuiltinInputPlugin, BuiltinDragPlugin, BuiltinFoldPlugin, BuiltinMouseFallbackPlugin |
+| P1b — Render builtins (2) | ✅ 2026-05-08 (`8cd345e7`) | BuiltinInfoPlugin + BuiltinMenuPlugin; `on_render_menu_overlay` / `on_render_info_overlays` signatures gained `&PluginView` |
+| P1c — BuiltinShadowCursorPlugin | ✅ 2026-05-08 (`bb52cd35`) | Largest builtin (255 LoC `impl PluginBackend`); manual smoke gate cleared |
+| P1d — ProjectionStatusPlugin | ✅ 2026-05-08 (`5a80dbce`) | |
+| P2 — Vestigial deletes | ✅ 2026-05-08 (`c4836223`) | `#[deprecated] PluginRegistry` alias removed; shadow_cursor docstring rewrite |
+| P3 — Delete capability_traits.rs | ✅ 2026-05-08 (`17bfea90`) | 30 files, +65/−1210 LoC. 7 super-trait methods moved onto `PluginBackend`; `#[kasane::plugin]` proc macro no longer emits the scaffolding |
+| P4 — Delete `has_decomposed_annotations` + `annotate_line_with_ctx` | ✅ 2026-05-08 (`ed314b83`) — **reduced scope** | Bridge's joiner (61 LoC) deleted. Trait-level `has_decomposed_annotations` retained: WIT `annotate-line` export still relies on it. Full deletion blocked on WIT 4.0 ABI bump (out of scope per ADR-039 §Rejected #2) |
+| P5 — `PluginCapabilities` bitflag scope reduction | ✅ 2026-05-08 (`8245a3cc`) | Dropped unused `VIRTUAL_EDIT` and `TEXT_INPUT_PRE_DISPATCH` bits |
+| P6 — `PluginBackend` visibility tightening | ✅ 2026-05-08 — **closed at `#[doc(hidden)] pub`** | Already achieved by P3 (`traits.rs:128`). True `pub(crate)` is not viable: `kasane-wasm::adapter`, `kasane-tui::event_handler`, `kasane`'s 4 builtins, `kasane-macros` proc macro, and `locked_wasm_provider`'s factory all hold `impl PluginBackend` / `dyn PluginBackend` outside `kasane-core`. `pub(crate)` would require migrating ~7 sites including a 1000+ LoC WASM adapter — out of the 0.5-day P6 budget; defer to a future ABI-extraction workstream if surfaced |
 | P7 — `WireFace` full visibility downgrade | Pending | Blocked on P1; cascades 22 files |
 | P8 — Bridge dispatch full mechanisation | Pending | Blocked on P4 |
 | P9 — `Atom::from_wire` delete | Pending | Blocked on P7 |
-| P10a–c — Structural splits | Pending | Parallelisable: shadow_cursor, registry/collection, handler_registry |
-| P11 — kasane-core public surface contraction | Pending | Salsa 5 modules → `pub(crate)`; `test_support` cfg-gate |
+| P10a — `state/shadow_cursor.rs` split | ✅ 2026-05-08 (`24c6e1f7`) | Extracted `keyboard.rs` + `commit.rs`; mod.rs keeps types + tests + the Plugin |
+| P10b — `registry/collection.rs` split | ✅ 2026-05-08 (`39df9817`) | 6 axes: contributions / transforms / annotations / display / overlays / ornaments |
+| P10c — `handler_registry.rs` split | ✅ 2026-05-08 (`77cbb40d`) | 6 axes: lifecycle / input / render / transform / decoration / extension |
+| P11 — kasane-core public surface contraction | ✅ 2026-05-08 (`21439d27`) — **reduced scope** | 4 modules contracted: `salsa_inputs` → `pub(crate)`; `salsa_queries`/`salsa_views`/`display_algebra` → `#[doc(hidden)] pub` (have integration test/bench consumers). Effective rendered surface: 28 → 23. Backends consume more modules than the original 12-target assumed |
 
-Total estimate ~12 working days; ~8 days with parallel execution.
+Remaining: **P7, P8, P9.** P7 unblocks P9. P8 is independent. Originally estimated ~12 days; ~9 days landed (P0–P5 + P10a–c + P11 + P6 closure) with ~2 days remaining (P7 + P8 + P9).
 
 ### 2.2 Backlog
 
