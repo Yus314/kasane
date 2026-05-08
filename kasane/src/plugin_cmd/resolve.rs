@@ -13,33 +13,33 @@ use crate::plugin_lock::{LockedPluginEntry, PluginsLock};
 use crate::plugin_store::{PluginStore, StoredArtifact};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ResolveMode {
+pub(crate) enum ResolveMode {
     Reconcile,
     Update,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ResolveOptions {
+pub(crate) struct ResolveOptions {
     mode: ResolveMode,
     requested: BTreeMap<String, String>,
 }
 
 impl ResolveOptions {
-    pub(super) fn reconcile() -> Self {
+    pub(crate) fn reconcile() -> Self {
         Self {
             mode: ResolveMode::Reconcile,
             requested: BTreeMap::new(),
         }
     }
 
-    pub(super) fn update() -> Self {
+    pub(crate) fn update() -> Self {
         Self {
             mode: ResolveMode::Update,
             requested: BTreeMap::new(),
         }
     }
 
-    pub(super) fn request_artifact(
+    pub(crate) fn request_artifact(
         mut self,
         plugin_id: impl Into<String>,
         digest: impl Into<String>,
@@ -50,30 +50,30 @@ impl ResolveOptions {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ResolveResult {
-    pub(super) lock: PluginsLock,
-    pub(super) selected: Vec<ResolvedPlugin>,
-    pub(super) issues: Vec<ResolutionIssue>,
-    pub(super) invalid_packages: Vec<InvalidPackage>,
+pub(crate) struct ResolveResult {
+    pub(crate) lock: PluginsLock,
+    pub(crate) selected: Vec<ResolvedPlugin>,
+    pub(crate) issues: Vec<ResolutionIssue>,
+    pub(crate) invalid_packages: Vec<InvalidPackage>,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct SavedResolveResult {
-    pub(super) result: ResolveResult,
-    pub(super) lock_path: PathBuf,
+pub(crate) struct SavedResolveResult {
+    pub(crate) result: ResolveResult,
+    pub(crate) lock_path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ResolvedPlugin {
-    pub(super) plugin_id: String,
-    pub(super) package: String,
-    pub(super) version: String,
-    pub(super) artifact_digest: String,
-    pub(super) reason: ResolveReason,
+pub(crate) struct ResolvedPlugin {
+    pub(crate) plugin_id: String,
+    pub(crate) package: String,
+    pub(crate) version: String,
+    pub(crate) artifact_digest: String,
+    pub(crate) reason: ResolveReason,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ResolveReason {
+pub(crate) enum ResolveReason {
     Requested,
     ExistingLock,
     AutoSingle,
@@ -85,23 +85,23 @@ pub(super) enum ResolveReason {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ResolutionIssue {
-    pub(super) plugin_id: String,
-    pub(super) reason: String,
-    pub(super) candidates: Vec<CandidateSummary>,
+pub(crate) struct ResolutionIssue {
+    pub(crate) plugin_id: String,
+    pub(crate) reason: String,
+    pub(crate) candidates: Vec<CandidateSummary>,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct CandidateSummary {
-    pub(super) package: String,
-    pub(super) version: String,
-    pub(super) artifact_digest: String,
+pub(crate) struct CandidateSummary {
+    pub(crate) package: String,
+    pub(crate) version: String,
+    pub(crate) artifact_digest: String,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct InvalidPackage {
-    pub(super) path: PathBuf,
-    pub(super) error: String,
+pub(crate) struct InvalidPackage {
+    pub(crate) path: PathBuf,
+    pub(crate) error: String,
 }
 
 #[derive(Debug, Clone)]
@@ -194,7 +194,7 @@ pub fn run_unpin(plugin_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn resolve_and_save(
+pub(crate) fn resolve_and_save(
     config: &Config,
     options: ResolveOptions,
 ) -> Result<SavedResolveResult> {
@@ -209,7 +209,7 @@ pub(super) fn resolve_and_save(
 }
 
 /// Check if a specific plugin has unresolved issues and bail if so.
-pub(super) fn require_resolved(result: &ResolveResult, plugin_id: &str) -> Result<()> {
+pub(crate) fn require_resolved(result: &ResolveResult, plugin_id: &str) -> Result<()> {
     for issue in &result.issues {
         if issue.plugin_id == plugin_id {
             bail!("failed to resolve plugin `{plugin_id}`: {}", issue.reason);
@@ -218,7 +218,7 @@ pub(super) fn require_resolved(result: &ResolveResult, plugin_id: &str) -> Resul
     Ok(())
 }
 
-pub(super) fn preview_resolution(
+pub(crate) fn preview_resolution(
     config: &Config,
     options: ResolveOptions,
 ) -> Result<ResolveResult> {

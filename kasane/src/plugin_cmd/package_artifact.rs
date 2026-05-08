@@ -169,7 +169,7 @@ fn package_filename(inspected: &InspectedPackage) -> String {
     )
 }
 
-pub(super) fn touch_reload_sentinel(plugins_dir: &Path) {
+pub(crate) fn touch_reload_sentinel(plugins_dir: &Path) {
     let reload_sentinel = plugins_dir.join(".reload");
     let _ = fs::write(reload_sentinel, "");
 }

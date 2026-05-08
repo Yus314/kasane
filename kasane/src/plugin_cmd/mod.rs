@@ -7,8 +7,8 @@ mod gc;
 mod install;
 mod list;
 mod new;
-mod package_artifact;
-mod resolve;
+pub(crate) mod package_artifact;
+pub(crate) mod resolve;
 mod rollback;
 mod templates;
 
