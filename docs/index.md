@@ -87,6 +87,7 @@ Guides for users and plugin authors.
 - [whats-different.md](whats-different.md) — features and improvements
 - [using-plugins.md](using-plugins.md) — enabling and managing plugins
 - [widgets.md](widgets.md) — declarative widget reference
+- [diagnostics-panel.md](diagnostics-panel.md) — plugin error popup, diagnostic panel hotkeys, log file
 - [troubleshooting.md](troubleshooting.md) — common issues and solutions
 - [vision.md](vision.md) — project goals and direction
 
