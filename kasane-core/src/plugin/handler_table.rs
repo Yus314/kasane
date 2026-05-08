@@ -242,10 +242,16 @@ pub(crate) type ErasedDisplayScrollOffsetHandler =
     Box<dyn Fn(&dyn PluginState, usize, usize, usize, &AppView<'_>) -> Option<usize> + Send + Sync>;
 
 // Renderer extension point handlers
-pub(crate) type ErasedMenuRendererHandler =
-    Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> Option<Overlay> + Send + Sync>;
+pub(crate) type ErasedMenuRendererHandler = Box<
+    dyn Fn(&dyn PluginState, &AppView<'_>, &super::PluginView<'_>) -> Option<Overlay> + Send + Sync,
+>;
 pub(crate) type ErasedInfoRendererHandler = Box<
-    dyn Fn(&dyn PluginState, &AppView<'_>, &[crate::layout::Rect]) -> Option<Vec<Overlay>>
+    dyn Fn(
+            &dyn PluginState,
+            &AppView<'_>,
+            &[crate::layout::Rect],
+            &super::PluginView<'_>,
+        ) -> Option<Vec<Overlay>>
         + Send
         + Sync,
 >;

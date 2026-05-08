@@ -38,8 +38,8 @@ fn render(state: &AppState) -> kasane_core::render::CellGrid {
 /// Create a registry with the built-in menu and info renderers.
 fn registry_with_builtins() -> PluginRuntime {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(kasane_core::render::view::menu::BuiltinMenuPlugin));
-    registry.register_backend(Box::new(kasane_core::render::view::info::BuiltinInfoPlugin));
+    registry.register(kasane_core::render::view::menu::BuiltinMenuPlugin);
+    registry.register(kasane_core::render::view::info::BuiltinInfoPlugin);
     registry
 }
 

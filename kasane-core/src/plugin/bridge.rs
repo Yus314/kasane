@@ -732,18 +732,20 @@ impl PluginBackend for PluginBridge {
     fn render_menu_overlay(
         &self,
         state: &AppView<'_>,
-        _view: &super::PluginView<'_>,
+        view: &super::PluginView<'_>,
     ) -> Option<Overlay> {
-        dispatch_view_option!(self, menu_renderer_handler, state)
+        let handler = self.table.menu_renderer_handler.as_ref()?;
+        handler(&*self.state, state, view)
     }
 
     fn render_info_overlays(
         &self,
         state: &AppView<'_>,
         avoid: &[crate::layout::Rect],
-        _view: &super::PluginView<'_>,
+        view: &super::PluginView<'_>,
     ) -> Option<Vec<Overlay>> {
-        dispatch_view_option!(self, info_renderer_handler, state, avoid)
+        let handler = self.table.info_renderer_handler.as_ref()?;
+        handler(&*self.state, state, avoid, view)
     }
 
     fn contribute_overlay_with_ctx(

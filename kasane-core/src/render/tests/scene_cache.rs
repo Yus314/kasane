@@ -202,8 +202,8 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
     });
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(crate::render::view::menu::BuiltinMenuPlugin));
-    registry.register_backend(Box::new(crate::render::view::info::BuiltinInfoPlugin));
+    registry.register(crate::render::view::menu::BuiltinMenuPlugin);
+    registry.register(crate::render::view::info::BuiltinInfoPlugin);
     let cs = scene::CellSize {
         width: 10.0,
         height: 20.0,

@@ -8,7 +8,7 @@ mod info;
 mod menu;
 mod shadow_cursor;
 
-use kasane_core::plugin::{PluginFactory, builtin_plugin};
+use kasane_core::plugin::{PluginBridge, PluginFactory, builtin_plugin};
 use std::sync::Arc;
 
 /// Collect built-in plugin factories for registration.
@@ -18,10 +18,10 @@ use std::sync::Arc;
 pub fn builtin_plugin_factories() -> Vec<Arc<dyn PluginFactory>> {
     vec![
         builtin_plugin("builtin-menu", "kasane.builtin.menu", || {
-            menu::BuiltinMenuPlugin
+            PluginBridge::new(menu::BuiltinMenuPlugin)
         }),
         builtin_plugin("builtin-info", "kasane.builtin.info", || {
-            info::BuiltinInfoPlugin
+            PluginBridge::new(info::BuiltinInfoPlugin)
         }),
         builtin_plugin("builtin-diagnostics", "kasane.builtin.diagnostics", || {
             diagnostics::BuiltinDiagnosticsPlugin

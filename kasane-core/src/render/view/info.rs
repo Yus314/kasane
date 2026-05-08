@@ -226,8 +226,7 @@ fn build_info_nonframed(
 // ---------------------------------------------------------------------------
 
 use crate::plugin::{
-    AppView, FrameworkAccess, PluginBackend, PluginCapabilities, PluginId, PluginView,
-    TransformSubject, TransformTarget,
+    FrameworkAccess, HandlerRegistry, Plugin, PluginId, TransformSubject, TransformTarget,
 };
 
 /// Built-in plugin for info overlay rendering.
@@ -238,62 +237,53 @@ use crate::plugin::{
 /// with the same capability take precedence.
 pub struct BuiltinInfoPlugin;
 
-crate::impl_migrated_caps_default!(BuiltinInfoPlugin);
+impl Plugin for BuiltinInfoPlugin {
+    type State = ();
 
-impl PluginBackend for BuiltinInfoPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.info".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::INFO_RENDERER
-    }
-
-    fn render_info_overlays(
-        &self,
-        state: &AppView<'_>,
-        avoid: &[crate::layout::Rect],
-        view: &PluginView<'_>,
-    ) -> Option<Vec<Overlay>> {
-        let app_state = state.as_app_state();
-        if app_state.observed.infos.is_empty() {
-            return None;
-        }
-
-        let mut avoid_rects = avoid.to_vec();
-        let mut overlays = Vec::new();
-
-        for (info_idx, info_state) in app_state.observed.infos.iter().enumerate() {
-            let info_overlay =
-                build_info_overlay_indexed(info_state, app_state, &avoid_rects, info_idx);
-            if let Some(overlay) = info_overlay {
-                // Apply hierarchical transform chain (Info generic → style-specific)
-                let info_target = match info_state.style {
-                    InfoStyle::Prompt => TransformTarget::INFO_PROMPT,
-                    InfoStyle::Modal => TransformTarget::INFO_MODAL,
-                    _ => TransformTarget::INFO,
-                };
-                let result = view.apply_transform_chain_hierarchical(
-                    info_target,
-                    TransformSubject::Overlay(overlay),
-                    state,
-                );
-                let transformed = result
-                    .into_overlay()
-                    .expect("overlay transform preserves variant");
-                // Track this overlay's rect for subsequent infos to avoid
-                if let OverlayAnchor::Absolute { x, y, w, h } = &transformed.anchor {
-                    avoid_rects.push(crate::layout::Rect {
-                        x: *x,
-                        y: *y,
-                        w: *w,
-                        h: *h,
-                    });
-                }
-                overlays.push(transformed);
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_render_info_overlays(|_state, app, avoid, view| {
+            let app_state = app.as_app_state();
+            if app_state.observed.infos.is_empty() {
+                return None;
             }
-        }
 
-        Some(overlays)
+            let mut avoid_rects = avoid.to_vec();
+            let mut overlays = Vec::new();
+
+            for (info_idx, info_state) in app_state.observed.infos.iter().enumerate() {
+                let info_overlay =
+                    build_info_overlay_indexed(info_state, app_state, &avoid_rects, info_idx);
+                if let Some(overlay) = info_overlay {
+                    let info_target = match info_state.style {
+                        InfoStyle::Prompt => TransformTarget::INFO_PROMPT,
+                        InfoStyle::Modal => TransformTarget::INFO_MODAL,
+                        _ => TransformTarget::INFO,
+                    };
+                    let result = view.apply_transform_chain_hierarchical(
+                        info_target,
+                        TransformSubject::Overlay(overlay),
+                        app,
+                    );
+                    let transformed = result
+                        .into_overlay()
+                        .expect("overlay transform preserves variant");
+                    if let OverlayAnchor::Absolute { x, y, w, h } = &transformed.anchor {
+                        avoid_rects.push(crate::layout::Rect {
+                            x: *x,
+                            y: *y,
+                            w: *w,
+                            h: *h,
+                        });
+                    }
+                    overlays.push(transformed);
+                }
+            }
+
+            Some(overlays)
+        });
     }
 }

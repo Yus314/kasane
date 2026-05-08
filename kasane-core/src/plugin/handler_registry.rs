@@ -756,14 +756,17 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// this handler returns.
     pub fn on_render_menu_overlay(
         &mut self,
-        handler: impl Fn(&S, &AppView<'_>) -> Option<Overlay> + Send + Sync + 'static,
+        handler: impl Fn(&S, &AppView<'_>, &super::PluginView<'_>) -> Option<Overlay>
+        + Send
+        + Sync
+        + 'static,
     ) {
-        self.table.menu_renderer_handler = Some(Box::new(move |state, app| {
+        self.table.menu_renderer_handler = Some(Box::new(move |state, app, view| {
             let s = state
                 .as_any()
                 .downcast_ref::<S>()
                 .expect("state type mismatch");
-            handler(s, app)
+            handler(s, app, view)
         }));
     }
 
@@ -777,17 +780,22 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// this handler returns.
     pub fn on_render_info_overlays(
         &mut self,
-        handler: impl Fn(&S, &AppView<'_>, &[crate::layout::Rect]) -> Option<Vec<Overlay>>
+        handler: impl Fn(
+            &S,
+            &AppView<'_>,
+            &[crate::layout::Rect],
+            &super::PluginView<'_>,
+        ) -> Option<Vec<Overlay>>
         + Send
         + Sync
         + 'static,
     ) {
-        self.table.info_renderer_handler = Some(Box::new(move |state, app, avoid| {
+        self.table.info_renderer_handler = Some(Box::new(move |state, app, avoid, view| {
             let s = state
                 .as_any()
                 .downcast_ref::<S>()
                 .expect("state type mismatch");
-            handler(s, app, avoid)
+            handler(s, app, avoid, view)
         }));
     }
 

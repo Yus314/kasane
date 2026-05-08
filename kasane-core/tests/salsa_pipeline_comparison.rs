@@ -31,8 +31,8 @@ use kasane_core::test_support::{assert_grids_equal, test_state_80x24};
 /// Create a PluginRuntime with the built-in menu and info renderers registered.
 fn registry_with_builtins() -> PluginRuntime {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(kasane_core::render::view::menu::BuiltinMenuPlugin));
-    registry.register_backend(Box::new(kasane_core::render::view::info::BuiltinInfoPlugin));
+    registry.register(kasane_core::render::view::menu::BuiltinMenuPlugin);
+    registry.register(kasane_core::render::view::info::BuiltinInfoPlugin);
     registry
 }
 
