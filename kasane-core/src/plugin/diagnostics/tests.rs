@@ -13,10 +13,9 @@ use super::painter::{
 };
 use super::scoring::{OverlayBackdropTone, diagnostic_overlay_lines};
 use super::types::{
-    ERROR_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION, PLUGIN_DIAGNOSTIC_OVERLAY_COALESCE_WINDOW,
-    PluginDiagnosticOverlayPainter, PluginDiagnosticOverlayShadowSpec,
-    PluginDiagnosticOverlayState, PluginDiagnosticOverlayTextRun,
-    WARNING_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION,
+    PLUGIN_DIAGNOSTIC_OVERLAY_COALESCE_WINDOW, PluginDiagnosticOverlayPainter,
+    PluginDiagnosticOverlayShadowSpec, PluginDiagnosticOverlayState,
+    PluginDiagnosticOverlayTextRun, WARNING_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION,
 };
 use super::{
     PLUGIN_ACTIVATION_OVERLAY_TITLE, PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
@@ -748,7 +747,7 @@ fn overlay_frame_uses_activation_title_for_plugin_diagnostics() {
 }
 
 #[test]
-fn overlay_state_uses_longer_dismiss_for_errors() {
+fn overlay_state_warnings_have_finite_dismiss_errors_are_manual() {
     let mut overlay = PluginDiagnosticOverlayState::default();
     overlay
         .record(&[PluginDiagnostic::provider_artifact_failed(
@@ -763,16 +762,31 @@ fn overlay_state_uses_longer_dismiss_for_errors() {
         Some(WARNING_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION)
     );
 
+    // Errors persist until the user dismisses them via the diagnostics
+    // panel or `Command::DismissDiagnosticOverlay`; the auto-dismiss
+    // timer must not be armed.
     overlay
         .record(&[PluginDiagnostic::instantiation_failed(
             PluginId("plugin.target".to_string()),
             "hard failure",
         )])
         .expect("generation");
-    assert_eq!(
-        overlay.dismiss_after(),
-        Some(ERROR_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION)
-    );
+    assert_eq!(overlay.dismiss_after(), None);
+}
+
+#[test]
+fn dismiss_all_clears_active_overlay_regardless_of_generation() {
+    let mut overlay = PluginDiagnosticOverlayState::default();
+    overlay
+        .record(&[PluginDiagnostic::instantiation_failed(
+            PluginId("plugin.x".to_string()),
+            "boom",
+        )])
+        .expect("generation");
+    assert!(overlay.is_active());
+    assert!(overlay.dismiss_all());
+    assert!(!overlay.is_active());
+    assert!(!overlay.dismiss_all(), "second dismiss is a no-op");
 }
 
 #[test]

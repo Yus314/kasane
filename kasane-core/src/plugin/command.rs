@@ -110,6 +110,16 @@ pub enum Command {
     SendToKakoune(KasaneRequest),
     InsertText(String),
     PasteClipboard,
+    /// Write text to the system clipboard. Issued e.g. by the
+    /// diagnostic panel to support yank-to-clipboard workflows for
+    /// bug reports.
+    SetClipboard(String),
+    /// Dismiss the active diagnostic overlay (popup) regardless of
+    /// severity-driven auto-dismiss timer. Issued by the diagnostics
+    /// panel when it opens so the popup doesn't double-paint atop
+    /// the modal, and so error popups (whose auto-dismiss is now
+    /// `None`) have an explicit close path.
+    DismissDiagnosticOverlay,
     Quit,
     RequestRedraw(DirtyFlags),
     /// Schedule a timer that fires after `delay`, delivering `payload` to `target` plugin.
@@ -272,6 +282,7 @@ impl Command {
         "CancelTimer",
         "ClosePaneClient",
         "CloseProcessStdin",
+        "DismissDiagnosticOverlay",
         "EditBuffer",
         "ExposeVariable",
         "HttpRequest",
@@ -290,6 +301,7 @@ impl Command {
         "ScheduleTimer",
         "SendToKakoune",
         "Session",
+        "SetClipboard",
         "SetConfig",
         "SetSetting",
         "SetStructuralProjection",
@@ -339,6 +351,8 @@ impl Command {
             Command::InsertText(_) => true,
             Command::EditBuffer { .. } => true,
             Command::PasteClipboard => false,
+            Command::SetClipboard(_) => false,
+            Command::DismissDiagnosticOverlay => false,
             Command::Quit => false,
             Command::RequestRedraw(_) => false,
             Command::ScheduleTimer { .. } => false,
@@ -387,6 +401,8 @@ impl Command {
             Command::SendToKakoune(_) => false,
             Command::InsertText(_) => false,
             Command::PasteClipboard => false,
+            Command::SetClipboard(_) => false,
+            Command::DismissDiagnosticOverlay => true,
             Command::Quit => false,
             Command::ScheduleTimer { .. } => false,
             Command::PluginMessage { .. } => false,
@@ -426,6 +442,8 @@ impl Command {
             Command::SendToKakoune(_) => false,
             Command::InsertText(_) => false,
             Command::PasteClipboard => false,
+            Command::SetClipboard(_) => false,
+            Command::DismissDiagnosticOverlay => true,
             Command::Quit => false,
             Command::RequestRedraw(_) => false,
             Command::EditBuffer { .. } => false,
@@ -495,6 +513,8 @@ impl Command {
             Command::RequestRedraw(_) => EffectCategory::REDRAW,
             Command::Quit => EffectCategory::QUIT,
             Command::PasteClipboard => EffectCategory::CLIPBOARD,
+            Command::SetClipboard(_) => EffectCategory::CLIPBOARD,
+            Command::DismissDiagnosticOverlay => EffectCategory::REDRAW,
             Command::RegisterThemeTokens(_) => EffectCategory::THEME,
             Command::HttpRequest { .. } => EffectCategory::HTTP_MANAGEMENT,
             Command::CancelHttpRequest { .. } => EffectCategory::HTTP_MANAGEMENT,
@@ -511,6 +531,8 @@ impl Command {
             Command::SendToKakoune(_) => "SendToKakoune",
             Command::InsertText(_) => "InsertText",
             Command::PasteClipboard => "PasteClipboard",
+            Command::SetClipboard(_) => "SetClipboard",
+            Command::DismissDiagnosticOverlay => "DismissDiagnosticOverlay",
             Command::Quit => "Quit",
             Command::RequestRedraw(_) => "RequestRedraw",
             Command::ScheduleTimer { .. } => "ScheduleTimer",
@@ -568,8 +590,6 @@ pub fn execute_commands(
     kak_writer: &mut (impl Write + ?Sized),
     clipboard: &mut crate::clipboard::SystemClipboard,
 ) -> CommandResult {
-    let _ = clipboard;
-
     for cmd in commands {
         match cmd {
             Command::SendToKakoune(req) => {
@@ -590,6 +610,9 @@ pub fn execute_commands(
                     "PasteClipboard should be intercepted before execute_commands"
                 );
             }
+            Command::SetClipboard(text) => {
+                clipboard.set(&text);
+            }
             Command::EditBuffer { edits } => {
                 if !edits.is_empty() {
                     let keys = edits_to_keys(&edits);
@@ -601,7 +624,8 @@ pub fn execute_commands(
             Command::Quit => return CommandResult::Quit,
             Command::RequestRedraw(_) => {} // handled earlier by extract_redraw_flags
             // Deferred commands should be extracted before reaching execute_commands
-            Command::ScheduleTimer { .. }
+            Command::DismissDiagnosticOverlay
+            | Command::ScheduleTimer { .. }
             | Command::PluginMessage { .. }
             | Command::SetConfig { .. }
             | Command::SetSetting { .. }

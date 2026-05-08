@@ -212,6 +212,10 @@ pub(super) fn handle_deferred_commands_inner(
                 handle_expose_variable(cmd, ctx, command_source_plugin);
                 Some(false)
             }
+            Command::DismissDiagnosticOverlay => {
+                ctx.state.runtime.diagnostic_overlay.dismiss_all();
+                Some(false)
+            }
             // Immediate commands should not reach the deferred handler
             _ => unreachable!("immediate commands filtered by partition_commands"),
         };

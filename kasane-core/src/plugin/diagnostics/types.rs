@@ -14,7 +14,8 @@ use super::{
 /// Suppress a new overlay generation if the previous one was shown within this window.
 pub(super) const PLUGIN_DIAGNOSTIC_OVERLAY_COALESCE_WINDOW: Duration = Duration::from_millis(750);
 pub(super) const WARNING_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION: Duration = Duration::from_secs(4);
-pub(super) const ERROR_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION: Duration = Duration::from_secs(8);
+// Errors no longer auto-dismiss; see `dismiss_after()`. The previous
+// `ERROR_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION` constant has been retired.
 
 #[derive(Clone, Default)]
 pub struct PluginDiagnosticOverlayState {
@@ -61,6 +62,21 @@ impl PluginDiagnosticOverlayState {
 
     pub fn dismiss(&mut self, generation: u64) -> bool {
         if self.lines.is_empty() || self.generation != generation {
+            return false;
+        }
+        self.lines.clear();
+        self.hidden_count = 0;
+        self.last_recorded_at = None;
+        self.retained.clear();
+        true
+    }
+
+    /// Dismiss the active overlay regardless of generation. Used by
+    /// `Command::DismissDiagnosticOverlay` so error popups (whose
+    /// auto-dismiss timer is `None`) and any other active overlay can
+    /// be cleared in one shot.
+    pub fn dismiss_all(&mut self) -> bool {
+        if self.lines.is_empty() {
             return false;
         }
         self.lines.clear();
@@ -126,10 +142,14 @@ impl PluginDiagnosticOverlayState {
                 PluginDiagnosticSeverity::Error => 1,
             })?;
 
-        Some(match severity {
-            PluginDiagnosticSeverity::Warning => WARNING_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION,
-            PluginDiagnosticSeverity::Error => ERROR_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION,
-        })
+        match severity {
+            PluginDiagnosticSeverity::Warning => Some(WARNING_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION),
+            // Error severity persists until the user dismisses it
+            // explicitly (panel open, or `Command::DismissDiagnosticOverlay`).
+            // Returning `None` prevents `schedule_diagnostic_overlay` from
+            // arming the auto-dismiss timer for error generations.
+            PluginDiagnosticSeverity::Error => None,
+        }
     }
 }
 

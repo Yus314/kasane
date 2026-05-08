@@ -49,8 +49,6 @@ pub struct BuiltinDiagnosticsPanelPlugin {
     scroll_offset: usize,
 }
 
-kasane_core::impl_migrated_caps_default!(BuiltinDiagnosticsPanelPlugin);
-
 impl BuiltinDiagnosticsPanelPlugin {
     fn open(&mut self) {
         self.is_open = true;
@@ -153,9 +151,12 @@ impl PluginBackend for BuiltinDiagnosticsPanelPlugin {
         if !self.is_open {
             if Self::is_toggle_key(key) {
                 self.open();
+                // Clear any active popup so the modal owns the screen
+                // exclusively and an error popup that pre-dates the
+                // panel doesn't keep painting underneath.
                 return KeyPreDispatchResult::Consumed {
                     flags: DirtyFlags::ALL,
-                    commands: vec![],
+                    commands: vec![Command::DismissDiagnosticOverlay],
                     state_updates: StateUpdates::default(),
                     pending_buffer_edit: None,
                 };
@@ -171,6 +172,25 @@ impl PluginBackend for BuiltinDiagnosticsPanelPlugin {
             return KeyPreDispatchResult::Consumed {
                 flags: DirtyFlags::ALL,
                 commands: vec![],
+                state_updates: StateUpdates::default(),
+                pending_buffer_edit: None,
+            };
+        }
+
+        // y: copy a structured representation of the selected diagnostic
+        // to the system clipboard for inclusion in bug reports.
+        if key.modifiers.is_empty() && key.key == Key::Char('y') {
+            let history = state.diagnostic_history();
+            let mut commands = Vec::new();
+            if let Some(entry) = history.entries().rev().nth(self.selected) {
+                commands.push(Command::SetClipboard(format_diagnostic_for_yank(
+                    &entry.diagnostic,
+                    state.log_path(),
+                )));
+            }
+            return KeyPreDispatchResult::Consumed {
+                flags: DirtyFlags::empty(),
+                commands,
                 state_updates: StateUpdates::default(),
                 pending_buffer_edit: None,
             };
@@ -492,6 +512,58 @@ fn format_descriptors_line(d: &PluginDiagnostic, inner_w: u16) -> String {
     truncate_to_width(&raw, inner_w)
 }
 
+/// Format a diagnostic for clipboard yank. The output is a multi-line
+/// block suited for pasting into a bug report: severity tag, target,
+/// kind label, full message, descriptors, and the active log path so
+/// the reader can correlate with the structured trace.
+fn format_diagnostic_for_yank(d: &PluginDiagnostic, log_path: Option<&Path>) -> String {
+    let sev = match d.severity() {
+        PluginDiagnosticSeverity::Error => "ERROR",
+        PluginDiagnosticSeverity::Warning => "warn",
+    };
+    let target = match &d.target {
+        PluginDiagnosticTarget::Plugin(id) => format!("plugin {}", id.0),
+        PluginDiagnosticTarget::Provider(p) => format!("provider {p}"),
+    };
+    let kind = kind_short_label(&d.kind);
+    let mut out = String::new();
+    out.push_str(&format!("[{sev}] {target} ({kind})\n"));
+    out.push_str(&format!("  message: {}\n", d.message));
+    match &d.kind {
+        PluginDiagnosticKind::ProviderArtifactFailed { artifact, stage } => {
+            out.push_str(&format!(
+                "  stage: {}\n  artifact: {artifact}\n",
+                provider_artifact_stage_label(*stage)
+            ));
+        }
+        PluginDiagnosticKind::RuntimeError { method } => {
+            out.push_str(&format!("  method: {method}\n"));
+        }
+        PluginDiagnosticKind::ConfigError { key } => {
+            out.push_str(&format!("  key: {key}\n"));
+        }
+        PluginDiagnosticKind::BackendCapabilityRejected {
+            primitive_kind,
+            backend,
+        } => {
+            out.push_str(&format!(
+                "  backend: {backend}\n  primitive_kind: {primitive_kind}\n"
+            ));
+        }
+        _ => {}
+    }
+    if let Some(prev) = d.previous.as_ref() {
+        out.push_str(&format!("  previous: {}\n", short_descriptor(prev)));
+    }
+    if let Some(att) = d.attempted.as_ref() {
+        out.push_str(&format!("  attempted: {}\n", short_descriptor(att)));
+    }
+    if let Some(p) = log_path {
+        out.push_str(&format!("  log: {}\n", p.display()));
+    }
+    out
+}
+
 /// Resolve the active rotated log file from the configured base path.
 ///
 /// `tracing_appender::rolling::daily` writes to `<prefix>.YYYY-MM-DD`;
@@ -731,7 +803,17 @@ mod tests {
         let state = kasane_core::state::AppState::default();
         let view = AppView::new(&state);
         let result = plugin.handle_key_pre_dispatch(&ev(Key::Char('?'), Modifiers::CTRL), &view);
-        assert!(consumed(&result));
+        match &result {
+            KeyPreDispatchResult::Consumed { commands, .. } => {
+                assert_eq!(
+                    commands.len(),
+                    1,
+                    "open should emit DismissDiagnosticOverlay"
+                );
+                assert_eq!(commands[0].variant_name(), "DismissDiagnosticOverlay");
+            }
+            _ => panic!("expected Consumed"),
+        }
         assert!(plugin.is_open);
         assert_eq!(plugin.selected, 0);
         assert_eq!(plugin.scroll_offset, 0);
@@ -866,6 +948,52 @@ mod tests {
             _ => panic!("expected Consumed"),
         }
         assert!(!plugin.is_open);
+    }
+
+    #[test]
+    fn yank_with_no_history_emits_no_command() {
+        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
+        plugin.is_open = true;
+        let state = kasane_core::state::AppState::default();
+        let view = AppView::new(&state);
+        let result = plugin.handle_key_pre_dispatch(&ev(Key::Char('y'), Modifiers::empty()), &view);
+        match result {
+            KeyPreDispatchResult::Consumed { commands, .. } => {
+                assert!(commands.is_empty());
+            }
+            _ => panic!("expected Consumed"),
+        }
+        assert!(plugin.is_open, "y must not close the panel");
+    }
+
+    #[test]
+    fn yank_with_history_emits_set_clipboard_command() {
+        let mut plugin = BuiltinDiagnosticsPanelPlugin::default();
+        plugin.is_open = true;
+        let mut state = kasane_core::state::AppState::default();
+        state.runtime.diagnostic_history.record(&[
+            kasane_core::plugin::diagnostics::PluginDiagnostic::instantiation_failed(
+                kasane_core::plugin::PluginId("session-ui".into()),
+                "wasm trap: unreachable",
+            ),
+        ]);
+        let view = AppView::new(&state);
+        let result = plugin.handle_key_pre_dispatch(&ev(Key::Char('y'), Modifiers::empty()), &view);
+        match result {
+            KeyPreDispatchResult::Consumed { commands, .. } => {
+                assert_eq!(commands.len(), 1);
+                match &commands[0] {
+                    kasane_core::plugin::Command::SetClipboard(text) => {
+                        assert!(text.contains("ERROR"));
+                        assert!(text.contains("session-ui"));
+                        assert!(text.contains("wasm trap: unreachable"));
+                    }
+                    other => panic!("expected SetClipboard, got {:?}", other.variant_name()),
+                }
+            }
+            _ => panic!("expected Consumed"),
+        }
+        assert!(plugin.is_open);
     }
 
     #[test]
