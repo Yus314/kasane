@@ -6,11 +6,12 @@ use anyhow::Result;
 
 use kasane_core::clipboard::SystemClipboard;
 use kasane_core::event_loop::{
-    DeferredContext, EventResult, SessionReadyGate, TimerScheduler, apply_bootstrap_effects,
-    apply_ready_batch, handle_command_batch, handle_sourced_surface_commands,
-    handle_workspace_divider_input, maybe_flush_active_session_ready, normalize_input_for_state,
-    notify_workspace_observers, reconcile_plugin_surfaces, route_surface_key_input,
-    route_surface_text_input, surface_event_from_input, sync_session_ready_gate as sync_ready_gate,
+    DeferredContext, EventResult, ReloadOrchestrator, SessionReadyGate, TimerScheduler,
+    apply_bootstrap_effects, apply_ready_batch, handle_command_batch,
+    handle_sourced_surface_commands, handle_workspace_divider_input,
+    maybe_flush_active_session_ready, normalize_input_for_state, notify_workspace_observers,
+    reconcile_plugin_surfaces, route_surface_key_input, route_surface_text_input,
+    surface_event_from_input, sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
@@ -109,6 +110,10 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub last_config_hash: &'a mut u64,
     /// Last successfully loaded config (for restart-required diff on hot-reload).
     pub last_config: &'a mut kasane_core::config::Config,
+    /// Bridge to the WASM plugin resolve pipeline. Invoked from the kdl
+    /// watcher when `plugins.auto_reload` is enabled and `plugins`/`settings`
+    /// changed in `kasane.kdl`.
+    pub reload_orchestrator: &'a dyn ReloadOrchestrator,
 }
 
 struct PluginReloadOutcome {
@@ -418,13 +423,88 @@ where
                                             TuiEventSink(ctx.session_tx.clone()),
                                         ),
                                         &mut ctx.state.runtime.diagnostic_overlay,
+                                        &mut ctx.state.runtime.diagnostic_history,
                                         &diagnostics,
                                     );
                                 }
 
-                                // Check for restart-required fields before applying
-                                let restart_fields =
-                                    ctx.last_config.restart_required_diff(&new_config);
+                                // Detect plugins/settings changes for the
+                                // auto-reload pipeline. Any change here would
+                                // otherwise require a restart, so handle them
+                                // before the generic restart-required path.
+                                let plugins_changed = ctx.last_config.plugins != new_config.plugins;
+                                let settings_changed =
+                                    ctx.last_config.settings != new_config.settings;
+                                let auto_reload = new_config.plugins.auto_reload;
+
+                                if (plugins_changed || settings_changed) && auto_reload {
+                                    // 1. Push the new dynamic configuration into
+                                    //    every PluginProvider so the next collect
+                                    //    cycle sees the updated settings/deny
+                                    //    values.
+                                    let provider_diags = ctx.plugin_manager.update_provider_config(
+                                        &new_config.plugins,
+                                        &new_config.settings,
+                                    );
+                                    if !provider_diags.is_empty() {
+                                        schedule_diagnostic_overlay(
+                                            &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                                TuiEventSink(ctx.session_tx.clone()),
+                                            ),
+                                            &mut ctx.state.runtime.diagnostic_overlay,
+                                            &mut ctx.state.runtime.diagnostic_history,
+                                            &provider_diags,
+                                        );
+                                    }
+
+                                    if plugins_changed {
+                                        // 2a. Plugins block changed → re-resolve
+                                        //     plugins.lock. The orchestrator
+                                        //     touches the reload sentinel which
+                                        //     triggers Event::PluginReload on
+                                        //     the next watcher tick (~500ms).
+                                        match ctx
+                                            .reload_orchestrator
+                                            .resolve_and_signal_reload(&new_config)
+                                        {
+                                            Ok(outcome) => {
+                                                if !outcome.diagnostics.is_empty() {
+                                                    schedule_diagnostic_overlay(
+                                                        &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                                            TuiEventSink(ctx.session_tx.clone()),
+                                                        ),
+                                                        &mut ctx.state.runtime.diagnostic_overlay,
+                                                        &mut ctx.state.runtime.diagnostic_history,
+                                                        &outcome.diagnostics,
+                                                    );
+                                                }
+                                            }
+                                            Err(err) => {
+                                                tracing::warn!(
+                                                    "auto-reload resolve failed: {err}; keeping previous lock"
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        // 2b. Only settings changed → no lock
+                                        //     update needed, but provider state
+                                        //     was just updated. Fire a reload
+                                        //     directly to refresh initial
+                                        //     plugin settings.
+                                        let _ = ctx.session_tx.send(Event::PluginReload);
+                                    }
+                                }
+
+                                // Filter out plugins/settings from the restart
+                                // warning when auto_reload handled them.
+                                let restart_fields: Vec<&'static str> = ctx
+                                    .last_config
+                                    .restart_required_diff(&new_config)
+                                    .into_iter()
+                                    .filter(|f| {
+                                        !auto_reload || (*f != "plugins" && *f != "settings")
+                                    })
+                                    .collect();
                                 if !restart_fields.is_empty() {
                                     let field_list = restart_fields.join(", ");
                                     tracing::warn!("restart required for: {field_list}");
@@ -451,6 +531,7 @@ where
                                             TuiEventSink(ctx.session_tx.clone()),
                                         ),
                                         &mut ctx.state.runtime.diagnostic_overlay,
+                                        &mut ctx.state.runtime.diagnostic_history,
                                         &[diagnostic],
                                     );
                                 }
@@ -481,6 +562,7 @@ where
                                             TuiEventSink(ctx.session_tx.clone()),
                                         ),
                                         &mut ctx.state.runtime.diagnostic_overlay,
+                                        &mut ctx.state.runtime.diagnostic_history,
                                         &diagnostics,
                                     );
                                 }
@@ -511,6 +593,7 @@ where
                                         TuiEventSink(ctx.session_tx.clone()),
                                     ),
                                     &mut ctx.state.runtime.diagnostic_overlay,
+                                    &mut ctx.state.runtime.diagnostic_history,
                                     &[diagnostic],
                                 );
                             }
@@ -615,6 +698,7 @@ where
     schedule_diagnostic_overlay(
         &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(ctx.session_tx.clone())),
         &mut ctx.state.runtime.diagnostic_overlay,
+        &mut ctx.state.runtime.diagnostic_history,
         &reload.diagnostics,
     );
 

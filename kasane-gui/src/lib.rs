@@ -98,6 +98,7 @@ impl ProcessEventSink for GuiProcessEventSink {
 /// `session_manager`: managed Kakoune sessions. V1 consumes the active session only.
 /// `create_process_dispatcher`: factory that receives a `ProcessEventSink` and returns
 ///   a `ProcessDispatcher` for plugin-spawned processes.
+#[allow(clippy::too_many_arguments)]
 pub fn run_gui<R, W, C>(
     config: Config,
     mut session_manager: SessionManager<R, W, C>,
@@ -109,6 +110,8 @@ pub fn run_gui<R, W, C>(
         Arc<dyn ProcessEventSink>,
     ) -> Box<dyn kasane_core::plugin::HttpDispatcher>,
     plugin_manager: PluginManager,
+    reload_orchestrator: Box<dyn kasane_core::event_loop::ReloadOrchestrator>,
+    log_path: Option<std::path::PathBuf>,
 ) -> Result<()>
 where
     R: std::io::BufRead + Send + 'static,
@@ -154,6 +157,8 @@ where
         registry,
         process_dispatcher,
         http_dispatcher,
+        reload_orchestrator,
+        log_path,
     )?;
 
     // Plugin hot-reload sentinel watcher thread (500ms polling)

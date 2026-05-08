@@ -92,6 +92,7 @@ fn spawn_input_thread(tx: crossbeam_channel::Sender<Event>) {
 /// `session_manager`: managed Kakoune sessions. V1 consumes the active session only.
 /// `create_process_dispatcher`: factory that receives a `ProcessEventSink` and returns
 ///   a `ProcessDispatcher` for plugin-spawned processes.
+#[allow(clippy::too_many_arguments)]
 pub fn run_tui<R, W, C>(
     config: Config,
     mut session_manager: SessionManager<R, W, C>,
@@ -99,6 +100,8 @@ pub fn run_tui<R, W, C>(
     create_process_dispatcher: impl FnOnce(Arc<dyn ProcessEventSink>) -> Box<dyn ProcessDispatcher>,
     create_http_dispatcher: impl FnOnce(Arc<dyn ProcessEventSink>) -> Box<dyn HttpDispatcher>,
     mut plugin_manager: PluginManager,
+    reload_orchestrator: Box<dyn kasane_core::event_loop::ReloadOrchestrator>,
+    log_path: Option<std::path::PathBuf>,
 ) -> Result<()>
 where
     R: std::io::BufRead + Send + 'static,
@@ -132,6 +135,7 @@ where
     let mut state = Box::new(AppState::default());
     state.runtime.cols = cols;
     state.runtime.rows = rows;
+    state.runtime.log_path = log_path;
     state.apply_config(&config);
     let mut session_states = SessionStateStore::new();
     session_states.sync_from_active(active_session, &state);
@@ -209,6 +213,7 @@ where
     kasane_core::event_loop::schedule_diagnostic_overlay(
         &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(tx.clone())),
         &mut state.runtime.diagnostic_overlay,
+        &mut state.runtime.diagnostic_history,
         &initial_plugins.diagnostics,
     );
 
@@ -473,6 +478,7 @@ where
                 widget_names: &mut widget_names,
                 last_config_hash: &mut last_config_hash,
                 last_config: &mut last_config,
+                reload_orchestrator: reload_orchestrator.as_ref(),
             };
 
             // Process first event
@@ -531,6 +537,7 @@ where
                 kasane_core::event_loop::schedule_diagnostic_overlay(
                     &kasane_core::event_loop::GenericDiagnosticScheduler(tui_sink.clone()),
                     &mut state.runtime.diagnostic_overlay,
+                    &mut state.runtime.diagnostic_history,
                     &runtime_diagnostics,
                 );
             }

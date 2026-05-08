@@ -5,6 +5,7 @@ pub mod cli;
 pub mod http_manager;
 mod init_cmd;
 mod locked_wasm_provider;
+pub mod orchestrator;
 pub mod plugin_cmd;
 pub mod plugin_lock;
 pub mod plugin_store;
@@ -30,7 +31,18 @@ use kasane_core::session::{SessionManager, SessionSpec};
 
 use cli::UiMode;
 
-fn setup_logging(config: &Config) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+/// Result of [`setup_logging`].
+///
+/// `guard` keeps the non-blocking file appender alive; drop it after the
+/// backend exits. `path` is the active log file, when file logging is
+/// in use — surfaced to the diagnostic overlay/panel so users can locate
+/// the full trace after a popup auto-dismisses.
+struct LoggingHandles {
+    guard: Option<tracing_appender::non_blocking::WorkerGuard>,
+    path: Option<std::path::PathBuf>,
+}
+
+fn setup_logging(config: &Config) -> LoggingHandles {
     let env_filter = std::env::var("KASANE_LOG").unwrap_or_else(|_| config.log.level.clone());
 
     // Opt-in stderr destination for one-off experiments. The TUI owns stdout
@@ -44,7 +56,10 @@ fn setup_logging(config: &Config) -> Option<tracing_appender::non_blocking::Work
             .with_ansi(false)
             .finish();
         tracing::subscriber::set_global_default(subscriber).ok();
-        return None;
+        return LoggingHandles {
+            guard: None,
+            path: None,
+        };
     }
 
     let log_dir = if let Some(ref file) = config.log.file {
@@ -57,7 +72,10 @@ fn setup_logging(config: &Config) -> Option<tracing_appender::non_blocking::Work
             .join("state")
             .join("kasane")
     } else {
-        return None;
+        return LoggingHandles {
+            guard: None,
+            path: None,
+        };
     };
 
     let _ = std::fs::create_dir_all(&log_dir);
@@ -73,7 +91,10 @@ fn setup_logging(config: &Config) -> Option<tracing_appender::non_blocking::Work
 
     tracing::subscriber::set_global_default(subscriber).ok();
 
-    Some(guard)
+    LoggingHandles {
+        guard: Some(guard),
+        path: Some(log_dir.join("kasane.log")),
+    }
 }
 
 /// Run kasane with plugins collected from a provider.
@@ -154,7 +175,10 @@ fn run_inner(
     }
     process::verify_kak_version()?;
     let config = Config::load();
-    let _guard = setup_logging(&config);
+    let LoggingHandles {
+        guard: _guard,
+        path: log_path,
+    } = setup_logging(&config);
 
     if let Some(ref s) = session {
         tracing::info!("session: {s}");
@@ -226,6 +250,8 @@ fn run_inner(
             make_dispatcher,
             make_http_dispatcher,
             plugin_manager,
+            Box::new(orchestrator::DefaultReloadOrchestrator),
+            log_path.clone(),
         ),
         #[cfg(feature = "gui")]
         UiMode::Gui => {
@@ -250,6 +276,8 @@ fn run_inner(
                 make_dispatcher,
                 make_http_dispatcher,
                 plugin_manager,
+                Box::new(orchestrator::DefaultReloadOrchestrator),
+                log_path,
             )
         }
         #[cfg(not(feature = "gui"))]

@@ -117,6 +117,10 @@ where
     // Plugin manager (owned for hot-reload)
     plugin_manager: PluginManager,
 
+    // Reload orchestrator: bridges kasane.kdl edits to the plugin resolve
+    // pipeline (only invoked when plugins.auto_reload is enabled).
+    reload_orchestrator: Box<dyn kasane_core::event_loop::ReloadOrchestrator>,
+
     // Hot-reload state
     widget_names: Vec<String>,
     last_config_hash: u64,
@@ -142,10 +146,13 @@ where
         registry: PluginRuntime,
         process_dispatcher: Box<dyn ProcessDispatcher>,
         http_dispatcher: Box<dyn HttpDispatcher>,
+        reload_orchestrator: Box<dyn kasane_core::event_loop::ReloadOrchestrator>,
+        log_path: Option<std::path::PathBuf>,
     ) -> Result<(Self, Vec<std::path::PathBuf>)> {
         let scroll_amount = config.scroll.lines_per_scroll;
 
         let mut state = Box::new(AppState::default());
+        state.runtime.log_path = log_path;
         let mut session_states = SessionStateStore::new();
         if let Some(active) = session_manager.active_session_id() {
             session_states.sync_from_active(active, &state);
@@ -210,6 +217,7 @@ where
         kasane_core::event_loop::schedule_diagnostic_overlay(
             &kasane_core::event_loop::GenericDiagnosticScheduler(gui_sink.clone()),
             &mut diagnostic_overlay,
+            &mut state.runtime.diagnostic_history,
             &initial_plugins.diagnostics,
         );
 
@@ -305,6 +313,7 @@ where
                 process_dispatcher,
                 http_dispatcher,
                 plugin_manager,
+                reload_orchestrator,
                 widget_names,
                 last_config_hash,
                 salsa_db,
@@ -630,6 +639,7 @@ where
             kasane_core::event_loop::schedule_diagnostic_overlay(
                 &kasane_core::event_loop::GenericDiagnosticScheduler(self.gui_sink.clone()),
                 &mut self.diagnostic_overlay,
+                &mut self.state.runtime.diagnostic_history,
                 &diagnostics,
             );
         }
@@ -676,11 +686,63 @@ where
                                     self.gui_sink.clone(),
                                 ),
                                 &mut self.diagnostic_overlay,
+                                &mut self.state.runtime.diagnostic_history,
                                 &diagnostics,
                             );
                         }
 
+                        // Detect plugins/settings changes for the auto-reload
+                        // pipeline. The GUI also already handles font/window/
+                        // scroll dynamically — keep that filter intact.
+                        let plugins_changed = self.config.plugins != new_config.plugins;
+                        let settings_changed = self.config.settings != new_config.settings;
+                        let auto_reload = new_config.plugins.auto_reload;
+
+                        if (plugins_changed || settings_changed) && auto_reload {
+                            let provider_diags = self
+                                .plugin_manager
+                                .update_provider_config(&new_config.plugins, &new_config.settings);
+                            if !provider_diags.is_empty() {
+                                schedule_diagnostic_overlay(
+                                    &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                        self.gui_sink.clone(),
+                                    ),
+                                    &mut self.diagnostic_overlay,
+                                    &mut self.state.runtime.diagnostic_history,
+                                    &provider_diags,
+                                );
+                            }
+
+                            if plugins_changed {
+                                match self
+                                    .reload_orchestrator
+                                    .resolve_and_signal_reload(&new_config)
+                                {
+                                    Ok(outcome) => {
+                                        if !outcome.diagnostics.is_empty() {
+                                            schedule_diagnostic_overlay(
+                                                &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                                    self.gui_sink.clone(),
+                                                ),
+                                                &mut self.diagnostic_overlay,
+                                                &mut self.state.runtime.diagnostic_history,
+                                                &outcome.diagnostics,
+                                            );
+                                        }
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!(
+                                            "auto-reload resolve failed: {err}; keeping previous lock"
+                                        );
+                                    }
+                                }
+                            } else {
+                                let _ = self.event_proxy.send_event(GuiEvent::PluginReload);
+                            }
+                        }
+
                         // Check for restart-required fields, excluding GUI-handleable ones
+                        // and (when auto_reload is on) plugins/settings.
                         let restart_fields: Vec<&str> = self
                             .config
                             .restart_required_diff(&new_config)
@@ -688,6 +750,7 @@ where
                             .filter(|f| {
                                 !matches!(*f, "font" | "window" | "scroll.lines_per_scroll")
                             })
+                            .filter(|f| !auto_reload || (*f != "plugins" && *f != "settings"))
                             .collect();
                         if !restart_fields.is_empty() {
                             let field_list = restart_fields.join(", ");
@@ -711,6 +774,7 @@ where
                                     self.gui_sink.clone(),
                                 ),
                                 &mut self.diagnostic_overlay,
+                                &mut self.state.runtime.diagnostic_history,
                                 &[diagnostic],
                             );
                         }
@@ -740,6 +804,7 @@ where
                                     self.gui_sink.clone(),
                                 ),
                                 &mut self.diagnostic_overlay,
+                                &mut self.state.runtime.diagnostic_history,
                                 &diagnostics,
                             );
                         }
@@ -785,6 +850,7 @@ where
                                 self.gui_sink.clone(),
                             ),
                             &mut self.diagnostic_overlay,
+                            &mut self.state.runtime.diagnostic_history,
                             &[diagnostic],
                         );
                     }
@@ -840,6 +906,7 @@ where
                 schedule_diagnostic_overlay(
                     &kasane_core::event_loop::GenericDiagnosticScheduler(self.gui_sink.clone()),
                     &mut self.diagnostic_overlay,
+                    &mut self.state.runtime.diagnostic_history,
                     &reload.diagnostics,
                 );
                 let ready_targets: Vec<_> = reload.ready_targets().cloned().collect();
