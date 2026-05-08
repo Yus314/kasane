@@ -24,10 +24,10 @@ use super::state::{Plugin, PluginState};
 use super::traits::{KeyPreDispatchResult, MousePreDispatchResult, TextInputPreDispatchResult};
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
-    DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, KeyHandleResult, LineAnnotation,
-    OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities,
-    PluginDiagnostic, PluginId, SlotId, TransformContext, TransformDescriptor, TransformSubject,
-    TransformTarget, VirtualTextItem,
+    DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, KeyHandleResult, OverlayContext,
+    OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities, PluginDiagnostic,
+    PluginId, SlotId, TransformContext, TransformDescriptor, TransformSubject, TransformTarget,
+    VirtualTextItem,
 };
 
 /// Adapts a [`Plugin`] to the internal [`PluginBackend`] trait via data-driven dispatch.
@@ -601,67 +601,14 @@ impl PluginBackend for PluginBridge {
         }
     }
 
-    fn annotate_line_with_ctx(
-        &self,
-        line: usize,
-        app: &AppView<'_>,
-        ctx: &AnnotateContext,
-    ) -> Option<LineAnnotation> {
-        if !self.table.has_annotation_handlers() {
-            return None;
-        }
-
-        let background = self
-            .table
-            .background_handler
-            .as_ref()
-            .and_then(|h| h(&*self.state, line, app, ctx));
-
-        let inline = self
-            .table
-            .inline_handler
-            .as_ref()
-            .and_then(|h| h(&*self.state, line, app, ctx));
-
-        let virtual_text: Vec<VirtualTextItem> = self
-            .table
-            .virtual_text_handler
-            .as_ref()
-            .map(|h| h(&*self.state, line, app, ctx))
-            .unwrap_or_default();
-
-        let mut left_gutter = None;
-        let mut right_gutter = None;
-        let mut priority = 0i16;
-
-        for entry in &self.table.gutter_handlers {
-            if let Some(el) = (entry.handler)(&*self.state, line, app, ctx) {
-                match entry.side {
-                    super::handler_table::GutterSide::Left => left_gutter = Some(el),
-                    super::handler_table::GutterSide::Right => right_gutter = Some(el),
-                }
-                priority = entry.priority;
-            }
-        }
-
-        if background.is_some()
-            || inline.is_some()
-            || !virtual_text.is_empty()
-            || left_gutter.is_some()
-            || right_gutter.is_some()
-        {
-            Some(LineAnnotation {
-                left_gutter,
-                right_gutter,
-                background,
-                priority,
-                inline,
-                virtual_text,
-            })
-        } else {
-            None
-        }
-    }
+    // `annotate_line_with_ctx` is intentionally NOT overridden. Bridges
+    // declare `has_decomposed_annotations() = true` below, which causes
+    // collection.rs to dispatch through `decorate_gutter` /
+    // `decorate_background` / `decorate_inline` / `annotate_virtual_text`
+    // directly. The unified `annotate_line_with_ctx` path is reserved for
+    // adapters whose underlying contract surfaces a single annotation
+    // call (`WasmPlugin` via the `annotate-line` WIT export, plus
+    // `#[kasane_plugin]`-macro plugins that supply `fn annotate_line`).
 
     fn has_decomposed_annotations(&self) -> bool {
         true
@@ -1067,9 +1014,13 @@ mod tests {
             pane_focused: true,
         };
 
-        assert!(bridge.annotate_line_with_ctx(3, &view, &ctx).is_some());
-        assert!(bridge.annotate_line_with_ctx(0, &view, &ctx).is_none());
-        assert!(bridge.annotate_line_with_ctx(5, &view, &ctx).is_none());
+        // Bridges expose decomposed annotations directly. The unified
+        // `annotate_line_with_ctx` path is reserved for adapters
+        // (WasmPlugin, `#[kasane_plugin]` macro) — see the comment in
+        // the impl block.
+        assert!(bridge.decorate_background(3, &view, &ctx).is_some());
+        assert!(bridge.decorate_background(0, &view, &ctx).is_none());
+        assert!(bridge.decorate_background(5, &view, &ctx).is_none());
     }
 
     #[test]
