@@ -6,7 +6,7 @@ use kasane_core::element::{
 };
 use kasane_core::plugin::PluginId;
 use kasane_core::plugin::setting::SettingValue;
-use kasane_core::protocol::{Coord, CursorMode, Line, WireFace};
+use kasane_core::protocol::{Coord, CursorMode, Line, Style};
 use kasane_core::state::{AppState, DirtyFlags, InfoState};
 use wasmtime_wasi::WasiCtxBuilder;
 
@@ -849,7 +849,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             border: border.as_ref().map(convert::wit_border_to_border_config),
             shadow,
             padding: convert::wit_edges_to_edges(&padding),
-            style: ElementStyle::from(WireFace::default()),
+            style: ElementStyle::from(Style::default()),
             title: None,
         };
         self.store_element(element)

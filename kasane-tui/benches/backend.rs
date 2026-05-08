@@ -8,7 +8,8 @@ use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{
-    Atom, Attributes, Color, Coord, Line, NamedColor, WireFace, parse_request,
+    Atom, Brush, Color, Coord, DecorationStyle, FontSlant, FontWeight, Line, NamedColor, Style,
+    TextDecoration, WireFace, parse_request,
 };
 use kasane_core::render::paint;
 use kasane_core::render::view;
@@ -154,42 +155,27 @@ fn default_result() -> RenderResult {
 // ---------------------------------------------------------------------------
 
 fn make_colored_line(i: usize) -> Vec<Atom> {
-    let keyword_face = WireFace {
-        fg: Color::Rgb {
-            r: 255,
-            g: 100,
-            b: 0,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+    let keyword_style = Style {
+        fg: Brush::rgb(255, 100, 0),
+        ..Style::default()
     };
-    let ident_face = WireFace {
-        fg: Color::Rgb {
-            r: 0,
-            g: 200,
-            b: 100,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+    let ident_style = Style {
+        fg: Brush::rgb(0, 200, 100),
+        ..Style::default()
     };
-    let literal_face = WireFace {
-        fg: Color::Rgb {
-            r: 100,
-            g: 100,
-            b: 255,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+    let literal_style = Style {
+        fg: Brush::rgb(100, 100, 255),
+        ..Style::default()
     };
-    let plain_face = WireFace::default();
+    let plain_style = Style::default();
 
     vec![
-        Atom::from_wire(keyword_face, "let"),
-        Atom::from_wire(plain_face, " "),
-        Atom::from_wire(ident_face, format!("var_{i}")),
-        Atom::from_wire(plain_face, " = "),
-        Atom::from_wire(literal_face, format!("\"{i}_value\"")),
-        Atom::from_wire(plain_face, ";"),
+        Atom::with_style("let", keyword_style),
+        Atom::with_style(" ", plain_style.clone()),
+        Atom::with_style(format!("var_{i}"), ident_style),
+        Atom::with_style(" = ", plain_style.clone()),
+        Atom::with_style(format!("\"{i}_value\""), literal_style),
+        Atom::with_style(";", plain_style),
     ]
 }
 
@@ -197,22 +183,20 @@ fn typical_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = WireFace {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    }
-    .into();
+    state.observed.default_style = Style {
+        fg: Brush::Named(NamedColor::White),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
+    };
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = WireFace {
-        fg: Color::Named(NamedColor::Cyan),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    }
-    .into();
+    state.observed.status_default_style = Style {
+        fg: Brush::Named(NamedColor::Cyan),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
+    };
     state.observed.lines = std::sync::Arc::new((0..line_count).map(make_colored_line).collect());
-    state.inference.status_line = vec![Atom::from_wire(WireFace::default(), " NORMAL ")];
-    state.observed.status_mode_line = vec![Atom::from_wire(WireFace::default(), "normal")];
+    state.inference.status_line = vec![Atom::with_style(" NORMAL ", Style::default())];
+    state.observed.status_mode_line = vec![Atom::with_style("normal", Style::default())];
     state
 }
 
@@ -263,15 +247,14 @@ fn generate_incremental_grid() -> CellGrid {
     // "after": modify 1 line
     let mut edited = state.clone();
     std::sync::Arc::make_mut(&mut edited.observed.lines)[10] = vec![
-        Atom::from_wire(
-            WireFace {
-                fg: Color::Rgb { r: 255, g: 0, b: 0 },
-                bg: Color::Default,
-                ..WireFace::default()
-            },
+        Atom::with_style(
             "edited_line_10",
+            Style {
+                fg: Brush::rgb(255, 0, 0),
+                ..Style::default()
+            },
         ),
-        Atom::from_wire(WireFace::default(), " // modified"),
+        Atom::with_style(" // modified", Style::default()),
     ];
 
     let element = view::view(&edited, &registry.view());
@@ -306,171 +289,155 @@ fn generate_realistic_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid 
 }
 
 // ---------------------------------------------------------------------------
-// Realistic fixture builders (diverse faces, varied line lengths, wide chars)
+// Realistic fixture builders (diverse styles, varied line lengths, wide chars)
 // ---------------------------------------------------------------------------
 
-fn keyword_face() -> WireFace {
-    WireFace {
-        fg: Color::Rgb {
-            r: 255,
-            g: 100,
-            b: 0,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+fn keyword_style() -> Style {
+    Style {
+        fg: Brush::rgb(255, 100, 0),
+        ..Style::default()
     }
 }
 
-fn ident_face() -> WireFace {
-    WireFace {
-        fg: Color::Rgb {
-            r: 0,
-            g: 200,
-            b: 100,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+fn ident_style() -> Style {
+    Style {
+        fg: Brush::rgb(0, 200, 100),
+        ..Style::default()
     }
 }
 
-fn literal_face() -> WireFace {
-    WireFace {
-        fg: Color::Rgb {
-            r: 100,
-            g: 100,
-            b: 255,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+fn literal_style() -> Style {
+    Style {
+        fg: Brush::rgb(100, 100, 255),
+        ..Style::default()
     }
 }
 
-fn comment_face() -> WireFace {
-    WireFace {
-        fg: Color::Rgb {
-            r: 128,
-            g: 128,
-            b: 128,
-        },
-        bg: Color::Default,
-        attributes: Attributes::ITALIC,
-        ..WireFace::default()
+fn comment_style() -> Style {
+    Style {
+        fg: Brush::rgb(128, 128, 128),
+        font_slant: FontSlant::Italic,
+        ..Style::default()
     }
 }
 
-fn type_face() -> WireFace {
-    WireFace {
-        fg: Color::Named(NamedColor::Cyan),
-        bg: Color::Default,
-        ..WireFace::default()
+fn type_style() -> Style {
+    Style {
+        fg: Brush::Named(NamedColor::Cyan),
+        ..Style::default()
     }
 }
 
-fn operator_face() -> WireFace {
-    WireFace {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Default,
-        ..WireFace::default()
+fn operator_style() -> Style {
+    Style {
+        fg: Brush::Named(NamedColor::White),
+        ..Style::default()
     }
 }
 
-fn string_face() -> WireFace {
-    WireFace {
-        fg: Color::Named(NamedColor::Yellow),
-        bg: Color::Default,
-        ..WireFace::default()
+fn string_style() -> Style {
+    Style {
+        fg: Brush::Named(NamedColor::Yellow),
+        ..Style::default()
     }
 }
 
-fn error_face() -> WireFace {
-    WireFace {
-        fg: Color::Named(NamedColor::BrightRed),
-        bg: Color::Default,
-        attributes: Attributes::BOLD | Attributes::UNDERLINE,
-        ..WireFace::default()
+fn error_style() -> Style {
+    Style {
+        fg: Brush::Named(NamedColor::BrightRed),
+        font_weight: FontWeight::BOLD,
+        underline: Some(TextDecoration {
+            style: DecorationStyle::Solid,
+            color: Brush::Default,
+            thickness: None,
+        }),
+        ..Style::default()
     }
 }
 
-fn namespace_face() -> WireFace {
-    WireFace {
-        fg: Color::Named(NamedColor::Magenta),
-        bg: Color::Default,
-        ..WireFace::default()
+fn namespace_style() -> Style {
+    Style {
+        fg: Brush::Named(NamedColor::Magenta),
+        ..Style::default()
     }
 }
 
-fn constant_face() -> WireFace {
-    WireFace {
-        fg: Color::Named(NamedColor::BrightBlue),
-        bg: Color::Default,
-        ..WireFace::default()
+fn constant_style() -> Style {
+    Style {
+        fg: Brush::Named(NamedColor::BrightBlue),
+        ..Style::default()
     }
 }
 
 fn make_realistic_line(i: usize) -> Vec<Atom> {
     match i % 8 {
         0 => vec![], // empty line
-        1 => vec![Atom::from_wire(
-            comment_face(),
+        1 => vec![Atom::with_style(
             format!("// comment line {i}"),
+            comment_style(),
         )],
         2 => vec![
-            Atom::from_wire(keyword_face(), "fn "),
-            Atom::from_wire(ident_face(), format!("process_{i}")),
-            Atom::from_wire(operator_face(), "("),
-            Atom::from_wire(type_face(), "u32"),
-            Atom::from_wire(operator_face(), ") {"),
+            Atom::with_style("fn ", keyword_style()),
+            Atom::with_style(format!("process_{i}"), ident_style()),
+            Atom::with_style("(", operator_style()),
+            Atom::with_style("u32", type_style()),
+            Atom::with_style(") {", operator_style()),
         ],
         3 => vec![
-            Atom::from_wire(keyword_face(), "    let "),
-            Atom::from_wire(ident_face(), format!("result_{i}")),
-            Atom::from_wire(operator_face(), " = "),
-            Atom::from_wire(namespace_face(), "self"),
-            Atom::from_wire(operator_face(), "."),
-            Atom::from_wire(ident_face(), format!("compute_{i}")),
-            Atom::from_wire(operator_face(), "("),
-            Atom::from_wire(literal_face(), format!("{}", i * 42)),
-            Atom::from_wire(operator_face(), ", "),
-            Atom::from_wire(string_face(), format!("\"value_{i}\"")),
-            Atom::from_wire(operator_face(), ");"),
+            Atom::with_style("    let ", keyword_style()),
+            Atom::with_style(format!("result_{i}"), ident_style()),
+            Atom::with_style(" = ", operator_style()),
+            Atom::with_style("self", namespace_style()),
+            Atom::with_style(".", operator_style()),
+            Atom::with_style(format!("compute_{i}"), ident_style()),
+            Atom::with_style("(", operator_style()),
+            Atom::with_style(format!("{}", i * 42), literal_style()),
+            Atom::with_style(", ", operator_style()),
+            Atom::with_style(format!("\"value_{i}\""), string_style()),
+            Atom::with_style(");", operator_style()),
         ],
         4 => vec![
-            Atom::from_wire(keyword_face(), "    const "),
-            Atom::from_wire(constant_face(), format!("MSG_{i}")),
-            Atom::from_wire(operator_face(), ": &str = "),
-            Atom::from_wire(
-                string_face(),
+            Atom::with_style("    const ", keyword_style()),
+            Atom::with_style(format!("MSG_{i}"), constant_style()),
+            Atom::with_style(": &str = ", operator_style()),
+            Atom::with_style(
                 format!("\"Hello from module {i}, processing data\""),
+                string_style(),
             ),
-            Atom::from_wire(operator_face(), ";"),
+            Atom::with_style(";", operator_style()),
         ],
         5 => vec![
-            Atom::from_wire(WireFace::default(), "    "),
-            Atom::from_wire(keyword_face(), "if "),
-            Atom::from_wire(ident_face(), format!("count_{i}")),
-            Atom::from_wire(operator_face(), " > "),
-            Atom::from_wire(literal_face(), format!("{}", i * 10)),
-            Atom::from_wire(operator_face(), " {"),
+            Atom::with_style("    ", Style::default()),
+            Atom::with_style("if ", keyword_style()),
+            Atom::with_style(format!("count_{i}"), ident_style()),
+            Atom::with_style(" > ", operator_style()),
+            Atom::with_style(format!("{}", i * 10), literal_style()),
+            Atom::with_style(" {", operator_style()),
         ],
-        6 => vec![Atom::from_wire(
-            comment_face(),
+        6 => vec![Atom::with_style(
             format!("// 処理{i}: データ変換と検証"),
+            comment_style(),
         )],
         7 => vec![
-            Atom::from_wire(
-                WireFace {
-                    attributes: Attributes::BOLD,
-                    ..error_face()
-                },
+            Atom::with_style(
                 "ERROR",
-            ),
-            Atom::from_wire(operator_face(), ": "),
-            Atom::from_wire(
-                WireFace {
-                    attributes: Attributes::ITALIC | Attributes::UNDERLINE,
-                    ..string_face()
+                Style {
+                    font_weight: FontWeight::BOLD,
+                    ..error_style()
                 },
+            ),
+            Atom::with_style(": ", operator_style()),
+            Atom::with_style(
                 format!("\"unexpected token at line {i}\""),
+                Style {
+                    font_slant: FontSlant::Italic,
+                    underline: Some(TextDecoration {
+                        style: DecorationStyle::Solid,
+                        color: Brush::Default,
+                        thickness: None,
+                    }),
+                    ..string_style()
+                },
             ),
         ],
         _ => unreachable!(),
@@ -481,22 +448,20 @@ fn realistic_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = WireFace {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    }
-    .into();
+    state.observed.default_style = Style {
+        fg: Brush::Named(NamedColor::White),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
+    };
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = WireFace {
-        fg: Color::Named(NamedColor::Cyan),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    }
-    .into();
+    state.observed.status_default_style = Style {
+        fg: Brush::Named(NamedColor::Cyan),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
+    };
     state.observed.lines = std::sync::Arc::new((0..line_count).map(make_realistic_line).collect());
-    state.inference.status_line = vec![Atom::from_wire(WireFace::default(), " NORMAL ")];
-    state.observed.status_mode_line = vec![Atom::from_wire(WireFace::default(), "normal")];
+    state.inference.status_line = vec![Atom::with_style(" NORMAL ", Style::default())];
+    state.observed.status_mode_line = vec![Atom::with_style("normal", Style::default())];
     state
 }
 
@@ -543,14 +508,19 @@ fn to_json_bytes<P: Serialize>(method: &'static str, params: P) -> Vec<u8> {
     .expect("fixture serialization should not fail")
 }
 
+fn default_face_wire() -> WireFace {
+    Style {
+        fg: Brush::Named(NamedColor::White),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
+    }
+    .to_face()
+}
+
 fn draw_json(line_count: usize) -> Vec<u8> {
     let lines: Vec<Line> = (0..line_count).map(make_colored_line).collect();
     let wire_lines = lines_to_wire(&lines);
-    let default_face = WireFace {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    };
+    let default_face = default_face_wire();
     let padding_face = default_face;
     to_json_bytes(
         "draw",
@@ -567,11 +537,7 @@ fn draw_json(line_count: usize) -> Vec<u8> {
 fn draw_realistic_json(line_count: usize) -> Vec<u8> {
     let lines: Vec<Line> = (0..line_count).map(make_realistic_line).collect();
     let wire_lines = lines_to_wire(&lines);
-    let default_face = WireFace {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    };
+    let default_face = default_face_wire();
     let padding_face = default_face;
     to_json_bytes(
         "draw",
@@ -614,21 +580,12 @@ fn bench_present(c: &mut Criterion) {
         group.bench_function("incremental_1line", |b| {
             let mut grid = generate_incremental_grid();
             let mut backend = MockBackend::new();
-            // Populate previous from the grid's built-in previous (set by swap)
-            // The incremental grid was produced by: paint frame 1 → swap → paint frame 2.
-            // iter_diffs works because the grid carries its own previous buffer.
-            // For MockBackend, we need to seed `previous` from the grid's swap state.
-            // Do one full present to seed, then on each iteration re-mark and re-present.
             grid.mark_all_dirty();
             backend.present(&mut grid, default_result());
             backend.flush();
-            // Now the grid's dirty is cleared but content is the "edited" state.
-            // For incremental bench we want to diff the "before→after" each iteration.
-            // Re-generate each time since present mutates dirty state:
             b.iter_batched(
                 || generate_incremental_grid(),
                 |mut g| {
-                    // MockBackend already has "before" as previous from the first present.
                     backend.present(&mut g, default_result());
                     let bytes = backend.bytes_generated();
                     backend.flush();

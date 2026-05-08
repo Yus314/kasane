@@ -9,7 +9,7 @@ use iai_callgrind::{
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Atom, Color, NamedColor, WireFace};
+use kasane_core::protocol::{Atom, Brush, Color, NamedColor, Style};
 use kasane_core::render::paint;
 use kasane_core::render::view;
 use kasane_core::render::{Cell, CellGrid, CursorStyle, RenderResult, TerminalStyle};
@@ -142,42 +142,27 @@ fn default_result() -> RenderResult {
 // ---------------------------------------------------------------------------
 
 fn make_colored_line(i: usize) -> Vec<Atom> {
-    let keyword_face = WireFace {
-        fg: Color::Rgb {
-            r: 255,
-            g: 100,
-            b: 0,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+    let keyword_style = Style {
+        fg: Brush::rgb(255, 100, 0),
+        ..Style::default()
     };
-    let ident_face = WireFace {
-        fg: Color::Rgb {
-            r: 0,
-            g: 200,
-            b: 100,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+    let ident_style = Style {
+        fg: Brush::rgb(0, 200, 100),
+        ..Style::default()
     };
-    let literal_face = WireFace {
-        fg: Color::Rgb {
-            r: 100,
-            g: 100,
-            b: 255,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+    let literal_style = Style {
+        fg: Brush::rgb(100, 100, 255),
+        ..Style::default()
     };
-    let plain_face = WireFace::default();
+    let plain_style = Style::default();
 
     vec![
-        Atom::from_wire(keyword_face, "let"),
-        Atom::from_wire(plain_face, " "),
-        Atom::from_wire(ident_face, format!("var_{i}")),
-        Atom::from_wire(plain_face, " = "),
-        Atom::from_wire(literal_face, format!("\"{i}_value\"")),
-        Atom::from_wire(plain_face, ";"),
+        Atom::with_style("let", keyword_style),
+        Atom::with_style(" ", plain_style.clone()),
+        Atom::with_style(format!("var_{i}"), ident_style),
+        Atom::with_style(" = ", plain_style.clone()),
+        Atom::with_style(format!("\"{i}_value\""), literal_style),
+        Atom::with_style(";", plain_style),
     ]
 }
 
@@ -185,22 +170,20 @@ fn typical_state(line_count: usize) -> kasane_core::state::AppState {
     let mut state = kasane_core::state::AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = WireFace {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    }
-    .into();
+    state.observed.default_style = Style {
+        fg: Brush::Named(NamedColor::White),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
+    };
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = WireFace {
-        fg: Color::Named(NamedColor::Cyan),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    }
-    .into();
+    state.observed.status_default_style = Style {
+        fg: Brush::Named(NamedColor::Cyan),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
+    };
     state.observed.lines = std::sync::Arc::new((0..line_count).map(make_colored_line).collect());
-    state.inference.status_line = vec![Atom::from_wire(WireFace::default(), " NORMAL ")];
-    state.observed.status_mode_line = vec![Atom::from_wire(WireFace::default(), "normal")];
+    state.inference.status_line = vec![Atom::with_style(" NORMAL ", Style::default())];
+    state.observed.status_mode_line = vec![Atom::with_style("normal", Style::default())];
     state
 }
 
@@ -249,15 +232,14 @@ fn generate_incremental_grid() -> CellGrid {
     // "after": modify 1 line
     let mut edited = state.clone();
     std::sync::Arc::make_mut(&mut edited.observed.lines)[10] = vec![
-        Atom::from_wire(
-            WireFace {
-                fg: Color::Rgb { r: 255, g: 0, b: 0 },
-                bg: Color::Default,
-                ..WireFace::default()
-            },
+        Atom::with_style(
             "edited_line_10",
+            Style {
+                fg: Brush::rgb(255, 0, 0),
+                ..Style::default()
+            },
         ),
-        Atom::from_wire(WireFace::default(), " // modified"),
+        Atom::with_style(" // modified", Style::default()),
     ];
 
     let element = view::view(&edited, &registry.view());

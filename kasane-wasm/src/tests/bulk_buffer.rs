@@ -1,6 +1,6 @@
 use crate::bindings::kasane::plugin::host_state::Host;
 use crate::host::HostState;
-use kasane_core::protocol::{Atom, WireFace};
+use kasane_core::protocol::Atom;
 
 type Line = Vec<Atom>;
 
@@ -114,14 +114,14 @@ fn get_lines_atoms_end_clamped() {
 
 #[test]
 fn get_lines_atoms_preserves_face() {
-    use kasane_core::protocol::{Color, NamedColor, Style};
+    use kasane_core::protocol::{Brush, NamedColor, Style};
 
-    let face = WireFace {
-        fg: Color::Named(NamedColor::Red),
-        bg: Color::Named(NamedColor::Blue),
-        ..WireFace::default()
+    let style = Style {
+        fg: Brush::Named(NamedColor::Red),
+        bg: Brush::Named(NamedColor::Blue),
+        ..Style::default()
     };
-    let lines = vec![vec![Atom::with_style("styled", Style::from_face(&face))]];
+    let lines = vec![vec![Atom::with_style("styled", style)]];
     let mut host = make_host_with_raw_lines(lines);
     let result = host.get_lines_atoms(0, 1);
     assert_eq!(result.len(), 1);

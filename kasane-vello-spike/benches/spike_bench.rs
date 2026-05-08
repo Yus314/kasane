@@ -59,7 +59,7 @@
 //! the W5 GPU benches (commented-out below) participate.
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use kasane_core::protocol::{Color, NamedColor, Style, WireFace};
+use kasane_core::protocol::{Brush, NamedColor, Style};
 use kasane_core::render::scene::{DrawCommand, PixelPos, PixelRect, ResolvedAtom};
 use std::hint::black_box;
 
@@ -115,32 +115,19 @@ fn fixture_grid(cols: u32, rows: u32) -> Vec<DrawCommand> {
     let cell_w = 8.0_f32;
     let cell_h = 16.0_f32;
 
-    let bg_face: Style = WireFace {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    }
-    .into();
-    let kw_face: Style = WireFace {
-        fg: Color::Rgb {
-            r: 255,
-            g: 100,
-            b: 0,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
-    }
-    .into();
-    let id_face: Style = WireFace {
-        fg: Color::Rgb {
-            r: 0,
-            g: 200,
-            b: 100,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
-    }
-    .into();
+    let bg_face = Style {
+        fg: Brush::Named(NamedColor::White),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
+    };
+    let kw_face = Style {
+        fg: Brush::rgb(255, 100, 0),
+        ..Style::default()
+    };
+    let id_face = Style {
+        fg: Brush::rgb(0, 200, 100),
+        ..Style::default()
+    };
 
     let mut commands: Vec<DrawCommand> = Vec::with_capacity((rows * 2) as usize);
     for row in 0..rows {

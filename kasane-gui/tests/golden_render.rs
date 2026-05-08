@@ -808,7 +808,7 @@ fn variable_font_axes_matches_snapshot() {
 /// only the snapshot bootstrap on a GPU-capable machine.
 #[test]
 fn curly_underline_matches_snapshot() {
-    use kasane_core::protocol::{Attributes, Color, NamedColor, Style, WireFace};
+    use kasane_core::protocol::{Brush, DecorationStyle, NamedColor, Style, TextDecoration};
     use kasane_core::render::{DrawCommand, PixelPos, PixelRect, scene::ResolvedAtom};
 
     let width = 320u32;
@@ -818,13 +818,16 @@ fn curly_underline_matches_snapshot() {
         return;
     };
 
-    let underline_face: Style = WireFace {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        underline: Color::Named(NamedColor::Red),
-        attributes: Attributes::CURLY_UNDERLINE,
-    }
-    .into();
+    let underline_face = Style {
+        fg: Brush::Named(NamedColor::White),
+        bg: Brush::Named(NamedColor::Black),
+        underline: Some(TextDecoration {
+            style: DecorationStyle::Curly,
+            color: Brush::Named(NamedColor::Red),
+            thickness: None,
+        }),
+        ..Style::default()
+    };
 
     let commands = vec![
         DrawCommand::FillRect {
@@ -869,7 +872,7 @@ fn curly_underline_matches_snapshot() {
 fn inline_box_text_flow_matches_snapshot() {
     use kasane_core::display::InlineBoxAlignment;
     use kasane_core::plugin::PluginId;
-    use kasane_core::protocol::{Color, NamedColor, Style, WireFace};
+    use kasane_core::protocol::{Brush, NamedColor, Style};
     use kasane_core::render::{DrawCommand, PixelPos, PixelRect, scene::BufferParagraph};
 
     let width = 320u32;
@@ -879,12 +882,11 @@ fn inline_box_text_flow_matches_snapshot() {
         return;
     };
 
-    let red_face: Style = WireFace {
-        fg: Color::Named(NamedColor::Red),
-        bg: Color::Named(NamedColor::Red),
-        ..WireFace::default()
-    }
-    .into();
+    let red_face = Style {
+        fg: Brush::Named(NamedColor::Red),
+        bg: Brush::Named(NamedColor::Red),
+        ..Style::default()
+    };
 
     // Inline-box paint contribution: one solid red square at
     // origin (0, 0) sized to the slot's declared geometry

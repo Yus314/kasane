@@ -408,27 +408,23 @@ fn decoration_enabled(d: &DecorationKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kasane_core::protocol::{
-        Brush as KBrush, FontWeight as KFontWeight, NamedColor, Style, WireFace,
-    };
+    use kasane_core::protocol::{Brush as KBrush, FontWeight as KFontWeight, NamedColor, Style};
 
-    fn atom(text: &str, face: WireFace) -> Atom {
-        Atom::with_style(text, Style::from_face(&face))
+    fn atom(text: &str, style: Style) -> Atom {
+        Atom::with_style(text, style)
     }
 
-    fn red_face() -> WireFace {
-        use kasane_core::protocol::Color;
-        WireFace {
-            fg: Color::Named(NamedColor::Red),
-            ..WireFace::default()
+    fn red_style() -> Style {
+        Style {
+            fg: KBrush::Named(NamedColor::Red),
+            ..Style::default()
         }
     }
 
-    fn blue_face() -> WireFace {
-        use kasane_core::protocol::Color;
-        WireFace {
-            fg: Color::Named(NamedColor::Blue),
-            ..WireFace::default()
+    fn blue_style() -> Style {
+        Style {
+            fg: KBrush::Named(NamedColor::Blue),
+            ..Style::default()
         }
     }
 
@@ -445,7 +441,7 @@ mod tests {
 
     #[test]
     fn single_atom_produces_one_run() {
-        let atoms = vec![atom("hello", red_face())];
+        let atoms = vec![atom("hello", red_style())];
         let line = StyledLine::from_atoms(
             &atoms,
             &Style::default(),
@@ -463,9 +459,9 @@ mod tests {
     #[test]
     fn adjacent_same_style_atoms_merge_into_one_run() {
         let atoms = vec![
-            atom("hel", red_face()),
-            atom("lo ", red_face()),
-            atom("world", red_face()),
+            atom("hel", red_style()),
+            atom("lo ", red_style()),
+            atom("world", red_style()),
         ];
         let line = StyledLine::from_atoms(
             &atoms,
@@ -485,9 +481,9 @@ mod tests {
     #[test]
     fn distinct_style_atoms_produce_distinct_runs() {
         let atoms = vec![
-            atom("red", red_face()),
-            atom(" ", WireFace::default()),
-            atom("blue", blue_face()),
+            atom("red", red_style()),
+            atom(" ", Style::default()),
+            atom("blue", blue_style()),
         ];
         let line = StyledLine::from_atoms(
             &atoms,
@@ -505,7 +501,7 @@ mod tests {
 
     #[test]
     fn atom_range_extracts_correct_slice() {
-        let atoms = vec![atom("foo", red_face()), atom("bar", blue_face())];
+        let atoms = vec![atom("foo", red_style()), atom("bar", blue_style())];
         let line = StyledLine::from_atoms(&atoms, &Style::default(), Brush::default(), 14.0, None);
         assert_eq!(line.atom_range(0), Some(0..3));
         assert_eq!(line.atom_range(1), Some(3..6));
@@ -515,7 +511,7 @@ mod tests {
     #[test]
     fn base_style_applied_to_default_atom() {
         // Atom with default style picks up base_style's brush during resolution.
-        let atoms = vec![atom("x", WireFace::default())];
+        let atoms = vec![atom("x", Style::default())];
         let base = Style {
             fg: KBrush::Named(NamedColor::Cyan),
             font_weight: KFontWeight::BOLD,
@@ -531,7 +527,7 @@ mod tests {
 
     #[test]
     fn with_inline_boxes_replaces_slots_and_rehashes() {
-        let atoms = vec![atom("hello", red_face())];
+        let atoms = vec![atom("hello", red_style())];
         let line = StyledLine::from_atoms(
             &atoms,
             &Style::default(),
@@ -569,7 +565,7 @@ mod tests {
     fn with_inline_boxes_distinguishes_geometry() {
         // Two slots with the same id but different geometry must produce
         // distinct content hashes — Parley's layout depends on width/height.
-        let atoms = vec![atom("hi", red_face())];
+        let atoms = vec![atom("hi", red_style())];
         let base = StyledLine::from_atoms(
             &atoms,
             &Style::default(),
@@ -669,9 +665,9 @@ mod tests {
     fn cjk_byte_boundaries_correct() {
         // Multi-byte UTF-8 characters must produce byte (not char) offsets.
         let atoms = vec![
-            atom("a", red_face()),   // 1 byte
-            atom("あ", blue_face()), // 3 bytes
-            atom("b", red_face()),   // 1 byte
+            atom("a", red_style()),   // 1 byte
+            atom("あ", blue_style()), // 3 bytes
+            atom("b", red_style()),   // 1 byte
         ];
         let line = StyledLine::from_atoms(&atoms, &Style::default(), Brush::default(), 14.0, None);
         assert_eq!(line.text, "aあb");
@@ -685,9 +681,9 @@ mod tests {
     #[test]
     fn scratch_reuse_produces_identical_line() {
         let atoms = vec![
-            atom("hello ", red_face()),
-            atom("world", blue_face()),
-            atom("!", red_face()),
+            atom("hello ", red_style()),
+            atom("world", blue_style()),
+            atom("!", red_style()),
         ];
         let owned = StyledLine::from_atoms(&atoms, &Style::default(), Brush::default(), 14.0, None);
 
@@ -714,7 +710,7 @@ mod tests {
 
     #[test]
     fn scratch_recycle_preserves_capacity_across_calls() {
-        let atoms = vec![atom("hello world", red_face())];
+        let atoms = vec![atom("hello world", red_style())];
         let mut scratch = StyledLineScratch::default();
 
         let line1 = StyledLine::from_atoms_with_scratch(

@@ -7,6 +7,7 @@ use crate::plugin::{
 };
 
 use super::super::PluginView;
+#[cfg(debug_assertions)]
 use super::detect_transform_conflicts_from_patches;
 
 impl<'a> PluginView<'a> {

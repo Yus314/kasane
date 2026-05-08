@@ -7,7 +7,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use kasane_core::config::ColorsConfig;
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Atom, Color, NamedColor, Style, WireFace};
+use kasane_core::protocol::{Atom, Brush, NamedColor, Style};
 use kasane_core::render::{CellGrid, render_pipeline};
 use kasane_core::state::AppState;
 use kasane_gui::colors::ColorResolver;
@@ -18,55 +18,38 @@ fn setup_grid() -> (CellGrid, ColorResolver) {
     let mut state = AppState::default();
     state.runtime.cols = 80;
     state.runtime.rows = 24;
-    state.observed.default_style = WireFace {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    }
-    .into();
+    state.observed.default_style = Style {
+        fg: Brush::Named(NamedColor::White),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
+    };
     state.observed.padding_style = state.observed.default_style.clone();
-    state.observed.status_default_style = WireFace {
-        fg: Color::Named(NamedColor::Cyan),
-        bg: Color::Named(NamedColor::Black),
-        ..WireFace::default()
-    }
-    .into();
-    let kw_face = WireFace {
-        fg: Color::Rgb {
-            r: 255,
-            g: 100,
-            b: 0,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+    state.observed.status_default_style = Style {
+        fg: Brush::Named(NamedColor::Cyan),
+        bg: Brush::Named(NamedColor::Black),
+        ..Style::default()
     };
-    let var_face = WireFace {
-        fg: Color::Rgb {
-            r: 0,
-            g: 200,
-            b: 100,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+    let kw_style = Style {
+        fg: Brush::rgb(255, 100, 0),
+        ..Style::default()
     };
-    let str_face = WireFace {
-        fg: Color::Rgb {
-            r: 100,
-            g: 100,
-            b: 255,
-        },
-        bg: Color::Default,
-        ..WireFace::default()
+    let var_style = Style {
+        fg: Brush::rgb(0, 200, 100),
+        ..Style::default()
+    };
+    let str_style = Style {
+        fg: Brush::rgb(100, 100, 255),
+        ..Style::default()
     };
     state.observed.lines = std::sync::Arc::new(
         (0..23)
             .map(|i| {
                 vec![
-                    Atom::with_style("let", Style::from_face(&kw_face)),
+                    Atom::with_style("let", kw_style.clone()),
                     Atom::plain(" "),
-                    Atom::with_style(format!("var_{i}"), Style::from_face(&var_face)),
+                    Atom::with_style(format!("var_{i}"), var_style.clone()),
                     Atom::plain(" = "),
-                    Atom::with_style(format!("\"{i}_value\""), Style::from_face(&str_face)),
+                    Atom::with_style(format!("\"{i}_value\""), str_style.clone()),
                     Atom::plain(";"),
                 ]
             })

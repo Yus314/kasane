@@ -27,7 +27,8 @@ use std::sync::Arc;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use kasane_core::config::FontConfig;
-use kasane_core::protocol::{Atom, Color, NamedColor, Style, WireFace};
+use kasane_core::protocol::Brush as KBrush;
+use kasane_core::protocol::{Atom, NamedColor, Style};
 use parley::PositionedLayoutItem;
 
 use kasane_gui::gpu::text::atlas::{AtlasShelf, AtlasSlot};
@@ -41,41 +42,29 @@ use kasane_gui::gpu::text::styled_line::StyledLine;
 use kasane_gui::gpu::text::{Brush, ParleyText};
 
 fn realistic_atoms(line_no: usize) -> Vec<Atom> {
-    let kw_face = WireFace {
-        fg: Color::Rgb {
-            r: 255,
-            g: 100,
-            b: 0,
-        },
-        ..WireFace::default()
+    let kw_style = Style {
+        fg: KBrush::rgb(255, 100, 0),
+        ..Style::default()
     };
-    let var_face = WireFace {
-        fg: Color::Rgb {
-            r: 0,
-            g: 200,
-            b: 100,
-        },
-        ..WireFace::default()
+    let var_style = Style {
+        fg: KBrush::rgb(0, 200, 100),
+        ..Style::default()
     };
-    let str_face = WireFace {
-        fg: Color::Rgb {
-            r: 100,
-            g: 100,
-            b: 255,
-        },
-        ..WireFace::default()
+    let str_style = Style {
+        fg: KBrush::rgb(100, 100, 255),
+        ..Style::default()
     };
-    let semi_face = WireFace {
-        fg: Color::Named(NamedColor::White),
-        ..WireFace::default()
+    let semi_style = Style {
+        fg: KBrush::Named(NamedColor::White),
+        ..Style::default()
     };
     vec![
-        Atom::with_style("let", Style::from_face(&kw_face)),
+        Atom::with_style("let", kw_style),
         Atom::plain(" "),
-        Atom::with_style(format!("var_{line_no}"), Style::from_face(&var_face)),
+        Atom::with_style(format!("var_{line_no}"), var_style),
         Atom::plain(" = "),
-        Atom::with_style(format!("\"{line_no}_value\""), Style::from_face(&str_face)),
-        Atom::with_style(";", Style::from_face(&semi_face)),
+        Atom::with_style(format!("\"{line_no}_value\""), str_style),
+        Atom::with_style(";", semi_style),
     ]
 }
 
