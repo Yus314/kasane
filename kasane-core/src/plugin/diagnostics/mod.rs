@@ -89,6 +89,18 @@ pub enum PluginDiagnosticKind {
         /// future backends). Static-string-shaped for the same reason.
         backend: &'static str,
     },
+    /// Plugin's manifest declares a `kasane:plugin` WIT package version
+    /// that the host cannot satisfy. Detected before wasmtime
+    /// instantiation so the user gets a friendly "rebuild against the
+    /// current SDK" message instead of the linker's
+    /// "component imports instance ..., but a matching implementation
+    /// was not found in the linker" error.
+    AbiVersionMismatch {
+        /// Version the plugin was built against (manifest `abi_version`).
+        required: String,
+        /// Version the host provides (mirrors `wit/plugin.wit` line 1).
+        host: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,6 +131,26 @@ impl PluginDiagnostic {
             target: PluginDiagnosticTarget::Plugin(plugin_id),
             message: message.into(),
             kind: PluginDiagnosticKind::InstantiationFailed,
+            previous: None,
+            attempted: None,
+        }
+    }
+
+    pub fn abi_version_mismatch(
+        plugin_id: PluginId,
+        required: impl Into<String>,
+        host: impl Into<String>,
+    ) -> Self {
+        let required = required.into();
+        let host = host.into();
+        let message = format!(
+            "plugin requires kasane:plugin@{required} but host provides @{host}; \
+             rebuild with a compatible kasane-plugin-sdk"
+        );
+        Self {
+            target: PluginDiagnosticTarget::Plugin(plugin_id),
+            message,
+            kind: PluginDiagnosticKind::AbiVersionMismatch { required, host },
             previous: None,
             attempted: None,
         }
@@ -229,7 +261,8 @@ impl PluginDiagnostic {
             PluginDiagnosticKind::SurfaceRegistrationFailed { .. }
             | PluginDiagnosticKind::InstantiationFailed
             | PluginDiagnosticKind::ProviderCollectFailed
-            | PluginDiagnosticKind::RuntimeError { .. } => PluginDiagnosticSeverity::Error,
+            | PluginDiagnosticKind::RuntimeError { .. }
+            | PluginDiagnosticKind::AbiVersionMismatch { .. } => PluginDiagnosticSeverity::Error,
             PluginDiagnosticKind::ProviderArtifactFailed { .. }
             | PluginDiagnosticKind::ConfigError { .. }
             | PluginDiagnosticKind::BackendCapabilityRejected { .. } => {
@@ -304,6 +337,9 @@ pub fn summarize_plugin_diagnostic(diagnostic: &PluginDiagnostic) -> String {
             backend,
         } => {
             format!("{target}: {backend} rejected {primitive_kind}")
+        }
+        PluginDiagnosticKind::AbiVersionMismatch { required, host } => {
+            format!("{target}: requires @{required}, host @{host}")
         }
     }
 }
@@ -465,6 +501,20 @@ pub fn report_plugin_diagnostics(diagnostics: &[PluginDiagnostic]) {
                     backend = %backend,
                     message = %diagnostic.message,
                     "plugin contribution dropped"
+                );
+            }
+            PluginDiagnosticKind::AbiVersionMismatch {
+                ref required,
+                ref host,
+            } => {
+                tracing::error!(
+                    plugin_id = plugin_id.unwrap_or("none"),
+                    provider = provider.unwrap_or("none"),
+                    kind = "abi_version_mismatch",
+                    required = %required,
+                    host = %host,
+                    message = %diagnostic.message,
+                    "plugin ABI version mismatch"
                 );
             }
         }

@@ -10,7 +10,7 @@ use kasane_core::plugin::{
 };
 use kasane_plugin_package::package;
 use kasane_wasm::{
-    WasiCapabilityConfig, WasmPluginLoader, bundled_plugin_artifact_by_plugin_id,
+    WasiCapabilityConfig, WasmPluginLoader, abi, bundled_plugin_artifact_by_plugin_id,
     bundled_plugin_manifest_by_plugin_id, load_bundled_plugin_by_plugin_id,
 };
 
@@ -18,6 +18,42 @@ use crate::plugin_lock::{LockedPluginEntry, PluginsLock};
 use crate::plugin_store::PluginStore;
 
 const LOCKED_WASM_PROVIDER_NAME: &str = "kasane::LockedWasmPluginProvider";
+
+/// Check a manifest's `abi_version` against the host. On mismatch,
+/// emits an [`PluginDiagnostic::abi_version_mismatch`] into `resolved`
+/// and returns `false` so the caller can skip factory creation. Skipping
+/// here means the plugin never reaches `factory.create()`, so the user
+/// gets a single clear "rebuild against current SDK" diagnostic instead
+/// of a per-activation wasmtime linker error.
+fn check_manifest_abi_compat(
+    plugin_id: &str,
+    abi_version: &str,
+    resolved: &mut PluginCollect,
+) -> bool {
+    match abi::check_compat(abi_version) {
+        abi::AbiCompat::Compatible => true,
+        abi::AbiCompat::MajorMismatch { required, host } => {
+            resolved
+                .diagnostics
+                .push(PluginDiagnostic::abi_version_mismatch(
+                    PluginId(plugin_id.to_string()),
+                    required,
+                    host,
+                ));
+            false
+        }
+        abi::AbiCompat::Malformed(value) => {
+            resolved
+                .diagnostics
+                .push(PluginDiagnostic::abi_version_mismatch(
+                    PluginId(plugin_id.to_string()),
+                    value,
+                    abi::HOST_ABI_VERSION,
+                ));
+            false
+        }
+    }
+}
 
 pub struct LockedWasmPluginProvider {
     lock_path: PathBuf,
@@ -312,6 +348,10 @@ fn collect_locked_filesystem_plugin(
         return;
     }
 
+    if !check_manifest_abi_compat(&manifest.plugin.id, &manifest.plugin.abi_version, resolved) {
+        return;
+    }
+
     let plugin_id = PluginId(manifest.plugin.id.clone());
     let settings = resolve_plugin_settings(&manifest, config_settings);
     if !settings.is_empty() {
@@ -438,6 +478,10 @@ fn collect_locked_bundled_plugin(
                 ProviderArtifactStage::Manifest,
                 err.to_string(),
             ));
+        return;
+    }
+
+    if !check_manifest_abi_compat(&manifest.plugin.id, &manifest.plugin.abi_version, resolved) {
         return;
     }
 

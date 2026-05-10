@@ -507,6 +507,7 @@ fn kind_short_label(kind: &PluginDiagnosticKind) -> &'static str {
     match kind {
         PluginDiagnosticKind::SurfaceRegistrationFailed { .. } => "surface",
         PluginDiagnosticKind::InstantiationFailed => "init",
+        PluginDiagnosticKind::AbiVersionMismatch { .. } => "abi",
         PluginDiagnosticKind::ProviderCollectFailed => "discovery",
         PluginDiagnosticKind::ProviderArtifactFailed { .. } => "artifact",
         PluginDiagnosticKind::RuntimeError { .. } => "runtime",
@@ -537,6 +538,9 @@ fn format_descriptors_line(d: &PluginDiagnostic, inner_w: u16) -> String {
             backend,
         } => {
             parts.push(format!("backend {backend} rejected {primitive_kind}"));
+        }
+        PluginDiagnosticKind::AbiVersionMismatch { required, host } => {
+            parts.push(format!("required @{required} host @{host}"));
         }
         _ => {}
     }
@@ -591,6 +595,9 @@ fn format_diagnostic_for_yank(d: &PluginDiagnostic, log_path: Option<&Path>) -> 
             out.push_str(&format!(
                 "  backend: {backend}\n  primitive_kind: {primitive_kind}\n"
             ));
+        }
+        PluginDiagnosticKind::AbiVersionMismatch { required, host } => {
+            out.push_str(&format!("  required: @{required}\n  host: @{host}\n"));
         }
         _ => {}
     }

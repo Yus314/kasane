@@ -1,3 +1,4 @@
+pub mod abi;
 mod adapter;
 mod authority;
 mod cache;
@@ -237,6 +238,28 @@ impl WasmPluginLoader {
         manifest: &manifest::PluginManifest,
         wasi_config: &WasiCapabilityConfig,
     ) -> Result<WasmPlugin, (ProviderArtifactStage, WasmPluginError)> {
+        // Validate ABI compatibility *before* loading the component.
+        // wasmtime would otherwise reject mismatched plugins at the linker
+        // step with a low-level "matching implementation not found" error;
+        // checking here surfaces a friendly version-mismatch diagnostic.
+        match abi::check_compat(&manifest.plugin.abi_version) {
+            abi::AbiCompat::Compatible => {}
+            abi::AbiCompat::MajorMismatch { required, host } => {
+                return Err((
+                    ProviderArtifactStage::Manifest,
+                    WasmPluginError::AbiVersionMismatch { required, host },
+                ));
+            }
+            abi::AbiCompat::Malformed(value) => {
+                return Err((
+                    ProviderArtifactStage::Manifest,
+                    WasmPluginError::AbiVersionMismatch {
+                        required: value,
+                        host: abi::HOST_ABI_VERSION.to_string(),
+                    },
+                ));
+            }
+        }
         let component = self.load_component(wasm_bytes).map_err(|err| {
             (
                 ProviderArtifactStage::Load,

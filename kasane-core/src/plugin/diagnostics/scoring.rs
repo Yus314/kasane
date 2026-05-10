@@ -586,6 +586,7 @@ fn diagnostic_overlay_priority(diagnostic: &PluginDiagnostic) -> (u8, u8, u8, u8
     };
     let kind = match diagnostic.kind {
         PluginDiagnosticKind::SurfaceRegistrationFailed { .. } => 3,
+        PluginDiagnosticKind::AbiVersionMismatch { .. } => 3,
         PluginDiagnosticKind::InstantiationFailed => 2,
         PluginDiagnosticKind::RuntimeError { .. } => 1,
         PluginDiagnosticKind::ProviderCollectFailed => 1,
@@ -614,7 +615,10 @@ fn provider_artifact_overlay_priority(stage: ProviderArtifactStage) -> u8 {
 fn diagnostic_overlay_tag_kind(diagnostic: &PluginDiagnostic) -> PluginDiagnosticOverlayTagKind {
     match diagnostic.kind {
         PluginDiagnosticKind::SurfaceRegistrationFailed { .. }
-        | PluginDiagnosticKind::InstantiationFailed => PluginDiagnosticOverlayTagKind::Activation,
+        | PluginDiagnosticKind::InstantiationFailed
+        | PluginDiagnosticKind::AbiVersionMismatch { .. } => {
+            PluginDiagnosticOverlayTagKind::Activation
+        }
         PluginDiagnosticKind::ProviderCollectFailed => PluginDiagnosticOverlayTagKind::Discovery,
         PluginDiagnosticKind::ProviderArtifactFailed { stage, .. } => match stage {
             ProviderArtifactStage::Manifest => PluginDiagnosticOverlayTagKind::ArtifactManifest,

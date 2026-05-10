@@ -1,14 +1,33 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
 use super::AppView;
 use super::diagnostics::{PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticTarget};
-use super::provider::ProviderConfigUpdate;
+use super::provider::{PluginRevision, ProviderConfigUpdate};
 use super::setting::SettingValue;
 use super::{Effects, PluginDescriptor, PluginFactory, PluginId, PluginProvider, PluginRuntime};
+
+/// Number of consecutive activation failures for the same
+/// `(plugin_id, revision)` pair before the [`PluginManager`] starts
+/// suppressing retries.
+const ACTIVATION_QUARANTINE_THRESHOLD: u32 = 3;
+/// How long a quarantined `(plugin_id, revision)` is suppressed before
+/// the manager will retry. Bumping the plugin's revision (i.e. the user
+/// installs a new build) resets the quarantine immediately.
+const ACTIVATION_QUARANTINE_COOLDOWN: Duration = Duration::from_secs(30);
+
+/// Tracks repeated activation failures for one `(plugin_id, revision)`
+/// pair so the manager can suppress retries after a threshold. Reset
+/// implicitly when the revision changes (a fresh map entry is created).
+#[derive(Debug, Clone, Copy)]
+struct ActivationFailureState {
+    consecutive: u32,
+    last_failure: Instant,
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ResolvedPluginSnapshot {
@@ -176,6 +195,14 @@ pub struct PluginManager {
     providers: Vec<Box<dyn PluginProvider>>,
     previous: ResolvedPluginSnapshot,
     pre_render_hooks: Vec<Box<dyn crate::event_loop::PreRenderHook>>,
+    /// Per-`(plugin_id, revision)` activation-failure tally. Used to
+    /// suppress retries after [`ACTIVATION_QUARANTINE_THRESHOLD`]
+    /// consecutive failures of the same revision until
+    /// [`ACTIVATION_QUARANTINE_COOLDOWN`] elapses or the revision
+    /// changes (the next attempt for a *new* revision starts with a
+    /// fresh map entry, so a user-initiated rebuild re-arms the system
+    /// immediately).
+    activation_failures: HashMap<(PluginId, PluginRevision), ActivationFailureState>,
 }
 
 impl PluginManager {
@@ -184,6 +211,7 @@ impl PluginManager {
             providers,
             previous: ResolvedPluginSnapshot::default(),
             pre_render_hooks: Vec::new(),
+            activation_failures: HashMap::new(),
         }
     }
 
@@ -298,7 +326,7 @@ impl PluginManager {
     }
 
     fn apply_plan(
-        &self,
+        &mut self,
         registry: &mut PluginRuntime,
         plan: PluginApplyPlan,
         mode: PluginApplyMode<'_>,
@@ -326,9 +354,39 @@ impl PluginManager {
         }
 
         for upsert in upserts {
+            // Circuit breaker: if this exact (plugin_id, revision) has
+            // failed activation repeatedly within the cooldown window,
+            // skip the attempt silently. Bumping the revision (i.e.
+            // user installs a new build) creates a new map key and
+            // re-arms the breaker. See ACTIVATION_QUARANTINE_THRESHOLD.
+            let breaker_key = (upsert.id.clone(), upsert.new.revision.clone());
+            if let Some(state) = self.activation_failures.get(&breaker_key)
+                && state.consecutive >= ACTIVATION_QUARANTINE_THRESHOLD
+                && state.last_failure.elapsed() < ACTIVATION_QUARANTINE_COOLDOWN
+            {
+                match &upsert.old {
+                    Some(old) => {
+                        result.deltas.retain(|delta| delta.id != upsert.id);
+                        next_snapshot.winners.insert(upsert.id.clone(), old.clone());
+                    }
+                    None => {
+                        next_snapshot.winners.remove(&upsert.id);
+                    }
+                }
+                continue;
+            }
+
             let plugin = match upsert.factory.create() {
                 Ok(plugin) => plugin,
                 Err(err) => {
+                    let entry = self.activation_failures.entry(breaker_key).or_insert(
+                        ActivationFailureState {
+                            consecutive: 0,
+                            last_failure: Instant::now(),
+                        },
+                    );
+                    entry.consecutive = entry.consecutive.saturating_add(1);
+                    entry.last_failure = Instant::now();
                     result.diagnostics.push(PluginDiagnostic {
                         target: PluginDiagnosticTarget::Plugin(upsert.id.clone()),
                         kind: PluginDiagnosticKind::InstantiationFailed,
@@ -348,6 +406,9 @@ impl PluginManager {
                     continue;
                 }
             };
+            // Success: clear any prior failure record so future failures
+            // get the full threshold of warnings before quarantine.
+            self.activation_failures.remove(&breaker_key);
             match mode {
                 PluginApplyMode::Initial => {
                     registry.register_backend(plugin);
@@ -850,5 +911,81 @@ mod tests {
         let diags = manager.update_provider_config(&plugins, &settings);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("update_config"));
+    }
+
+    #[test]
+    fn circuit_breaker_quarantines_after_threshold() {
+        // Reload N times with the same revision and a failing factory:
+        // the first ACTIVATION_QUARANTINE_THRESHOLD attempts produce
+        // diagnostics; subsequent attempts within the cooldown window
+        // are silent (no new diagnostic). Once the user updates the
+        // plugin (revision bump), the breaker resets and surfacing
+        // resumes immediately.
+        let provider = DemoFactoryProvider::new(FactoryVariant::Err, "broken-r1");
+        let mut manager = PluginManager::new(vec![Box::new(provider.clone())]);
+        let mut registry = PluginRuntime::new();
+
+        // Initial activation: 1st failure recorded + diagnostic emitted.
+        let r1 = manager.initialize(&mut registry, |_, _| vec![]).unwrap();
+        assert_eq!(r1.diagnostics.len(), 1, "first failure surfaces");
+
+        let state = AppState::default();
+        // Reloads 2 and 3 still under threshold → diagnostics emitted.
+        for attempt in 2..=ACTIVATION_QUARANTINE_THRESHOLD {
+            let r = manager
+                .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
+                .unwrap();
+            assert_eq!(
+                r.diagnostics.len(),
+                1,
+                "attempt {attempt} should still surface a diagnostic"
+            );
+        }
+
+        // Now over threshold and within cooldown: must be silent.
+        let suppressed = manager
+            .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
+            .unwrap();
+        assert!(
+            suppressed.diagnostics.is_empty(),
+            "quarantine must suppress further diagnostics, got {:?}",
+            suppressed.diagnostics
+        );
+
+        // Revision bump: same id, fresh map key → quarantine cleared.
+        provider.set_state(FactoryVariant::Err, "broken-r2");
+        let after_bump = manager
+            .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
+            .unwrap();
+        assert_eq!(
+            after_bump.diagnostics.len(),
+            1,
+            "new revision must re-arm the breaker, got {:?}",
+            after_bump.diagnostics
+        );
+    }
+
+    #[test]
+    fn circuit_breaker_resets_on_success() {
+        // After a streak of failures, a successful activation must
+        // clear the breaker so future failures get the full threshold
+        // of warnings again.
+        let provider = DemoFactoryProvider::new(FactoryVariant::Err, "r1");
+        let mut manager = PluginManager::new(vec![Box::new(provider.clone())]);
+        let mut registry = PluginRuntime::new();
+
+        let _ = manager.initialize(&mut registry, |_, _| vec![]).unwrap();
+        assert_eq!(manager.activation_failures.len(), 1);
+
+        // Flip the factory to succeed and reload (still r1).
+        provider.set_state(FactoryVariant::Ok, "r1");
+        let state = AppState::default();
+        let _ = manager
+            .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
+            .unwrap();
+        assert!(
+            manager.activation_failures.is_empty(),
+            "successful activation must clear the breaker entry"
+        );
     }
 }
