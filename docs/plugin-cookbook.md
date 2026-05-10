@@ -147,6 +147,49 @@ Key points:
 
 See: `examples/wasm/fuzzy-finder/`
 
+## Register Kakoune APIs at Session-Ready
+
+Declare an option, define a command, and bind it under a user mode — all
+idempotently, so reloading the plugin does not error or duplicate.
+
+```rust
+use kasane_plugin_sdk::kak::{self, OptionKind, Scope};
+
+kasane_plugin_sdk::define_plugin! {
+    id: "demo",
+
+    on_active_session_ready_effects() {
+        kasane_plugin_sdk::kakoune_setup_effects![
+            kak::declare_option("demo_counter", OptionKind::Int, "0", true),
+            kak::define_command(
+                "demo-bump",
+                None,
+                "set-option global demo_counter %sh{ echo $(( kak_opt_demo_counter + 1 )) }",
+            ),
+            kak::declare_user_mode("demo"),
+            kak::map(Scope::Global, "demo", "b", ":demo-bump<ret>", Some("bump counter")),
+            kak::map(Scope::Global, "demo", "?",
+                ":info 'counter is %opt{demo_counter}'<ret>", Some("show counter")),
+        ]
+    },
+}
+```
+
+Key points:
+- `kak::*` helpers encode the **correct idempotency idiom per command**
+  — `declare_user_mode` wraps in `try %[ ... ]` (Kakoune does not accept
+  `-override` here), `define_command` uses `-override`, `declare_option`
+  is naturally idempotent.
+- `kakoune_setup_effects![...]` sends each entry as its own
+  `Command::SendKeys` so a failure in one command does **not** block the
+  rest — unlike a single `evaluate-commands %{ ... }` block which
+  cascade-fails on the first error.
+- `EvalCommand` is *not* available at session-ready (the WIT
+  `session-ready-command` variant excludes it); use the `keys::command`
+  path that the macro wraps for you.
+
+See: `examples/wasm/kakoune-bindings-demo/`
+
 ## Process Spawner
 
 Run an external command and process its output.

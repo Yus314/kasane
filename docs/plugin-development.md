@@ -210,8 +210,26 @@ At build time, Kasane packages the manifest and compiled WASM component into a s
 | Interactive overlay | `state`, `handle_key`, `overlay` | `overlay` | session-ui |
 | Process launcher | Above + `on_io_event_effects`, `capabilities` | `process` | fuzzy-finder |
 | Scroll policy | `handle_default_scroll` | — | smooth-scroll |
+| Kakoune-side bindings | `on_active_session_ready_effects` + `kak::*` helpers | — | kakoune-bindings-demo |
 
 Available `define_plugin!` sections: `manifest` or `id`, `state` (with optional `#[bind]`), `settings`, `on_init_effects`, `on_active_session_ready_effects`, `on_state_changed_effects`, `update_effects`, `slots`, `annotate`, `transform`, `transform_patch`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `authorities`, `on_io_event_effects`.
+
+### Registering Kakoune-side APIs at session-ready
+
+Use `on_active_session_ready_effects` together with the
+[`kasane_plugin_sdk::kak`](https://docs.rs/kasane-plugin-sdk/latest/kasane_plugin_sdk/kak/index.html)
+module and the `kakoune_setup_effects!` macro to register options, commands,
+user modes, and key maps when the active session becomes transport-ready.
+Each `kak::*` helper encodes the correct idempotency idiom for its command
+(e.g. `try %[ declare-user-mode … ]`, `define-command -override`), and the
+`kakoune_setup_effects!` macro sends each entry as its own `SendKeys` for
+failure isolation. See the
+[Plugin Cookbook entry](./plugin-cookbook.md#register-kakoune-apis-at-session-ready)
+and `examples/wasm/kakoune-bindings-demo/`.
+
+Note: at session-ready the WIT `session-ready-command` variant excludes
+`eval-command`; runtime callsites should prefer `Command::EvalCommand`
+where available.
 
 ### Build & Deploy
 
