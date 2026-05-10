@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778455695462,
+  "lastUpdate": 1778455953564,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -141293,6 +141293,822 @@ window.BENCHMARK_DATA = {
             "name": "native_baseline/native_gutter_24",
             "value": 1334,
             "range": "± 10",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "01e67a4f157ec06ab1a60ee252c1425671cde5b0",
+          "message": "docs: log #81 dogfooding tracker + ADR-041/042 in CHANGELOG and roadmap\n\nCHANGELOG [Unreleased] gains three new sections:\n- \"Plugin DX dogfooding suite\" enumerates the 9 user-visible additions\n  from Issue #81 (kak::* module, kakoune_setup_effects! macro,\n  process_event! macro, push_literal newline guard, keys doc rewrite,\n  kakoune-bindings-demo example, abi-versioning.md, migration §1.2.1 +\n  §1.5, cookbook + plugin-development pointers).\n- \"Plugin command-error attribution Phase A\" links to ADR-042 and\n  documents the host-internal marker recognition + suppression that\n  plugins can opt into manually today.\n- \"Plugin ABI 4.0.0 RFCs\" surfaces ADR-041 and ADR-042 Phase B as\n  Proposed; both target a coordinated 3.0 → 4.0 plugin recompile.\n\nroadmap §2.2 Backlog gains one row pointing to the two ADRs, noting\nADR-042 Phase A has already landed.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-05-11T07:44:53+09:00",
+          "tree_id": "9e9ef79a85fcc104938b0fd764be66ab22c8ff88",
+          "url": "https://github.com/Yus314/kasane/commit/01e67a4f157ec06ab1a60ee252c1425671cde5b0"
+        },
+        "date": 1778455951246,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 5842,
+            "range": "± 128",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 10754,
+            "range": "± 106",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 976,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 38175,
+            "range": "± 299",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 145559,
+            "range": "± 2023",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24_realistic",
+            "value": 42280,
+            "range": "± 341",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 27863,
+            "range": "± 2683",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 15623,
+            "range": "± 275",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/full_redraw",
+            "value": 27166,
+            "range": "± 2546",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/incremental",
+            "value": 15623,
+            "range": "± 123",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/80x24",
+            "value": 5064,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/200x60",
+            "value": 31870,
+            "range": "± 155",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 64627,
+            "range": "± 1272",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 69334,
+            "range": "± 1001",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 64789,
+            "range": "± 564",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 64621,
+            "range": "± 574",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 64534,
+            "range": "± 1165",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/1",
+            "value": 61305,
+            "range": "± 1291",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/5",
+            "value": 63097,
+            "range": "± 621",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "message_sequence",
+            "value": 70287,
+            "range": "± 1121",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 70337,
+            "range": "± 765",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 617245,
+            "range": "± 31798",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 2994089,
+            "range": "± 115095",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 3466,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 60504,
+            "range": "± 757",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 33230,
+            "range": "± 378",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 131610,
+            "range": "± 753",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 690857,
+            "range": "± 2391",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 516,
+            "range": "± 905",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 5194,
+            "range": "± 55",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 64410,
+            "range": "± 555",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 267406,
+            "range": "± 2416",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 477016,
+            "range": "± 8444",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 3708473,
+            "range": "± 64202",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 7399634,
+            "range": "± 158181",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 14735,
+            "range": "± 85",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 94084,
+            "range": "± 1812",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 178172,
+            "range": "± 1213",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cached_pipeline_dirty_flags/all_dirty",
+            "value": 47052,
+            "range": "± 703",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cached_pipeline_dirty_flags/menu_select_only",
+            "value": 47109,
+            "range": "± 1034",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_cold",
+            "value": 24521,
+            "range": "± 118",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_warm",
+            "value": 24312,
+            "range": "± 102",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_menu_select",
+            "value": 24415,
+            "range": "± 165",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_status_only",
+            "value": 46947,
+            "range": "± 532",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_menu_select",
+            "value": 46969,
+            "range": "± 496",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_single_edit",
+            "value": 12706,
+            "range": "± 56",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_all_changed",
+            "value": 10463,
+            "range": "± 32",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "apply_draw_line_comparison",
+            "value": 33368,
+            "range": "± 163",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_buffer_status/1_line_changed",
+            "value": 14648,
+            "range": "± 208",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "detect_cursors/full_scan_23_lines",
+            "value": 13342,
+            "range": "± 73",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "detect_cursors/incremental_2_dirty",
+            "value": 13467,
+            "range": "± 84",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "detect_cursors/incremental_all_dirty",
+            "value": 13437,
+            "range": "± 57",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/23_lines",
+            "value": 1908,
+            "range": "± 22",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/59_lines",
+            "value": 1915,
+            "range": "± 22",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/79_lines",
+            "value": 1944,
+            "range": "± 137",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/realistic_23",
+            "value": 1915,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_cursor_only",
+            "value": 1908,
+            "range": "± 42",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/status",
+            "value": 1913,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/menu/100_items",
+            "value": 5766,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/all_flags/80x24",
+            "value": 1916,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/all_flags/300x80",
+            "value": 1910,
+            "range": "± 40",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/full_cold/salsa",
+            "value": 52888,
+            "range": "± 19163",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/full_cold/legacy",
+            "value": 48589,
+            "range": "± 739",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/menu_select_warm/salsa",
+            "value": 50432,
+            "range": "± 468",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/menu_select_warm/legacy",
+            "value": 47121,
+            "range": "± 976",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/incremental_edit/salsa",
+            "value": 55380,
+            "range": "± 2825",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/incremental_edit/legacy",
+            "value": 50758,
+            "range": "± 662",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scene/cold",
+            "value": 25207,
+            "range": "± 50727",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scene/warm",
+            "value": 5707,
+            "range": "± 67",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/80x24",
+            "value": 54351,
+            "range": "± 2455",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/200x60",
+            "value": 177311,
+            "range": "± 419114",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/300x80",
+            "value": 294036,
+            "range": "± 196282",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/full_redraw/80x24",
+            "value": 53509,
+            "range": "± 743",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/full_redraw/200x60",
+            "value": 299182,
+            "range": "± 1234",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/incremental_1line",
+            "value": 21625,
+            "range": "± 3330",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/full_redraw_realistic/80x24",
+            "value": 52766,
+            "range": "± 258",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 209040,
+            "range": "± 1356",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 152695,
+            "range": "± 3261",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 5359151,
+            "range": "± 56916",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 20460320,
+            "range": "± 139809",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1715457,
+            "range": "± 4021",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 22038179,
+            "range": "± 482364",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 4232,
+            "range": "± 47",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 49129,
+            "range": "± 75",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 469,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 2250,
+            "range": "± 20",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_instantiation/component_new",
+            "value": 21358492,
+            "range": "± 244113",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_instantiation/component_instantiate",
+            "value": 34415,
+            "range": "± 305",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/noop",
+            "value": 547,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/add",
+            "value": 550,
+            "range": "± 25",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/echo_string_100",
+            "value": 733,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/echo_string_10",
+            "value": 732,
+            "range": "± 24",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/build_gutter_24",
+            "value": 5615,
+            "range": "± 76",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/on_state_changed",
+            "value": 964,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/contribute_lines_24",
+            "value": 923,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/full_cycle",
+            "value": 1916,
+            "range": "± 15",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/write_echo/10",
+            "value": 46,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/write_echo/100",
+            "value": 62,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/write_echo/1000",
+            "value": 121,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/guest_build_read/10",
+            "value": 46,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/guest_build_read/100",
+            "value": 183,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/guest_build_read/1000",
+            "value": 1454,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/single_text",
+            "value": 90,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/gutter_24",
+            "value": 1570,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/nested_3x8",
+            "value": 1700,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/nested_3x24",
+            "value": 4746,
+            "range": "± 20",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/decode_only_gutter_24",
+            "value": 936,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/state_changed_3calls",
+            "value": 29,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/state_changed_6calls",
+            "value": 42,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/contribute_lines_24",
+            "value": 71,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/full_cycle_state_lines",
+            "value": 100,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation/engine_new",
+            "value": 1576,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation/module_new_noop",
+            "value": 302287,
+            "range": "± 4389",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation/instance_new_noop",
+            "value": 770,
+            "range": "± 22",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "empty_call/wasm_noop",
+            "value": 18,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "empty_call/native_noop",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "integer_call/wasm_add",
+            "value": 21,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "integer_call/native_add",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_import/1x",
+            "value": 22,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_import/10x",
+            "value": 71,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cursor_line_plugin/full_cycle",
+            "value": 1990,
+            "range": "± 20",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cursor_line_plugin/cache_hit_no_call",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_numbers_gutter_24",
+            "value": 5703,
+            "range": "± 48",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/1",
+            "value": 1994,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/3",
+            "value": 5972,
+            "range": "± 57",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/5",
+            "value": 10004,
+            "range": "± 171",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/10",
+            "value": 20052,
+            "range": "± 165",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation_scaling/instantiate_n/1",
+            "value": 29772,
+            "range": "± 310",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation_scaling/instantiate_n/5",
+            "value": 138084,
+            "range": "± 1768",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation_scaling/instantiate_n/10",
+            "value": 268610,
+            "range": "± 2754",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "native_baseline/native_cursor_line_full",
+            "value": 8,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "native_baseline/native_gutter_24",
+            "value": 1391,
+            "range": "± 18",
             "unit": "ns/iter"
           }
         ]
