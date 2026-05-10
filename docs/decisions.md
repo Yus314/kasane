@@ -5197,9 +5197,9 @@ opts into a live update pipeline:
 
 ## ADR-041: `eval-command` in `session-ready-command`
 
-**Status:** Proposed (2026-05-11)
+**Status:** Decided (2026-05-11). Landed in commit `dd2fbe3a`.
 
-**Tracked in:** [Issue #89](https://github.com/Yus314/kasane/issues/89)
+**Tracked in:** [Issue #89](https://github.com/Yus314/kasane/issues/89) (closed)
 
 **Context:**
 
