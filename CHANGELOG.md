@@ -2,6 +2,51 @@
 
 ## [Unreleased]
 
+### Breaking — R2.x P7+P9 cascade: `WireFace` removed from public plugin API (2026-05-10)
+
+Closes the post-ADR-031 visibility-tightening backlog from
+`roadmap.md §2.2`. The wire-format-aware `WireFace` type is no
+longer reachable from `plugin_prelude` and is `#[doc(hidden)] pub`
+internally; plugin authors construct atoms / element styles via
+the post-resolve `Style` type. See
+[docs/migration/0.6-to-0.7.md](docs/migration/0.6-to-0.7.md) for
+each surface's before/after.
+
+Surfaces that changed type:
+
+- `Element::text(s, face: WireFace)` → `Element::text(s, style:
+  Style)`. The auxiliary `Element::text_with_style` constructor is
+  gone (its body absorbed into `Element::text`).
+- `DisplayDirective::StyleInline { face: WireFace }` →
+  `{ style: Style }`. Same for `StyleLine`.
+- `InlineOp::Style { face: WireFace }` → `{ style: Style }`.
+- `CursorEffectOrn { face: WireFace }` → `{ style: Style }`. Same
+  for `SurfaceOrn`.
+- `Command::RegisterThemeTokens(Vec<(String, WireFace)>)` →
+  `Vec<(String, Style)>`. The
+  `KakouneSafeCommand::register_theme_tokens(tokens)` helper
+  follows.
+- `ColorResolver::resolve_face_colors[_linear](&WireFace)` and the
+  WireFace `sync_defaults(&WireFace)` are deleted; consumers use
+  `resolve_style_colors[_linear](&Style)` and
+  `sync_defaults(&Style)`.
+- `Atom::from_wire(WireFace, _)` is `pub(crate)` (only the protocol
+  parser and `test_support::wire`'s cursor fixtures need the
+  `final_*`-preserving path). Plugin code uses
+  `Atom::with_style(_, Style)`.
+- `WireFace` is no longer in `kasane_core::plugin_prelude`.
+  Plugins that observed `final_*` resolution flags via `WireFace`
+  now read them from `UnresolvedStyle.final_fg` / `final_bg` /
+  `final_style`.
+
+### Changed — `bridge.rs` dispatch macros (R2.x P8) (2026-05-10)
+
+Two new dispatch macros (`dispatch_state_with_default!`,
+`dispatch_inject_owner_contribution!`) consolidate 10 hand-coded
+sites in `PluginBridge`. Visible to plugin authors only as
+slightly clearer inline-box / contribution / overlay panic
+backtraces; no behavioural change.
+
 ### Added — `kasane.kdl` auto-reload for `plugins` and `settings` ([ADR-040](docs/decisions.md#adr-040-kasanekdl-auto-reload-for-plugins-and-settings))
 
 Opt-in `plugins.auto_reload #true` makes edits to the `plugins` and
