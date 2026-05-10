@@ -1,7 +1,6 @@
 use crate::element::BorderLineStyle;
 use crate::layout::Rect;
 use crate::plugin::{FaceMerge, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind};
-use crate::protocol::Style;
 use crate::render::grid::CellGrid;
 use crate::render::scene::{CellSize, DrawCommand, to_pixel_rect};
 use crate::surface::{SurfaceId, SurfaceRegistry};
@@ -214,7 +213,7 @@ mod tests {
     use super::*;
     use crate::layout::SplitDirection;
     use crate::plugin::{OrnamentModality, SurfaceOrn};
-    use crate::protocol::{Color, NamedColor};
+    use crate::protocol::{NamedColor, Style};
     use crate::surface::SurfaceRegistry;
     use crate::surface::buffer::KakouneBufferSurface;
     use crate::surface::status::StatusBarSurface;

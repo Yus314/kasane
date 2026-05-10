@@ -133,7 +133,7 @@ mod tests {
     fn setting_value_type_name_and_display() {
         assert_eq!(SettingValue::Bool(true).type_name(), "bool");
         assert_eq!(SettingValue::Integer(-5).type_name(), "integer");
-        assert_eq!(SettingValue::Float(3.14).type_name(), "float");
+        assert_eq!(SettingValue::Float(2.5).type_name(), "float");
         assert_eq!(
             SettingValue::Str(CompactString::new("hello")).type_name(),
             "string"
@@ -141,7 +141,7 @@ mod tests {
 
         assert_eq!(SettingValue::Bool(true).to_string(), "true");
         assert_eq!(SettingValue::Integer(-5).to_string(), "-5");
-        assert_eq!(SettingValue::Float(3.14).to_string(), "3.14");
+        assert_eq!(SettingValue::Float(2.5).to_string(), "2.5");
         assert_eq!(
             SettingValue::Str(CompactString::new("hello")).to_string(),
             "hello"

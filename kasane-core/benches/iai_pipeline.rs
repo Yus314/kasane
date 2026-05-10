@@ -229,7 +229,7 @@ fn setup_bridge_mixed_full() -> kasane_core::display::DirectiveSet {
             DisplayDirective::StyleInline {
                 line,
                 byte_range: 0..10,
-                face: WireFace::default(),
+                style: kasane_core::protocol::Style::default(),
             },
             0,
             pid(&format!("si{}", line)),

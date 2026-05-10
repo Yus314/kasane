@@ -361,7 +361,7 @@ mod legacy {
                     let (index, size_hint, element) = matching.into_iter().next().unwrap();
                     Some(Contribution {
                         element,
-                        priority: index as i16,
+                        priority: index,
                         size_hint,
                     })
                 }
@@ -373,7 +373,7 @@ mod legacy {
                         .collect();
                     Some(Contribution {
                         element: Element::row(children),
-                        priority: min_index as i16,
+                        priority: min_index,
                         size_hint: ContribSizeHint::Auto,
                     })
                 }

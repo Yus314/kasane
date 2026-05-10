@@ -299,7 +299,7 @@ impl Surface for TestSurfaceImpl {
 /// `kasane-core/src/state/derived/cursor.rs` and the closure rationale
 /// in `project_adr_031_phase_b3_semantic_split.md` (memory).
 pub mod wire {
-    use crate::protocol::{Atom, Attributes, Color, NamedColor, Style, WireFace};
+    use crate::protocol::{Atom, Attributes, Color, NamedColor, WireFace};
 
     /// Plain default face. Equivalent to `WireFace::default()` but named
     /// for symmetry with the other constructors below.

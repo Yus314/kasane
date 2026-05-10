@@ -2,7 +2,7 @@
 
 use crate::display::InlineBoxAlignment;
 use crate::plugin::PluginId;
-use crate::protocol::{Atom, Brush, Style};
+use crate::protocol::{Atom, Style};
 
 /// Metadata for an inline-box slot reserved within a line.
 ///
@@ -531,7 +531,7 @@ fn clamp_to_char_boundary(s: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::NamedColor;
+    use crate::protocol::{Brush, NamedColor};
 
     fn default_style() -> Style {
         Style::default()

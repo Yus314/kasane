@@ -10,7 +10,6 @@ use std::any::Any;
 use std::time::Duration;
 
 use crate::input::{InputEvent, KeyEvent};
-use crate::protocol::WireFace;
 use crate::session::{SessionCommand, SessionId};
 use crate::state::DirtyFlags;
 use crate::surface::{Surface, SurfaceId, SurfacePlacementRequest};

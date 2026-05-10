@@ -1,5 +1,5 @@
 use crate::plugin::CellDecoration;
-use crate::protocol::{Color, WireFace};
+use crate::protocol::Color;
 use crate::render::{CursorStyle, CursorStyleHint};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

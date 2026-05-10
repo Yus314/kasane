@@ -52,7 +52,7 @@ fn bench_instantiation(c: &mut Criterion) {
     let mut group = c.benchmark_group("instantiation");
 
     group.bench_function("engine_new", |b| {
-        b.iter(|| Engine::default());
+        b.iter(Engine::default);
     });
 
     let engine = Engine::default();
@@ -89,7 +89,7 @@ fn bench_empty_call(c: &mut Criterion) {
 
     // R6: Native baseline
     group.bench_function("native_noop", |b| {
-        b.iter(|| native_noop());
+        b.iter(native_noop);
     });
 
     group.finish();

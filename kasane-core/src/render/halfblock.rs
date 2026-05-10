@@ -859,7 +859,7 @@ mod tests {
         #[test]
         fn e2e_contain_letterbox() {
             // 4×2 image (wide) into 4×4 area → should letterbox vertically
-            let data: Arc<[u8]> = vec![0, 255, 0, 255].repeat(4 * 2).into();
+            let data: Arc<[u8]> = [0u8, 255, 0, 255].repeat(4 * 2).into();
             let source = ImageSource::Rgba {
                 data,
                 width: 4,

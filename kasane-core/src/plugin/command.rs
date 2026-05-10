@@ -5,7 +5,7 @@ use std::time::Duration;
 use bitflags::bitflags;
 
 use crate::input::InputEvent;
-use crate::protocol::{KasaneRequest, WireFace};
+use crate::protocol::KasaneRequest;
 use crate::session::{SessionCommand, SessionId};
 use crate::state::DirtyFlags;
 use crate::surface::Surface;

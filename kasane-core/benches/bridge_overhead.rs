@@ -135,7 +135,7 @@ fn mixed_pass_through_set() -> DirectiveSet {
         set.push(
             DisplayDirective::StyleLine {
                 line,
-                face: WireFace::default(),
+                style: kasane_core::protocol::Style::default(),
                 z_order: 0,
             },
             0,
@@ -178,7 +178,7 @@ fn mixed_full_set() -> DirectiveSet {
             DisplayDirective::StyleInline {
                 line,
                 byte_range: 0..10,
-                face: WireFace::default(),
+                style: kasane_core::protocol::Style::default(),
             },
             0,
             pid(&format!("si{}", line)),

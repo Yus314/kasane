@@ -55,7 +55,7 @@ fn bench_string_passing(c: &mut Criterion) {
             &size,
             |b, &size| {
                 b.iter(|| {
-                    let len = build_string.call(&mut store, size as i32).unwrap();
+                    let len = build_string.call(&mut store, size).unwrap();
                     let mut out = vec![0u8; len as usize];
                     memory.read(&store, buf_ptr, &mut out).unwrap();
                     out

@@ -498,10 +498,6 @@ mod tests {
         WireFace::default()
     }
 
-    fn default_style() -> TerminalStyle {
-        TerminalStyle::default()
-    }
-
     #[test]
     fn test_grid_new() {
         let grid = CellGrid::new(10, 5);

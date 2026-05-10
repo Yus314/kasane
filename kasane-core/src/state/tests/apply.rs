@@ -4,7 +4,7 @@ use crate::protocol::{
 use crate::state::{AppState, DirtyFlags, MenuState};
 use crate::test_utils::make_line;
 
-use crate::protocol::{Atom, Color, Line, NamedColor, Style};
+use crate::protocol::{Atom, Color, Line, NamedColor};
 
 #[test]
 fn test_apply_draw() {
