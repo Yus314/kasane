@@ -39,6 +39,8 @@ use std::time::{Duration, Instant};
 use lru::LruCache;
 use rustc_hash::FxBuildHasher;
 
+use super::atlas::MAX_ATLAS_SIZE;
+
 /// Minimum interval between glyph-atlas pressure warnings emitted from a
 /// single [`GlyphRasterCache`]. The warning carries a "suppressed since
 /// last warning" count so high-frequency drops still surface, just at a
@@ -320,6 +322,38 @@ impl GlyphRasterCache {
             data,
         } = raster;
 
+        // Oversize guard: a glyph larger than the backend's maximum atlas
+        // dimension can never fit, even after a full grow + evict cycle.
+        // Without this guard the cache would loop forever between grow and
+        // drop (allocating a slot that never succeeds), spamming the
+        // pressure warning at frame rate. Log once with full identifying
+        // info and return `None`; the caller renders the glyph uncached
+        // (or skips it). The error is rate-limited via the same gate so
+        // a single recurring oversized glyph (e.g. an emoji at extreme
+        // size) does not flood the log either.
+        if width > MAX_ATLAS_SIZE || height > MAX_ATLAS_SIZE {
+            if let Some(suppressed) = self.pressure_warn_gate.admit(Instant::now()) {
+                tracing::error!(
+                    target: "kasane_gui::glyph_atlas",
+                    glyph_w = width,
+                    glyph_h = height,
+                    max_atlas = MAX_ATLAS_SIZE,
+                    font_id = key.font_id,
+                    glyph_id = key.glyph_id,
+                    size_q = key.size_q,
+                    content = ?content,
+                    suppressed_since_last = suppressed,
+                    "rasterized glyph exceeds MAX_ATLAS_SIZE in at least one \
+                     dimension and cannot be cached. Likely cause: a font \
+                     with disproportionate bbox metrics (some Nerd Font \
+                     icons) or a color-emoji bitmap strike at extreme \
+                     scale. Glyph dropped.",
+                );
+            }
+            self.stats.dropped += 1;
+            return None;
+        }
+
         // Atlas allocation with grow-then-evict. Eviction is restricted
         // to entries from earlier frames because same-frame entries
         // already have drawables pointing at their slots; deallocating +
@@ -362,6 +396,12 @@ impl GlyphRasterCache {
                         cache_cap = self.entries.cap().get(),
                         epoch,
                         suppressed_since_last = suppressed,
+                        glyph_w = width,
+                        glyph_h = height,
+                        font_id = key.font_id,
+                        glyph_id = key.glyph_id,
+                        size_q = key.size_q,
+                        content = ?content,
                         "GPU glyph atlas pressure: cannot allocate slot and \
                          no LRU entry is evictable (all candidates from this \
                          frame). Glyph dropped this frame; increase atlas \
@@ -408,6 +448,12 @@ impl GlyphRasterCache {
                     cache_cap = self.entries.cap().get(),
                     epoch,
                     suppressed_since_last = suppressed,
+                    glyph_w = width,
+                    glyph_h = height,
+                    font_id = key.font_id,
+                    glyph_id = key.glyph_id,
+                    size_q = key.size_q,
+                    content = ?content,
                     "GPU glyph atlas pressure: LRU is saturated with \
                      entries from the current frame and cannot accept a \
                      new insertion. Glyph dropped this frame; increase \
@@ -818,6 +864,38 @@ mod tests {
         );
         assert!(all_succeeded, "all 30 glyphs should fit after grow");
         assert!(at.reupload_calls > 0, "reupload must repopulate slots");
+    }
+
+    #[test]
+    fn oversize_glyph_is_dropped_without_loop() {
+        // A glyph wider than MAX_ATLAS_SIZE can never fit, even after a
+        // full grow + evict cycle. The oversize guard must short-circuit
+        // before entering the allocate/grow/evict loop, returning None
+        // and incrementing `dropped`. Without the guard the loop would
+        // spin (alloc fails → grow fails or wastes a grow → evict empty
+        // LRU → drop), eating CPU and flooding the warning rate-limit.
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(16).unwrap());
+        let mut at = TestAtlases::with_grow(256, MAX_ATLAS_SIZE);
+        let oversize_w = MAX_ATLAS_SIZE + 1;
+        let oversize_h = 16;
+        let raster = RasterizedGlyph {
+            width: oversize_w,
+            height: oversize_h,
+            top: 0,
+            left: 0,
+            content: ContentKind::Mask,
+            data: vec![0u8; usize::from(oversize_w) * usize::from(oversize_h)],
+        };
+        let result = cache.get_or_insert(key(1, 1), &mut at, || Some(raster));
+        assert!(result.is_none(), "oversize glyph must be dropped");
+        let stats = cache.take_stats();
+        assert_eq!(stats.dropped, 1);
+        assert_eq!(
+            stats.atlas_grows, 0,
+            "guard must trip before any grow attempt, stats={stats:?}"
+        );
+        assert_eq!(at.reupload_calls, 0);
+        assert!(cache.is_empty());
     }
 
     #[test]
