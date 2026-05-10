@@ -20,6 +20,9 @@ pub(super) fn make_all_command_instances() -> Vec<Command> {
         Command::SendToKakoune(KasaneRequest::Keys(vec![])),
         Command::InsertText(String::new()),
         Command::PasteClipboard,
+        Command::SetClipboard(String::new()),
+        Command::DismissDiagnosticOverlay,
+        Command::TriggerPluginReload,
         Command::Quit,
         Command::RequestRedraw(DirtyFlags::empty()),
         Command::ScheduleTimer {
