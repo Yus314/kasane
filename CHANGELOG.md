@@ -62,20 +62,37 @@ captured in ADR-042's Empirical validation section. Phase B (WIT 4.0.0
 `on-command-error-effects` export, host auto-wrap) is RFC-tracked but
 unimplemented.
 
-### Proposed — Plugin ABI 4.0.0 RFCs
+### Breaking — Plugin ABI 4.1.0 (ADR-041 + ADR-042 Decided, 2026-05-11)
 
-- **[ADR-041](docs/decisions.md#adr-041-eval-command-in-session-ready-command)**:
-  Add `eval-command(string)` to `session-ready-command` variant
-  (`SessionReadyEffects` gains an `EvalCommand` case alongside
-  `SendKeys` / `PasteClipboard` / `PluginMessage`). Pre-RFC
-  investigation established the exclusion is cosmetic, not technical;
-  implementation cost is 1 WIT line + 1 host match arm.
+WIT bumps from `kasane:plugin@3.0.0` → `@4.1.0` in two coordinated steps:
+
+- **[ADR-041](docs/decisions.md#adr-041-eval-command-in-session-ready-command)**
+  (ABI 4.0.0, `dd2fbe3a`): `eval-command(string)` added to
+  `session-ready-command` variant. Plugins can now issue command bodies
+  directly at `on_active_session_ready_effects` without the
+  `<esc>:cmd<ret>` keystroke-simulation wrapping.
 - **[ADR-042](docs/decisions.md#adr-042-command-error-event-via-info_show-marker-attribution)**
-  Phase B: `command-error` record + `on-command-error-effects` export,
-  host auto-wraps plugin-originated commands under manifest opt-in.
+  (ABI 4.1.0, `178eeedd` + `858581db` + `cfc13952` + `4eb241ca`): plugin
+  command-error observability via the `info_show` marker pattern. Adds
+  `command-error` record and `on-command-error-effects` export to WIT.
+  Host-side `state/apply.rs` recognises the reserved title, parses
+  `(plugin-id, message)`, and routes to the originating plugin via
+  `PluginRuntime::deliver_command_error_batch`. Plugins opt into host
+  auto-wrap via `[handlers] command_error_observability = true` in the
+  manifest; the host wraps every emitted `Command::EvalCommand` with
+  `try…catch` so failures surface as attributed events.
 
-Both target ABI 4.0.0 and are coordinated for a single 3.0 → 4.0
-plugin recompile.
+Plugin migration:
+
+- Bump `abi_version = "4.1.0"` in `kasane-plugin.toml`.
+- Pin `kasane-plugin-sdk = "0.7"`.
+- `cargo component build` — pure recompile, no source changes
+  required. Plugins that want command-error observability opt in via
+  the new manifest flag and (optionally) override the new export.
+
+All bundled / fixture / example WASMs rebuilt against the new ABI
+(23 manifests across `examples/wasm/`, `kasane-wasm/fixtures/`, and
+`kasane-wasm/bundled/`).
 
 ### Breaking — R2.x P7+P9 cascade: `WireFace` removed from public plugin API (2026-05-10)
 

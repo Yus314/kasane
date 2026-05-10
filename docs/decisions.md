@@ -5323,9 +5323,11 @@ under the minor-is-breaking policy).
 
 ## ADR-042: `command-error-event` via `info_show` Marker Attribution
 
-**Status:** Proposed (2026-05-11)
+**Status:** Decided (2026-05-11). Landed in `178eeedd` (Phase A) +
+`858581db` (Phase B Step 1) + `cfc13952` (Phase B Step 2) +
+`4eb241ca` (Phase B Step 3).
 
-**Tracked in:** [Issue #90](https://github.com/Yus314/kasane/issues/90)
+**Tracked in:** [Issue #90](https://github.com/Yus314/kasane/issues/90) (closed)
 
 **Context:**
 
