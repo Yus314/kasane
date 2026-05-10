@@ -18,7 +18,7 @@ use super::grid::CellGrid;
 use super::pipeline::{ViewSource, render_cached_core, scene_render_core};
 use super::scene::{self, DrawCommand, SceneCache};
 use super::view;
-use crate::element::{Element, ElementStyle, FlexChild};
+use crate::element::{Direction, Element, ElementStyle, FlexChild, ResolvedSlotInstanceId};
 use crate::layout::Rect;
 use crate::plugin::{AppView, PluginCapabilities, PluginView, TransformSubject, TransformTarget};
 use crate::protocol::MenuStyle;
@@ -375,13 +375,34 @@ fn compose_base_from_salsa(
     let above_status = handles.slot_contributions.above_status(db).clone();
 
     // Build status row: [slot:left] [status_core] [slot:right]
+    // Wrap left/right contributions in ResolvedSlot so tree-walking helpers
+    // (e.g. `find_status_left_slot_width` used to offset the prompt cursor)
+    // see the same shape as the legacy `surface::resolve` substitution path.
     let status_inner = if status_left.is_empty() && status_right.is_empty() {
         transformed_status
     } else {
         let mut children = Vec::new();
-        children.extend(status_left);
+        if !status_left.is_empty() {
+            children.push(FlexChild::fixed(Element::ResolvedSlot {
+                surface_key: "primary".into(),
+                slot_name: "kasane.status.left".into(),
+                instance_id: ResolvedSlotInstanceId(1),
+                direction: Direction::Row,
+                children: status_left,
+                gap: 0,
+            }));
+        }
         children.push(FlexChild::flexible(transformed_status, 1.0));
-        children.extend(status_right);
+        if !status_right.is_empty() {
+            children.push(FlexChild::fixed(Element::ResolvedSlot {
+                surface_key: "primary".into(),
+                slot_name: "kasane.status.right".into(),
+                instance_id: ResolvedSlotInstanceId(2),
+                direction: Direction::Row,
+                children: status_right,
+                gap: 0,
+            }));
+        }
         Element::row(children)
     };
 

@@ -10,7 +10,9 @@ use kasane_core::plugin::{
     Contribution, LineAnnotation, PluginBackend, PluginCapabilities, PluginId, PluginRuntime,
     SlotId, TransformContext, TransformTarget,
 };
-use kasane_core::protocol::{Atom, Color, Coord, InfoStyle, MenuStyle, NamedColor, WireFace};
+use kasane_core::protocol::{
+    Atom, Color, Coord, CursorMode, InfoStyle, MenuStyle, NamedColor, WireFace,
+};
 use kasane_core::render::{CellGrid, render_pipeline, render_pipeline_cached};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
@@ -319,6 +321,38 @@ impl PluginBackend for BufferLeftPlugin {
     }
 }
 
+/// Plugin that contributes a fixed-width element to STATUS_LEFT (e.g., a mode indicator).
+struct StatusLeftPlugin {
+    text: &'static str,
+}
+
+impl PluginBackend for StatusLeftPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("test_status_left".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CONTRIBUTOR
+    }
+
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        _state: &kasane_core::plugin::AppView<'_>,
+        _ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        if region == &SlotId::STATUS_LEFT {
+            Some(Contribution {
+                element: Element::plain_text(self.text),
+                priority: 0,
+                size_hint: ContribSizeHint::Auto,
+            })
+        } else {
+            None
+        }
+    }
+}
+
 /// Plugin that contributes to STATUS_RIGHT.
 struct StatusRightPlugin;
 
@@ -472,6 +506,55 @@ fn compare_with_buffer_left_plugin() {
     let salsa = render_salsa(&state, &registry, &db, &handles);
 
     assert_grids_equal(&salsa, &legacy, "buffer_left plugin");
+}
+
+/// Regression: in Prompt mode the cursor X must be offset by the
+/// `kasane.status.left` slot width so the cursor sits next to the user's
+/// input — not at column 0 (inside the status-left widget).
+///
+/// Before the fix, the Salsa pipeline placed status_left contributions as
+/// direct row siblings, which made `find_status_left_slot_width` return 0
+/// and dropped the offset, so the cursor was drawn at the start of the
+/// row while the typed text was rendered after the widget.
+#[test]
+fn salsa_prompt_cursor_offset_by_status_left_widget() {
+    let mut state = test_state_80x24();
+    state.inference.cursor_mode = CursorMode::Prompt;
+    state.observed.status_prompt = vec![make_atom(":")];
+    state.observed.status_content = vec![];
+    state.observed.status_content_cursor_pos = 0;
+    state.inference.status_line = vec![make_atom(":")];
+
+    // " prompt " = 8 cells, mimicking the default `mode` widget output.
+    const WIDGET: &str = " prompt ";
+    let widget_w = WIDGET.chars().count() as u16;
+
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(StatusLeftPlugin { text: WIDGET }));
+    registry.init_all(&AppView::new(&state));
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let (db, handles) = setup_salsa_with_plugins(&state, &registry);
+
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
+    let (result, _) = render_pipeline_cached(
+        &db,
+        &handles,
+        &state,
+        &registry.view(),
+        &mut grid,
+        DirtyFlags::ALL,
+        Default::default(),
+    );
+
+    // prompt_width(":") = 1, content_cursor_pos = 0 → expected X = widget_w + 1.
+    assert_eq!(
+        result.cursor_x,
+        widget_w + 1,
+        "prompt cursor should sit at status_left_width + prompt_width + cursor_pos"
+    );
 }
 
 #[test]
