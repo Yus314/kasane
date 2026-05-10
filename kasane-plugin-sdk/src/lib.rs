@@ -311,13 +311,74 @@ pub mod modifiers {
 ///
 /// Kakoune's `SendKeys` command accepts a list of individual key strings.
 /// Special characters must be escaped (e.g., space → `<space>`, `<` → `<lt>`).
+///
+/// # When to use these vs. `Command::EvalCommand`
+///
+/// At runtime, plugins can avoid keystroke synthesis altogether by returning
+/// `Command::EvalCommand(cmd)` (WIT: `eval-command(string)`), which evaluates
+/// the command directly instead of going through the keystroke prompt. Prefer
+/// `EvalCommand` when you have a runtime callsite — it has no mode side
+/// effect and no escape-table caveats.
+///
+/// **`EvalCommand` is not available at session-ready.** During session
+/// initialization the only way to feed Kakoune is via key sequences, so
+/// session-ready code must use [`keys::command`] (or a hand-built
+/// `send-keys` list).
 pub mod keys {
     /// Push each character of `text` as an escaped key string.
     ///
-    /// Special characters are converted to their Kakoune key names:
-    /// - space → `<space>`
-    /// - `<` → `<lt>`, `>` → `<gt>`
-    /// - `-` → `<minus>`, `%` → `<percent>`
+    /// # Escape table
+    ///
+    /// The full set of characters that get rewritten:
+    ///
+    /// | Input | Output       |
+    /// |-------|--------------|
+    /// | ` `   | `<space>`    |
+    /// | `<`   | `<lt>`       |
+    /// | `>`   | `<gt>`       |
+    /// | `-`   | `<minus>`    |
+    /// | `%`   | `<percent>`  |
+    ///
+    /// Every other character is pushed as a single-character key string.
+    ///
+    /// # Round-trip property: literal Kakoune key names inside arguments
+    ///
+    /// Because `<` is escaped to `<lt>` and Kakoune unescapes `<lt>` back to
+    /// a literal `<`, you can embed a Kakoune key-name token (`<ret>`,
+    /// `<tab>`, `<c-x>`, …) inside the *argument* of a command and have it
+    /// reach Kakoune as the literal four/five-character text — not as a
+    /// keypress. The `<` → `<lt>` rewrite is symmetric with Kakoune's parser.
+    ///
+    /// For example, building the command `exec -with-hooks i<ret><esc>`
+    /// (which inserts a literal newline) works correctly:
+    ///
+    /// ```ignore
+    /// use kasane_plugin_sdk::keys;
+    /// let k = keys::command("exec -with-hooks i<ret><esc>");
+    /// // The "<" inside "<ret>" and "<esc>" get rewritten to "<lt>",
+    /// // so Kakoune's prompt parser receives the literal text
+    /// // "exec -with-hooks i<ret><esc>" and re-parses <ret>/<esc>
+    /// // as keys for the `exec` command's argument. No surprise.
+    /// ```
+    ///
+    /// # Caveats: characters that pass through unescaped
+    ///
+    /// The following characters are **not** rewritten and are silently
+    /// forwarded to Kakoune. They can break or alter command parsing:
+    ///
+    /// - `\n` — Kakoune's prompt cannot accept a newline; including one
+    ///   silently truncates or breaks the command. Build multi-line input
+    ///   with explicit `<ret>` tokens instead.
+    /// - `\t` — interpreted by Kakoune according to the user's prompt
+    ///   configuration (completion, indent, …); behavior is config-dependent
+    ///   and not portable.
+    /// - `'`, `"`, `;`, `\` — pass through to the Kakoune command parser
+    ///   unchanged. They are subject to Kakoune's quoting/escaping rules,
+    ///   so callers are responsible for any quoting needed by the target
+    ///   command (e.g. `echo 'hello'` vs. `echo "hello"`).
+    ///
+    /// If you need to send arbitrary bytes safely, prefer
+    /// `Command::EvalCommand` at runtime callsites where it is available.
     pub fn push_literal(keys: &mut Vec<String>, text: &str) {
         for ch in text.chars() {
             match ch {
@@ -331,8 +392,47 @@ pub mod keys {
         }
     }
 
-    /// Build a key sequence that escapes to normal mode, runs a Kakoune command,
-    /// and presses return: `<esc>:cmd<ret>`.
+    /// Build a key sequence that escapes to normal mode, runs a Kakoune
+    /// command, and presses return: `<esc>:cmd<ret>`.
+    ///
+    /// The returned vector is suitable for `Command::SendKeys` (WIT:
+    /// `send-keys(list<string>)`).
+    ///
+    /// # Side effect: forces normal mode
+    ///
+    /// The leading `<esc>` token unconditionally puts Kakoune into normal
+    /// mode before opening the prompt. This is the intended behavior at
+    /// session-ready time (where the editor mode is unknown and the
+    /// command must reach the `:` prompt regardless), but it **is** a
+    /// side effect at runtime callsites: if the user is in insert mode,
+    /// `keys::command` will leave them in normal mode after the command
+    /// runs.
+    ///
+    /// At runtime, prefer `Command::EvalCommand(cmd)` (WIT:
+    /// `eval-command(string)`) when you do not want the mode change.
+    /// `EvalCommand` evaluates the command without going through the
+    /// keystroke prompt, so it has no `<esc>` side effect and no
+    /// dependency on the escape table below.
+    ///
+    /// `EvalCommand` is not available at session-ready — session-init
+    /// code must use this function (or build a `send-keys` list by hand).
+    ///
+    /// # Escape behavior
+    ///
+    /// Every character of `cmd` is fed through [`push_literal`]. See its
+    /// documentation for the full escape table, the `<ret>`/`<lt>`
+    /// round-trip property (with example), and the list of characters
+    /// that pass through unescaped (`\n`, `\t`, `'`, `"`, `;`, `\`).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use kasane_plugin_sdk::keys;
+    /// // Run `:edit foo.rs<ret>` from any mode.
+    /// let k = keys::command("edit foo.rs");
+    /// // k = ["<esc>", ":", "e", "d", "i", "t", "<space>",
+    /// //      "f", "o", "o", ".", "r", "s", "<ret>"]
+    /// ```
     pub fn command(cmd: &str) -> Vec<String> {
         let mut keys = vec!["<esc>".to_string(), ":".to_string()];
         push_literal(&mut keys, cmd);
