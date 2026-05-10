@@ -85,6 +85,8 @@
 //! `#[plugin]` fills in default implementations for all `Guest` methods
 //! you don't write.
 
+pub mod kak;
+
 /// Attribute macro that fills in default implementations for all
 /// unimplemented `Guest` trait methods.
 ///
@@ -310,15 +312,67 @@ pub mod modifiers {
 /// Key escaping helpers for building Kakoune keystroke sequences.
 ///
 /// Kakoune's `SendKeys` command accepts a list of individual key strings.
-/// Special characters must be escaped (e.g., space → `<space>`, `<` → `<lt>`).
+/// Special characters must be escaped to their Kakoune key-name form.
+///
+/// # Escape table
+///
+/// | Char | Replacement   | Char | Treatment              |
+/// |------|---------------|------|------------------------|
+/// | ` `  | `<space>`     | `'`  | pass-through           |
+/// | `<`  | `<lt>`        | `"`  | pass-through           |
+/// | `>`  | `<gt>`        | `;`  | pass-through           |
+/// | `-`  | `<minus>`     | `\\` | pass-through           |
+/// | `%`  | `<percent>`   | `\t` | Kakoune-config dep.    |
+/// | (any other) | as-is  | `\n` | **silently broken** — see [`push_literal`] |
+///
+/// Pass-through characters are forwarded to Kakoune's command-line parser
+/// unchanged; their interpretation depends on the surrounding command
+/// syntax (single-quote vs. `%{...}` vs. `%sh{...}`, etc.).
+///
+/// # `<ret>`-literal round-trip
+///
+/// Kakoune key-name strings embedded *inside* the command body round-trip
+/// correctly because `<` → `<lt>` on the way out is decoded as `<` on the
+/// Kakoune side, so the literal `<ret>` survives:
+///
+/// ```ignore
+/// keys::command(":info 'press <ret> to continue'");
+/// // The literal "<ret>" survives into Kakoune's :info argument.
+/// ```
+///
+/// # `<esc>` mode side-effect
+///
+/// [`command`] prefixes `<esc>` to force normal mode before the `:` prompt.
+/// This is irrelevant at session-ready (no mode yet) but matters at runtime
+/// callsites — issuing a `keys::command` from inside insert mode will
+/// exit insert mode as a side-effect.
+///
+/// # Runtime callsites — prefer `EvalCommand`
+///
+/// For runtime command issuance prefer `Command::EvalCommand(String)`,
+/// which sends the command body directly without `<esc>` mode reset and
+/// without per-character keystroke simulation.
+///
+/// **However**, `EvalCommand` is *not* available in
+/// `on_active_session_ready_effects` — the `SessionReadyCommand` variant
+/// excludes it. Use `keys::command(...)` at session-ready and switch to
+/// `EvalCommand` for runtime callsites.
 pub mod keys {
     /// Push each character of `text` as an escaped key string.
     ///
-    /// Special characters are converted to their Kakoune key names:
-    /// - space → `<space>`
-    /// - `<` → `<lt>`, `>` → `<gt>`
-    /// - `-` → `<minus>`, `%` → `<percent>`
+    /// See the [module-level escape table](self) for the full rule set.
+    ///
+    /// # Panics (debug only)
+    ///
+    /// Debug-asserts that `text` contains no `\n`. Kakoune's command prompt
+    /// does not accept newline as a character, so a `\n` would be silently
+    /// broken in release builds. Split into multiple `SendKeys` instead.
     pub fn push_literal(keys: &mut Vec<String>, text: &str) {
+        debug_assert!(
+            !text.contains('\n'),
+            "keys::push_literal: '\\n' not accepted at Kakoune prompt; \
+             split command across multiple SendKeys"
+        );
         for ch in text.chars() {
             match ch {
                 ' ' => keys.push("<space>".into()),
@@ -331,8 +385,11 @@ pub mod keys {
         }
     }
 
-    /// Build a key sequence that escapes to normal mode, runs a Kakoune command,
-    /// and presses return: `<esc>:cmd<ret>`.
+    /// Build a key sequence that escapes to normal mode, runs a Kakoune
+    /// command, and presses return: `<esc>:cmd<ret>`.
+    ///
+    /// See the [module-level docs](self) for the escape rules, the
+    /// `<esc>` mode side-effect, and when to prefer `EvalCommand` instead.
     pub fn command(cmd: &str) -> Vec<String> {
         let mut keys = vec!["<esc>".to_string(), ":".to_string()];
         push_literal(&mut keys, cmd);
@@ -566,6 +623,89 @@ macro_rules! state {
             STATE.with(|s| s.borrow().generation)
         }
     };
+}
+
+/// Safe destructure for `IoEvent::Process`. Other variants short-circuit
+/// to an empty `Effects` (no commands, no redraw).
+///
+/// Required by the WIT variant non-exhaustive policy (see
+/// `docs/abi-versioning.md` Appendix A). Use this in place of
+/// `let IoEvent::Process(p) = event;`, which becomes irrefutable and
+/// breaks every time a new variant case (e.g. `Http`) is added.
+///
+/// # Example
+///
+/// ```ignore
+/// // Inside on_io_event_effects:
+/// kasane_plugin_sdk::process_event!(event => |p| {
+///     // p: ProcessEvent
+///     handle_process(p)
+/// })
+/// ```
+///
+/// Expands to:
+///
+/// ```ignore
+/// match event {
+///     IoEvent::Process(p) => { handle_process(p) },
+///     _ => Effects { redraw: 0, commands: vec![], scroll_plans: vec![] },
+/// }
+/// ```
+#[macro_export]
+macro_rules! process_event {
+    ($event:expr => |$bind:ident| $body:block) => {
+        match $event {
+            IoEvent::Process($bind) => $body,
+            _ => Effects {
+                redraw: 0,
+                commands: vec![],
+                scroll_plans: vec![],
+            },
+        }
+    };
+}
+
+/// Build an `Effects` value (= `RuntimeEffects`) from an iterable of
+/// Kakoune command strings. Each command becomes its own
+/// `Command::SendKeys` entry, so a single bad command does **not** block
+/// the rest from registering — unlike a `evaluate-commands %{ ... }`
+/// block which cascade-fails on the first error.
+///
+/// When used inside `define_plugin!`'s `on_active_session_ready_effects`,
+/// the macro's `Effects → SessionReadyEffects` `From` impl converts each
+/// `Command::SendKeys` to `SessionReadyCommand::SendKeys` automatically.
+///
+/// Designed for composition with helpers from the [`kak`] module. The
+/// macro expands in the plugin crate's context, where `Effects` and
+/// `Command` are in scope (provided by `generate!()` / `define_plugin!`).
+///
+/// # Example
+///
+/// ```ignore
+/// use kasane_plugin_sdk::{kak::{self, OptionKind, Scope}, kakoune_setup_effects};
+///
+/// // inside a define_plugin! block:
+/// on_active_session_ready_effects() {
+///     kakoune_setup_effects![
+///         kak::declare_option("counter", OptionKind::Int, "0", true),
+///         kak::declare_user_mode("demo"),
+///         kak::map(Scope::Global, "demo", "b", ":bump<ret>", None),
+///     ]
+/// }
+/// ```
+#[macro_export]
+macro_rules! kakoune_setup_effects {
+    [ $( $cmd:expr ),* $(,)? ] => {{
+        Effects {
+            redraw: 0,
+            commands: vec![
+                $(
+                    Command::SendKeys($crate::keys::command(&$cmd))
+                ),*
+            ],
+            scroll_plans: vec![],
+        }
+    }};
 }
 
 /// Route slot-based dispatch. Returns `None` for unmatched slots.
@@ -1378,6 +1518,14 @@ mod tests {
         // "edit foo.rs" → "e","d","i","t","<space>","f","o","o",".","r","s"
         assert_eq!(k.last().unwrap(), "<ret>");
         assert!(k.contains(&"<space>".to_string()));
+    }
+
+    #[test]
+    #[should_panic(expected = "not accepted at Kakoune prompt")]
+    #[cfg(debug_assertions)]
+    fn keys_push_literal_debug_panics_on_newline() {
+        let mut k = Vec::new();
+        keys::push_literal(&mut k, "a\nb");
     }
 
     // --- interactive_id! tests ---
