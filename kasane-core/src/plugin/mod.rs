@@ -12,6 +12,7 @@ pub mod diagnostics;
 pub mod effect_footprint;
 pub mod effects;
 pub mod element_patch;
+pub mod error_attribution;
 pub mod extension_point;
 pub mod handler_registry;
 pub(crate) mod handler_table;

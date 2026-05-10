@@ -189,6 +189,49 @@ fn test_apply_multiple_infos() {
 }
 
 #[test]
+fn test_apply_info_show_plugin_error_marker_suppressed() {
+    // ADR-042 Phase A: when info_show carries the reserved marker title,
+    // the state must NOT gain an info popup (suppression) and the dirty
+    // flags must be empty (no UI redraw triggered by the marker).
+    let mut state = AppState::default();
+
+    let flags = state.apply(KakouneRequest::InfoShow {
+        title: make_line(crate::plugin::error_attribution::PLUGIN_ERROR_MARKER),
+        content: vec![
+            make_line("sprout"),
+            make_line("1:2: 'unknown-command': no such command"),
+        ],
+        anchor: Coord { line: 0, column: 0 },
+        info_style: crate::protocol::default_unresolved_style(),
+        style: InfoStyle::Modal,
+    });
+
+    assert!(
+        state.observed.infos.is_empty(),
+        "marker info_show must be suppressed (no popup added)"
+    );
+    assert!(
+        !flags.contains(DirtyFlags::INFO),
+        "marker info_show must not set INFO dirty"
+    );
+}
+
+#[test]
+fn test_apply_info_show_regular_title_still_works() {
+    // Regression guard: non-marker InfoShow continues to land in observed.infos.
+    let mut state = AppState::default();
+    let flags = state.apply(KakouneRequest::InfoShow {
+        title: make_line("regular title"),
+        content: vec![make_line("body")],
+        anchor: Coord { line: 0, column: 0 },
+        info_style: crate::protocol::default_unresolved_style(),
+        style: InfoStyle::Modal,
+    });
+    assert_eq!(state.observed.infos.len(), 1);
+    assert!(flags.contains(DirtyFlags::INFO));
+}
+
+#[test]
 fn test_apply_set_ui_options() {
     let mut state = AppState::default();
     let mut opts = std::collections::HashMap::new();

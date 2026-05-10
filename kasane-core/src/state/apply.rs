@@ -236,26 +236,43 @@ pub(crate) fn apply_protocol(
             info_style,
             style,
         } => {
-            let identity = InfoIdentity {
-                style,
-                anchor_line: anchor.line as u32,
-            };
-            let new_info = InfoState {
-                title,
-                content,
-                anchor,
-                face: info_style.style.clone(),
-                style,
-                identity: identity.clone(),
-                scroll_offset: 0,
-            };
-            // Replace existing info with same identity, or add new
-            if let Some(pos) = observed.infos.iter().position(|i| i.identity == identity) {
-                observed.infos[pos] = new_info;
+            // ADR-042 Phase A: intercept plugin-error marker, log + suppress.
+            if crate::plugin::error_attribution::is_plugin_error_marker(&title) {
+                if let Some(ev) = crate::plugin::error_attribution::parse_plugin_error(&content) {
+                    tracing::warn!(
+                        plugin_id = %ev.plugin_id,
+                        message = %ev.message,
+                        "plugin Kakoune-command failed"
+                    );
+                } else {
+                    tracing::warn!(
+                        ?content,
+                        "plugin-error marker info_show with malformed payload"
+                    );
+                }
+                DirtyFlags::empty()
             } else {
-                observed.infos.push(new_info);
+                let identity = InfoIdentity {
+                    style,
+                    anchor_line: anchor.line as u32,
+                };
+                let new_info = InfoState {
+                    title,
+                    content,
+                    anchor,
+                    face: info_style.style.clone(),
+                    style,
+                    identity: identity.clone(),
+                    scroll_offset: 0,
+                };
+                // Replace existing info with same identity, or add new
+                if let Some(pos) = observed.infos.iter().position(|i| i.identity == identity) {
+                    observed.infos[pos] = new_info;
+                } else {
+                    observed.infos.push(new_info);
+                }
+                DirtyFlags::INFO
             }
-            DirtyFlags::INFO
         }
         KakouneRequest::InfoHide => {
             // Remove the most recently added/updated info
