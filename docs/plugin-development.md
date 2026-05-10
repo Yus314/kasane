@@ -160,7 +160,7 @@ deps = ["buffer-content", "buffer-cursor", "menu-structure", "menu-selection"]
 | Section | Required | Default | Purpose |
 |---|---|---|---|
 | `plugin.id` | Yes | — | Plugin identifier |
-| `plugin.abi_version` | Yes | — | WIT package version the plugin targets |
+| `plugin.abi_version` | Yes | — | WIT package version the plugin targets (see [ABI Versioning Policy](abi-versioning.md)) |
 | `capabilities.wasi` | No | `[]` | WASI capabilities for sandbox construction |
 | `authorities.host` | No | `[]` | Host authorities for privileged effects |
 | `handlers.flags` | No | `[]` (→ all) | Handler capability bitmask (empty = all-set) |

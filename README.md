@@ -96,8 +96,9 @@ kasane plugin new my-plugin    # scaffold from 6 templates
 kasane plugin dev              # hot-reload while you edit
 ```
 
-See [Plugin Development](docs/plugin-development.md) and
-[Plugin API](docs/plugin-api.md).
+See [Plugin Development](docs/plugin-development.md),
+[Plugin API](docs/plugin-api.md), and
+[ABI Versioning Policy](docs/abi-versioning.md).
 
 ## Status
 
