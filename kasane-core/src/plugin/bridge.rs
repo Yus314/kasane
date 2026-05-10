@@ -294,6 +294,45 @@ macro_rules! dispatch_view_option {
     };
 }
 
+/// Dispatch a state-mutating handler returning `(State, T)`; replace state,
+/// run the change check, and return `T`. The default expression is used
+/// when no handler is registered.
+///
+/// Use this for handlers whose return type isn't `Effects` and isn't
+/// `Option<T>` — e.g. `KeyHandleResult`, `KeyPreDispatchResult`,
+/// `BufferEditVerdict`, `KeyResponse`. For state-mutating handlers
+/// returning `Effects`, prefer [`dispatch_state_effect!`]; for those
+/// returning `Option<T>`, prefer [`dispatch_optional_consume!`].
+macro_rules! dispatch_state_with_default {
+    ($self:expr, $field:ident, $default:expr $(, $arg:expr)*) => {
+        if let Some(handler) = &$self.table.$field {
+            let (new_state, result) = handler(&*$self.state, $($arg),*);
+            $self.state = new_state;
+            $self.check_state_change();
+            result
+        } else {
+            $default
+        }
+    };
+}
+
+/// Dispatch a contribute-style handler returning `Option<C>` where `C`
+/// owns an `element: Element` field, then run [`inject_owner`] on the
+/// element so that any unassigned `InteractiveId`s pick up the bridge's
+/// `plugin_tag`.
+///
+/// The `$elem` token names the field on `C` that holds the element
+/// (typically `element`). For inputs that already produce a bare
+/// `Element`, see [`dispatch_inject_owner_element!`] instead.
+macro_rules! dispatch_inject_owner_contribution {
+    ($self:expr, $handler:expr, $elem:ident $(, $arg:expr)*) => {
+        $handler(&*$self.state, $($arg),*).map(|mut c| {
+            inject_owner(&mut c.$elem, $self.plugin_tag);
+            c
+        })
+    };
+}
+
 impl PluginBackend for PluginBridge {
     fn id(&self) -> PluginId {
         self.id.clone()
@@ -372,14 +411,13 @@ impl PluginBackend for PluginBridge {
         edit: &crate::state::shadow_cursor::BufferEdit,
         app: &AppView<'_>,
     ) -> crate::state::shadow_cursor::BufferEditVerdict {
-        if let Some(handler) = &self.table.buffer_edit_intercept_handler {
-            let (new_state, verdict) = handler(&*self.state, edit, app);
-            self.state = new_state;
-            self.check_state_change();
-            verdict
-        } else {
-            crate::state::shadow_cursor::BufferEditVerdict::PassThrough
-        }
+        dispatch_state_with_default!(
+            self,
+            buffer_edit_intercept_handler,
+            crate::state::shadow_cursor::BufferEditVerdict::PassThrough,
+            edit,
+            app
+        )
     }
 
     fn on_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
@@ -424,13 +462,18 @@ impl PluginBackend for PluginBridge {
     }
 
     fn handle_key_middleware(&mut self, key: &KeyEvent, app: &AppView<'_>) -> KeyHandleResult {
-        if let Some(handler) = &self.table.key_middleware_handler {
-            let (new_state, result) = handler(&*self.state, key, app);
-            self.state = new_state;
-            self.check_state_change();
-            result
+        if self.table.key_middleware_handler.is_some() {
+            dispatch_state_with_default!(
+                self,
+                key_middleware_handler,
+                KeyHandleResult::Passthrough,
+                key,
+                app
+            )
         } else {
-            // Fall back to handle_key (mirrors PluginBackend default)
+            // No middleware handler: fall back to handle_key (mirrors
+            // PluginBackend default). Cannot inline into the macro
+            // because the fallback dispatches through another method.
             match self.handle_key(key, app) {
                 Some(commands) => KeyHandleResult::Consumed(commands),
                 None => KeyHandleResult::Passthrough,
@@ -443,17 +486,16 @@ impl PluginBackend for PluginBridge {
         key: &KeyEvent,
         app: &AppView<'_>,
     ) -> KeyPreDispatchResult {
-        if let Some(handler) = &self.table.key_pre_dispatch_handler {
-            let (new_state, result) = handler(&*self.state, key, app);
-            self.state = new_state;
-            self.check_state_change();
-            result
-        } else {
+        dispatch_state_with_default!(
+            self,
+            key_pre_dispatch_handler,
             KeyPreDispatchResult::Pass {
                 commands: Vec::new(),
                 state_updates: super::effects::StateUpdates::default(),
-            }
-        }
+            },
+            key,
+            app
+        )
     }
 
     fn handle_mouse_pre_dispatch(
@@ -461,17 +503,16 @@ impl PluginBackend for PluginBridge {
         event: &MouseEvent,
         app: &AppView<'_>,
     ) -> MousePreDispatchResult {
-        if let Some(handler) = &self.table.mouse_pre_dispatch_handler {
-            let (new_state, result) = handler(&*self.state, event, app);
-            self.state = new_state;
-            self.check_state_change();
-            result
-        } else {
+        dispatch_state_with_default!(
+            self,
+            mouse_pre_dispatch_handler,
             MousePreDispatchResult::Pass {
                 commands: Vec::new(),
                 state_updates: super::effects::StateUpdates::default(),
-            }
-        }
+            },
+            event,
+            app
+        )
     }
 
     fn handle_text_input_pre_dispatch(
@@ -479,14 +520,13 @@ impl PluginBackend for PluginBridge {
         text: &str,
         app: &AppView<'_>,
     ) -> TextInputPreDispatchResult {
-        if let Some(handler) = &self.table.text_input_pre_dispatch_handler {
-            let (new_state, result) = handler(&*self.state, text, app);
-            self.state = new_state;
-            self.check_state_change();
-            result
-        } else {
-            TextInputPreDispatchResult::Pass
-        }
+        dispatch_state_with_default!(
+            self,
+            text_input_pre_dispatch_handler,
+            TextInputPreDispatchResult::Pass,
+            text,
+            app
+        )
     }
 
     fn handle_mouse_fallback(
@@ -495,11 +535,14 @@ impl PluginBackend for PluginBridge {
         scroll_amount: i32,
         app: &AppView<'_>,
     ) -> Option<Vec<Command>> {
-        let handler = self.table.mouse_fallback_handler.as_ref()?;
-        let (new_state, commands) = handler(&*self.state, event, scroll_amount, app);
-        self.state = new_state;
-        self.check_state_change();
-        commands
+        dispatch_state_with_default!(
+            self,
+            mouse_fallback_handler,
+            None,
+            event,
+            scroll_amount,
+            app
+        )
     }
 
     fn handle_mouse(
@@ -533,14 +576,7 @@ impl PluginBackend for PluginBridge {
     }
 
     fn invoke_action(&mut self, action_id: &str, key: &KeyEvent, app: &AppView<'_>) -> KeyResponse {
-        if let Some(handler) = &self.table.action_handler {
-            let (new_state, response) = handler(&*self.state, action_id, key, app);
-            self.state = new_state;
-            self.check_state_change();
-            response
-        } else {
-            KeyResponse::Pass
-        }
+        dispatch_state_with_default!(self, action_handler, KeyResponse::Pass, action_id, key, app)
     }
 
     fn refresh_key_groups(&mut self, app: &AppView<'_>) {
@@ -565,10 +601,13 @@ impl PluginBackend for PluginBridge {
     ) -> Option<Contribution> {
         for entry in &self.table.contribute_handlers {
             if entry.slot == *region {
-                return (entry.handler)(&*self.state, app, ctx).map(|mut c| {
-                    inject_owner(&mut c.element, self.plugin_tag);
-                    c
-                });
+                return dispatch_inject_owner_contribution!(
+                    self,
+                    &entry.handler,
+                    element,
+                    app,
+                    ctx
+                );
             }
         }
         None
@@ -631,6 +670,10 @@ impl PluginBackend for PluginBridge {
         }
         None
     }
+    // (decorate_gutter retains the explicit form: it pairs `el` with
+    // `entry.priority` from the iterated handler entry — neither
+    // `dispatch_inject_owner_contribution!` nor a simpler macro
+    // fits the tuple shape without obscuring the priority lookup.)
 
     fn decorate_background(
         &self,
@@ -700,14 +743,8 @@ impl PluginBackend for PluginBridge {
         app: &AppView<'_>,
         ctx: &OverlayContext,
     ) -> Option<OverlayContribution> {
-        if let Some(handler) = &self.table.overlay_handler {
-            handler(&*self.state, app, ctx).map(|mut c| {
-                inject_owner(&mut c.element, self.plugin_tag);
-                c
-            })
-        } else {
-            None
-        }
+        let handler = self.table.overlay_handler.as_ref()?;
+        dispatch_inject_owner_contribution!(self, handler, element, app, ctx)
     }
 
     fn render_ornaments(
@@ -798,11 +835,14 @@ impl PluginBackend for PluginBridge {
         unit: &crate::display::unit::DisplayUnit,
         action: crate::display::navigation::NavigationAction,
     ) -> Option<crate::display::navigation::ActionResult> {
-        let handler = self.table.navigation_action_handler.as_ref()?;
-        let (new_state, result) = handler(&*self.state, unit, action);
-        self.state = new_state;
-        self.check_state_change();
-        match result {
+        // `Pass` is the inert default; surface only `Some(other)`.
+        match dispatch_state_with_default!(
+            self,
+            navigation_action_handler,
+            crate::display::navigation::ActionResult::Pass,
+            unit,
+            action
+        ) {
             crate::display::navigation::ActionResult::Pass => None,
             other => Some(other),
         }
