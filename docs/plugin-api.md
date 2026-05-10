@@ -181,7 +181,7 @@ For detailed semantics, see `Plugin Composition Semantics` in [semantics.md](./s
 fn contribute_to(&self, region: &SlotId, app: &AppView<'_>, _ctx: &ContributeContext) -> Option<Contribution> {
     if region != &SlotId::BUFFER_LEFT { return None; }
     Some(Contribution {
-        element: Element::text("★", Face::default()),
+        element: Element::text("★", Style::default()),
         priority: 0,
         size_hint: ContribSizeHint::Auto,
     })
@@ -221,7 +221,7 @@ fn annotate_line_with_ctx(&self, line: usize, app: &AppView<'_>, _ctx: &Annotate
             left_gutter: None,
             right_gutter: None,
             background: Some(BackgroundLayer {
-                face: Face { bg: Color::Rgb(RgbColor { r: 40, g: 40, b: 50 }), ..Face::default() },
+                style: Style { bg: Brush::rgb(40, 40, 50), ..Style::default() },
                 z_order: 0,
                 blend: BlendMode::Opaque,
             }),
@@ -274,7 +274,7 @@ fn annotate_line_with_ctx(&self, line: usize, app: &AppView<'_>, _ctx: &Annotate
             InlineOp::Hide { range: 0..2 },
             InlineOp::Style {
                 range: 6..11,
-                face: Face { fg: Color::Named(NamedColor::Red), ..Face::default() },
+                style: Style { fg: Brush::Named(NamedColor::Red), ..Style::default() },
             },
         ])),
     })
@@ -327,7 +327,7 @@ fn contribute_overlay_v2(_ctx: OverlayContext) -> Option<OverlayContribution> {
 fn transform(&self, target: &TransformTarget, subject: TransformSubject, app: &AppView<'_>, _ctx: &TransformContext) -> TransformSubject {
     subject.map_element(|element| {
         if *target == TransformTarget::BUFFER {
-            Element::container(element, Style::from(Face::default()))
+            Element::container(element, Style::default())
         } else {
             element
         }
@@ -359,7 +359,7 @@ fn transform_priority() -> i16 { 100 }
 ```rust
 r.on_transform_for(0, &[TransformTarget::BUFFER, TransformTarget::STATUS_BAR], |state, target, app, ctx| {
     if *target == TransformTarget::STATUS_BAR {
-        ElementPatch::Append { element: Element::text("extra", Face::default()) }
+        ElementPatch::Append { element: Element::text("extra", Style::default()) }
     } else {
         ElementPatch::Identity
     }
@@ -410,9 +410,12 @@ Design principles:
 ```rust
 fn display_directives(&self, state: &Self::State, app: &AppView<'_>) -> Vec<DisplayDirective> {
     vec![DisplayDirective::InsertAfter {
-        after: 2,
-        content: "  ⚠ TODO — address before merge".into(),
-        face: Face { fg: Color::Named(NamedColor::Yellow), ..Face::default() },
+        line: 2,
+        content: Element::text(
+            "  ⚠ TODO — address before merge",
+            Style { fg: Brush::Named(NamedColor::Yellow), ..Style::default() },
+        ),
+        priority: 0,
     }]
 }
 ```
@@ -476,7 +479,7 @@ The `kasane-syntax` crate (feature-gated via `--features syntax`) provides `Tree
 
 | Type | Purpose | WASM builder | Native |
 |---|---|---|---|
-| `Text` | Text + style | `create_text(content, face)` | `Element::text(s, face)` |
+| `Text` | Text + style | `create_text(content, style)` | `Element::text(s, style)` |
 | `StyledLine` | Atom sequence | `create_styled_line(atoms)` | `Element::styled_line(line)` |
 | `Flex` (Column) | Vertical layout | `create_column(children)` / `create_column_flex(entries, gap)` | `Element::column(children)` |
 | `Flex` (Row) | Horizontal layout | `create_row(children)` / `create_row_flex(entries, gap)` | `Element::row(children)` |
@@ -534,7 +537,7 @@ Size is specified in cells (width, height). `opacity` ranges from 0.0 (transpare
 ```rust
 use kasane_core::plugin_prelude::*;
 
-let text = Element::text("hello", Face::default());
+let text = Element::text("hello", Style::default());
 let col = Element::column(vec![
     FlexChild::fixed(text),
     FlexChild::flexible(Element::Empty, 1.0),
@@ -948,7 +951,7 @@ registry.on_render_ornaments(|state, app, ctx| {
     OrnamentBatch {
         emphasis: vec![CellDecoration {
             target: DecorationTarget::Cell(Coord { line: app.cursor_line() as u32, column: 0 }),
-            face: Face { bg: Some(Color::Rgb(40, 40, 40)), ..Default::default() },
+            style: Style { bg: Brush::rgb(40, 40, 40), ..Style::default() },
             merge: FaceMerge::Background,
             priority: 0,
         }],
@@ -1018,30 +1021,27 @@ Decorations from multiple plugins are collected, sorted by `priority` (ascending
 
 The `kasane_plugin_sdk::generate!()` macro emits the following helper functions alongside WIT bindings, reducing boilerplate for common operations.
 
-### Face/Color Construction
+### Style Construction
 
-| Helper | Description |
-|---|---|
-| `default_face()` | `Face` with all colors default, no attributes |
-| `face_fg(color)` | `Face` with only foreground color set |
-| `face_bg(color)` | `Face` with only background color set |
-| `face(fg, bg)` | `Face` with foreground and background |
-| `face_full(fg, bg, underline, attrs)` | `Face` with all fields specified |
-| `rgb(r, g, b)` | `Color::Rgb(RgbColor { r, g, b })` |
-| `named(n)` | `Color::Named(n)` |
+WASM plugins build `Style` values directly through the WIT-generated
+bindings. `Style::default()` works; for explicit fields use
+`Brush::DefaultColor` (the inheritance sentinel — equivalent to
+"resolve later from the parent"), `Brush::Named(NamedColor::*)`, or
+`Brush::Rgb(RgbColor { r, g, b })`. WIT 2.0.0+ retired the legacy
+`Face`/`Color`/`Attributes` triple; `Style` is the single
+post-resolve paint description.
 
 ```rust
-// Before
-let face = Face {
-    fg: Color::DefaultColor,
-    bg: Color::Rgb(RgbColor { r: 40, g: 40, b: 50 }),
-    underline: Color::DefaultColor,
-    attributes: 0,
+// Background-only highlight at column 80
+let style = Style {
+    bg: Brush::Rgb(RgbColor { r: 40, g: 40, b: 50 }),
+    ..Style::default()
 };
-
-// After
-let face = face_bg(rgb(40, 40, 50));
 ```
+
+`FontWeight` is continuous (100..=900); `FontWeight::BOLD` (700) replaces
+the legacy `Attributes::BOLD` bit. Boolean attributes (`reverse`,
+`dim`, `blink`) are direct fields on `Style`.
 
 ### Overlay Layout
 

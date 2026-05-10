@@ -517,7 +517,7 @@ impl Plugin for CursorLinePlugin {
         r.on_decorate_background(|state, line, _app, _ctx| {
             if line as i32 == state.active_line {
                 Some(BackgroundLayer {
-                    face: Face { bg: Color::Named(NamedColor::Blue), ..Face::default() },
+                    style: Style { bg: Brush::Named(NamedColor::Blue), ..Style::default() },
                     z_order: 0,
                     blend: BlendMode::Opaque,
                 })
@@ -575,9 +575,9 @@ impl PluginBackend for LineNumbersPlugin {
                 let num = format!("{:>w$} ", i + 1, w = width);
                 FlexChild::fixed(Element::text(
                     num,
-                    Face {
-                        fg: Color::Named(NamedColor::Cyan),
-                        ..Face::default()
+                    Style {
+                        fg: Brush::Named(NamedColor::Cyan),
+                        ..Style::default()
                     },
                 ))
             })

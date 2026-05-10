@@ -259,7 +259,7 @@ impl Plugin for MyTransformPlugin {
             match target.target_type() {
                 TransformTargetType::StatusBar => {
                     ElementPatch::Append {
-                        element: Element::text("extra", Face::default()),
+                        element: Element::text("extra", Style::default()),
                     }
                 }
                 _ => ElementPatch::Identity,
@@ -405,8 +405,8 @@ kasane_plugin_sdk::define_plugin! {
         OrnamentBatch {
             emphasis: vec![CellDecoration {
                 target: DecorationTarget::Column(80),
-                face: Face {
-                    bg: Color::Rgb(RgbColor { r: 40, g: 40, b: 40 }),
+                style: Style {
+                    bg: Brush::Rgb(RgbColor { r: 40, g: 40, b: 40 }),
                     ..Default::default()
                 },
                 merge: 1, // Overlay
