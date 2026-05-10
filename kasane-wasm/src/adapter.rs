@@ -1606,6 +1606,24 @@ impl PluginBackend for WasmPlugin {
             })
     }
 
+    /// ADR-042 Phase B: dispatch a plugin-attributed Kakoune command
+    /// failure to the WASM guest's `on-command-error-effects` export.
+    fn on_command_error_effects(
+        &mut self,
+        error: &kasane_core::plugin::error_attribution::PluginErrorEvent,
+        state: &AppView<'_>,
+    ) -> Effects {
+        let shared = Arc::clone(&self.shared);
+        self.shared
+            .call_synced_with_hash(state, "on_command_error_effects", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_error = convert::plugin_error_event_to_wit(error);
+                Ok(shared.convert_runtime_effects(
+                    &api.call_on_command_error_effects(&mut rt.store, &wit_error)?,
+                ))
+            })
+    }
+
     fn allows_process_spawn(&self) -> bool {
         self.shared.process_allowed
     }

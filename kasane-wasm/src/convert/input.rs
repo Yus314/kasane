@@ -3,6 +3,7 @@ use kasane_core::input::{
     ChordBinding, CompiledKeyMap, DropEvent, Key, KeyBinding, KeyEvent, KeyGroup, KeyPattern,
     KeyResponse, Modifiers, MouseButton, MouseEvent, MouseEventKind,
 };
+use kasane_core::plugin::error_attribution::PluginErrorEvent;
 use kasane_core::plugin::{Command, HttpEvent, IoEvent, ProcessEvent};
 use kasane_core::scroll::{
     DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,
@@ -13,6 +14,16 @@ pub(crate) fn io_event_to_wit(event: &IoEvent) -> wit::IoEvent {
     match event {
         IoEvent::Process(pe) => wit::IoEvent::Process(process_event_to_wit(pe)),
         IoEvent::Http(he) => wit::IoEvent::Http(http_event_to_wit(he)),
+    }
+}
+
+/// ADR-042 Phase B: convert a host-side `PluginErrorEvent` to the WIT
+/// `command-error` record passed to a plugin's `on-command-error-effects`
+/// export.
+pub(crate) fn plugin_error_event_to_wit(event: &PluginErrorEvent) -> wit::CommandError {
+    wit::CommandError {
+        plugin_id: event.plugin_id.clone(),
+        message: event.message.clone(),
     }
 }
 

@@ -378,6 +378,15 @@ pub trait PluginEffects {
         unit: &DisplayUnit,
         action: NavigationAction,
     ) -> ActionResult;
+
+    /// ADR-042 Phase B: dispatch a Kakoune-command-error event to the
+    /// originating plugin's `on_command_error_effects` handler.
+    fn dispatch_command_error(
+        &mut self,
+        target: &PluginId,
+        error: &super::error_attribution::PluginErrorEvent,
+        app: &AppView<'_>,
+    ) -> EffectsBatch;
 }
 
 /// No-op implementation — all observations are discarded, all dispatches pass through.
@@ -456,6 +465,14 @@ impl PluginEffects for NullEffects {
     }
     fn dispatch_navigation_action(&mut self, _: &DisplayUnit, _: NavigationAction) -> ActionResult {
         ActionResult::Pass
+    }
+    fn dispatch_command_error(
+        &mut self,
+        _: &PluginId,
+        _: &super::error_attribution::PluginErrorEvent,
+        _: &AppView<'_>,
+    ) -> EffectsBatch {
+        EffectsBatch::default()
     }
 }
 
@@ -571,5 +588,13 @@ impl PluginEffects for RecordingEffects {
         self.navigation_action_dispatches
             .push((unit.clone(), action));
         ActionResult::Pass
+    }
+    fn dispatch_command_error(
+        &mut self,
+        _: &PluginId,
+        _: &super::error_attribution::PluginErrorEvent,
+        _: &AppView<'_>,
+    ) -> EffectsBatch {
+        EffectsBatch::default()
     }
 }

@@ -164,6 +164,22 @@ pub trait PluginBackend: Any {
         Effects::default()
     }
 
+    /// ADR-042 Phase B: typed runtime effects for plugin-attributed
+    /// Kakoune command failures. The host calls this on the originating
+    /// plugin when an `info_show` with the reserved title
+    /// `__kasane_plugin_error__` is observed (see
+    /// [`crate::plugin::error_attribution`]).
+    ///
+    /// Default impl is a no-op; plugins override via the new WIT export
+    /// `on-command-error-effects` (ABI 4.1.0).
+    fn on_command_error_effects(
+        &mut self,
+        _error: &super::error_attribution::PluginErrorEvent,
+        _state: &AppView<'_>,
+    ) -> Effects {
+        Effects::default()
+    }
+
     fn start_process_task(&mut self, _name: &str) -> Vec<Command> {
         Vec::new()
     }

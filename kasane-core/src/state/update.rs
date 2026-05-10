@@ -121,8 +121,23 @@ fn update_inner<E: PluginEffects>(
             }
             let flags = state.apply(req);
 
+            // ADR-042 Phase B: drain plugin-error events the apply
+            // layer queued and dispatch each to its originating plugin
+            // (resolved by plugin-id). The handler returns Effects, so
+            // commands accumulate alongside the regular state-changed
+            // batch below.
+            let pending_errors = state.drain_pending_plugin_errors();
             let mut commands = Vec::new();
             let mut scroll_plans = Vec::new();
+            if !pending_errors.is_empty() {
+                let view = AppView::new(state);
+                for err in &pending_errors {
+                    let target = PluginId(err.plugin_id.clone());
+                    let mut batch = effects.dispatch_command_error(&target, err, &view);
+                    scroll_plans.append(&mut batch.effects.scroll_plans);
+                    commands.append(&mut batch.effects.commands);
+                }
+            }
             if !flags.is_empty() {
                 let mut batch = effects.notify_state_changed(&AppView::new(state), flags);
                 scroll_plans.append(&mut batch.effects.scroll_plans);

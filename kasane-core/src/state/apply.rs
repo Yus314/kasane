@@ -1,3 +1,4 @@
+use crate::plugin::error_attribution::PluginErrorEvent;
 use crate::protocol::KakouneRequest;
 use crate::render::color_context::ColorContext;
 
@@ -18,6 +19,11 @@ pub(crate) struct ConfigReactions {
     pub clear_fold_toggle: bool,
     /// New color context derived from default_face — theme should be updated.
     pub new_color_context: Option<ColorContext>,
+    /// ADR-042 Phase B: plugin-error events surfaced by the `info_show`
+    /// marker recogniser. Drained by `AppState::apply()` into
+    /// `AppState.pending_plugin_errors` for the event loop to dispatch
+    /// to the originating plugin's `on_command_error_effects`.
+    pub pending_plugin_errors: Vec<PluginErrorEvent>,
 }
 
 /// Protocol ingestion: updates observed + inference state from a Kakoune message.
@@ -236,7 +242,10 @@ pub(crate) fn apply_protocol(
             info_style,
             style,
         } => {
-            // ADR-042 Phase A: intercept plugin-error marker, log + suppress.
+            // ADR-042 Phase A+B: intercept plugin-error marker. Phase A
+            // logs and suppresses the UI popup; Phase B additionally
+            // queues the parsed event for plugin-side dispatch via
+            // `ConfigReactions::pending_plugin_errors`.
             if crate::plugin::error_attribution::is_plugin_error_marker(&title) {
                 if let Some(ev) = crate::plugin::error_attribution::parse_plugin_error(&content) {
                     tracing::warn!(
@@ -244,6 +253,7 @@ pub(crate) fn apply_protocol(
                         message = %ev.message,
                         "plugin Kakoune-command failed"
                     );
+                    reactions.pending_plugin_errors.push(ev);
                 } else {
                     tracing::warn!(
                         ?content,
@@ -324,6 +334,12 @@ impl AppState {
         if let Some(ctx) = reactions.new_color_context {
             self.config.theme.apply_color_context(&ctx);
         }
+        // ADR-042 Phase B: queue plugin-error events for the event
+        // loop to dispatch (see [`AppState::drain_pending_plugin_errors`]).
+        if !reactions.pending_plugin_errors.is_empty() {
+            self.pending_plugin_errors
+                .extend(reactions.pending_plugin_errors);
+        }
 
         // ADR-035 §2 auto-commit: when buffer content changed, snapshot
         // the projected text into the history backend. Time::Now then
@@ -357,6 +373,15 @@ impl AppState {
         }
 
         flags
+    }
+
+    /// Drain plugin-error events queued by [`Self::apply`] (ADR-042 Phase B).
+    ///
+    /// Returns the pending events and clears the queue. The event loop
+    /// calls this after `apply()` and routes each event to the originating
+    /// plugin's `on_command_error_effects` via `PluginRuntime`.
+    pub fn drain_pending_plugin_errors(&mut self) -> Vec<PluginErrorEvent> {
+        std::mem::take(&mut self.pending_plugin_errors)
     }
 }
 

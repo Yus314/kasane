@@ -771,6 +771,28 @@ impl PluginRuntime {
         EffectsBatch::default()
     }
 
+    /// ADR-042 Phase B: deliver a Kakoune-command-error event to the
+    /// plugin identified by `target` (the plugin-id parsed from the
+    /// `info_show` marker payload).
+    pub fn deliver_command_error_batch(
+        &mut self,
+        target: &PluginId,
+        error: &super::error_attribution::PluginErrorEvent,
+        app: &AppView<'_>,
+    ) -> EffectsBatch {
+        crate::perf::perf_span!("deliver_command_error");
+        for slot in &mut self.slots {
+            if &slot.backend.id() == target {
+                let mut batch = EffectsBatch::default();
+                batch
+                    .effects
+                    .merge(slot.backend.on_command_error_effects(error, app));
+                return batch;
+            }
+        }
+        EffectsBatch::default()
+    }
+
     /// Deliver a message to a specific plugin by ID.
     pub fn deliver_message_batch(
         &mut self,
@@ -920,6 +942,15 @@ impl PluginEffects for PluginRuntime {
         action: crate::display::navigation::NavigationAction,
     ) -> crate::display::navigation::ActionResult {
         PluginRuntime::dispatch_navigation_action(self, unit, action)
+    }
+
+    fn dispatch_command_error(
+        &mut self,
+        target: &PluginId,
+        error: &super::error_attribution::PluginErrorEvent,
+        app: &AppView<'_>,
+    ) -> EffectsBatch {
+        self.deliver_command_error_batch(target, error, app)
     }
 }
 
