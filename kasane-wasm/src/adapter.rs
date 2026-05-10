@@ -88,6 +88,12 @@ struct WasmPluginShared {
     extensions_consumed: Vec<String>,
     extension_defs: Vec<kasane_core::plugin::extension_point::ExtensionDefinition>,
     has_unified_display_export: bool,
+    /// ADR-042 Phase B Step 3: when `true`, host wraps every plugin-
+    /// originated `Command::EvalCommand` with a Kakoune `try…catch`
+    /// pattern so failures surface as a marker `info_show` attributed
+    /// to this plugin. Derived from manifest `[handlers]
+    /// command_error_observability`. Defaults to `false`.
+    command_error_observability: bool,
     /// Keeps the epoch ticker thread alive as long as this plugin is alive.
     _epoch_ticker: Arc<crate::EpochTicker>,
 }
@@ -235,6 +241,19 @@ impl WasmPluginShared {
                     key: entry.key.clone(),
                     value,
                 }]
+            }
+            // ADR-042 Phase B Step 3: when the plugin opted in via
+            // `[handlers] command_error_observability = true`, wrap the
+            // Kakoune command body with a `try…catch` that fires an
+            // attributed `info_show` on failure. The marker is parsed
+            // back by `state/apply.rs` and routed to the plugin's
+            // `on-command-error-effects` export (Step 2).
+            wit::Command::EvalCommand(cmd) if self.command_error_observability => {
+                let wrapped = kasane_core::plugin::error_attribution::wrap_command_with_marker(
+                    cmd,
+                    self.plugin_id.0.as_str(),
+                );
+                vec![Command::kakoune_command(&wrapped)]
             }
             _ => vec![convert::wit_command_to_command(command)],
         }
@@ -417,6 +436,7 @@ impl WasmPlugin {
         subscribe_topics: Vec<String>,
         extensions_consumed: Vec<String>,
         extension_defs: Vec<kasane_core::plugin::extension_point::ExtensionDefinition>,
+        command_error_observability: bool,
         epoch_ticker: Arc<crate::EpochTicker>,
     ) -> Self {
         store.data_mut().plugin_id = id.clone();
@@ -465,6 +485,7 @@ impl WasmPlugin {
                 extensions_consumed,
                 extension_defs,
                 has_unified_display_export,
+                command_error_observability,
                 _epoch_ticker: epoch_ticker,
             }),
             key_map,
@@ -541,6 +562,7 @@ impl WasmPlugin {
                 extensions_consumed: Vec::new(),
                 extension_defs: Vec::new(),
                 has_unified_display_export,
+                command_error_observability: false,
                 _epoch_ticker: epoch_ticker,
             }),
             key_map,

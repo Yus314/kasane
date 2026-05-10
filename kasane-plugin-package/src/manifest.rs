@@ -68,6 +68,16 @@ pub struct HandlersSection {
     pub extensions_defined: Vec<String>,
     #[serde(default)]
     pub extensions_consumed: Vec<String>,
+    /// ADR-042 Phase B Step 3: when `true`, the host wraps every
+    /// plugin-originated `Command::EvalCommand` with a Kakoune
+    /// `try…catch` pattern that fires `info_show` on failure with a
+    /// reserved title (`__kasane_plugin_error__`). The host's
+    /// `state/apply.rs` recognises the marker and dispatches a
+    /// `PluginErrorEvent` to the plugin's `on-command-error-effects`
+    /// export. Default `false` (zero overhead for plugins that don't
+    /// need command-error observability).
+    #[serde(default)]
+    pub command_error_observability: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]

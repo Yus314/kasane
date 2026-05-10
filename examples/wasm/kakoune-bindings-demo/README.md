@@ -34,6 +34,16 @@ for each command and prevent this class of error at the API level.
 ## Failure isolation
 
 `kakoune_setup_effects![...]` sends each command as its own
-`Command::SendKeys`. One bad command surfaces as a Kakoune echo-area
-error but does **not** block the rest from registering. (See Kasane
-issue #90 for the planned plugin-side error observability mechanism.)
+`Command::EvalCommand`. One bad command surfaces as a Kakoune echo-area
+error but does **not** block the rest from registering.
+
+## Command-error observability (ADR-042 Phase B)
+
+This plugin opts in via `[handlers] command_error_observability = true`
+in `kasane-plugin.toml`. The host wraps every `Command::EvalCommand`
+this plugin emits with a Kakoune `try…catch`; failures fire an
+attributed `info_show` (suppressed from the UI) that the host parses
+and dispatches back to this plugin's `on-command-error-effects`
+export. The SDK provides a default no-op for the export — plugins
+override it to surface failures (e.g. as a status badge or info
+popup).

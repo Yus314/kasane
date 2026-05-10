@@ -58,6 +58,62 @@ pub fn is_plugin_error_marker(title: &Line) -> bool {
     line_to_string(title) == PLUGIN_ERROR_MARKER
 }
 
+/// ADR-042 Phase B Step 3: wrap a Kakoune-command body with the
+/// catch-info pattern so failures surface as a marker `info_show` to
+/// be attributed to `plugin_id`.
+///
+/// Produces:
+///
+/// ```text
+/// try <delim>OPEN <body> <delim>CLOSE catch %{ info -title '__kasane_plugin_error__' %{ <plugin_id><newline>%val{error} } }
+/// ```
+///
+/// The body delimiter is picked from `%{ … }` / `%[ … ]` / `%( … )` /
+/// `%< … >` by depth-counting against the body, mirroring the SDK's
+/// `kak::define_command` balanced-delim selector. Falls back to a
+/// safe quoted form if no pair balances.
+pub fn wrap_command_with_marker(body: &str, plugin_id: &str) -> String {
+    let body_wrapped = wrap_balanced_for_body(body);
+    format!(
+        "try {} catch %{{ info -title '{}' %{{ {}\n%val{{error}} }} }}",
+        body_wrapped, PLUGIN_ERROR_MARKER, plugin_id,
+    )
+}
+
+fn wrap_balanced_for_body(body: &str) -> String {
+    for (open, close) in [('{', '}'), ('[', ']'), ('(', ')'), ('<', '>')] {
+        if is_balanced(body, open, close) {
+            return format!("%{} {} {}", open, body, close);
+        }
+    }
+    // Fallback: single-quote with embedded-quote doubling.
+    let mut out = String::with_capacity(body.len() + 2);
+    out.push('\'');
+    for ch in body.chars() {
+        if ch == '\'' {
+            out.push('\'');
+        }
+        out.push(ch);
+    }
+    out.push('\'');
+    out
+}
+
+fn is_balanced(s: &str, open: char, close: char) -> bool {
+    let mut depth: i32 = 0;
+    for ch in s.chars() {
+        if ch == open {
+            depth += 1;
+        } else if ch == close {
+            depth -= 1;
+            if depth < 0 {
+                return false;
+            }
+        }
+    }
+    depth == 0
+}
+
 /// Parse a plugin-error info_show payload.
 ///
 /// Expects `content` to have at least two lines: plugin-id (line 0)
@@ -149,5 +205,38 @@ mod tests {
     #[test]
     fn parse_rejects_empty_content() {
         assert_eq!(parse_plugin_error(&[]), None);
+    }
+
+    // --- wrap_command_with_marker tests (Phase B Step 3) ---
+
+    #[test]
+    fn wrap_simple_body_uses_braces() {
+        let out = wrap_command_with_marker("declare-user-mode demo", "sprout");
+        assert!(
+            out.starts_with("try %{ declare-user-mode demo } catch %{ info -title '__kasane_plugin_error__' %{ sprout\n%val{error} } }"),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn wrap_unbalanced_braces_falls_back_to_brackets() {
+        let body = "echo {";
+        let out = wrap_command_with_marker(body, "p");
+        assert!(out.starts_with("try %[ echo { ]"), "got: {out}");
+    }
+
+    #[test]
+    fn wrap_unbalanced_all_falls_back_to_quoted() {
+        let body = "{ [ ( <";
+        let out = wrap_command_with_marker(body, "p");
+        assert!(out.starts_with("try '{ [ ( <'"), "got: {out}");
+    }
+
+    #[test]
+    fn wrap_body_with_quotes_round_trips() {
+        let body = "echo 'hi'";
+        let out = wrap_command_with_marker(body, "p");
+        // balanced %{ } chosen since braces in body are balanced (none here)
+        assert!(out.contains("echo 'hi'"));
     }
 }

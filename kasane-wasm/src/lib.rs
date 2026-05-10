@@ -333,6 +333,7 @@ impl WasmPluginLoader {
         let publish_topics = manifest.handlers.publish_topics.clone();
         let subscribe_topics = manifest.handlers.subscribe_topics.clone();
         let extensions_consumed = manifest.handlers.extensions_consumed.clone();
+        let command_error_observability = manifest.handlers.command_error_observability;
         let extension_defs = manifest
             .handlers
             .extensions_defined
@@ -358,6 +359,7 @@ impl WasmPluginLoader {
             subscribe_topics,
             extensions_consumed,
             extension_defs,
+            command_error_observability,
             Arc::clone(&self.epoch_ticker),
         ))
     }
