@@ -105,6 +105,7 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "requested_capabilities",
         "requested_authorities",
         "on_io_event_effects",
+        "on_command_error_effects",
         "view_deps",
         "register_capabilities",
         "declare_key_map",
@@ -630,6 +631,17 @@ pub(crate) fn generate_defaults(
     add_default!(
         "on_io_event_effects",
         quote! { fn on_io_event_effects(_event: IoEvent) -> RuntimeEffects { Effects::default() } }
+    );
+
+    // --- Command-error events (ADR-042 Phase B) ---
+
+    add_default!(
+        "on_command_error_effects",
+        quote! {
+            fn on_command_error_effects(_error: CommandError) -> RuntimeEffects {
+                Effects::default()
+            }
+        }
     );
 
     // --- View dependency declaration ---

@@ -1,6 +1,6 @@
 [plugin]
 id = "prompt_highlight"
-abi_version = "4.0.0"
+abi_version = "4.1.0"
 
 [handlers]
 flags = ["transformer"]

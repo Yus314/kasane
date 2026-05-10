@@ -1,4 +1,4 @@
-package kasane:plugin@4.0.0;
+package kasane:plugin@4.1.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -27,6 +27,13 @@ package kasane:plugin@4.0.0;
 // variant-case addition — variant-case ordering is the wire encoding,
 // so the addition is breaking per the abi-versioning policy
 // (`docs/abi-versioning.md` Appendix A).
+//
+// WIT 4.1 (ADR-042 Phase B): adds `command-error` record and
+// `on-command-error-effects` plugin export so plugins receive
+// programmatic notification of Kakoune-side command failures
+// attributed to them via the `info_show` marker protocol. Host
+// dispatch wiring is staged separately (Step 2); Step 1 reserves
+// the wire space and provides a default no-op via SDK macros.
 
 interface types {
     enum named-color {
@@ -1384,6 +1391,20 @@ interface types {
         data: list<u8>,
         type-hint: string,
     }
+
+    // --- WIT 4.1.0 (ADR-042 Phase B): plugin command-error attribution ---
+
+    /// A plugin-attributed Kakoune command failure.
+    ///
+    /// Surfaced when the host detects an `info_show` with the reserved
+    /// title `__kasane_plugin_error__` (the marker pattern from ADR-042).
+    /// `plugin-id` matches the plugin's manifest id; `message` carries
+    /// Kakoune's `%val{error}` string (typical shape:
+    /// `"<line>:<col>: '<cmd>': <reason>"`).
+    record command-error {
+        plugin-id: string,
+        message: string,
+    }
 }
 
 interface host-state {
@@ -1659,7 +1680,8 @@ interface plugin-api {
                channel-value,
                projection-descriptor,
                shadow-edit, shadow-edit-verdict,
-               lens-declaration, lens-cache-strategy};
+               lens-declaration, lens-cache-strategy,
+               command-error};
 
     // --- Identity ---
 
@@ -1857,6 +1879,19 @@ interface plugin-api {
 
     /// Typed runtime effects for I/O events.
     on-io-event-effects: func(event: io-event) -> runtime-effects;
+
+    // --- WIT 4.1.0 (ADR-042 Phase B): command-error observability ---
+
+    /// Typed runtime effects for plugin-attributed Kakoune command
+    /// failures. Fired by the host when an `info_show` with the
+    /// reserved title `__kasane_plugin_error__` is observed and the
+    /// embedded plugin-id matches this plugin.
+    ///
+    /// Default impl returns empty effects (no-op). Plugins that opt
+    /// into command-error observability override this to surface the
+    /// failure (e.g. as a status badge, info popup, or internal
+    /// state update).
+    on-command-error-effects: func(error: command-error) -> runtime-effects;
 
     // --- v0.22.0: view dependency declaration ---
 

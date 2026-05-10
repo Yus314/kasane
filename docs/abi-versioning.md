@@ -8,7 +8,7 @@ the crate-level axis follows Rust semver and is enforced by Cargo.
 
 | Axis | Source of truth | Example |
 |---|---|---|
-| WIT ABI | `kasane-wasm/wit/plugin.wit:1` | `package kasane:plugin@4.0.0;` |
+| WIT ABI | `kasane-wasm/wit/plugin.wit:1` | `package kasane:plugin@4.1.0;` |
 | SDK crate semver | `kasane-plugin-sdk/Cargo.toml` | `version = "0.6.0"` |
 
 The two move together for major bumps that change the wire format. The
@@ -74,7 +74,7 @@ SDK that uses only existing WIT types is a *crate* minor bump but
 | Kasane host | WIT ABI | SDK crate |
 |---|---|---|
 | 0.6.x | 3.0.0 | 0.6.x |
-| 0.7.x | 4.0.0 | 0.7.x |
+| 0.7.x | 4.1.0 | 0.7.x |
 
 Future entries land here as releases ship.
 
