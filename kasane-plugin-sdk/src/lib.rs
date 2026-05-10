@@ -667,13 +667,19 @@ macro_rules! process_event {
 
 /// Build an `Effects` value (= `RuntimeEffects`) from an iterable of
 /// Kakoune command strings. Each command becomes its own
-/// `Command::SendKeys` entry, so a single bad command does **not** block
-/// the rest from registering — unlike a `evaluate-commands %{ ... }`
+/// `Command::EvalCommand` entry, so a single bad command does **not**
+/// block the rest from registering — unlike a `evaluate-commands %{ ... }`
 /// block which cascade-fails on the first error.
+///
+/// Requires WIT ABI **4.0.0 or higher** (ADR-041 adds
+/// `eval-command(string)` to `session-ready-command`). On older ABIs
+/// the macro produced `Command::SendKeys(keys::command(&cmd))` instead,
+/// which had a `<esc>` mode-reset side-effect, per-character escape
+/// overhead, and could not represent multi-line bodies.
 ///
 /// When used inside `define_plugin!`'s `on_active_session_ready_effects`,
 /// the macro's `Effects → SessionReadyEffects` `From` impl converts each
-/// `Command::SendKeys` to `SessionReadyCommand::SendKeys` automatically.
+/// `Command::EvalCommand` to `SessionReadyCommand::EvalCommand` automatically.
 ///
 /// Designed for composition with helpers from the [`kak`] module. The
 /// macro expands in the plugin crate's context, where `Effects` and
@@ -700,7 +706,7 @@ macro_rules! kakoune_setup_effects {
             redraw: 0,
             commands: vec![
                 $(
-                    Command::SendKeys($crate::keys::command(&$cmd))
+                    Command::EvalCommand($cmd.into())
                 ),*
             ],
             scroll_plans: vec![],

@@ -106,6 +106,8 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                         redraw: e.redraw,
                         commands: e.commands.into_iter().filter_map(|c| match c {
                             Command::SendKeys(keys) => Some(SessionReadyCommand::SendKeys(keys)),
+                            // ABI 4.0.0 (ADR-041): eval-command is available at session-ready.
+                            Command::EvalCommand(cmd) => Some(SessionReadyCommand::EvalCommand(cmd)),
                             Command::PasteClipboard => Some(SessionReadyCommand::PasteClipboard),
                             Command::PluginMessage(msg) => Some(SessionReadyCommand::PluginMessage(msg)),
                             _ => None,
