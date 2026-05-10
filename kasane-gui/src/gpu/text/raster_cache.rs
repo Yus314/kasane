@@ -12,23 +12,74 @@
 //!                                            L3 AtlasShelf (mask | color)
 //! ```
 //!
-//! Eviction protocol:
+//! Pressure relief protocol when an atlas allocation fails:
 //!
-//! - **L2 LRU full**: oldest entry is popped and its atlas slot deallocated
-//!   before the new entry is inserted.
-//! - **Atlas full** (allocator returns `None` on a fresh insert): the cache
-//!   evicts L2 entries from oldest to newest, deallocating their slots,
-//!   until the new allocation succeeds. If the LRU empties without success
-//!   the request returns `None`; the caller may then grow the atlas via
-//!   [`AtlasShelf::grow`] or skip the glyph for this frame.
+//! 1. **Grow first** — call [`AtlasOps::try_grow`] to double the atlas
+//!    side up to its backend maximum. CPU slot coordinates survive a
+//!    grow, so the cache walks its existing entries and re-queues their
+//!    bitmap data via [`AtlasOps::reupload`]; cached glyphs reach the
+//!    new GPU texture without re-rasterising.
+//! 2. **Then evict** — once the atlas is at its maximum size, fall back
+//!    to LRU eviction, restricted to entries whose `last_used_epoch <
+//!    current_epoch` so a same-frame entry's drawable is never
+//!    invalidated mid-frame.
+//! 3. **Drop** — if neither grow nor cross-frame eviction is possible,
+//!    return `None`. The caller renders the glyph uncached or skips it.
+//!    The drop is recorded under [`CacheStats::dropped`] and (rate-
+//!    limited) traced via the `kasane_gui::glyph_atlas` target so
+//!    operators can size atlases / LRU caps from the log alone.
 //!
-//! Wholesale invalidation: [`GlyphRasterCache::invalidate_all`] empties the
-//! LRU and clears both atlases. Used on font / scale-factor / hint changes.
+//! Wholesale invalidation: [`GlyphRasterCache::invalidate_all`] empties
+//! the LRU and clears both atlases. Used on font / scale-factor / hint
+//! changes.
 
 use std::num::NonZeroUsize;
+use std::time::{Duration, Instant};
 
 use lru::LruCache;
 use rustc_hash::FxBuildHasher;
+
+/// Minimum interval between glyph-atlas pressure warnings emitted from a
+/// single [`GlyphRasterCache`]. The warning carries a "suppressed since
+/// last warning" count so high-frequency drops still surface, just at a
+/// rate that doesn't flood the log.
+const PRESSURE_WARN_MIN_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Rate-limit tracker for atlas-pressure log lines. Replaces the prior
+/// `stats.dropped == 0` gate, which gave at most one warning per cache
+/// instance — and since `stats` is not reset in production code, recurring
+/// pressure was effectively invisible. This gate emits at most once per
+/// [`PRESSURE_WARN_MIN_INTERVAL`] and reports how many drops were
+/// suppressed during the silent window so operators can size atlases /
+/// LRU caps from the trace alone.
+#[derive(Debug, Default)]
+struct PressureWarnGate {
+    last_warn: Option<Instant>,
+    suppressed_since_last: u32,
+}
+
+impl PressureWarnGate {
+    /// Returns `Some(suppressed_count)` when the caller should emit a
+    /// warning; `suppressed_count` is the number of additional drops
+    /// that occurred since the last emitted warning (0 on the first
+    /// drop). Returns `None` when the rate limit applies; the caller
+    /// must treat the drop as silent (the suppressed count is updated
+    /// internally).
+    fn admit(&mut self, now: Instant) -> Option<u32> {
+        let due = self
+            .last_warn
+            .is_none_or(|t| now.duration_since(t) >= PRESSURE_WARN_MIN_INTERVAL);
+        if due {
+            let n = self.suppressed_since_last;
+            self.suppressed_since_last = 0;
+            self.last_warn = Some(now);
+            Some(n)
+        } else {
+            self.suppressed_since_last = self.suppressed_since_last.saturating_add(1);
+            None
+        }
+    }
+}
 
 use super::atlas::AtlasSlot;
 use super::glyph_rasterizer::{ContentKind, RasterizedGlyph};
@@ -110,6 +161,11 @@ pub struct CacheStats {
     /// should appear as a Service-Level Objective in
     /// [docs/performance.md](../../../../../../../docs/performance.md).
     pub dropped: u32,
+    /// Times an atlas was grown to relieve pressure. A non-trivial
+    /// number means glyph workload exceeded the default atlas size; if
+    /// it stays high after the workload stabilises, consider raising
+    /// the default size in `atlas.rs::DEFAULT_ATLAS_SIZE`.
+    pub atlas_grows: u32,
 }
 
 /// Atlas operations the cache needs. Production wires this to a pair of
@@ -127,6 +183,23 @@ pub trait AtlasOps {
     ) -> Option<AtlasSlot>;
 
     fn deallocate(&mut self, content: ContentKind, slot: &AtlasSlot);
+
+    /// Attempt to grow the atlas backing `content`. Returns the new side
+    /// length on success, or `None` when the atlas is already at maximum
+    /// size or the implementation does not support growing.
+    ///
+    /// On success, **all previously allocated slots remain
+    /// coordinate-valid** (the underlying CPU allocator preserves
+    /// layout), but the GPU pixel data is invalidated — the caller is
+    /// expected to walk every cached entry of the same `content` kind
+    /// and call [`AtlasOps::reupload`] so the new GPU texture has their
+    /// bitmap data again.
+    fn try_grow(&mut self, content: ContentKind) -> Option<u16>;
+
+    /// Re-queue an existing slot's bitmap for upload. Used after
+    /// [`AtlasOps::try_grow`] to repopulate the freshly-allocated GPU
+    /// texture with cached glyph data.
+    fn reupload(&mut self, content: ContentKind, slot: AtlasSlot, data: &[u8]);
 }
 
 /// L2 cache. Atlases are owned externally (by SceneRenderer) since they
@@ -142,6 +215,7 @@ pub struct GlyphRasterCache {
     /// eviction loop can refuse to drop slots whose drawable is already
     /// queued in the current frame's vertex buffer.
     current_epoch: u64,
+    pressure_warn_gate: PressureWarnGate,
 }
 
 impl GlyphRasterCache {
@@ -151,6 +225,7 @@ impl GlyphRasterCache {
             entries: LruCache::with_hasher(capacity, FxBuildHasher),
             stats: CacheStats::default(),
             current_epoch: 1,
+            pressure_warn_gate: PressureWarnGate::default(),
         }
     }
 
@@ -245,13 +320,32 @@ impl GlyphRasterCache {
             data,
         } = raster;
 
-        // Atlas allocation with eviction restricted to entries from
-        // earlier frames. Same-frame entries already have drawables
-        // pointing at their slots; deallocating + reusing those slots
-        // would let the queued upload corrupt them mid-frame.
+        // Atlas allocation with grow-then-evict. Eviction is restricted
+        // to entries from earlier frames because same-frame entries
+        // already have drawables pointing at their slots; deallocating +
+        // reusing those slots would let the queued upload corrupt them
+        // mid-frame. Grow is tried *before* eviction: it costs one
+        // texture recreation + an O(N) re-upload of cached data
+        // (preserved exactly for this case), but avoids discarding
+        // entries that are likely to be re-hit. Once the atlas hits its
+        // backend-imposed maximum, [`AtlasOps::try_grow`] returns `None`
+        // and the loop falls through to eviction / drop.
         let slot = loop {
             if let Some(slot) = atlases.allocate(content, width, height, &data) {
                 break slot;
+            }
+            if atlases.try_grow(content).is_some() {
+                // Re-upload every cached entry of this content kind so
+                // the freshly-allocated GPU texture has their bitmap
+                // data again. CPU slot coordinates are preserved by
+                // AtlasShelf::grow, so the cache state stays valid.
+                for (_key, e) in self.entries.iter() {
+                    if e.content == content {
+                        atlases.reupload(content, e.atlas_slot, &e.data);
+                    }
+                }
+                self.stats.atlas_grows += 1;
+                continue;
             }
             let evictable = self
                 .entries
@@ -261,12 +355,13 @@ impl GlyphRasterCache {
             if !evictable {
                 // No safe candidate to evict — accept the loss for
                 // this glyph rather than corrupt an in-flight one.
-                if self.stats.dropped == 0 {
+                if let Some(suppressed) = self.pressure_warn_gate.admit(Instant::now()) {
                     tracing::warn!(
                         target: "kasane_gui::glyph_atlas",
                         cache_len = self.entries.len(),
                         cache_cap = self.entries.cap().get(),
                         epoch,
+                        suppressed_since_last = suppressed,
                         "GPU glyph atlas pressure: cannot allocate slot and \
                          no LRU entry is evictable (all candidates from this \
                          frame). Glyph dropped this frame; increase atlas \
@@ -306,12 +401,13 @@ impl GlyphRasterCache {
             // just allocated and return None so the caller skips the
             // glyph (rather than corrupting a sibling).
             atlases.deallocate(content, &slot);
-            if self.stats.dropped == 0 {
+            if let Some(suppressed) = self.pressure_warn_gate.admit(Instant::now()) {
                 tracing::warn!(
                     target: "kasane_gui::glyph_atlas",
                     cache_len = self.entries.len(),
                     cache_cap = self.entries.cap().get(),
                     epoch,
+                    suppressed_since_last = suppressed,
                     "GPU glyph atlas pressure: LRU is saturated with \
                      entries from the current frame and cannot accept a \
                      new insertion. Glyph dropped this frame; increase \
@@ -360,6 +456,33 @@ mod tests {
     use super::super::glyph_rasterizer::SubpixelX;
     use super::*;
 
+    #[test]
+    fn pressure_warn_gate_first_call_admits_with_zero_suppressed() {
+        let mut gate = PressureWarnGate::default();
+        let now = Instant::now();
+        assert_eq!(gate.admit(now), Some(0));
+    }
+
+    #[test]
+    fn pressure_warn_gate_suppresses_within_interval_then_emits_count() {
+        let mut gate = PressureWarnGate::default();
+        let t0 = Instant::now();
+        // First admit: emit (0 suppressed).
+        assert_eq!(gate.admit(t0), Some(0));
+        // Within the interval: suppressed.
+        assert_eq!(gate.admit(t0 + Duration::from_millis(100)), None);
+        assert_eq!(gate.admit(t0 + Duration::from_millis(200)), None);
+        assert_eq!(gate.admit(t0 + Duration::from_millis(300)), None);
+        // After the interval: emit with the suppressed count.
+        let after = t0 + PRESSURE_WARN_MIN_INTERVAL + Duration::from_millis(1);
+        assert_eq!(gate.admit(after), Some(3));
+        // Counter resets after emission.
+        assert_eq!(
+            gate.admit(after + PRESSURE_WARN_MIN_INTERVAL + Duration::from_millis(1)),
+            Some(0)
+        );
+    }
+
     fn key(font_id: u32, glyph_id: u16) -> GlyphRasterKey {
         GlyphRasterKey {
             font_id,
@@ -395,10 +518,16 @@ mod tests {
 
     /// CPU-only atlas pair used by these tests in lieu of the wgpu-backed
     /// `GpuAtlasShelf`. Mirrors the production allocate/deallocate
-    /// semantics that the cache cares about.
+    /// semantics that the cache cares about, plus a `try_grow` that
+    /// doubles the side up to a test-configured cap so the grow loop in
+    /// [`GlyphRasterCache::get_or_insert`] can be exercised without
+    /// wgpu. `reupload` is a no-op since these atlases hold no GPU
+    /// state.
     struct TestAtlases {
         mask: AtlasShelf,
         color: AtlasShelf,
+        max_side: u16,
+        reupload_calls: u32,
     }
 
     impl TestAtlases {
@@ -406,6 +535,17 @@ mod tests {
             Self {
                 mask: AtlasShelf::new(side),
                 color: AtlasShelf::new(side),
+                max_side: side, // grow disabled by default: max == initial
+                reupload_calls: 0,
+            }
+        }
+
+        fn with_grow(side: u16, max_side: u16) -> Self {
+            Self {
+                mask: AtlasShelf::new(side),
+                color: AtlasShelf::new(side),
+                max_side,
+                reupload_calls: 0,
             }
         }
     }
@@ -431,6 +571,26 @@ mod tests {
                 ContentKind::Color => &mut self.color,
             };
             atlas.deallocate(slot);
+        }
+
+        fn try_grow(&mut self, content: ContentKind) -> Option<u16> {
+            let max = self.max_side;
+            let atlas = match content {
+                ContentKind::Mask => &mut self.mask,
+                ContentKind::Color => &mut self.color,
+            };
+            let current = atlas.width();
+            if current >= max {
+                return None;
+            }
+            let next = u16::try_from(u32::from(current) * 2)
+                .unwrap_or(max)
+                .min(max);
+            if atlas.grow(next) { Some(next) } else { None }
+        }
+
+        fn reupload(&mut self, _content: ContentKind, _slot: AtlasSlot, _data: &[u8]) {
+            self.reupload_calls += 1;
         }
     }
 
@@ -630,5 +790,59 @@ mod tests {
         let result = cache.get_or_insert(key(1, 1), &mut at, || None);
         assert!(result.is_none());
         assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn grow_relieves_atlas_pressure_in_same_frame() {
+        // Same-frame inserts that would hit the eviction-protection
+        // path now succeed because the atlas grows before the cache
+        // gives up. Without grow this is the `same_frame_eviction_refused`
+        // scenario; with grow we expect `atlas_grows > 0` and `dropped == 0`
+        // for a workload that fits in the grown atlas.
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(1024).unwrap());
+        // Initial 256 fits ~16 64x64 glyphs; grow up to 1024 fits ~256.
+        let mut at = TestAtlases::with_grow(256, 1024);
+        let mut all_succeeded = true;
+        for i in 0..30u16 {
+            let ok = insert(&mut cache, &mut at, key(1, i), mask_raster(64, 64));
+            all_succeeded &= ok;
+        }
+        let stats = cache.take_stats();
+        assert!(
+            stats.atlas_grows > 0,
+            "expected atlas to grow, stats={stats:?}"
+        );
+        assert_eq!(
+            stats.atlas_evictions, 0,
+            "grow path should preempt eviction, stats={stats:?}"
+        );
+        assert!(all_succeeded, "all 30 glyphs should fit after grow");
+        assert!(at.reupload_calls > 0, "reupload must repopulate slots");
+    }
+
+    #[test]
+    fn grow_capped_falls_back_to_drop_path() {
+        // When the atlas reaches its max size, `try_grow` returns
+        // `None` and the cache must take the same-frame drop path.
+        let mut cache = GlyphRasterCache::new(NonZeroUsize::new(1024).unwrap());
+        // max_side == initial_side == 256: grow disabled.
+        let mut at = TestAtlases::new(256);
+        let mut first_failure = None;
+        for i in 0..30u16 {
+            let ok = insert(&mut cache, &mut at, key(1, i), mask_raster(64, 64));
+            if !ok && first_failure.is_none() {
+                first_failure = Some(i);
+            }
+        }
+        let stats = cache.take_stats();
+        assert_eq!(
+            stats.atlas_grows, 0,
+            "grow disabled in this fixture, stats={stats:?}"
+        );
+        assert!(
+            stats.dropped > 0,
+            "without grow the same-frame drop path must run, stats={stats:?}"
+        );
+        assert!(first_failure.is_some());
     }
 }

@@ -978,6 +978,7 @@ impl SceneRenderer {
         let mut atlases = super::super::text::raster_cache_glue::ParleyAtlasPair {
             mask: &mut self.mask_atlas,
             color: &mut self.color_atlas,
+            device: &self.device,
         };
         let drawables = &mut self.drawables;
         for layout_line in layout.layout.lines() {

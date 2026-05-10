@@ -288,6 +288,21 @@ mod tests {
             };
             atlas.deallocate(slot);
         }
+
+        fn try_grow(
+            &mut self,
+            _content: super::super::glyph_rasterizer::ContentKind,
+        ) -> Option<u16> {
+            None
+        }
+
+        fn reupload(
+            &mut self,
+            _content: super::super::glyph_rasterizer::ContentKind,
+            _slot: super::super::atlas::AtlasSlot,
+            _data: &[u8],
+        ) {
+        }
     }
 
     fn make_state() -> (

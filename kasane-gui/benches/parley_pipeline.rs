@@ -120,6 +120,12 @@ impl AtlasOps for BenchAtlases {
             ContentKind::Color => self.color.deallocate(slot),
         }
     }
+
+    fn try_grow(&mut self, _content: ContentKind) -> Option<u16> {
+        None
+    }
+
+    fn reupload(&mut self, _content: ContentKind, _slot: AtlasSlot, _data: &[u8]) {}
 }
 
 struct Pipeline {

@@ -77,6 +77,15 @@ impl AtlasOps for TestAtlases {
         };
         atlas.deallocate(slot);
     }
+
+    fn try_grow(&mut self, _content: ContentKind) -> Option<u16> {
+        // The integration harness sizes its atlases generously and does
+        // not exercise growth; returning `None` makes the cache fall
+        // back to the eviction path (which the existing tests cover).
+        None
+    }
+
+    fn reupload(&mut self, _content: ContentKind, _slot: AtlasSlot, _data: &[u8]) {}
 }
 
 impl Pipeline {

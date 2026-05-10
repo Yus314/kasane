@@ -12,8 +12,17 @@
 //! `flush_uploads` call. The cache stores its own `Vec<u8>` for re-upload
 //! after device loss / atlas growth, so we accept one clone per glyph
 //! *miss* — cache hits skip the rasteriser and the upload entirely.
+//!
+//! Grow path (atlas pressure relief): when `allocate_and_queue` returns
+//! `None`, the cache calls `try_grow` to double the atlas side up to
+//! [`MAX_ATLAS_SIZE`]. `GpuAtlasShelf::grow` recreates the GPU texture
+//! and preserves the CPU allocator's slot coordinates, so `reupload`
+//! can re-queue every cached entry's bitmap into the new texture
+//! without re-rasterising.
 
-use super::atlas::AtlasSlot;
+use wgpu::Device;
+
+use super::atlas::{AtlasSlot, MAX_ATLAS_SIZE};
 use super::glyph_rasterizer::ContentKind;
 use super::gpu_atlas::GpuAtlasShelf;
 use super::raster_cache::AtlasOps;
@@ -23,6 +32,9 @@ use super::raster_cache::AtlasOps;
 pub struct ParleyAtlasPair<'a> {
     pub mask: &'a mut GpuAtlasShelf,
     pub color: &'a mut GpuAtlasShelf,
+    /// Device handle used by [`AtlasOps::try_grow`] to recreate the
+    /// underlying wgpu texture when the atlas is full.
+    pub device: &'a Device,
 }
 
 impl AtlasOps for ParleyAtlasPair<'_> {
@@ -46,5 +58,33 @@ impl AtlasOps for ParleyAtlasPair<'_> {
             ContentKind::Color => &mut *self.color,
         };
         atlas.deallocate(slot);
+    }
+
+    fn try_grow(&mut self, content: ContentKind) -> Option<u16> {
+        let atlas = match content {
+            ContentKind::Mask => &mut *self.mask,
+            ContentKind::Color => &mut *self.color,
+        };
+        let current = atlas.width();
+        if current >= MAX_ATLAS_SIZE {
+            return None;
+        }
+        // Power-of-two growth, clamped to the backend maximum.
+        let next = u32::from(current)
+            .saturating_mul(2)
+            .min(u32::from(MAX_ATLAS_SIZE)) as u16;
+        if atlas.grow(self.device, next) {
+            Some(next)
+        } else {
+            None
+        }
+    }
+
+    fn reupload(&mut self, content: ContentKind, slot: AtlasSlot, data: &[u8]) {
+        let atlas = match content {
+            ContentKind::Mask => &mut *self.mask,
+            ContentKind::Color => &mut *self.color,
+        };
+        atlas.queue_upload(slot, data.to_vec());
     }
 }

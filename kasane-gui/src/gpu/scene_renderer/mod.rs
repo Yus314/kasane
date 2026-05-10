@@ -166,6 +166,12 @@ pub struct SceneRenderer {
     mask_atlas: super::text::gpu_atlas::GpuAtlasShelf,
     /// L3 GPU colour atlas (Rgba8Unorm) — emoji and colour outlines.
     color_atlas: super::text::gpu_atlas::GpuAtlasShelf,
+    /// Cheap clone of the wgpu device kept on the renderer so the
+    /// L2 → L3 atlas glue layer can recreate atlas textures
+    /// (`AtlasOps::try_grow`) without threading `&GpuState` through
+    /// every `emit_text` call site. `wgpu::Device` is internally
+    /// reference-counted so this clone is O(1).
+    device: wgpu::Device,
     /// wgpu glue: vertex buffer + pipeline + bind groups.
     text_renderer: super::text::text_renderer::TextRenderer,
     /// Shared shader / bind-group-layout cache (owns the wgpu pipeline
@@ -321,6 +327,7 @@ impl SceneRenderer {
             color_atlas,
             text_renderer,
             cache,
+            device: gpu.device.clone(),
             drawables: Vec::with_capacity(2048),
             deferred_inline_box_cmds: Vec::new(),
             styled_line_scratch: super::text::styled_line::StyledLineScratch::default(),
@@ -449,6 +456,7 @@ impl SceneRenderer {
         let mut atlases = super::text::raster_cache_glue::ParleyAtlasPair {
             mask: &mut self.mask_atlas,
             color: &mut self.color_atlas,
+            device: &self.device,
         };
         let drawables = &mut self.drawables;
         for layout_line in parley_layout.layout.lines() {
