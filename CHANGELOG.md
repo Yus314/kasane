@@ -2,6 +2,81 @@
 
 ## [Unreleased]
 
+### Added — Plugin DX dogfooding suite (Issue #81, 2026-05-11)
+
+The sprout dogfooding tracker (#81) closes 8/12 children with a focused
+SDK + docs landing:
+
+- **`kasane_plugin_sdk::kak`** module (#87): idempotent Kakoune-command
+  string builders — `declare_user_mode` (encodes `try %[ … ]`),
+  `declare_option`, `define_command` (auto-selects balanced delimiter
+  `%{…}` → `%[…]` → `%(…)` → `%<…>` → quoted fallback), `map`,
+  `escape_arg`, plus `Scope` and `OptionKind` enums. Encodes the correct
+  idempotency idiom per command so plugin authors cannot accidentally
+  pass `-override` to commands that don't accept it (the sprout
+  regression).
+- **`kakoune_setup_effects!`** macro (#88): builds an `Effects` value
+  sending each command as its own `Command::SendKeys` — failure
+  isolation, unlike a single `evaluate-commands %{ … }` block which
+  cascade-fails on the first error.
+- **`process_event!`** macro (#91): safe destructure for
+  `IoEvent::Process` under the new variant non-exhaustive policy.
+  Replaces the irrefutable `let IoEvent::Process(p) = event;` pattern
+  that broke at the 0.5→0.6 `Http` variant addition.
+- **`keys::push_literal`** debug-asserts on `\n` (#86): Kakoune prompts
+  reject newline; the dev-time panic surfaces the bug in tests.
+- **`keys::command` doc-comment** rewritten (#83): full escape table,
+  `<esc>` mode side-effect note, `<ret>`-literal round-trip property,
+  `EvalCommand` pointer with session-ready availability caveat.
+- **`examples/wasm/kakoune-bindings-demo`** (#84): worked example for
+  the register-Kakoune-APIs-at-startup pattern (option, command,
+  user-mode, key maps). Documents the `-override` flag asymmetry.
+- **`docs/abi-versioning.md`** (#85): two-axis versioning model
+  (WIT ABI vs SDK semver), host's major.minor exact-match rule, bump
+  decision table, plus Appendix A (variant non-exhaustive policy) and
+  Appendix B (safe destructure macros).
+- **`docs/migration/0.5-to-0.6.md`** §1.2.1 + §1.5 (#82): 7 face→style
+  helper renames table + IoEvent irrefutable bind / Style !Copy
+  hoisting patterns.
+- **`docs/plugin-cookbook.md`** + **`docs/plugin-development.md`**:
+  cookbook recipe and profiles-table row pointing plugin authors to the
+  new `kak::*` + `kakoune_setup_effects!` pattern.
+
+### Added — Plugin command-error attribution Phase A ([ADR-042](docs/decisions.md#adr-042-command-error-event-via-info_show-marker-attribution))
+
+Host-internal half of the plugin command-error observability protocol
+(#90). Plugins can wrap their Kakoune-side emissions as
+
+```
+try %[ <cmd> ] catch %[
+    info -title '__kasane_plugin_error__' %{ <plugin-id>%val{error} }
+]
+```
+
+The state-apply layer recognises the reserved title, parses
+`(plugin-id, message)` from the content, emits
+`tracing::warn!(plugin_id, message, …)` with the attribution, and
+suppresses the marker so it never reaches the user-visible UI. The
+empirical Kakoune-side validation that motivated the design is
+captured in ADR-042's Empirical validation section. Phase B (WIT 4.0.0
+`on-command-error-effects` export, host auto-wrap) is RFC-tracked but
+unimplemented.
+
+### Proposed — Plugin ABI 4.0.0 RFCs
+
+- **[ADR-041](docs/decisions.md#adr-041-eval-command-in-session-ready-command)**:
+  Add `eval-command(string)` to `session-ready-command` variant
+  (`SessionReadyEffects` gains an `EvalCommand` case alongside
+  `SendKeys` / `PasteClipboard` / `PluginMessage`). Pre-RFC
+  investigation established the exclusion is cosmetic, not technical;
+  implementation cost is 1 WIT line + 1 host match arm.
+- **[ADR-042](docs/decisions.md#adr-042-command-error-event-via-info_show-marker-attribution)**
+  Phase B: `command-error` record + `on-command-error-effects` export,
+  host auto-wraps plugin-originated commands under manifest opt-in.
+
+Both target ABI 4.0.0 and are coordinated for a single 3.0 → 4.0
+plugin recompile.
+
 ### Breaking — R2.x P7+P9 cascade: `WireFace` removed from public plugin API (2026-05-10)
 
 Closes the post-ADR-031 visibility-tightening backlog from
