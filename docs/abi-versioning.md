@@ -8,12 +8,12 @@ the crate-level axis follows Rust semver and is enforced by Cargo.
 
 | Axis | Source of truth | Example |
 |---|---|---|
-| WIT ABI | `kasane-wasm/wit/plugin.wit:1` | `package kasane:plugin@3.0.0;` |
+| WIT ABI | `kasane-wasm/wit/plugin.wit:1` | `package kasane:plugin@4.0.0;` |
 | SDK crate semver | `kasane-plugin-sdk/Cargo.toml` | `version = "0.6.0"` |
 
 The two move together for major bumps that change the wire format. The
 SDK *can* release patch versions without touching the ABI — a `0.6.1 →
-0.6.2` SDK upgrade reuses ABI `3.0.0` and is a pure recompile against
+0.6.2` SDK upgrade reuses ABI `4.0.0` and is a pure recompile against
 the same generated bindings.
 
 ## Host enforcement rule — major.minor exact match
@@ -33,8 +33,8 @@ major-only:
 
 WIT `variant` cases are ordered, and the wire encoding depends on that
 order. Appending a case to an existing variant shifts the discriminant
-of every case after it. A plugin compiled against `3.0.0` cannot safely
-decode `3.1.0` records, even though Rust semver would call this a
+of every case after it. A plugin compiled against `4.0.0` cannot safely
+decode `4.1.0` records, even though Rust semver would call this a
 non-breaking change.
 
 Kasane therefore treats the entire `major.minor` pair as a single wire
@@ -74,6 +74,7 @@ SDK that uses only existing WIT types is a *crate* minor bump but
 | Kasane host | WIT ABI | SDK crate |
 |---|---|---|
 | 0.6.x | 3.0.0 | 0.6.x |
+| 0.7.x | 4.0.0 | 0.7.x |
 
 Future entries land here as releases ship.
 

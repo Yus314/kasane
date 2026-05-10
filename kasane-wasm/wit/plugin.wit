@@ -1,4 +1,4 @@
-package kasane:plugin@3.0.0;
+package kasane:plugin@4.0.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -19,6 +19,14 @@ package kasane:plugin@3.0.0;
 // queries. ADR-034's display-directive → display-algebra collapse is
 // scheduled for the same bump but lands in a follow-up commit (the
 // 11-case `display-directive` variant has a deep host plumbing tail).
+//
+// WIT 4.0 (ADR-041): `eval-command(string)` joins
+// `session-ready-command` so plugins registering Kakoune-side APIs at
+// `on_active_session_ready_effects` can issue a command body directly
+// without the `<esc>:cmd<ret>` keystroke-simulation wrapping. Pure
+// variant-case addition — variant-case ordering is the wire encoding,
+// so the addition is breaking per the abi-versioning policy
+// (`docs/abi-versioning.md` Appendix A).
 
 interface types {
     enum named-color {
@@ -329,6 +337,11 @@ interface types {
 
     variant session-ready-command {
         send-keys(list<string>),
+        /// Execute a Kakoune command string at session-ready
+        /// (convenience for `send-keys(<esc>:cmd<ret>)` without the
+        /// per-character escape boilerplate). Added in WIT 4.0.0;
+        /// see ADR-041.
+        eval-command(string),
         /// Paste text from the host system clipboard.
         paste-clipboard,
         plugin-message(message-config),
