@@ -5733,9 +5733,9 @@ string-based layers cannot provide:
 
 ## ADR-044: Handler → Effect Tier Hierarchy
 
-**Status:** Phase A (A-1 / A-2 / A-3a / A-3b / A-3c / A-3d / A-3f /
-A-3g) + Phase B-1 / B-2 / B-3 / B-4 shipped (2026-05-11). Phase 2/3
-of the silent-drop fix chain
+**Status:** Phase A (A-1 / A-2 / A-3a / A-3b / A-3c / A-3d / A-3e /
+A-3f / A-3g) + Phase B-1 / B-2 / B-3 / B-4 shipped (2026-05-11).
+Phase 2/3 of the silent-drop fix chain
 ([#100](https://github.com/Yus314/kasane/issues/100) → ADR Phase 0,
 [#101](https://github.com/Yus314/kasane/issues/101) → ADR Phase 1,
 this ADR → Phase 2/3).
@@ -5755,6 +5755,7 @@ this ADR → Phase 2/3).
 | B-2   | WIT ABI 4.2.0 bump: add `on-state-changed-tier1-effects` export returning `kakoune-side-effects`, host dispatch merges with the legacy export, SDK macros provide a default no-op so existing plugins recompile without source changes. | All 13 `.wasm` blobs rebuilt; host `convert_kakoune_side_effects` routes tier-1 commands through the existing `convert_command` so attribution / `set-setting` / `command-error` rewrites stay uniform. Commit `2aca004d`. |
 | B-3   | `define_plugin!` learns the tier-1 DSL key `on_state_changed_tier1_effects(...)` and rejects declaring both legacy and tier-1 simultaneously. SDK ships `kakoune_side_setup_effects!` (eval-command shorthand) and `tier1_effects(commands)` (Vec helper). | Conflict diagnostic is compile-time. Fixture guest `kasane-wasm/guests/tier1-state/` + host test `tier1_state.rs` witness the macro → wire → host merge end-to-end. Commit `6a44b1dd`. |
 | B-4   | First batch of `examples/wasm/*` plugins migrated to the tier-1 form: `color-preview`, `image-preview`, `session-ui`, `selection-algebra`. None emit process commands, so the migration is pure type-narrowing. | `cursor-line` stays on the legacy export because its `#[bind]` auto-binding currently emits onto the legacy path (separate macro change). `sel-badge` / `fuzzy-finder` / `pane-manager` / `prompt-highlight` / `smooth-scroll` / `kakoune-bindings-demo` declare no explicit `on_state_changed_effects` block. Commit `964171ef`. |
+| A-3e  | `HandlerRegistry::on_command_error` and `HandlerRegistry::on_subscription` setters. Both handlers were previously only reachable via overriding the `PluginBackend` trait method, so the canonical Plugin-trait path had no way to register them. | `on_command_error` accepts `&PluginErrorEvent` and returns `Effects` through the same `dispatch_state_effect!` machinery as the lifecycle handlers. `on_subscription` mirrors the WIT `on-subscription(topic, values) -> runtime-effects` shape (no AppView arg — `PluginBackend::deliver_subscriptions` does not currently surface one); the handler's effects are presently discarded at the bridge for parity with the existing WASM adapter, with a follow-up tracked to wire them into the runtime pipeline. The exhaustive dispatch coverage test gains both handler names. |
 | A-3g  | `#[deprecated(since = "0.7.1")]` on the seven legacy lifecycle setters (`on_init`, `on_session_ready`, `on_state_changed`, `on_io_event`, `on_update`, `on_process_task`, `on_process_task_streaming`) with notes pointing at the tier replacement. | In-tree test fixtures and the `#[kasane::plugin]` proc-macro emission gate the warnings with scoped `#[allow(deprecated)]`. Input setters (`on_key`, `on_text_input`, `on_drop`, `on_mouse_fallback`) stay un-deprecated because tier-1 there is a stricter opt-in, not the default. |
 
 ### Phase B-2 execution playbook (historical)
@@ -5858,11 +5859,13 @@ edits + 10–15 rebuilt `.wasm` blobs. The 4.0 → 4.1 precedent
   which is more complex than the key/text/drop pattern (state-update
   channel + commands), so the lift requires a tier-typed result type
   rather than just a per-command bound.
-- **A-3e** — `HandlerRegistry`-level setters for `on_command_error` /
-  `on_subscription`. Currently both go through `PluginBackend` defaults
-  rather than the `HandlerRegistry` builder API — adding the setters
-  is independent of tier work and a prerequisite for tier enforcement
-  on those handlers.
+- **A-3e effect plumbing** — `on_subscription`'s returned effects are
+  presently discarded at both the native `PluginBridge` and the WASM
+  adapter because `PluginBackend::deliver_subscriptions` returns only
+  a `bool` (changed flag). Bridging those effects into the runtime
+  pipeline requires either widening the trait method or adding a
+  parallel `deliver_subscription_effects(&mut self, bus) -> EffectsBatch`
+  hook on the registry / dispatcher.
 - **A-3f leftovers** — `BuiltinDragPlugin`, `BuiltinFoldPlugin`,
   `SemanticZoomPlugin`, and the widget plugin paths still need
   lifecycle handler review for tier migration. The A-3f landing

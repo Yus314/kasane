@@ -80,6 +80,41 @@ pub(crate) type ErasedUpdateHandler = Box<
         + Sync,
 >;
 
+/// ADR-044 Phase A-3e: HandlerRegistry-driven `on_command_error`.
+/// Fires when a Kakoune command attributed to this plugin fails. The
+/// handler receives the parsed [`super::error_attribution::PluginErrorEvent`]
+/// and returns updated state + effects.
+pub(crate) type ErasedCommandErrorHandler = Box<
+    dyn Fn(
+            &dyn PluginState,
+            &super::error_attribution::PluginErrorEvent,
+            &AppView<'_>,
+        ) -> (Box<dyn PluginState>, Effects)
+        + Send
+        + Sync,
+>;
+
+/// ADR-044 Phase A-3e: HandlerRegistry-driven `on_subscription`.
+/// Fires once per subscribed topic during the pub/sub delivery phase
+/// with **all** values published on that topic this tick. Mirrors the
+/// WIT `on-subscription(topic, values) -> runtime-effects` export so
+/// native and WASM plugins observe the same per-topic batch shape.
+///
+/// Independent of the per-value [`SubscribeEntry`] path: a plugin may
+/// register typed [`super::handler_registry::HandlerRegistry::subscribe`]
+/// handlers (per-value state mutation) and an `on_subscription` handler
+/// (per-topic effects emission) at the same time.
+///
+/// No `AppView` parameter — `PluginBackend::deliver_subscriptions` takes
+/// only the topic bus, matching the WIT `on-subscription` signature.
+/// Handlers that need observable state should consume it from the
+/// preceding `on_state_changed` tick.
+pub(crate) type ErasedSubscriptionHandler = Box<
+    dyn Fn(&dyn PluginState, &str, &[super::ChannelValue]) -> (Box<dyn PluginState>, Effects)
+        + Send
+        + Sync,
+>;
+
 // Input handlers
 pub(crate) type ErasedKeyHandler = Box<
     dyn Fn(
@@ -363,6 +398,9 @@ pub(crate) struct TransparencyFlags {
     pub(crate) state_changed_handler: bool,
     pub(crate) io_event_handler: bool,
     pub(crate) update_handler: bool,
+    // --- Command-error / Pub-sub effects (ADR-044 Phase A-3e) ---
+    pub(crate) command_error_handler: bool,
+    pub(crate) subscription_handler: bool,
 }
 
 impl TransparencyFlags {
@@ -457,6 +495,10 @@ pub(crate) struct HandlerTable {
     pub(crate) workspace_restore_handler: Option<ErasedWorkspaceRestoreHandler>,
     pub(crate) shutdown_handler: Option<ErasedShutdownHandler>,
     pub(crate) update_handler: Option<ErasedUpdateHandler>,
+
+    // --- Command-error / Pub-sub effects (ADR-044 Phase A-3e) ---
+    pub(crate) command_error_handler: Option<ErasedCommandErrorHandler>,
+    pub(crate) subscription_handler: Option<ErasedSubscriptionHandler>,
 
     // --- Input ---
     pub(crate) key_handler: Option<ErasedKeyHandler>,
@@ -553,6 +595,8 @@ impl HandlerTable {
             workspace_restore_handler: None,
             shutdown_handler: None,
             update_handler: None,
+            command_error_handler: None,
+            subscription_handler: None,
             key_handler: None,
             key_middleware_handler: None,
             observe_key_handler: None,

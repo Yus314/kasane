@@ -12,6 +12,7 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
 
+use super::error_attribution::PluginErrorEvent;
 use super::extension_point::{ExtensionDefinition, ExtensionOutput, ExtensionPointId};
 use super::handler_registry::HandlerRegistry;
 use super::handler_table::HandlerTable;
@@ -876,6 +877,28 @@ impl PluginBackend for PluginBridge {
                 }
             }
         }
+        // ADR-044 Phase A-3e: per-topic batch handler registered through
+        // `HandlerRegistry::on_subscription`. Mirrors the WIT
+        // `on-subscription(topic, values) -> runtime-effects` shape. The
+        // returned effects are presently discarded — `deliver_subscriptions`
+        // returns only a `changed` flag through `PluginBackend`. Bridging
+        // those effects into the runtime pipeline is tracked as a follow-up;
+        // the WASM adapter has the same gap for the same reason.
+        if let Some(handler) = &self.table.subscription_handler {
+            for entry in &self.table.subscribers {
+                if let Some(publications) = bus.get_publications(&entry.topic) {
+                    let values: Vec<super::ChannelValue> =
+                        publications.iter().map(|p| p.value.clone()).collect();
+                    if values.is_empty() {
+                        continue;
+                    }
+                    let (new_state, _effects) =
+                        handler(&*self.state, entry.topic.as_str(), &values);
+                    self.state = new_state;
+                    changed = true;
+                }
+            }
+        }
         if changed {
             self.check_state_change();
         }
@@ -930,6 +953,13 @@ impl PluginBackend for PluginBridge {
 
         // Fall through to the manual io_event handler.
         dispatch_state_effect!(self, io_event_handler, event, app)
+    }
+
+    /// ADR-044 Phase A-3e: dispatch through the HandlerRegistry-driven
+    /// `on_command_error` handler when registered. Plugins that did not
+    /// register one inherit the trait's empty-Effects default.
+    fn on_command_error_effects(&mut self, error: &PluginErrorEvent, app: &AppView<'_>) -> Effects {
+        dispatch_state_effect!(self, command_error_handler, error, app)
     }
 
     fn start_process_task(&mut self, name: &str) -> Vec<Command> {
@@ -1543,6 +1573,8 @@ mod tests {
             "menu_transform",
             "publish",
             "subscribe",
+            "on_subscription",
+            "command_error",
             "paint_inline_box",
             "buffer_edit_intercept",
         ];
@@ -1768,6 +1800,18 @@ mod tests {
                 });
 
                 let inv = self.invoked.clone();
+                r.on_subscription(move |s, _topic, _values| {
+                    inv.lock().unwrap().insert("on_subscription");
+                    (*s, Effects::default())
+                });
+
+                let inv = self.invoked.clone();
+                r.on_command_error(move |s, _error, _app| {
+                    inv.lock().unwrap().insert("command_error");
+                    (*s, Effects::default())
+                });
+
+                let inv = self.invoked.clone();
                 r.on_buffer_edit_intercept(move |s, _edit, _app| {
                     inv.lock().unwrap().insert("buffer_edit_intercept");
                     (
@@ -1908,6 +1952,14 @@ mod tests {
             super::super::channel::ChannelValue::new(&99u32).unwrap(),
         );
         bridge.deliver_subscriptions(&bus);
+
+        // Command-error (ADR-044 A-3e): drive the new HandlerRegistry
+        // setter via the trait method.
+        let probe_error = super::super::error_attribution::PluginErrorEvent {
+            plugin_id: "test.all-handlers".to_string(),
+            message: "1:1: 'noop': probe".to_string(),
+        };
+        bridge.on_command_error_effects(&probe_error, &app);
 
         // Assert
         let invoked = invoked.lock().unwrap();

@@ -5,9 +5,10 @@ use std::any::Any;
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
 
+use super::super::error_attribution::PluginErrorEvent;
 use super::super::process_task::{ProcessTaskEntry, ProcessTaskResult, ProcessTaskSpec};
 use super::super::{
-    AppView, Effects, IoEvent, KakouneSideEffects, PluginState, ProcessCapableEffects,
+    AppView, ChannelValue, Effects, IoEvent, KakouneSideEffects, PluginState, ProcessCapableEffects,
 };
 
 use super::{HandlerRegistry, Transparency};
@@ -487,4 +488,76 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     // =========================================================================
+    // ADR-044 Phase A-3e: builder-driven `on_command_error` / `on_subscription`.
+    // Both handlers were previously only reachable via overriding the
+    // `PluginBackend` trait method, leaving HandlerRegistry-driven plugins
+    // (the canonical path) without a way to register them. Returning the
+    // broad `Effects` type matches the WIT shape; tier enforcement can be
+    // added later as a sibling setter.
+    // =========================================================================
+
+    /// Register a handler for plugin-attributed Kakoune command failures
+    /// ([ADR-042](../../../../docs/decisions.md#adr-042-command-error-event-via-info_show-marker-attribution)).
+    ///
+    /// The handler fires when an `info_show` with the reserved title
+    /// `__kasane_plugin_error__` is observed and the embedded plugin-id
+    /// matches this plugin. The handler receives the parsed
+    /// [`PluginErrorEvent`] (plugin-id + Kakoune error message) and
+    /// returns updated state + effects.
+    ///
+    /// To opt into command-error attribution, set
+    /// `[handlers] command_error_observability = true` in the plugin
+    /// manifest — the host then auto-wraps every `EvalCommand` emitted
+    /// by this plugin in a `try…catch` that fires the marker on failure.
+    pub fn on_command_error<E: Into<Effects> + Transparency + 'static>(
+        &mut self,
+        handler: impl Fn(&S, &PluginErrorEvent, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
+    ) {
+        self.table.command_error_handler = Some(Box::new(move |state, error, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, effects) = handler(s, error, app);
+            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
+        }));
+        if E::IS_TRANSPARENT {
+            self.table.transparency.command_error_handler = true;
+        }
+    }
+
+    /// Register a per-topic batch subscription handler.
+    ///
+    /// Mirrors the WIT `on-subscription(topic, values) -> runtime-effects`
+    /// export: the handler fires once per subscribed topic during the
+    /// pub/sub delivery phase with **all** values published on that
+    /// topic this tick, returning updated state + effects.
+    ///
+    /// This is independent of the per-value
+    /// [`subscribe`](super::extension::HandlerRegistry::subscribe) setter:
+    /// `subscribe` mutates state per published value, while
+    /// `on_subscription` lets the plugin emit effects per topic batch
+    /// (for example, scheduling a redraw or kicking off a follow-up
+    /// command). A plugin may register both kinds on the same topic.
+    ///
+    /// No `AppView` parameter — `PluginBackend::deliver_subscriptions`
+    /// takes only the topic bus today, matching the WIT shape. Handlers
+    /// that need observable state should consume it from the preceding
+    /// `on_state_changed` tick.
+    pub fn on_subscription<E: Into<Effects> + Transparency + 'static>(
+        &mut self,
+        handler: impl Fn(&S, &str, &[ChannelValue]) -> (S, E) + Send + Sync + 'static,
+    ) {
+        self.table.subscription_handler = Some(Box::new(move |state, topic, values| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, effects) = handler(s, topic, values);
+            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
+        }));
+        if E::IS_TRANSPARENT {
+            self.table.transparency.subscription_handler = true;
+        }
+    }
 }
