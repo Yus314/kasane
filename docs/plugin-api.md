@@ -143,11 +143,11 @@ impl Plugin for MyPlugin {
 
     fn register(&self, r: &mut HandlerRegistry<MyState>) {
         r.declare_interests(DirtyFlags::BUFFER);
-        r.on_state_changed(|state, _app, dirty| {
+        r.on_state_changed_tier1(|state, _app, dirty| {
             if dirty.intersects(DirtyFlags::BUFFER) {
-                (MyState { counter: state.counter + 1 }, Effects::default())
+                (MyState { counter: state.counter + 1 }, KakouneSideEffects::default())
             } else {
-                (state.clone(), Effects::default())
+                (state.clone(), KakouneSideEffects::default())
             }
         });
         r.on_decorate_background(|state, line, _app, _ctx| {

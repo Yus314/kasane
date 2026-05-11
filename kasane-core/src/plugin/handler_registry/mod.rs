@@ -663,6 +663,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // ADR-044 A-3g: test exercises the legacy setter
     fn handler_type_erasure_invocation() {
         // Verify that erased handlers can be invoked with the correct state type.
         let mut registry = HandlerRegistry::<TestState>::new();

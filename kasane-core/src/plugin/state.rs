@@ -107,6 +107,7 @@ pub(in crate::plugin) mod tests {
             PluginId("test.cursor-line-pure".into())
         }
 
+        #[allow(deprecated)] // ADR-044 A-3g: test fixture exercises the legacy setter
         fn register(&self, r: &mut HandlerRegistry<CursorLineState>) {
             r.declare_interests(DirtyFlags::BUFFER);
             r.on_state_changed(|state, app, dirty| {
@@ -164,6 +165,7 @@ pub(in crate::plugin) mod tests {
             PluginId("test.color-preview-pure".into())
         }
 
+        #[allow(deprecated)] // ADR-044 A-3g: test fixture exercises the legacy setter
         fn register(&self, r: &mut HandlerRegistry<ColorPreviewState>) {
             r.declare_interests(DirtyFlags::BUFFER);
             r.on_state_changed(|state, app, dirty| {

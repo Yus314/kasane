@@ -914,6 +914,13 @@ fn generate_v2_plugin(def: &PluginDefV2, module: &ItemMod) -> syn::Result<TokenS
                 kasane_core::plugin::PluginId(#id_str.to_string())
             }
 
+            // ADR-044 A-3g: the `#[kasane::plugin]` macro routes legacy
+            // attribute hooks (`#[on_state_changed]`, `#[on_init]`, etc.) to
+            // the broad `Effects`-typed setters. Until the macro learns to
+            // emit tier setters based on the user fn's return type, suppress
+            // the deprecation warning at the emission boundary so plugin
+            // authors are not blamed for an internal routing choice.
+            #[allow(deprecated)]
             fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<#state_type>) {
                 #(#register_body)*
             }

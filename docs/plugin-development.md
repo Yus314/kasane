@@ -588,16 +588,16 @@ impl Plugin for CursorLinePlugin {
 
     fn register(&self, r: &mut HandlerRegistry<CursorLineState>) {
         r.declare_interests(DirtyFlags::BUFFER);
-        r.on_state_changed(|state, app, dirty| {
+        r.on_state_changed_tier1(|state, app, dirty| {
             if dirty.intersects(DirtyFlags::BUFFER) {
                 (
                     CursorLineState {
                         active_line: app.cursor_line(),
                     },
-                    Effects::default(),
+                    KakouneSideEffects::default(),
                 )
             } else {
-                (state.clone(), Effects::default())
+                (state.clone(), KakouneSideEffects::default())
             }
         });
         r.on_decorate_background(|state, line, _app, _ctx| {

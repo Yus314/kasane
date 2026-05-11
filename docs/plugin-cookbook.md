@@ -205,7 +205,7 @@ impl Plugin for FileListPlugin {
     type State = FileListState;
     fn id(&self) -> PluginId { PluginId("file_list".into()) }
     fn register(&self, r: &mut HandlerRegistry<FileListState>) {
-        r.on_process_task(
+        r.on_process_task_tier2(
             "file_list",
             ProcessTaskSpec::new("fd", &["--type", "f"])
                 .fallback(ProcessTaskSpec::new("find", &[".", "-type", "f"])),
@@ -215,13 +215,13 @@ impl Plugin for FileListPlugin {
                         .lines()
                         .map(String::from)
                         .collect();
-                    (FileListState { files, ..state.clone() }, Effects::none())
+                    (FileListState { files, ..state.clone() }, ProcessCapableEffects::default())
                 }
                 ProcessTaskResult::Failed(msg) => {
                     tracing::warn!("file_list failed: {msg}");
-                    (state.clone(), Effects::none())
+                    (state.clone(), ProcessCapableEffects::default())
                 }
-                _ => (state.clone(), Effects::none()),
+                _ => (state.clone(), ProcessCapableEffects::default()),
             },
         );
     }

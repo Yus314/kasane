@@ -5733,9 +5733,9 @@ string-based layers cannot provide:
 
 ## ADR-044: Handler → Effect Tier Hierarchy
 
-**Status:** Phase A (A-1 / A-2 / A-3a / A-3b / A-3c / A-3d / A-3f) +
-Phase B-1 (WIT type foundation) shipped (2026-05-11). Phase 2/3 of
-the silent-drop fix chain
+**Status:** Phase A (A-1 / A-2 / A-3a / A-3b / A-3c / A-3d / A-3f /
+A-3g) + Phase B-1 / B-2 / B-3 / B-4 shipped (2026-05-11). Phase 2/3
+of the silent-drop fix chain
 ([#100](https://github.com/Yus314/kasane/issues/100) → ADR Phase 0,
 [#101](https://github.com/Yus314/kasane/issues/101) → ADR Phase 1,
 this ADR → Phase 2/3).
@@ -5752,8 +5752,15 @@ this ADR → Phase 2/3).
 | A-3d  | Opt-in **tier-1** input handler setters: `on_key_tier1`, `on_text_input_tier1`, `on_drop_tier1`, `on_mouse_fallback_tier1`. ADR mapping puts input at Tier 2 by default; Tier 1 is a stricter opt-in for plugin authors who know their handlers don't spawn. | Bound `C: Into<KakouneSideCommand>` rejects raw `Command` returns. `compile_fail` doctest on `KakouneSideCommand` witnesses the asymmetric command projection. |
 | A-3f  | In-tree built-in plugin migration to tier setters. | `BuiltinInputPlugin`, `BuiltinMouseFallbackPlugin`, `DebugOverlayPlugin`, plus `BuiltinShadowCursorPlugin` (migrated in A-3a). Validates the tier API against real in-tree code. |
 | B-1   | WIT tier-type foundation: add `kakoune-side-command` / `kakoune-side-effects` / `process-command` / `process-capable-effects` to `kasane-wasm/wit/plugin.wit` (single canonical copy; the two SDK paths are symlinks). | Types declared, no handler exports yet wired (deferred to B-2). ABI stays 4.1.0 — no rebuild required for bundled `.wasm` plugins. |
+| B-2   | WIT ABI 4.2.0 bump: add `on-state-changed-tier1-effects` export returning `kakoune-side-effects`, host dispatch merges with the legacy export, SDK macros provide a default no-op so existing plugins recompile without source changes. | All 13 `.wasm` blobs rebuilt; host `convert_kakoune_side_effects` routes tier-1 commands through the existing `convert_command` so attribution / `set-setting` / `command-error` rewrites stay uniform. Commit `2aca004d`. |
+| B-3   | `define_plugin!` learns the tier-1 DSL key `on_state_changed_tier1_effects(...)` and rejects declaring both legacy and tier-1 simultaneously. SDK ships `kakoune_side_setup_effects!` (eval-command shorthand) and `tier1_effects(commands)` (Vec helper). | Conflict diagnostic is compile-time. Fixture guest `kasane-wasm/guests/tier1-state/` + host test `tier1_state.rs` witness the macro → wire → host merge end-to-end. Commit `6a44b1dd`. |
+| B-4   | First batch of `examples/wasm/*` plugins migrated to the tier-1 form: `color-preview`, `image-preview`, `session-ui`, `selection-algebra`. None emit process commands, so the migration is pure type-narrowing. | `cursor-line` stays on the legacy export because its `#[bind]` auto-binding currently emits onto the legacy path (separate macro change). `sel-badge` / `fuzzy-finder` / `pane-manager` / `prompt-highlight` / `smooth-scroll` / `kakoune-bindings-demo` declare no explicit `on_state_changed_effects` block. Commit `964171ef`. |
+| A-3g  | `#[deprecated(since = "0.7.1")]` on the seven legacy lifecycle setters (`on_init`, `on_session_ready`, `on_state_changed`, `on_io_event`, `on_update`, `on_process_task`, `on_process_task_streaming`) with notes pointing at the tier replacement. | In-tree test fixtures and the `#[kasane::plugin]` proc-macro emission gate the warnings with scoped `#[allow(deprecated)]`. Input setters (`on_key`, `on_text_input`, `on_drop`, `on_mouse_fallback`) stay un-deprecated because tier-1 there is a stricter opt-in, not the default. |
 
-### Phase B-2 execution playbook
+### Phase B-2 execution playbook (historical)
+
+Retained as a reference for future ABI bumps; the corresponding work
+landed in commit `2aca004d`.
 
 The next focused session should execute Phase B-2 as a single PR.
 Concrete steps, in order:
@@ -5856,15 +5863,18 @@ edits + 10–15 rebuilt `.wasm` blobs. The 4.0 → 4.1 precedent
   rather than the `HandlerRegistry` builder API — adding the setters
   is independent of tier work and a prerequisite for tier enforcement
   on those handlers.
-- **A-3f** — In-tree plugin migration (currently `BuiltinShadowCursorPlugin`
-  only). `BuiltinDragPlugin`, `BuiltinFoldPlugin`, `BuiltinInputPlugin`,
-  `BuiltinMouseFallbackPlugin`, `DebugOverlayPlugin`, `SemanticZoomPlugin`,
-  and the widget plugin paths each need their lifecycle handlers
-  reviewed and migrated to tier setters where applicable.
-- **A-3g** — `#[deprecated]` attribute on legacy setters once the
-  in-tree migration is complete. Pushes external plugin authors toward
-  the tier API via cargo warnings.
-- **Phase B** — WIT 5.0.0 wire bump + WASM plugin migration. Each WIT
+- **A-3f leftovers** — `BuiltinDragPlugin`, `BuiltinFoldPlugin`,
+  `SemanticZoomPlugin`, and the widget plugin paths still need
+  lifecycle handler review for tier migration. The A-3f landing
+  shipped the headline plugins (`BuiltinShadowCursorPlugin`,
+  `BuiltinInputPlugin`, `BuiltinMouseFallbackPlugin`,
+  `DebugOverlayPlugin`); these are the cleanup tail.
+- **B-4 leftovers** — `cursor-line` cannot migrate until the
+  `define_plugin!` `#[bind]` auto-binding generator learns to route
+  onto the tier-1 export. The remaining `examples/wasm/*` plugins
+  declare no `on_state_changed_effects` block at all, so there is
+  nothing to migrate for them under the current Phase B scope.
+- **Phase B-5 / future ABI bump** — WIT 5.0.0 wire bump + WASM plugin migration. Each WIT
   copy is ~2,057 lines, triplicated across `kasane-wasm/`,
   `kasane-plugin-sdk/`, and `kasane-plugin-sdk-macros/`. The split
   introduces `observation-effects` / `kakoune-side-effects` /

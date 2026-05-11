@@ -1,5 +1,12 @@
 //! Structural witness tests for effect category classification and
 //! transparency flags (ADR-030 Level 5).
+//!
+//! These tests deliberately register against the legacy lifecycle setters
+//! (`on_init`, `on_session_ready`, `on_state_changed`, `on_io_event`,
+//! `on_update`, `on_process_task`) to exercise the broad-Effects path. The
+//! ADR-044 A-3g deprecation is silenced at the module level.
+
+#![allow(deprecated)]
 
 use crate::plugin::command::EffectCategory;
 use crate::plugin::handler_registry::HandlerRegistry;

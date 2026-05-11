@@ -41,6 +41,13 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// at compile time, rejecting `ProcessCommand` variants. `on_init` is
     /// narrow at the WIT level already (Bootstrap phase rejects most
     /// commands), but the type-level pin further reduces ambiguity.
+    #[deprecated(
+        since = "0.7.1",
+        note = "ADR-044 Phase A-3g: prefer `on_init_tier1`. Init is re-entrance-safe \
+                by contract; the broad `Effects` return permits process spawn that \
+                does not belong here. Add `#[allow(deprecated)]` if you legitimately \
+                need the broad type."
+    )]
     pub fn on_init<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
@@ -81,6 +88,14 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// enforces the Tier-1 contract from
     /// [ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
     /// at compile time.
+    #[deprecated(
+        since = "0.7.1",
+        note = "ADR-044 Phase A-3g: prefer `on_session_ready_tier1`. The WIT \
+                `session-ready-command` variant already narrows to Kakoune-side \
+                commands; the Tier-1 type lifts the same guarantee to the \
+                native side. Add `#[allow(deprecated)]` if you legitimately \
+                need the broad type."
+    )]
     pub fn on_session_ready<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
@@ -123,7 +138,14 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// [ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
     /// at compile time, rejecting `ProcessCommand` variants (`SpawnProcess`,
     /// `HttpRequest`, etc.) that re-entrance-prone handlers should not emit.
-    /// This setter remains for migration; a future PR will deprecate it.
+    #[deprecated(
+        since = "0.7.1",
+        note = "ADR-044 Phase A-3g: prefer `on_state_changed_tier1`. The state-\
+                changed handler fires per tick; the broad `Effects` return permits \
+                `SpawnProcess` / `HttpRequest` that re-entrance-prone handlers \
+                must not issue (see issue #100). Add `#[allow(deprecated)]` if \
+                you legitimately need the broad type."
+    )]
     pub fn on_state_changed<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &AppView<'_>, DirtyFlags) -> (S, E) + Send + Sync + 'static,
@@ -179,6 +201,12 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// naturally need for spawn chains, but the typed return still beats
     /// `Effects` for review readability and migration to the WIT tier
     /// split (Phase B).
+    #[deprecated(
+        since = "0.7.1",
+        note = "ADR-044 Phase A-3g: prefer `on_io_event_tier2`. The Tier-2 \
+                return type still admits process commands but pins the \
+                contract for review readability."
+    )]
     pub fn on_io_event<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &IoEvent, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
@@ -240,6 +268,12 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// ```
     ///
     /// **For new code, prefer [`Self::on_process_task_tier2`]**.
+    #[deprecated(
+        since = "0.7.1",
+        note = "ADR-044 Phase A-3g: prefer `on_process_task_tier2`. Process-\
+                task completion handlers naturally chain into further spawns; \
+                the Tier-2 return pins that contract."
+    )]
     pub fn on_process_task<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         name: &'static str,
@@ -271,6 +305,10 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.
     ///
     /// **For new code, prefer [`Self::on_process_task_streaming_tier2`]**.
+    #[deprecated(
+        since = "0.7.1",
+        note = "ADR-044 Phase A-3g: prefer `on_process_task_streaming_tier2`."
+    )]
     pub fn on_process_task_streaming<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         name: &'static str,
@@ -410,6 +448,12 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// [ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
     /// at compile time. The command-handler pattern legitimately spawns
     /// processes, so Tier 2 is the appropriate enforcement.
+    #[deprecated(
+        since = "0.7.1",
+        note = "ADR-044 Phase A-3g: prefer `on_update_tier2`. The command-\
+                handler pattern legitimately spawns processes; Tier 2 admits \
+                the same surface but pins the contract for review readability."
+    )]
     pub fn on_update<E: Into<Effects> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &mut dyn Any, &AppView<'_>) -> (S, E) + Send + Sync + 'static,

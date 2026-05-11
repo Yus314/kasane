@@ -1561,6 +1561,11 @@ mod tests {
                 PluginId("test.all-handlers".into())
             }
 
+            // The fixture exercises every legacy setter to keep the dispatch
+            // coverage assertion meaningful; the per-call deprecation warnings
+            // are silenced here because the test deliberately covers the
+            // legacy surface, not because callers should emulate this.
+            #[allow(deprecated)]
             fn register(&self, r: &mut HandlerRegistry<u32>) {
                 let inv = self.invoked.clone();
                 r.on_init(move |s, _app| {
