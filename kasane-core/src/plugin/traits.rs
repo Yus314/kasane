@@ -195,8 +195,13 @@ pub trait PluginBackend: Any {
 
     fn collect_publications(&self, _bus: &mut TopicBus, _state: &AppView<'_>) {}
 
-    fn deliver_subscriptions(&mut self, _bus: &TopicBus) -> bool {
-        false
+    /// Deliver subscriptions to this plugin and return any effects the
+    /// per-topic batch handler emits. ADR-044 Phase A-3e widened the
+    /// shape from `-> bool` to `-> Effects` so `on_subscription`
+    /// effects can flow back through the runtime pipeline; the bool
+    /// `changed` flag was unused at every caller.
+    fn deliver_subscriptions(&mut self, _bus: &TopicBus, _app: &AppView<'_>) -> Effects {
+        Effects::default()
     }
 
     // --- Extension-point hooks ---

@@ -484,6 +484,13 @@ pub trait PluginEffects {
         error: &super::error_attribution::PluginErrorEvent,
         app: &AppView<'_>,
     ) -> EffectsBatch;
+
+    /// ADR-044 Phase A-3e: drive the pub/sub bus for this tick and
+    /// collect any per-topic batch effects emitted by plugins'
+    /// `on_subscription` handlers. Implementations own the topic bus;
+    /// the caller treats it as a typed effect-collection step
+    /// analogous to [`Self::notify_state_changed`].
+    fn evaluate_pubsub(&mut self, app: &AppView<'_>) -> EffectsBatch;
 }
 
 /// No-op implementation — all observations are discarded, all dispatches pass through.
@@ -569,6 +576,9 @@ impl PluginEffects for NullEffects {
         _: &super::error_attribution::PluginErrorEvent,
         _: &AppView<'_>,
     ) -> EffectsBatch {
+        EffectsBatch::default()
+    }
+    fn evaluate_pubsub(&mut self, _: &AppView<'_>) -> EffectsBatch {
         EffectsBatch::default()
     }
 }
@@ -692,6 +702,9 @@ impl PluginEffects for RecordingEffects {
         _: &super::error_attribution::PluginErrorEvent,
         _: &AppView<'_>,
     ) -> EffectsBatch {
+        EffectsBatch::default()
+    }
+    fn evaluate_pubsub(&mut self, _: &AppView<'_>) -> EffectsBatch {
         EffectsBatch::default()
     }
 }

@@ -1068,7 +1068,7 @@ fn test_pubsub_publisher_delivers_to_subscriber() {
 
     // Run pub/sub evaluation.
     let mut bus = TopicBus::new();
-    runtime.evaluate_pubsub(&mut bus, &app);
+    let _batch = runtime.evaluate_pubsub(&mut bus, &app);
 
     // Subscriber should now have received the published counter.
     // Verify via prepare_plugin_cache detecting the state change.
@@ -1089,11 +1089,60 @@ fn test_pubsub_no_subscribers_is_noop() {
     runtime.notify_state_changed_batch(&app, DirtyFlags::ALL);
 
     let mut bus = TopicBus::new();
-    runtime.evaluate_pubsub(&mut bus, &app);
+    let _batch = runtime.evaluate_pubsub(&mut bus, &app);
 
     // No subscriber → only publisher state changed.
     runtime.prepare_plugin_cache(DirtyFlags::empty());
     assert!(runtime.any_plugin_state_changed());
+}
+
+/// ADR-044 Phase A-3e: per-topic batch handler returns Effects that
+/// flow back through `evaluate_pubsub`'s `EffectsBatch`. This subscriber
+/// pairs `r.subscribe` (per-value state mutation, drives the bus
+/// `changed` flag) with `r.on_subscription` (per-topic batch effects).
+struct SubscriberWithOnSubscription;
+impl Plugin for SubscriberWithOnSubscription {
+    type State = SubState;
+    fn id(&self) -> PluginId {
+        PluginId("subscriber.tier1".to_string())
+    }
+    fn register(&self, r: &mut HandlerRegistry<SubState>) {
+        r.subscribe::<u32>(TopicId::new("test.counter"), |_state, value| SubState {
+            received: *value,
+        });
+        r.on_subscription(|state, _topic, _values, _app| {
+            (state.clone(), Effects::redraw(DirtyFlags::BUFFER))
+        });
+    }
+}
+
+#[test]
+fn test_on_subscription_effects_flow_back_through_evaluate_pubsub() {
+    let mut runtime = PluginRuntime::new();
+    runtime.register(PublisherPlugin);
+    runtime.register(SubscriberWithOnSubscription);
+
+    let mut state = AppState::default();
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
+    let app = AppView::new(&state);
+
+    // Bump the publisher so it has a non-zero counter to publish.
+    runtime.notify_state_changed_batch(&app, DirtyFlags::ALL);
+
+    let mut bus = TopicBus::new();
+    let batch = runtime.evaluate_pubsub(&mut bus, &app);
+
+    // The per-topic batch handler returned `redraw: BUFFER`. Before
+    // ADR-044 A-3e effect plumbing, this would have been silently
+    // dropped at the trait boundary.
+    assert!(
+        batch.redraw.contains(DirtyFlags::BUFFER),
+        "on_subscription redraw flag did not reach the EffectsBatch \
+         (got {:?}). The trait widening from `-> bool` to `-> Effects` \
+         is the load-bearing change.",
+        batch.redraw,
+    );
 }
 
 #[test]

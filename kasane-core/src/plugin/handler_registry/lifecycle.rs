@@ -531,7 +531,10 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Mirrors the WIT `on-subscription(topic, values) -> runtime-effects`
     /// export: the handler fires once per subscribed topic during the
     /// pub/sub delivery phase with **all** values published on that
-    /// topic this tick, returning updated state + effects.
+    /// topic this tick, returning updated state + effects. The effects
+    /// flow back through the same `EffectsBatch` pipeline as
+    /// `notify_state_changed` so commands and scroll plans land in the
+    /// correct frame's `UpdateResult`.
     ///
     /// This is independent of the per-value
     /// [`subscribe`](super::extension::HandlerRegistry::subscribe) setter:
@@ -539,21 +542,16 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// `on_subscription` lets the plugin emit effects per topic batch
     /// (for example, scheduling a redraw or kicking off a follow-up
     /// command). A plugin may register both kinds on the same topic.
-    ///
-    /// No `AppView` parameter — `PluginBackend::deliver_subscriptions`
-    /// takes only the topic bus today, matching the WIT shape. Handlers
-    /// that need observable state should consume it from the preceding
-    /// `on_state_changed` tick.
     pub fn on_subscription<E: Into<Effects> + Transparency + 'static>(
         &mut self,
-        handler: impl Fn(&S, &str, &[ChannelValue]) -> (S, E) + Send + Sync + 'static,
+        handler: impl Fn(&S, &str, &[ChannelValue], &AppView<'_>) -> (S, E) + Send + Sync + 'static,
     ) {
-        self.table.subscription_handler = Some(Box::new(move |state, topic, values| {
+        self.table.subscription_handler = Some(Box::new(move |state, topic, values, app| {
             let s = state
                 .as_any()
                 .downcast_ref::<S>()
                 .expect("state type mismatch");
-            let (new_state, effects) = handler(s, topic, values);
+            let (new_state, effects) = handler(s, topic, values, app);
             (Box::new(new_state) as Box<dyn PluginState>, effects.into())
         }));
         if E::IS_TRANSPARENT {

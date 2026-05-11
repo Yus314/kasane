@@ -104,13 +104,13 @@ pub(crate) type ErasedCommandErrorHandler = Box<
 /// register typed [`super::handler_registry::HandlerRegistry::subscribe`]
 /// handlers (per-value state mutation) and an `on_subscription` handler
 /// (per-topic effects emission) at the same time.
-///
-/// No `AppView` parameter — `PluginBackend::deliver_subscriptions` takes
-/// only the topic bus, matching the WIT `on-subscription` signature.
-/// Handlers that need observable state should consume it from the
-/// preceding `on_state_changed` tick.
 pub(crate) type ErasedSubscriptionHandler = Box<
-    dyn Fn(&dyn PluginState, &str, &[super::ChannelValue]) -> (Box<dyn PluginState>, Effects)
+    dyn Fn(
+            &dyn PluginState,
+            &str,
+            &[super::ChannelValue],
+            &AppView<'_>,
+        ) -> (Box<dyn PluginState>, Effects)
         + Send
         + Sync,
 >;

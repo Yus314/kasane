@@ -1554,11 +1554,15 @@ impl PluginBackend for WasmPlugin {
         }
     }
 
-    fn deliver_subscriptions(&mut self, bus: &kasane_core::plugin::TopicBus) -> bool {
+    fn deliver_subscriptions(
+        &mut self,
+        bus: &kasane_core::plugin::TopicBus,
+        _app: &AppView<'_>,
+    ) -> Effects {
         if self.shared.subscribe_topics.is_empty() {
-            return false;
+            return Effects::default();
         }
-        let mut changed = false;
+        let mut merged = Effects::default();
         for topic_str in &self.shared.subscribe_topics {
             let topic_id = kasane_core::plugin::TopicId::new(topic_str.clone());
             if let Some(publications) = bus.get_publications(&topic_id) {
@@ -1571,28 +1575,31 @@ impl PluginBackend for WasmPlugin {
                 }
                 let wit_topic = topic_str.clone();
                 let shared = Arc::clone(&self.shared);
-                self.shared.with_runtime(|runtime| {
+                let topic_effects = self.shared.with_runtime(|runtime| {
                     let api = runtime.instance.kasane_plugin_plugin_api();
                     match api.call_on_subscription(&mut runtime.store, &wit_topic, &wit_values) {
                         Ok(effects) => {
-                            // Process runtime effects (redraw flags bump state_hash)
-                            let _effects = shared.convert_runtime_effects(&effects);
+                            // ADR-044 Phase A-3e: forward the converted effects up
+                            // so the dispatcher can route commands and scroll plans.
+                            let converted = shared.convert_runtime_effects(&effects);
                             if let Ok(h) = api.call_state_hash(&mut runtime.store) {
                                 shared.set_state_hash(h);
                             }
+                            converted
                         }
                         Err(e) => {
                             tracing::error!(
                                 "WASM plugin {}.on_subscription failed: {e}",
                                 shared.plugin_id.0
                             );
+                            Effects::default()
                         }
                     }
                 });
-                changed = true;
+                merged.merge(topic_effects);
             }
         }
-        changed
+        merged
     }
 
     // --- Extension points (formerly impl ExtensionParticipant for WasmPlugin) ---

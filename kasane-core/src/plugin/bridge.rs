@@ -867,8 +867,10 @@ impl PluginBackend for PluginBridge {
         }
     }
 
-    fn deliver_subscriptions(&mut self, bus: &TopicBus) -> bool {
+    fn deliver_subscriptions(&mut self, bus: &TopicBus, app: &AppView<'_>) -> Effects {
         let mut changed = false;
+        let mut merged = Effects::default();
+        // Per-value subscribers (state mutation only).
         for entry in &self.table.subscribers {
             if let Some(publications) = bus.get_publications(&entry.topic) {
                 for pub_value in publications {
@@ -879,11 +881,9 @@ impl PluginBackend for PluginBridge {
         }
         // ADR-044 Phase A-3e: per-topic batch handler registered through
         // `HandlerRegistry::on_subscription`. Mirrors the WIT
-        // `on-subscription(topic, values) -> runtime-effects` shape. The
-        // returned effects are presently discarded — `deliver_subscriptions`
-        // returns only a `changed` flag through `PluginBackend`. Bridging
-        // those effects into the runtime pipeline is tracked as a follow-up;
-        // the WASM adapter has the same gap for the same reason.
+        // `on-subscription(topic, values) -> runtime-effects` shape and
+        // forwards the handler's effects up so the dispatcher can route
+        // them through the same pipeline as `notify_state_changed`.
         if let Some(handler) = &self.table.subscription_handler {
             for entry in &self.table.subscribers {
                 if let Some(publications) = bus.get_publications(&entry.topic) {
@@ -892,9 +892,10 @@ impl PluginBackend for PluginBridge {
                     if values.is_empty() {
                         continue;
                     }
-                    let (new_state, _effects) =
-                        handler(&*self.state, entry.topic.as_str(), &values);
+                    let (new_state, effects) =
+                        handler(&*self.state, entry.topic.as_str(), &values, app);
                     self.state = new_state;
+                    merged.merge(effects);
                     changed = true;
                 }
             }
@@ -902,7 +903,7 @@ impl PluginBackend for PluginBridge {
         if changed {
             self.check_state_change();
         }
-        changed
+        merged
     }
 
     // --- Extension points (formerly impl ExtensionParticipant for PluginBridge) ---
@@ -1800,7 +1801,7 @@ mod tests {
                 });
 
                 let inv = self.invoked.clone();
-                r.on_subscription(move |s, _topic, _values| {
+                r.on_subscription(move |s, _topic, _values, _app| {
                     inv.lock().unwrap().insert("on_subscription");
                     (*s, Effects::default())
                 });
@@ -1951,7 +1952,7 @@ mod tests {
             PluginId("external".into()),
             super::super::channel::ChannelValue::new(&99u32).unwrap(),
         );
-        bridge.deliver_subscriptions(&bus);
+        bridge.deliver_subscriptions(&bus, &app);
 
         // Command-error (ADR-044 A-3e): drive the new HandlerRegistry
         // setter via the trait method.

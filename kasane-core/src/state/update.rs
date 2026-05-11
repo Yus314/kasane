@@ -164,6 +164,21 @@ fn update_inner<E: PluginEffects>(
                 }
                 extra_redraw |= batch.redraw;
                 sourced_commands.extend(batch.drain_sourced_commands());
+                // ADR-044 Phase A-3e: drive pub/sub after state-changed
+                // dispatch so publishers see post-tick state. The bus is
+                // owned by the runtime; effects from `on_subscription`
+                // handlers flow into the same `sourced_commands` /
+                // `scroll_plans` stream as `notify_state_changed`.
+                let mut pubsub_batch = effects.evaluate_pubsub(&AppView::new(state));
+                scroll_plans.append(&mut pubsub_batch.scroll_plans);
+                if let Some(sc) = pubsub_batch.state_updates.shadow_cursor.take() {
+                    state.runtime.shadow_cursor = sc;
+                }
+                if let Some(drag) = pubsub_batch.state_updates.drag.take() {
+                    state.runtime.drag = drag;
+                }
+                extra_redraw |= pubsub_batch.redraw;
+                sourced_commands.extend(pubsub_batch.drain_sourced_commands());
                 let extra_flags =
                     extra_redraw | drain_redraw_flags_from_sourced(&mut sourced_commands);
                 return UpdateResult {

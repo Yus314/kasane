@@ -82,6 +82,11 @@ pub struct PluginRuntime {
     /// Plugin IDs that were unloaded since the last drain. Used by the salsa
     /// sync path to clean up contribution caches.
     unloaded_ids: Vec<PluginId>,
+    /// ADR-044 Phase A-3e: pub/sub topic bus owned by the runtime so the
+    /// `PluginEffects::evaluate_pubsub` trait impl can drive it without
+    /// the caller having to thread one in. Persists frame-to-frame so
+    /// `TopicBus::detect_oscillation` history stays valid.
+    topic_bus: super::pubsub::TopicBus,
 }
 
 /// Immutable view over plugins for the render phase.
@@ -121,6 +126,7 @@ impl PluginRuntime {
             variable_store: super::variable_store::PluginVariableStore::default(),
             suppressed_builtins: std::collections::HashSet::new(),
             unloaded_ids: Vec::new(),
+            topic_bus: super::pubsub::TopicBus::new(),
         }
     }
 
@@ -405,7 +411,11 @@ impl PluginRuntime {
     ///
     /// Call this after `notify_state_changed_batch()` and before
     /// `prepare_plugin_cache()` / view collection.
-    pub fn evaluate_pubsub(&mut self, bus: &mut super::pubsub::TopicBus, app: &AppView<'_>) {
+    pub fn evaluate_pubsub(
+        &mut self,
+        bus: &mut super::pubsub::TopicBus,
+        app: &AppView<'_>,
+    ) -> EffectsBatch {
         bus.clear();
 
         // Phase 1: Collect publications from all plugins.
@@ -413,10 +423,17 @@ impl PluginRuntime {
             slot.backend.collect_publications(bus, app);
         }
 
-        // Phase 2: Deliver to subscribers.
+        // Phase 2: Deliver to subscribers and collect on_subscription effects.
+        // ADR-044 Phase A-3e: per-topic batch handlers can return Effects
+        // that flow back through the same EffectsBatch shape as
+        // notify_state_changed, so commands and scroll plans land in the
+        // correct frame's UpdateResult.
         bus.begin_delivery();
+        let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
-            slot.backend.deliver_subscriptions(bus);
+            let plugin_id = slot.backend.id();
+            let effects = slot.backend.deliver_subscriptions(bus, app);
+            batch.push(plugin_id, effects);
         }
         bus.end_delivery();
 
@@ -430,6 +447,8 @@ impl PluginRuntime {
                 "pub/sub oscillation detected — topic values are cycling between frames"
             );
         }
+
+        batch
     }
 
     /// Evaluate all plugin-defined extension points.
@@ -935,6 +954,17 @@ impl PluginEffects for PluginRuntime {
         app: &AppView<'_>,
     ) -> EffectsBatch {
         self.deliver_command_error_batch(target, error, app)
+    }
+
+    fn evaluate_pubsub(&mut self, app: &AppView<'_>) -> EffectsBatch {
+        // Temporarily move the bus out so the inner method can borrow
+        // `self.slots` mutably without aliasing `self.topic_bus`. The
+        // bus restores on the next line; oscillation history persists
+        // because it lives inside the moved value.
+        let mut bus = std::mem::take(&mut self.topic_bus);
+        let batch = PluginRuntime::evaluate_pubsub(self, &mut bus, app);
+        self.topic_bus = bus;
+        batch
     }
 }
 
