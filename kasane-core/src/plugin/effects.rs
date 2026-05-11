@@ -257,10 +257,107 @@ impl Effects {
     }
 }
 
-/// Aggregated effects batch from multiple plugins.
+/// Commands attributable to a single plugin.
+///
+/// Used when the host needs to dispatch a group of [`Command`]s through the
+/// deferred-command pipeline with correct source attribution (so authority
+/// checks, process spawn routing, and command-error events all see the right
+/// `PluginId`). When `source_plugin` is `None`, the commands have no plugin
+/// origin (typically: built-in host paths). The dispatcher treats `None` as
+/// an error for capability-gated commands; see `log_dropped_process_command`
+/// in `event_loop/dispatch.rs`.
 #[derive(Default)]
+pub struct SourcedCommands {
+    pub source_plugin: Option<PluginId>,
+    pub commands: Vec<Command>,
+}
+
+impl SourcedCommands {
+    pub fn new(source_plugin: Option<PluginId>, commands: Vec<Command>) -> Self {
+        Self {
+            source_plugin,
+            commands,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.commands.is_empty()
+    }
+}
+
+/// Aggregated effects from multiple plugins, with per-plugin command
+/// attribution preserved (issue #101).
+///
+/// Earlier revisions of this type held a single merged [`Effects`], which
+/// silently dropped the originating `PluginId` and caused process commands
+/// emitted from `on_state_changed_effects` to be discarded downstream
+/// (issue #100). The fields below split what can be safely merged from what
+/// must stay per-plugin:
+///
+/// * [`Self::per_plugin_commands`] — one entry per contributing plugin, in
+///   slot iteration order. The dispatcher iterates this and forwards each
+///   plugin's id so authority checks receive correct attribution.
+/// * [`Self::scroll_plans`] — host-order aggregation; the scroll runtime
+///   does not consult plugin identity today.
+/// * [`Self::redraw`] — bitwise OR across plugins.
+/// * [`Self::state_updates`] — typed last-writer-wins merge; plugins
+///   coordinate ordering through priority, not by stacking intents.
 pub struct EffectsBatch {
-    pub effects: Effects,
+    pub per_plugin_commands: Vec<(PluginId, Vec<Command>)>,
+    pub scroll_plans: Vec<ScrollPlan>,
+    pub redraw: DirtyFlags,
+    pub state_updates: StateUpdates,
+}
+
+impl Default for EffectsBatch {
+    fn default() -> Self {
+        Self {
+            per_plugin_commands: Vec::new(),
+            scroll_plans: Vec::new(),
+            redraw: DirtyFlags::empty(),
+            state_updates: StateUpdates::default(),
+        }
+    }
+}
+
+impl EffectsBatch {
+    /// Construct a batch containing a single plugin's effects.
+    pub fn single(plugin_id: PluginId, effects: Effects) -> Self {
+        let mut batch = Self::default();
+        batch.push(plugin_id, effects);
+        batch
+    }
+
+    /// Append one plugin's effects to the batch.
+    ///
+    /// Commands with no [`Command`]s are not recorded under
+    /// `per_plugin_commands` — the empty-vec entry would just be noise during
+    /// dispatch — but their `redraw` / `scroll_plans` / `state_updates`
+    /// contributions still merge.
+    pub fn push(&mut self, plugin_id: PluginId, effects: Effects) {
+        self.redraw |= effects.redraw;
+        self.scroll_plans.extend(effects.scroll_plans);
+        self.state_updates.merge(effects.state_updates);
+        if !effects.commands.is_empty() {
+            self.per_plugin_commands.push((plugin_id, effects.commands));
+        }
+    }
+
+    /// Total command count across all plugins.
+    pub fn total_command_count(&self) -> usize {
+        self.per_plugin_commands.iter().map(|(_, c)| c.len()).sum()
+    }
+
+    /// Drain `per_plugin_commands` into a flat [`SourcedCommands`] list.
+    ///
+    /// Useful for routing through pipelines that already accept
+    /// `Vec<SourcedCommands>` (e.g. [`crate::state::UpdateResult::sourced_commands`]).
+    pub fn drain_sourced_commands(&mut self) -> Vec<SourcedCommands> {
+        std::mem::take(&mut self.per_plugin_commands)
+            .into_iter()
+            .map(|(pid, commands)| SourcedCommands::new(Some(pid), commands))
+            .collect()
+    }
 }
 
 /// Result of first-wins mouse dispatch across plugins.

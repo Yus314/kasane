@@ -41,6 +41,7 @@ criterion = { workspace = true }
 iai-callgrind = { workspace = true }
 proptest = "1"
 tempfile = "3"
+tracing-subscriber = { workspace = true }
 
 [[bench]]
 name = "rendering_pipeline"

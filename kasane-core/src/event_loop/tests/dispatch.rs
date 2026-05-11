@@ -1011,3 +1011,177 @@ fn sync_suppressed_builtins_copies_from_registry_to_state() {
             .contains(&BuiltinTarget::Menu)
     );
 }
+
+/// Regression test for #100: process commands without `source_plugin` attribution
+/// must surface an error log instead of being silently dropped. The drop itself is
+/// preserved (the spawn cannot happen without authority checks); the log lets plugin
+/// authors diagnose why their `on_state_changed_effects`-issued spawn never reached
+/// the dispatcher.
+#[test]
+fn process_command_without_source_logs_error() {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct LogCapture(Arc<Mutex<Vec<u8>>>);
+
+    struct LogCaptureWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogCaptureWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for LogCapture {
+        type Writer = LogCaptureWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            LogCaptureWriter(Arc::clone(&self.0))
+        }
+    }
+
+    let capture = LogCapture::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(capture.clone())
+        .with_max_level(tracing::Level::ERROR)
+        .with_ansi(false)
+        .finish();
+
+    let mut state = AppState::default();
+    let mut registry = PluginRuntime::new();
+    let mut surface_registry = SurfaceRegistry::new();
+    let mut dirty = DirtyFlags::empty();
+    let timer = NoopTimer;
+    let mut sessions = NoopSessionRuntime::default();
+    let mut initial_resize_sent = false;
+    let mut dispatcher = RecordingDispatcher::default();
+    let mut workspace_changed = false;
+
+    let quit = tracing::subscriber::with_default(subscriber, || {
+        handle_deferred_commands(
+            vec![Command::SpawnProcess {
+                job_id: 77,
+                program: "fd".to_string(),
+                args: vec!["needle".to_string()],
+                stdin_mode: StdinMode::Null,
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                http_dispatcher: &mut crate::plugin::NullHttpDispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            None,
+        )
+    });
+
+    assert!(!quit);
+    assert!(
+        dispatcher.spawned.is_empty(),
+        "spawn must be dropped when source is missing"
+    );
+
+    let logs = String::from_utf8(capture.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        logs.contains("SpawnProcess"),
+        "expected SpawnProcess in logs, got: {logs}"
+    );
+    assert!(
+        logs.contains("source_plugin missing"),
+        "expected drop-reason in logs, got: {logs}"
+    );
+    assert!(
+        logs.contains("job_id=77"),
+        "expected job_id field in logs, got: {logs}"
+    );
+}
+
+/// End-to-end regression for issue #101: a plugin emitting `SpawnProcess` from
+/// `on_state_changed_effects` must reach the process dispatcher with the
+/// plugin's id, not get silently dropped (issue #100) or lose its source in
+/// `EffectsBatch.merge`.
+///
+/// This is the sprout-picker scenario boiled down: bumping a state-bit causes
+/// the plugin's state-changed handler to fire, and that handler tries to spawn
+/// the picker process. Prior to #101, the spawn never reached `fork+execve`
+/// because attribution was lost in the multi-plugin merge.
+#[test]
+fn state_changed_sourced_commands_reach_dispatcher_with_plugin_id() {
+    use crate::plugin::SourcedCommands;
+
+    let plugin_id = PluginId("state-changed-spawner".to_string());
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(TestPlugin {
+        id: plugin_id.clone(),
+        allow_spawn: true,
+        authorities: PluginAuthorities::empty(),
+    }));
+
+    let mut state = AppState::default();
+    let mut surface_registry = SurfaceRegistry::new();
+    let mut dirty = DirtyFlags::empty();
+    let timer = NoopTimer;
+    let mut sessions = NoopSessionRuntime::default();
+    let mut initial_resize_sent = false;
+    let mut dispatcher = RecordingDispatcher::default();
+    let mut workspace_changed = false;
+
+    let groups = vec![SourcedCommands::new(
+        Some(plugin_id.clone()),
+        vec![Command::SpawnProcess {
+            job_id: 314,
+            program: "fd".to_string(),
+            args: vec!["pattern".to_string()],
+            stdin_mode: StdinMode::Null,
+        }],
+    )];
+
+    let quit = {
+        let mut ctx = DeferredContext {
+            state: &mut state,
+            registry: &mut registry,
+            surface_registry: &mut surface_registry,
+
+            clipboard: &mut crate::clipboard::SystemClipboard::noop(),
+            dirty: &mut dirty,
+            timer: &timer,
+            session_host: &mut sessions,
+            initial_resize_sent: &mut initial_resize_sent,
+            session_ready_gate: None,
+            scroll_plan_sink: &mut |_| {},
+            process_dispatcher: &mut dispatcher,
+            http_dispatcher: &mut crate::plugin::NullHttpDispatcher,
+            workspace_changed: &mut workspace_changed,
+            scroll_amount: 3,
+        };
+        groups.into_iter().any(|group| {
+            handle_deferred_commands(group.commands, &mut ctx, group.source_plugin.as_ref())
+        })
+    };
+
+    assert!(!quit);
+    assert_eq!(
+        dispatcher.spawned.len(),
+        1,
+        "spawn from state-changed must reach the dispatcher"
+    );
+    assert_eq!(dispatcher.spawned[0].0, plugin_id);
+    assert_eq!(dispatcher.spawned[0].1, 314);
+    assert_eq!(dispatcher.spawned[0].2, "fd");
+}

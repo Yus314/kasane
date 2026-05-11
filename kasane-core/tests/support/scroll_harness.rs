@@ -76,6 +76,7 @@ impl LegacyHarness {
             commands,
             scroll_plans,
             source_plugin: owner,
+            ..
         } = update_in_place(
             &mut self.state,
             Msg::from(input),
@@ -165,6 +166,7 @@ impl NewHarness {
             commands,
             scroll_plans,
             source_plugin: owner,
+            ..
         } = update_in_place(
             &mut self.state,
             Msg::from(input),

@@ -939,3 +939,123 @@ fn fold_summary_click_recording_effects_dispatches_action() {
     assert_eq!(unit.role, crate::display::unit::SemanticRole::FoldSummary);
     assert_eq!(*action, crate::display::NavigationAction::ToggleFold,);
 }
+
+// --- Issue #101: per-plugin source attribution in state-changed batches ---
+
+/// A plugin that emits `Command::SpawnProcess` from `on_state_changed_effects`,
+/// matching the sprout picker pattern that originally surfaced the silent-drop
+/// bug (#100). The spawn used to be dropped because the merged `EffectsBatch`
+/// lost the originating `PluginId`; per-plugin attribution preserves it.
+struct StateChangedSpawner {
+    id: &'static str,
+    job_id: u64,
+}
+
+impl PluginBackend for StateChangedSpawner {
+    fn id(&self) -> PluginId {
+        PluginId(self.id.to_string())
+    }
+
+    fn on_state_changed_effects(&mut self, _state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
+        if !dirty.contains(DirtyFlags::BUFFER) {
+            return Effects::default();
+        }
+        Effects::with(vec![Command::SpawnProcess {
+            job_id: self.job_id,
+            program: "fd".to_string(),
+            args: vec!["needle".to_string()],
+            stdin_mode: crate::plugin::StdinMode::Null,
+        }])
+    }
+}
+
+#[test]
+fn state_changed_spawn_carries_source_plugin() {
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(StateChangedSpawner {
+        id: "sprout-style",
+        job_id: 7,
+    }));
+
+    let result = update_in_place(
+        &mut state,
+        Msg::Kakoune(KakouneRequest::Draw {
+            lines: vec![make_line("hello")],
+            cursor_pos: Coord::default(),
+            default_style: crate::protocol::default_unresolved_style(),
+            padding_style: crate::protocol::default_unresolved_style(),
+            widget_columns: 0,
+        }),
+        &mut registry,
+        3,
+    );
+
+    assert!(result.flags.contains(DirtyFlags::BUFFER));
+    assert!(
+        result.commands.is_empty(),
+        "single-source channel must stay empty; spawn belongs to multi-source"
+    );
+    assert_eq!(
+        result.sourced_commands.len(),
+        1,
+        "one plugin contributed one command group"
+    );
+    let group = &result.sourced_commands[0];
+    assert_eq!(
+        group.source_plugin.as_ref().map(|p| p.0.as_str()),
+        Some("sprout-style"),
+        "source attribution must survive the state-changed batch"
+    );
+    assert!(matches!(
+        group.commands.as_slice(),
+        [Command::SpawnProcess { job_id: 7, .. }]
+    ));
+}
+
+#[test]
+fn state_changed_spawn_preserves_attribution_for_each_plugin() {
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(StateChangedSpawner {
+        id: "alpha",
+        job_id: 11,
+    }));
+    registry.register_backend(Box::new(StateChangedSpawner {
+        id: "beta",
+        job_id: 22,
+    }));
+
+    let result = update_in_place(
+        &mut state,
+        Msg::Kakoune(KakouneRequest::Draw {
+            lines: vec![make_line("hello")],
+            cursor_pos: Coord::default(),
+            default_style: crate::protocol::default_unresolved_style(),
+            padding_style: crate::protocol::default_unresolved_style(),
+            widget_columns: 0,
+        }),
+        &mut registry,
+        3,
+    );
+
+    assert_eq!(
+        result.sourced_commands.len(),
+        2,
+        "each plugin gets its own group"
+    );
+    let mut pairs: Vec<(&str, u64)> = result
+        .sourced_commands
+        .iter()
+        .map(|group| {
+            let pid = group.source_plugin.as_ref().expect("source set").0.as_str();
+            let job = match group.commands.as_slice() {
+                [Command::SpawnProcess { job_id, .. }] => *job_id,
+                _ => panic!("expected exactly one SpawnProcess per group"),
+            };
+            (pid, job)
+        })
+        .collect();
+    pairs.sort();
+    assert_eq!(pairs, vec![("alpha", 11), ("beta", 22)]);
+}

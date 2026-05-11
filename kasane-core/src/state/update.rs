@@ -2,7 +2,7 @@ use crate::input;
 use crate::input::{DropEvent, InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{
     AppView, Command, KeyDispatchResult, KeyPreDispatchResult, MouseHandleResult,
-    MousePreDispatchResult, PluginEffects, PluginId, TextInputHandleResult,
+    MousePreDispatchResult, PluginEffects, PluginId, SourcedCommands, TextInputHandleResult,
     TextInputPreDispatchResult, extract_redraw_flags,
 };
 use crate::protocol::{KakouneRequest, KasaneRequest};
@@ -50,15 +50,25 @@ impl From<InputEvent> for Msg {
 
 /// Process a message, updating state and returning dirty flags + side-effect commands.
 ///
-/// The returned `Option<PluginId>` identifies the plugin that produced the commands
-/// (when a plugin's `handle_key` / `handle_mouse` won the first-wins chain).
-/// This is needed so that process-related deferred commands (`SpawnProcess`, etc.)
-/// can be routed to the correct plugin by `handle_deferred_commands`.
+/// Commands are returned in two parallel channels:
+///
+/// * [`Self::commands`] — single-source channel. `source_plugin` is the plugin
+///   that produced the commands when a first-wins chain (`handle_key` /
+///   `handle_mouse` / `handle_drop` / `handle_text_input`) won. Used for the
+///   capability-check path in `handle_deferred_commands`.
+/// * [`Self::sourced_commands`] — multi-source channel. Each entry carries its
+///   own [`PluginId`] so the dispatcher can route per-plugin attribution
+///   correctly. Populated by paths that aggregate effects across plugins
+///   (state-changed notifications, command-error fan-out). See issue #101.
+///
+/// Both channels are drained by the event loop. Phase 2 (#102) will unify
+/// them via tier-typed effects.
 pub struct UpdateResult {
     pub flags: DirtyFlags,
     pub commands: Vec<Command>,
     pub scroll_plans: Vec<ScrollPlan>,
     pub source_plugin: Option<PluginId>,
+    pub sourced_commands: Vec<SourcedCommands>,
 }
 
 impl Default for UpdateResult {
@@ -68,6 +78,7 @@ impl Default for UpdateResult {
             commands: vec![],
             scroll_plans: vec![],
             source_plugin: None,
+            sourced_commands: vec![],
         }
     }
 }
@@ -123,45 +134,50 @@ fn update_inner<E: PluginEffects>(
 
             // ADR-042 Phase B: drain plugin-error events the apply
             // layer queued and dispatch each to its originating plugin
-            // (resolved by plugin-id). The handler returns Effects, so
-            // commands accumulate alongside the regular state-changed
-            // batch below.
+            // (resolved by plugin-id). The handler returns Effects with a
+            // known source, so commands flow through `sourced_commands`
+            // (issue #101) — they must not lose attribution before
+            // reaching `handle_command_batch`.
             let pending_errors = state.drain_pending_plugin_errors();
-            let mut commands = Vec::new();
+            let mut sourced_commands: Vec<SourcedCommands> = Vec::new();
             let mut scroll_plans = Vec::new();
+            let mut extra_redraw = DirtyFlags::empty();
             if !pending_errors.is_empty() {
                 let view = AppView::new(state);
                 for err in &pending_errors {
                     let target = PluginId(err.plugin_id.clone());
                     let mut batch = effects.dispatch_command_error(&target, err, &view);
-                    scroll_plans.append(&mut batch.effects.scroll_plans);
-                    commands.append(&mut batch.effects.commands);
+                    scroll_plans.append(&mut batch.scroll_plans);
+                    extra_redraw |= batch.redraw;
+                    sourced_commands.extend(batch.drain_sourced_commands());
                 }
             }
             if !flags.is_empty() {
                 let mut batch = effects.notify_state_changed(&AppView::new(state), flags);
-                scroll_plans.append(&mut batch.effects.scroll_plans);
-                commands.append(&mut batch.effects.commands);
+                scroll_plans.append(&mut batch.scroll_plans);
                 // Apply typed state updates (R4: typed channel — preferred).
-                if let Some(sc) = batch.effects.state_updates.shadow_cursor.take() {
+                if let Some(sc) = batch.state_updates.shadow_cursor.take() {
                     state.runtime.shadow_cursor = sc;
                 }
-                if let Some(drag) = batch.effects.state_updates.drag.take() {
+                if let Some(drag) = batch.state_updates.drag.take() {
                     state.runtime.drag = drag;
                 }
-                let effect_flags = batch.effects.redraw;
-                let extra_flags = effect_flags | extract_redraw_flags(&mut commands);
+                extra_redraw |= batch.redraw;
+                sourced_commands.extend(batch.drain_sourced_commands());
+                let extra_flags =
+                    extra_redraw | drain_redraw_flags_from_sourced(&mut sourced_commands);
                 return UpdateResult {
                     flags: flags | extra_flags,
-                    commands,
                     scroll_plans,
+                    sourced_commands,
                     ..Default::default()
                 };
             }
+            let extra_flags = extra_redraw | drain_redraw_flags_from_sourced(&mut sourced_commands);
             UpdateResult {
-                flags,
-                commands,
+                flags: flags | extra_flags,
                 scroll_plans,
+                sourced_commands,
                 ..Default::default()
             }
         }
@@ -551,4 +567,18 @@ fn dispatch_display_unit_mouse<E: PluginEffects>(
             Some(UpdateResult::default())
         }
     }
+}
+
+/// Drain `RequestRedraw` commands from every sourced batch and OR their flags.
+///
+/// Mirrors [`extract_redraw_flags`] for the per-plugin sourced channel. Empty
+/// groups left after extraction are removed so the dispatcher doesn't iterate
+/// no-op entries.
+fn drain_redraw_flags_from_sourced(groups: &mut Vec<SourcedCommands>) -> DirtyFlags {
+    let mut flags = DirtyFlags::empty();
+    for group in groups.iter_mut() {
+        flags |= extract_redraw_flags(&mut group.commands);
+    }
+    groups.retain(|group: &SourcedCommands| !group.is_empty());
+    flags
 }

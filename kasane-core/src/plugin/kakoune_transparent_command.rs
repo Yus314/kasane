@@ -1,9 +1,9 @@
 //! Kakoune-transparent command projection.
 //!
-//! `KakouneSafeCommand` is the Level 3 enforcement of ADR-030.
+//! `KakouneTransparentCommand` is the Level 3 enforcement of ADR-030.
 //! Where `Truth<'a>` restricts reading to observed fields,
-//! `KakouneSafeCommand` restricts construction to non-writing variants.
-//! A handler returning `Vec<KakouneSafeCommand>` provides a compile-time
+//! `KakouneTransparentCommand` restricts construction to non-writing variants.
+//! A handler returning `Vec<KakouneTransparentCommand>` provides a compile-time
 //! witness that it cannot emit Kakoune-writing commands (A3 τ-transition).
 
 use std::any::Any;
@@ -26,15 +26,15 @@ use super::traits::KeyHandleResult;
 /// Construction is restricted to non-writing `Command` variants.
 /// `SendToKakoune`, `InsertText`, and `EditBuffer` have no constructor
 /// on this type, making transparency a compile-time property.
-pub struct KakouneSafeCommand(Command);
+pub struct KakouneTransparentCommand(Command);
 
-impl std::fmt::Debug for KakouneSafeCommand {
+impl std::fmt::Debug for KakouneTransparentCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "KakouneSafeCommand({})", self.0.variant_name())
+        write!(f, "KakouneTransparentCommand({})", self.0.variant_name())
     }
 }
 
-impl KakouneSafeCommand {
+impl KakouneTransparentCommand {
     /// All variant names covered by this projection (sorted).
     pub const VARIANT_NAMES: &'static [&'static str] = &[
         "BindSurfaceSession",
@@ -249,30 +249,30 @@ impl KakouneSafeCommand {
     }
 }
 
-impl From<KakouneSafeCommand> for Command {
-    fn from(tc: KakouneSafeCommand) -> Self {
+impl From<KakouneTransparentCommand> for Command {
+    fn from(tc: KakouneTransparentCommand) -> Self {
         tc.0
     }
 }
 
 /// Transparent variant of [`KeyHandleResult`].
 ///
-/// Identical to `KeyHandleResult` but `Consumed` carries `Vec<KakouneSafeCommand>`
+/// Identical to `KeyHandleResult` but `Consumed` carries `Vec<KakouneTransparentCommand>`
 /// instead of `Vec<Command>`, providing a compile-time transparency guarantee.
-pub enum KakouneSafeKeyResult {
-    Consumed(Vec<KakouneSafeCommand>),
+pub enum KakouneTransparentKeyResult {
+    Consumed(Vec<KakouneTransparentCommand>),
     Transformed(KeyEvent),
     Passthrough,
 }
 
-impl From<KakouneSafeKeyResult> for KeyHandleResult {
-    fn from(r: KakouneSafeKeyResult) -> Self {
+impl From<KakouneTransparentKeyResult> for KeyHandleResult {
+    fn from(r: KakouneTransparentKeyResult) -> Self {
         match r {
-            KakouneSafeKeyResult::Consumed(cmds) => {
+            KakouneTransparentKeyResult::Consumed(cmds) => {
                 KeyHandleResult::Consumed(cmds.into_iter().map(Into::into).collect())
             }
-            KakouneSafeKeyResult::Transformed(k) => KeyHandleResult::Transformed(k),
-            KakouneSafeKeyResult::Passthrough => KeyHandleResult::Passthrough,
+            KakouneTransparentKeyResult::Transformed(k) => KeyHandleResult::Transformed(k),
+            KakouneTransparentKeyResult::Passthrough => KeyHandleResult::Passthrough,
         }
     }
 }

@@ -224,7 +224,7 @@ where
 
         let init_batch = registry.init_all_batch(&AppView::new(&state));
         let mut initial_dirty = DirtyFlags::ALL;
-        apply_bootstrap_effects(init_batch.effects, &mut initial_dirty);
+        apply_bootstrap_effects(init_batch.redraw, &mut initial_dirty);
         kasane_core::event_loop::notify_workspace_observers(
             &mut registry,
             &surface_registry,
@@ -466,6 +466,7 @@ where
                             commands,
                             scroll_plans,
                             source_plugin: _source,
+                            sourced_commands,
                         },
                     ) = update(
                         state,
@@ -489,6 +490,10 @@ where
                     self.dirty |= flags;
                     self.enqueue_scroll_plans(scroll_plans);
                     if self.exec_commands(commands) {
+                        event_loop.exit();
+                        return;
+                    }
+                    if self.exec_sourced_commands(sourced_commands) {
                         event_loop.exit();
                         return;
                     }
@@ -919,7 +924,7 @@ where
                 );
                 let ready_targets: Vec<_> = reload.ready_targets().cloned().collect();
                 let mut flags = DirtyFlags::all();
-                apply_bootstrap_effects(reload.bootstrap, &mut flags);
+                apply_bootstrap_effects(reload.bootstrap.redraw, &mut flags);
                 sync_ready_gate(&mut self.session_ready_gate, &self.state);
                 if !reload.deltas.is_empty() {
                     notify_workspace_observers(
@@ -958,66 +963,72 @@ where
             w: self.state.runtime.cols,
             h: self.state.runtime.rows,
         };
-        let (mut flags, commands, source, mut surface_command_groups, scroll_plans) =
-            if let Some(dirty) =
-                handle_workspace_divider_input(&input, &mut self.surface_registry, total)
-            {
-                if !dirty.is_empty() {
-                    notify_workspace_observers(
-                        &mut self.registry,
-                        &self.surface_registry,
-                        &self.state,
-                    );
-                }
-                (dirty, vec![], None, vec![], vec![])
-            } else if let Some(surface_commands) =
-                route_surface_key_input(&input, &mut self.surface_registry, &self.state, total)
-            {
-                (
-                    DirtyFlags::empty(),
-                    vec![],
-                    None,
-                    vec![surface_commands],
-                    vec![],
-                )
-            } else if let Some(surface_commands) =
-                route_surface_text_input(&input, &mut self.surface_registry, &self.state, total)
-            {
-                (
-                    DirtyFlags::empty(),
-                    vec![],
-                    None,
-                    vec![surface_commands],
-                    vec![],
-                )
-            } else {
-                let surface_event = surface_event_from_input(&input);
-                let msg = Msg::from(input);
-                let state = std::mem::take(&mut self.state);
-                let (
-                    state,
-                    UpdateResult {
-                        flags,
-                        commands,
-                        scroll_plans,
-                        source_plugin,
-                    },
-                ) = update(state, msg, &mut self.registry, self.scroll_amount);
-                self.state = state;
-                let surface_command_groups = surface_event
-                    .map(|event| {
-                        self.surface_registry
-                            .route_event_with_sources(event, &self.state, total)
-                    })
-                    .unwrap_or_default();
-                (
+        let (
+            mut flags,
+            commands,
+            source,
+            sourced_commands,
+            mut surface_command_groups,
+            scroll_plans,
+        ) = if let Some(dirty) =
+            handle_workspace_divider_input(&input, &mut self.surface_registry, total)
+        {
+            if !dirty.is_empty() {
+                notify_workspace_observers(&mut self.registry, &self.surface_registry, &self.state);
+            }
+            (dirty, vec![], None, vec![], vec![], vec![])
+        } else if let Some(surface_commands) =
+            route_surface_key_input(&input, &mut self.surface_registry, &self.state, total)
+        {
+            (
+                DirtyFlags::empty(),
+                vec![],
+                None,
+                vec![],
+                vec![surface_commands],
+                vec![],
+            )
+        } else if let Some(surface_commands) =
+            route_surface_text_input(&input, &mut self.surface_registry, &self.state, total)
+        {
+            (
+                DirtyFlags::empty(),
+                vec![],
+                None,
+                vec![],
+                vec![surface_commands],
+                vec![],
+            )
+        } else {
+            let surface_event = surface_event_from_input(&input);
+            let msg = Msg::from(input);
+            let state = std::mem::take(&mut self.state);
+            let (
+                state,
+                UpdateResult {
                     flags,
                     commands,
-                    source_plugin,
-                    surface_command_groups,
                     scroll_plans,
-                )
-            };
+                    source_plugin,
+                    sourced_commands,
+                },
+            ) = update(state, msg, &mut self.registry, self.scroll_amount);
+            self.state = state;
+            let surface_command_groups = surface_event
+                .map(|event| {
+                    self.surface_registry
+                        .route_event_with_sources(event, &self.state, total)
+                })
+                .unwrap_or_default();
+            (
+                flags,
+                commands,
+                source_plugin,
+                sourced_commands,
+                surface_command_groups,
+                scroll_plans,
+            )
+        };
         for entry in &mut surface_command_groups {
             flags |= extract_redraw_flags(&mut entry.commands);
         }
@@ -1027,6 +1038,10 @@ where
         if self.initial_resize_sent {
             self.enqueue_scroll_plans(scroll_plans);
             if self.exec_commands_from(commands, source.as_ref()) {
+                event_loop.exit();
+                return;
+            }
+            if self.exec_sourced_commands(sourced_commands) {
                 event_loop.exit();
                 return;
             }
@@ -1061,12 +1076,22 @@ where
     fn apply_runtime_batch(
         &mut self,
         mut batch: kasane_core::plugin::EffectsBatch,
-        source_plugin: Option<&kasane_core::plugin::PluginId>,
+        fallback_source: Option<&kasane_core::plugin::PluginId>,
     ) -> bool {
-        self.dirty |= batch.effects.redraw;
-        self.enqueue_scroll_plans(std::mem::take(&mut batch.effects.scroll_plans));
-        self.dirty |= extract_redraw_flags(&mut batch.effects.commands);
-        self.exec_commands_from(batch.effects.commands, source_plugin)
+        self.dirty |= batch.redraw;
+        self.enqueue_scroll_plans(std::mem::take(&mut batch.scroll_plans));
+        let _ = fallback_source;
+        let groups = std::mem::take(&mut batch.per_plugin_commands);
+        for (plugin_id, mut commands) in groups {
+            self.dirty |= extract_redraw_flags(&mut commands);
+            if commands.is_empty() {
+                continue;
+            }
+            if self.exec_commands_from(commands, Some(&plugin_id)) {
+                return true;
+            }
+        }
+        false
     }
 
     fn flush_active_session_ready(&mut self) -> bool {
@@ -1092,6 +1117,20 @@ where
         source_plugin: Option<&kasane_core::plugin::PluginId>,
     ) -> bool {
         self.with_deferred_context(|ctx| handle_command_batch(commands, ctx, source_plugin))
+    }
+
+    /// Drain a multi-source command channel (e.g. from `on_state_changed_effects`),
+    /// dispatching each plugin's commands with that plugin's id as the source.
+    /// See issue #101.
+    fn exec_sourced_commands(&mut self, groups: Vec<kasane_core::plugin::SourcedCommands>) -> bool {
+        self.with_deferred_context(|ctx| {
+            for group in groups {
+                if handle_command_batch(group.commands, ctx, group.source_plugin.as_ref()) {
+                    return true;
+                }
+            }
+            false
+        })
     }
 
     fn exec_surface_command_groups(

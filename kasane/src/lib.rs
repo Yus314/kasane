@@ -936,7 +936,7 @@ mod tests {
             &PluginId("reload_owner".to_string()),
             &AppView::new(&state),
         );
-        assert_eq!(ready_batch.effects.redraw, ReloadVariant::V2.ready_redraw());
+        assert_eq!(ready_batch.redraw, ReloadVariant::V2.ready_redraw());
     }
 
     #[test]

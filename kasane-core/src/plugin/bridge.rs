@@ -1164,7 +1164,7 @@ mod tests {
 
         // Notify plugins of state change
         let batch = registry.notify_state_changed_batch(&AppView::new(&app), DirtyFlags::BUFFER);
-        assert!(batch.effects.commands.is_empty());
+        assert!(batch.per_plugin_commands.is_empty());
 
         // Prepare cache — should detect state change
         registry.prepare_plugin_cache(DirtyFlags::BUFFER);

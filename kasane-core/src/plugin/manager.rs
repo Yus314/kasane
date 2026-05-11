@@ -415,7 +415,9 @@ impl PluginManager {
                 }
                 PluginApplyMode::Reload(state) => {
                     let batch = registry.reload_plugin_batch(plugin, state);
-                    result.bootstrap.merge(batch.effects);
+                    // Bootstrap phase: only redraw is meaningful; commands / scroll_plans
+                    // are validated away upstream so the per-plugin attribution is moot.
+                    result.bootstrap.redraw |= batch.redraw;
                 }
             }
             result.deltas.push(AppliedWinnerDelta {

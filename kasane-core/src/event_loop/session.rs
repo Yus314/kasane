@@ -286,60 +286,65 @@ impl SessionReadyGate {
     }
 }
 
-pub fn apply_ready_batch(batch: EffectsBatch, ctx: &mut DeferredContext<'_>) -> bool {
-    *ctx.dirty |= batch.effects.redraw;
+pub fn apply_ready_batch(mut batch: EffectsBatch, ctx: &mut DeferredContext<'_>) -> bool {
+    *ctx.dirty |= batch.redraw;
 
-    for command in batch.effects.commands {
-        match command {
-            Command::SendToKakoune(request) => {
-                if matches!(
-                    execute_commands(
-                        vec![Command::SendToKakoune(request)],
-                        focused_writer!(ctx),
-                        ctx.clipboard,
-                    ),
-                    CommandResult::Quit
-                ) {
-                    return true;
+    let groups = std::mem::take(&mut batch.per_plugin_commands);
+    for (_plugin_id, commands) in groups {
+        for command in commands {
+            match command {
+                Command::SendToKakoune(request) => {
+                    if matches!(
+                        execute_commands(
+                            vec![Command::SendToKakoune(request)],
+                            focused_writer!(ctx),
+                            ctx.clipboard,
+                        ),
+                        CommandResult::Quit
+                    ) {
+                        return true;
+                    }
                 }
-            }
-            Command::InsertText(text) => {
-                if matches!(
-                    execute_commands(
-                        vec![Command::InsertText(text)],
-                        focused_writer!(ctx),
-                        ctx.clipboard,
-                    ),
-                    CommandResult::Quit
-                ) {
-                    return true;
+                Command::InsertText(text) => {
+                    if matches!(
+                        execute_commands(
+                            vec![Command::InsertText(text)],
+                            focused_writer!(ctx),
+                            ctx.clipboard,
+                        ),
+                        CommandResult::Quit
+                    ) {
+                        return true;
+                    }
                 }
-            }
-            Command::PasteClipboard => {
-                if let Some(text) = ctx.clipboard.get()
-                    && dispatch_input_event(ctx, crate::input::InputEvent::Paste(text), 0)
-                {
-                    return true;
+                Command::PasteClipboard => {
+                    if let Some(text) = ctx.clipboard.get()
+                        && dispatch_input_event(ctx, crate::input::InputEvent::Paste(text), 0)
+                    {
+                        return true;
+                    }
                 }
-            }
-            Command::PluginMessage { target, payload } => {
-                let batch =
-                    ctx.registry
-                        .deliver_message_batch(&target, payload, &AppView::new(ctx.state));
-                if apply_runtime_batch(batch, ctx, Some(&target), 0) {
-                    return true;
+                Command::PluginMessage { target, payload } => {
+                    let batch = ctx.registry.deliver_message_batch(
+                        &target,
+                        payload,
+                        &AppView::new(ctx.state),
+                    );
+                    if apply_runtime_batch(batch, ctx, Some(&target), 0) {
+                        return true;
+                    }
                 }
-            }
-            Command::RequestRedraw(flags) => {
-                *ctx.dirty |= flags;
-            }
-            _ => {
-                tracing::warn!("SessionReady phase: unexpected command variant, dropping");
+                Command::RequestRedraw(flags) => {
+                    *ctx.dirty |= flags;
+                }
+                _ => {
+                    tracing::warn!("SessionReady phase: unexpected command variant, dropping");
+                }
             }
         }
     }
 
-    for plan in batch.effects.scroll_plans {
+    for plan in batch.scroll_plans {
         (ctx.scroll_plan_sink)(plan);
     }
 

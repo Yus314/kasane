@@ -162,12 +162,12 @@ fn plugin_message_delivery() {
     let batch = registry.deliver_message_batch(&target_id, payload, &AppView::new(&state));
 
     assert!(
-        batch.effects.redraw.contains(DirtyFlags::STATUS),
+        batch.redraw.contains(DirtyFlags::STATUS),
         "deliver_message_batch should return STATUS redraw effect, got: {:?}",
-        batch.effects.redraw
+        batch.redraw
     );
     assert!(
-        batch.effects.commands.is_empty(),
+        batch.per_plugin_commands.is_empty(),
         "typed update_effects should not emit direct commands"
     );
 }

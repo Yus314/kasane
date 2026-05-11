@@ -593,21 +593,29 @@ fn handle_process_command(
                         return Some(true);
                     }
                 }
+            } else {
+                log_dropped_process_command("SpawnProcess", job_id);
             }
         }
         Command::WriteToProcess { job_id, data } => {
             if let Some(plugin_id) = command_source_plugin {
                 ctx.process_dispatcher.write(plugin_id, job_id, &data);
+            } else {
+                log_dropped_process_command("WriteToProcess", job_id);
             }
         }
         Command::CloseProcessStdin { job_id } => {
             if let Some(plugin_id) = command_source_plugin {
                 ctx.process_dispatcher.close_stdin(plugin_id, job_id);
+            } else {
+                log_dropped_process_command("CloseProcessStdin", job_id);
             }
         }
         Command::KillProcess { job_id } => {
             if let Some(plugin_id) = command_source_plugin {
                 ctx.process_dispatcher.kill(plugin_id, job_id);
+            } else {
+                log_dropped_process_command("KillProcess", job_id);
             }
         }
         Command::ResizePty { job_id, rows, cols } => {
@@ -624,11 +632,29 @@ fn handle_process_command(
                     ctx.process_dispatcher
                         .resize_pty(plugin_id, job_id, rows, cols);
                 }
+            } else {
+                log_dropped_process_command("ResizePty", job_id);
             }
         }
         _ => unreachable!(),
     }
     Some(false)
+}
+
+/// Process commands require a source plugin for authority checks and event routing.
+/// When source attribution is missing (typically because the command originated in a
+/// handler that does not propagate it, such as `on_state_changed_effects`), the
+/// command is dropped. The drop used to be silent; this log surfaces it so plugin
+/// authors can diagnose the misuse. Tracked in #100 / #101.
+fn log_dropped_process_command(command: &'static str, job_id: u64) {
+    tracing::error!(
+        command,
+        job_id,
+        "process command dropped: source_plugin missing. \
+         This handler does not propagate plugin attribution. \
+         Likely an `on_state_changed_effects` handler — \
+         move the spawn to `handle_key` or wait for #101."
+    );
 }
 
 /// Handle session lifecycle and pane management commands.
@@ -904,8 +930,8 @@ pub fn handle_sourced_surface_commands(
     false
 }
 
-pub fn apply_bootstrap_effects(effects: Effects, dirty: &mut DirtyFlags) {
-    *dirty |= effects.redraw;
+pub fn apply_bootstrap_effects(redraw: DirtyFlags, dirty: &mut DirtyFlags) {
+    *dirty |= redraw;
     // Bootstrap phase: only redraw is valid; commands/scroll_plans validated upstream.
 }
 
@@ -929,45 +955,80 @@ fn apply_runtime_effects(
     handle_command_batch_inner(effects.commands, ctx, command_source_plugin, depth)
 }
 
+/// Apply a multi-plugin [`EffectsBatch`] to the deferred-command pipeline.
+///
+/// Each plugin's commands are dispatched with that plugin's id as the source,
+/// so authority checks and process-spawn routing see the right attribution
+/// (issue #101). `fallback_source` provides attribution for the
+/// `redraw`/`scroll_plans` channel only when a single explicit source is
+/// known by the caller (e.g. a targeted `deliver_*_batch` call); it is not
+/// used to override per-plugin command attribution.
 pub(super) fn apply_runtime_batch(
-    batch: EffectsBatch,
+    mut batch: EffectsBatch,
     ctx: &mut DeferredContext<'_>,
-    command_source_plugin: Option<&PluginId>,
+    fallback_source: Option<&PluginId>,
     depth: usize,
 ) -> bool {
-    apply_runtime_effects(batch.effects, ctx, command_source_plugin, depth)
-}
-
-pub(super) fn apply_runtime_batch_without_session_deferred(
-    batch: EffectsBatch,
-    ctx: &mut DeferredContext<'_>,
-    command_source_plugin: Option<&PluginId>,
-    depth: usize,
-) -> bool {
-    let mut effects = batch.effects;
-    *ctx.dirty |= effects.redraw;
-    *ctx.dirty |= extract_redraw_flags(&mut effects.commands);
-    for plan in effects.scroll_plans {
+    *ctx.dirty |= batch.redraw;
+    for plan in std::mem::take(&mut batch.scroll_plans) {
         (ctx.scroll_plan_sink)(plan);
     }
 
-    let commands = effects.commands;
-    if commands.is_empty() {
+    let groups = std::mem::take(&mut batch.per_plugin_commands);
+    let _ = batch;
+    if groups.is_empty() {
+        return false;
+    }
+    for (plugin_id, commands) in groups {
+        if apply_runtime_effects(Effects::with(commands), ctx, Some(&plugin_id), depth) {
+            return true;
+        }
+    }
+    // `fallback_source` is reserved for future single-source paths; it has no
+    // effect now that every command group already carries its own plugin id.
+    let _ = fallback_source;
+    false
+}
+
+pub(super) fn apply_runtime_batch_without_session_deferred(
+    mut batch: EffectsBatch,
+    ctx: &mut DeferredContext<'_>,
+    fallback_source: Option<&PluginId>,
+    depth: usize,
+) -> bool {
+    *ctx.dirty |= batch.redraw;
+    for plan in std::mem::take(&mut batch.scroll_plans) {
+        (ctx.scroll_plan_sink)(plan);
+    }
+
+    let groups = std::mem::take(&mut batch.per_plugin_commands);
+    let _ = batch;
+    let _ = fallback_source;
+    if groups.is_empty() {
         return false;
     }
 
-    let (immediate, nested_deferred) = partition_commands(commands);
-    if matches!(
-        execute_commands(immediate, focused_writer!(ctx), ctx.clipboard),
-        CommandResult::Quit
-    ) {
-        return true;
+    for (plugin_id, mut commands) in groups {
+        *ctx.dirty |= extract_redraw_flags(&mut commands);
+        if commands.is_empty() {
+            continue;
+        }
+        let (immediate, nested_deferred) = partition_commands(commands);
+        if matches!(
+            execute_commands(immediate, focused_writer!(ctx), ctx.clipboard),
+            CommandResult::Quit
+        ) {
+            return true;
+        }
+        let nested_non_session: Vec<_> = nested_deferred
+            .into_iter()
+            .filter(|d| !matches!(d, Command::Session(_)))
+            .collect();
+        if handle_deferred_commands_inner(nested_non_session, ctx, Some(&plugin_id), depth) {
+            return true;
+        }
     }
-    let nested_non_session: Vec<_> = nested_deferred
-        .into_iter()
-        .filter(|d| !matches!(d, Command::Session(_)))
-        .collect();
-    handle_deferred_commands_inner(nested_non_session, ctx, command_source_plugin, depth)
+    false
 }
 
 pub fn sync_session_ready_gate(

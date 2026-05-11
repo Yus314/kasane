@@ -3,8 +3,8 @@
 
 use crate::plugin::command::EffectCategory;
 use crate::plugin::handler_registry::HandlerRegistry;
-use crate::plugin::kakoune_safe_command::KakouneSafeCommand;
-use crate::plugin::kakoune_safe_effects::KakouneSafeEffects;
+use crate::plugin::kakoune_transparent_command::KakouneTransparentCommand;
+use crate::plugin::kakoune_transparent_effects::KakouneTransparentEffects;
 use crate::plugin::process_task::{ProcessTaskResult, ProcessTaskSpec};
 use crate::plugin::{AppView, Effects, IoEvent};
 use crate::state::DirtyFlags;
@@ -88,12 +88,12 @@ fn cascade_triggers_is_union_of_message_timer_injection() {
 }
 
 // =============================================================================
-// KakouneSafeEffects structural witnesses
+// KakouneTransparentEffects structural witnesses
 // =============================================================================
 
 #[test]
 fn transparent_effects_default_is_empty() {
-    let te = KakouneSafeEffects::none();
+    let te = KakouneTransparentEffects::none();
     let effects: Effects = te.into();
     assert!(effects.commands.is_empty());
     assert!(effects.scroll_plans.is_empty());
@@ -102,7 +102,7 @@ fn transparent_effects_default_is_empty() {
 
 #[test]
 fn transparent_effects_redraw_preserves_flags() {
-    let te = KakouneSafeEffects::redraw(DirtyFlags::BUFFER | DirtyFlags::STATUS);
+    let te = KakouneTransparentEffects::redraw(DirtyFlags::BUFFER | DirtyFlags::STATUS);
     let effects: Effects = te.into();
     assert!(effects.redraw.contains(DirtyFlags::BUFFER));
     assert!(effects.redraw.contains(DirtyFlags::STATUS));
@@ -111,10 +111,10 @@ fn transparent_effects_redraw_preserves_flags() {
 #[test]
 fn transparent_effects_commands_convert_correctly() {
     let cmds = vec![
-        KakouneSafeCommand::request_redraw(DirtyFlags::BUFFER),
-        KakouneSafeCommand::quit(),
+        KakouneTransparentCommand::request_redraw(DirtyFlags::BUFFER),
+        KakouneTransparentCommand::quit(),
     ];
-    let te = KakouneSafeEffects::with(cmds);
+    let te = KakouneTransparentEffects::with(cmds);
     let effects: Effects = te.into();
     assert_eq!(effects.commands.len(), 2);
     assert_eq!(effects.commands[0].variant_name(), "RequestRedraw");
@@ -123,10 +123,10 @@ fn transparent_effects_commands_convert_correctly() {
 
 #[test]
 fn transparent_effects_push_accumulates() {
-    let mut te = KakouneSafeEffects::none();
-    te.push(KakouneSafeCommand::quit());
+    let mut te = KakouneTransparentEffects::none();
+    te.push(KakouneTransparentCommand::quit());
     te.set_redraw(DirtyFlags::BUFFER);
-    te.push(KakouneSafeCommand::paste_clipboard());
+    te.push(KakouneTransparentCommand::paste_clipboard());
     let effects: Effects = te.into();
     assert_eq!(effects.commands.len(), 2);
     assert!(effects.redraw.contains(DirtyFlags::BUFFER));
@@ -167,7 +167,7 @@ fn transparent_lifecycle_handler_is_lifecycle_transparent() {
     let mut registry = HandlerRegistry::<TestState>::new();
     registry.on_state_changed(
         |state: &TestState, _app: &AppView<'_>, _dirty: DirtyFlags| {
-            (state.clone(), KakouneSafeEffects::none())
+            (state.clone(), KakouneTransparentEffects::none())
         },
     );
     assert!(registry.is_lifecycle_transparent());
@@ -179,7 +179,7 @@ fn mixed_transparent_and_non_transparent_lifecycle_is_not_transparent() {
     let mut registry = HandlerRegistry::<TestState>::new();
     registry.on_state_changed(
         |state: &TestState, _app: &AppView<'_>, _dirty: DirtyFlags| {
-            (state.clone(), KakouneSafeEffects::none())
+            (state.clone(), KakouneTransparentEffects::none())
         },
     );
     registry.on_init(|state: &TestState, _app: &AppView<'_>| (state.clone(), Effects::none()));
@@ -190,22 +190,22 @@ fn mixed_transparent_and_non_transparent_lifecycle_is_not_transparent() {
 fn all_transparent_lifecycle_handlers() {
     let mut registry = HandlerRegistry::<TestState>::new();
     registry.on_init(|state: &TestState, _app: &AppView<'_>| {
-        (state.clone(), KakouneSafeEffects::none())
+        (state.clone(), KakouneTransparentEffects::none())
     });
     registry.on_session_ready(|state: &TestState, _app: &AppView<'_>| {
-        (state.clone(), KakouneSafeEffects::none())
+        (state.clone(), KakouneTransparentEffects::none())
     });
     registry.on_state_changed(
         |state: &TestState, _app: &AppView<'_>, _dirty: DirtyFlags| {
-            (state.clone(), KakouneSafeEffects::none())
+            (state.clone(), KakouneTransparentEffects::none())
         },
     );
     registry.on_io_event(|state: &TestState, _event: &IoEvent, _app: &AppView<'_>| {
-        (state.clone(), KakouneSafeEffects::none())
+        (state.clone(), KakouneTransparentEffects::none())
     });
     registry.on_update(
         |state: &TestState, _msg: &mut dyn std::any::Any, _app: &AppView<'_>| {
-            (state.clone(), KakouneSafeEffects::none())
+            (state.clone(), KakouneTransparentEffects::none())
         },
     );
     assert!(registry.is_lifecycle_transparent());
@@ -216,7 +216,9 @@ fn all_transparent_lifecycle_handlers() {
 fn transparent_input_but_non_transparent_lifecycle_is_not_fully_transparent() {
     let mut registry = HandlerRegistry::<TestState>::new();
     registry.on_key(
-        |_state: &TestState, _key, _app| -> Option<(TestState, Vec<KakouneSafeCommand>)> { None },
+        |_state: &TestState, _key, _app| -> Option<(TestState, Vec<KakouneTransparentCommand>)> {
+            None
+        },
     );
     registry.on_state_changed(
         |state: &TestState, _app: &AppView<'_>, _dirty: DirtyFlags| {
@@ -235,7 +237,7 @@ fn transparent_process_task_is_lifecycle_transparent() {
         "test_task",
         ProcessTaskSpec::new("echo", &["hello"]),
         |state: &TestState, _result: &ProcessTaskResult, _app: &AppView<'_>| {
-            (state.clone(), KakouneSafeEffects::none())
+            (state.clone(), KakouneTransparentEffects::none())
         },
     );
     assert!(registry.is_lifecycle_transparent());

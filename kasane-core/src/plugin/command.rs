@@ -350,6 +350,59 @@ impl Command {
         Command::InsertText(text.into())
     }
 
+    /// Returns true if this command belongs to the Tier-2 process-command
+    /// projection ([ADR-044](../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)).
+    ///
+    /// Process commands require a source plugin attribution because their
+    /// dispatch reaches external I/O (spawn, HTTP, session/pane management,
+    /// workspace mutation). Handlers that fire from re-entrance-prone
+    /// contexts (`on_state_changed_effects` etc.) cannot emit them; the
+    /// type-level enforcement landing in the handler-signature migration
+    /// (Phase A-3) will make this structural. Until then this classifier is
+    /// used by tier-projection conversions in `effect_tiers.rs`.
+    pub const fn is_process_command(&self) -> bool {
+        match self {
+            Command::SpawnProcess { .. } => true,
+            Command::WriteToProcess { .. } => true,
+            Command::CloseProcessStdin { .. } => true,
+            Command::KillProcess { .. } => true,
+            Command::ResizePty { .. } => true,
+            Command::HttpRequest { .. } => true,
+            Command::CancelHttpRequest { .. } => true,
+            Command::Session(_) => true,
+            Command::SpawnPaneClient { .. } => true,
+            Command::ClosePaneClient { .. } => true,
+            Command::StartProcessTask { .. } => true,
+            Command::Workspace(_) => true,
+            Command::SendToKakoune(_) => false,
+            Command::InsertText(_) => false,
+            Command::EditBuffer { .. } => false,
+            Command::PasteClipboard => false,
+            Command::SetClipboard(_) => false,
+            Command::DismissDiagnosticOverlay => false,
+            Command::TriggerPluginReload => false,
+            Command::Quit => false,
+            Command::RequestRedraw(_) => false,
+            Command::ScheduleTimer { .. } => false,
+            Command::CancelTimer { .. } => false,
+            Command::PluginMessage { .. } => false,
+            Command::SetConfig { .. } => false,
+            Command::SetSetting { .. } => false,
+            Command::RegisterSurface { .. } => false,
+            Command::RegisterSurfaceRequested { .. } => false,
+            Command::UnregisterSurface { .. } => false,
+            Command::UnregisterSurfaceKey { .. } => false,
+            Command::RegisterThemeTokens(_) => false,
+            Command::InjectInput(_) => false,
+            Command::BindSurfaceSession { .. } => false,
+            Command::UnbindSurfaceSession { .. } => false,
+            Command::ExposeVariable { .. } => false,
+            Command::SetStructuralProjection(_) => false,
+            Command::ToggleAdditiveProjection(_) => false,
+            Command::ProjectionOff => false,
+        }
+    }
+
     /// Returns true if this command writes to Kakoune.
     ///
     /// Exhaustive match ensures new variants force explicit classification.

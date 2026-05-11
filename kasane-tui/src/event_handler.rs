@@ -196,6 +196,7 @@ where
                     commands,
                     scroll_plans,
                     source_plugin: _source,
+                    sourced_commands,
                 },
             ) = update(state, Msg::Kakoune(req), ctx.registry, ctx.scroll_amount);
             *ctx.state = state;
@@ -211,6 +212,7 @@ where
                 scroll_plans,
                 surface_commands,
                 command_source: None,
+                sourced_commands,
                 workspace_changed: false,
             }
         }
@@ -236,6 +238,7 @@ where
                     scroll_plans: vec![],
                     surface_commands: vec![],
                     command_source: None,
+                    sourced_commands: vec![],
                     workspace_changed: !divider_dirty.is_empty(),
                 }
             } else if let Some(surface_commands) =
@@ -247,6 +250,7 @@ where
                     scroll_plans: vec![],
                     surface_commands: vec![surface_commands],
                     command_source: None,
+                    sourced_commands: vec![],
                     workspace_changed: false,
                 }
             } else if let Some(surface_commands) =
@@ -258,6 +262,7 @@ where
                     scroll_plans: vec![],
                     surface_commands: vec![surface_commands],
                     command_source: None,
+                    sourced_commands: vec![],
                     workspace_changed: false,
                 }
             } else {
@@ -271,6 +276,7 @@ where
                         commands,
                         scroll_plans,
                         source_plugin,
+                        sourced_commands,
                     },
                 ) = update(
                     state,
@@ -291,6 +297,7 @@ where
                     scroll_plans,
                     surface_commands,
                     command_source: source_plugin,
+                    sourced_commands,
                     workspace_changed,
                 }
             }
@@ -311,6 +318,7 @@ where
             scroll_plans: vec![],
             surface_commands: vec![],
             command_source: None,
+            sourced_commands: vec![],
             workspace_changed: false,
         },
         Event::ProcessOutput(plugin_id, io_event) => {
@@ -360,6 +368,7 @@ where
                             scroll_plans: vec![],
                             surface_commands: vec![],
                             command_source: None,
+                            sourced_commands: vec![],
                             workspace_changed: false,
                         },
                         false,
@@ -376,6 +385,7 @@ where
                 scroll_plans: vec![],
                 surface_commands: vec![],
                 command_source: None,
+                sourced_commands: vec![],
                 workspace_changed: false,
             }
         }
@@ -619,6 +629,7 @@ where
                 scroll_plans: vec![],
                 surface_commands: vec![],
                 command_source: None,
+                sourced_commands: vec![],
                 workspace_changed: false,
             }
         }
@@ -712,7 +723,7 @@ where
 
     let ready_targets = reload.ready_targets().cloned().collect::<Vec<_>>();
     let mut flags = DirtyFlags::all();
-    apply_bootstrap_effects(reload.bootstrap, &mut flags);
+    apply_bootstrap_effects(reload.bootstrap.redraw, &mut flags);
     sync_ready_gate(ctx.session_ready_gate, ctx.state);
     if !reload.deltas.is_empty() {
         notify_workspace_observers(ctx.registry, ctx.surface_registry, ctx.state);
@@ -769,16 +780,21 @@ fn reconcile_reloaded_plugin_resources(
 
 fn event_result_from_runtime_batch(
     mut batch: EffectsBatch,
-    command_source: Option<PluginId>,
+    fallback_source: Option<PluginId>,
 ) -> EventResult {
-    let mut commands = std::mem::take(&mut batch.effects.commands);
-    let flags = batch.effects.redraw | extract_redraw_flags(&mut commands);
+    let mut flags = batch.redraw;
+    let mut sourced_commands = batch.drain_sourced_commands();
+    for group in sourced_commands.iter_mut() {
+        flags |= extract_redraw_flags(&mut group.commands);
+    }
+    sourced_commands.retain(|g| !g.is_empty());
     EventResult {
         flags,
-        commands,
-        scroll_plans: batch.effects.scroll_plans,
+        commands: vec![],
+        scroll_plans: std::mem::take(&mut batch.scroll_plans),
         surface_commands: vec![],
-        command_source,
+        command_source: fallback_source,
+        sourced_commands,
         workspace_changed: false,
     }
 }
@@ -833,6 +849,12 @@ where
                 result.command_source.as_ref(),
             ) {
                 return true;
+            }
+            for group in result.sourced_commands {
+                if handle_command_batch(group.commands, deferred_ctx, group.source_plugin.as_ref())
+                {
+                    return true;
+                }
             }
             handle_sourced_surface_commands(result.surface_commands, deferred_ctx)
         })

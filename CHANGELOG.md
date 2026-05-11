@@ -2,6 +2,235 @@
 
 ## [Unreleased]
 
+### Added — `on_mouse_fallback_tier1` (Phase A-3d-mouse of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
+
+Closes the input-handler tier setters with a Tier 1 variant for the
+mouse-fallback path. Bound `C: Into<KakouneSideCommand>` rejects raw
+`Command` returns; the common case (forwarding `SendToKakoune` for
+unhandled mouse events, à la `BuiltinMouseFallbackPlugin`) is
+naturally Tier 1.
+
+The other mouse handlers (`on_mouse_pre_dispatch`) return
+`MousePreDispatchResult` rather than a flat command vector; tier
+enforcement there requires a tier-typed result type and is tracked
+under ADR-044 §Remaining work.
+
+### Added — `on_key_tier1` / `on_text_input_tier1` / `on_drop_tier1` (Phase A-3d of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
+
+Input handlers gain an **opt-in no-spawn contract** via tier-1 setters
+bounded by `C: Into<KakouneSideCommand>`. ADR-044's default mapping
+puts input handlers at Tier 2 (process spawn is appropriate for
+user-driven contexts), but plugin authors who know their key /
+text-input / drop handlers only need Kakoune-side effects can declare
+that at the type level.
+
+The bound rejects `Command` returns at compile time — there is
+deliberately no `From<Command> for KakouneSideCommand` impl, since a
+generic `Command` may be a `SpawnProcess` variant. Witnessed by a new
+`compile_fail` doctest on `KakouneSideCommand`.
+
+Tier-1 input setters store handlers in the same dispatcher slots as
+the legacy `on_key` / `on_text_input` / `on_drop` setters; the tier
+check is purely a registration-time constraint on the closure return
+type.
+
+### Added — `on_process_task_tier2` / `on_process_task_streaming_tier2` (Phase A-3c of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
+
+Process-task completion handlers naturally chain into further spawns
+(picker → preview pipelines, etc.), so they live in Tier 2 per the
+ADR-044 mapping. The Tier 2 variants bound
+`E: Into<ProcessCapableEffects>` reject raw `Effects` returns at
+compile time. The streaming variant is the same enforcement on the
+incremental-stdout flavour.
+
+The legacy `on_process_task` / `on_process_task_streaming` setters
+remain and now point at the tier variants in their docstrings.
+
+**Phase A-3d deferred (next PR):** input-handler tier setters
+(`handle_key`, `handle_mouse`, `handle_drop`, `handle_text_input`)
+need tier-typed result types (`KakouneSideKeyResult` /
+`ProcessCapableKeyResult`) since they return `KeyHandleResult`-shaped
+values, not `Effects`. The `on_command_error` and `on_subscription`
+paths are not yet surfaced through `HandlerRegistry` (they go through
+`PluginBackend` defaults today) — they need a registry-level setter
+introduced before tier setters can layer on top.
+
+### Added — `on_init_tier1` / `on_session_ready_tier1` / `on_io_event_tier2` / `on_update_tier2` setters (Phase A-3b of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
+
+Extends the tier enforcement landed in A-3a from one handler
+(`on_state_changed`) to four more handler categories per the ADR-044
+mapping table:
+
+| Setter                       | Tier | Bound                                  |
+|------------------------------|------|----------------------------------------|
+| `on_init_tier1`              | 1    | `E: Into<KakouneSideEffects>`          |
+| `on_session_ready_tier1`     | 1    | `E: Into<KakouneSideEffects>`          |
+| `on_io_event_tier2`          | 2    | `E: Into<ProcessCapableEffects>`       |
+| `on_update_tier2`            | 2    | `E: Into<ProcessCapableEffects>`       |
+
+The corresponding legacy setters (`on_init` / `on_session_ready` /
+`on_io_event` / `on_update`) remain for migration and now point
+plugin authors at the tier variants in their docstrings.
+
+New `From` lifts between tier types:
+`From<ObservationEffects> for KakouneSideEffects`,
+`From<ObservationEffects> for ProcessCapableEffects`, and
+`From<KakouneSideEffects> for ProcessCapableEffects`. These let a
+narrow-tier closure be passed to a wider-tier setter — the narrowing
+is preserved in the return type, the widening is automatic at the
+type-erasure boundary.
+
+A new `compile_fail` doctest on `ProcessCapableEffects` witnesses that
+raw `Effects` cannot be coerced into the tier types — the asymmetric
+`From` web is the structural backbone of the enforcement.
+
+### Added — `HandlerRegistry::on_state_changed_tier1` with compile-time tier enforcement (Phase A-3a of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
+
+The first tier-enforced handler setter lands.
+`HandlerRegistry::on_state_changed_tier1` accepts closures returning
+`(S, impl Into<KakouneSideEffects>)`. The asymmetric `From` impl —
+`KakouneSideEffects → Effects` exists, `Effects → KakouneSideEffects`
+deliberately does not — produces a compile error if a closure tries to
+return plain `Effects` (which could smuggle a `ProcessCommand`):
+
+```rust,compile_fail
+let mut r: HandlerRegistry<()> = /* ... */;
+r.on_state_changed_tier1(|_, _, _| ((), Effects::default()));  // E0277
+```
+
+This is the structural payoff of the [#100](https://github.com/Yus314/kasane/issues/100)
+/ [#101](https://github.com/Yus314/kasane/issues/101) chain: the
+runtime warning Phase 0 added is now unreachable on the
+`on_state_changed_tier1` path because the closure cannot construct an
+effect containing a process command.
+
+In-tree migration in this entry: `BuiltinShadowCursorPlugin`'s
+`on_state_changed` handler now uses the tier-1 setter and returns
+`KakouneSideEffects` instead of `Effects`. Its behaviour is unchanged
+— the contract is just tightened at the type level.
+
+The legacy `on_state_changed` setter remains for migration and is
+documented in the docstring. A future PR will deprecate it once the
+remaining in-tree handlers (none currently use `on_state_changed`
+besides the migrated `BuiltinShadowCursorPlugin`) and the WIT-side
+plugin API (Phase B) catch up.
+
+Ergonomic additions to the tier types: `KakouneSideEffects::with_shadow_cursor`,
+`with_drag`; same on `ProcessCapableEffects`. These mirror the existing
+`Effects::with_shadow_cursor` / `with_drag` so migration is a
+near-mechanical rewrite at handler sites.
+
+### Changed — ADR-030 transparency types renamed `KakouneSafe*` → `KakouneTransparent*` (Phase A-2 of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
+
+The Level-3 / Level-5 projection types from [ADR-030](docs/decisions.md#adr-030-observedpolicy-separation--staged-projection-rollout)
+witness *Kakoune transparency* — a handler returning them cannot emit
+`SendToKakoune` / `InsertText` / `EditBuffer`. Their previous names
+overloaded the word "Safe" with a different cut introduced in
+[ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
+(re-entrance safety from process spawn). The rename eliminates the
+collision before more code accretes:
+
+- `KakouneSafeCommand` → `KakouneTransparentCommand`
+- `KakouneSafeEffects` → `KakouneTransparentEffects`
+- `KakouneSafeKeyResult` → `KakouneTransparentKeyResult`
+- `kakoune_safe_command.rs` → `kakoune_transparent_command.rs`
+- `kakoune_safe_effects.rs` → `kakoune_transparent_effects.rs`
+
+Migration for plugin authors: search-and-replace the four names above
+on your tree. The constructors, conversions, and semantics are
+unchanged. ADR-030 §Status records the rename for future readers.
+
+### Added — tier-typed effect / command projections (Phase A-1 of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
+
+Foundation types for the handler-effect tier hierarchy land in
+[`kasane-core/src/plugin/effect_tiers.rs`](kasane-core/src/plugin/effect_tiers.rs):
+
+- `ObservationEffects` — Tier 0, observation only (redraw / scroll /
+  state updates; no commands).
+- `KakouneSideEffects` — Tier 1, observation + Kakoune-side and
+  host-local commands. Excludes process / HTTP / session / pane /
+  workspace management.
+- `ProcessCapableEffects` — Tier 2, full effect set including
+  process spawn and external I/O.
+- `KakouneSideCommand` / `ProcessCommand` — newtype command
+  projections with constructor-restricted variant sets and
+  `From<…> for Command` lifts.
+- `Command::is_process_command()` classifier for runtime variant
+  routing.
+
+This is the **foundation** layer of ADR-044. Handler return signatures
+are not yet tier-typed — that is Phase A-3, where the runtime drop
+guard from [#100](https://github.com/Yus314/kasane/issues/100) becomes
+structurally unreachable. Plugin authors can opt into the new
+projections now to compose tier-correct effect bundles ahead of the
+signature migration.
+
+Follow-up tracked in [#102](https://github.com/Yus314/kasane/issues/102):
+
+- Phase A-2: rename ADR-030 `KakouneSafe*` → `KakouneTransparent*`
+  (frees the `KakouneSafe` namespace for future use; clarifies the
+  two orthogonal classifications).
+- Phase A-3: migrate handler signatures (`Plugin` trait,
+  `PluginBackend` trait, `PluginBridge`, `HandlerRegistry`).
+- Phase B: WIT 5.0.0 wire bump + WASM plugin migration +
+  migration guide.
+
+### Fixed — per-plugin source attribution preserved across `EffectsBatch` (Phase 1, closes [#101](https://github.com/Yus314/kasane/issues/101))
+
+`EffectsBatch` no longer merges every plugin's [`Effects`](kasane-core/src/plugin/effects.rs)
+into one anonymous bag — the merge was the root cause of [#100](https://github.com/Yus314/kasane/issues/100),
+where a `SpawnProcess` returned from `on_state_changed_effects` lost its
+originating `PluginId` and was silently dropped by `handle_process_command`.
+
+Following Option B in the RFC, the batch now splits "mergeable" from
+"per-source" channels:
+
+- `per_plugin_commands: Vec<(PluginId, Vec<Command>)>` — each plugin's
+  commands stay grouped under that plugin's id.
+- `scroll_plans: Vec<ScrollPlan>` — host-order aggregation; the scroll
+  runtime does not consult plugin identity today.
+- `redraw: DirtyFlags` — bitwise OR across plugins.
+- `state_updates: StateUpdates` — typed last-writer-wins, unchanged
+  semantics.
+
+`UpdateResult` gains a parallel `sourced_commands: Vec<SourcedCommands>`
+channel populated by paths that aggregate across plugins (state-changed
+notifications, command-error fan-out). The event loop drains both
+single-source (`commands` + `source_plugin`) and multi-source channels;
+Phase 2 ([#102](https://github.com/Yus314/kasane/issues/102)) will unify
+them via tier-typed effects.
+
+Migration: zero impact on plugin authors — only host-internal types
+changed. Hosts that consumed `EffectsBatch.effects` directly (none in
+this workspace, but any external host wrapper would notice) update to
+the new fields.
+
+### Fixed — process commands without source attribution no longer drop silently (Phase 0 of [#100](https://github.com/Yus314/kasane/issues/100))
+
+`SpawnProcess`, `WriteToProcess`, `CloseProcessStdin`, `KillProcess`, and
+`ResizePty` arriving at the dispatcher without a `source_plugin`
+(typical for commands emitted from `on_state_changed_effects`, where
+attribution is lost in `EffectsBatch.merge`) used to be discarded with
+no warning, no failure event, and no log. The picker in
+[sprout](https://github.com/Yus314/sprout) surfaced this: `state.picker
+= Loading` would persist forever because the spawn never reached
+`fork+execve`, so no `Exited` event arrived.
+
+The drop itself remains — authority checks fundamentally need a plugin
+identity — but `handle_process_command` now emits
+`tracing::error!(target = "kasane_core::event_loop::dispatch", …)` with
+the command name and `job_id`, plus a pointer to [#101](https://github.com/Yus314/kasane/issues/101)
+(per-plugin attribution in `EffectsBatch`) which is the real fix.
+
+This is Phase 0 of the three-phase fix tracked under [#100](https://github.com/Yus314/kasane/issues/100):
+
+- Phase 0 (this entry): surface the silent drop with an error log.
+- Phase 1 ([#101](https://github.com/Yus314/kasane/issues/101)): split
+  `EffectsBatch` so per-plugin attribution survives merge.
+- Phase 2/3 ([#102](https://github.com/Yus314/kasane/issues/102)):
+  type-level handler→effect tier hierarchy so process spawn from
+  `on_state_changed_effects` becomes a compile error.
+
 ## [0.7.0] - 2026-05-11
 
 The 0.7.0 release lands the **R2.x P7+P9 cascade**

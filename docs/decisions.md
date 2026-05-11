@@ -1788,7 +1788,17 @@ Introduce two complementary mechanisms:
 
 ## ADR-030: Observed/Policy Separation — Staged Projection Rollout
 
-**Status:** Current (Levels 1–6 shipped)
+**Status:** Current (Levels 1–6 shipped). Level-3 / Level-5 type names
+renamed per [ADR-044](#adr-044-handler--effect-tier-hierarchy): the
+projection types previously called `KakouneSafeCommand` /
+`KakouneSafeEffects` / `KakouneSafeKeyResult` are now
+`KakouneTransparentCommand` / `KakouneTransparentEffects` /
+`KakouneTransparentKeyResult`. The rename frees the `KakouneSafe`
+namespace for the tier hierarchy and better names what these types
+witness — that the handler cannot write to Kakoune state, which ADR-030
+already calls *transparency*. Source files moved from
+`kasane-core/src/plugin/kakoune_safe_command.rs` →
+`kakoune_transparent_command.rs` (similarly for `_effects.rs`).
 
 ### Context
 
@@ -5720,6 +5730,467 @@ string-based layers cannot provide:
 - Per-variant rendering invariants are tested by feeding the rendered
   output through `kak_lint!` — guarantees zero false-negative
   divergence between the two layers.
+
+## ADR-044: Handler → Effect Tier Hierarchy
+
+**Status:** Phase A-1 / A-2 / A-3a / A-3b / A-3c / A-3d shipped (2026-05-11).
+Phase 2/3 of the silent-drop fix chain
+([#100](https://github.com/Yus314/kasane/issues/100) → ADR Phase 0,
+[#101](https://github.com/Yus314/kasane/issues/101) → ADR Phase 1,
+this ADR → Phase 2/3).
+
+### Landed phases (2026-05-11)
+
+| Phase | Scope                                                                 | Outcome                                                                                                                                                       |
+|-------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| A-1   | Foundation types (`ObservationEffects`, `KakouneSideEffects`, `ProcessCapableEffects`; command split enums; `From` lifts)                                | Tier types defined in `kasane-core/src/plugin/effect_tiers.rs`, callable but not yet enforced at handler boundaries. |
+| A-2   | ADR-030 rename `KakouneSafe*` → `KakouneTransparent*` (108 occurrences)                                                                                  | Frees the `KakouneSafe` namespace, sharpens semantics. ADR-030 §Status records the rename.                            |
+| A-3a  | First tier-enforced setter: `HandlerRegistry::on_state_changed_tier1`. Asymmetric `From` web (`KakouneSideEffects → Effects`, no reverse) is the enforcement. | `BuiltinShadowCursorPlugin` migrated as canonical example. `compile_fail` doctest witnesses the type-level rejection of raw `Effects` containing `ProcessCommand`. |
+| A-3b  | Tier setters for the rest of the Effects-shaped lifecycle handlers: `on_init_tier1`, `on_session_ready_tier1`, `on_io_event_tier2`, `on_update_tier2`.   | Inter-tier `From` lifts (Tier 0 → Tier 1 → Tier 2) added so narrower-tier closures fit wider-tier setters. `compile_fail` doctest on `ProcessCapableEffects`. |
+| A-3c  | Tier setters for declarative process tasks: `on_process_task_tier2`, `on_process_task_streaming_tier2`.                                                  | All seven Effects-returning lifecycle handler categories now have tier-enforced parallels. Legacy setters remain with docstring pointers.                       |
+| A-3d  | Opt-in **tier-1** input handler setters: `on_key_tier1`, `on_text_input_tier1`, `on_drop_tier1`. ADR mapping puts input at Tier 2 by default; Tier 1 is a stricter opt-in for plugin authors who know their handlers don't spawn. | Bound `C: Into<KakouneSideCommand>` rejects raw `Command` returns. `compile_fail` doctest on `KakouneSideCommand` witnesses the asymmetric command projection. |
+
+### Remaining work
+
+- **A-3d-mouse** — `on_mouse_pre_dispatch` and the various mouse-handler
+  setters do not yet have tier-1 variants. They take `MousePreDispatchResult`
+  which is more complex than the key/text/drop pattern (state-update
+  channel + commands), so the lift requires a tier-typed result type
+  rather than just a per-command bound.
+- **A-3e** — `HandlerRegistry`-level setters for `on_command_error` /
+  `on_subscription`. Currently both go through `PluginBackend` defaults
+  rather than the `HandlerRegistry` builder API — adding the setters
+  is independent of tier work and a prerequisite for tier enforcement
+  on those handlers.
+- **A-3f** — In-tree plugin migration (currently `BuiltinShadowCursorPlugin`
+  only). `BuiltinDragPlugin`, `BuiltinFoldPlugin`, `BuiltinInputPlugin`,
+  `BuiltinMouseFallbackPlugin`, `DebugOverlayPlugin`, `SemanticZoomPlugin`,
+  and the widget plugin paths each need their lifecycle handlers
+  reviewed and migrated to tier setters where applicable.
+- **A-3g** — `#[deprecated]` attribute on legacy setters once the
+  in-tree migration is complete. Pushes external plugin authors toward
+  the tier API via cargo warnings.
+- **Phase B** — WIT 5.0.0 wire bump + WASM plugin migration. Each WIT
+  copy is ~2,057 lines, triplicated across `kasane-wasm/`,
+  `kasane-plugin-sdk/`, and `kasane-plugin-sdk-macros/`. The split
+  introduces `observation-effects` / `kakoune-side-effects` /
+  `process-capable-effects` records and the corresponding command
+  variants. All ten `examples/wasm/*` plugins must migrate. Migration
+  guide at `docs/migration/0.X-to-0.Y.md`. ABI 4.1.0 support drops
+  after the migration window.
+
+
+
+**Tracked in:** [Issue #102](https://github.com/Yus314/kasane/issues/102).
+Builds on the sprout-dogfooding tracker
+[#81](https://github.com/Yus314/kasane/issues/81).
+
+**Context:**
+
+[#100](https://github.com/Yus314/kasane/issues/100) (Phase 0) and
+[#101](https://github.com/Yus314/kasane/issues/101) (Phase 1) close the
+**accidental silent drop** of process commands emitted from
+`on_state_changed_effects`: the dispatcher now logs the drop reason
+when source attribution is missing, and `EffectsBatch` preserves
+per-plugin attribution across the multi-plugin merge so the dispatcher
+sees the right `PluginId` for each command. The bug as reported by
+sprout dogfooding can no longer ship silently.
+
+Those two phases do not address a second, deeper question: **should
+`on_state_changed_effects` be allowed to spawn processes at all?** The
+sprout incident exposes three structural concerns that survive Phase
+1's fix:
+
+1. **Re-entrance risk.** `on_state_changed_effects` fires every time
+   state changes. A handler that spawns a process from inside that
+   handler creates a feedback loop bounded only by
+   `MAX_COMMAND_CASCADE_DEPTH`. Phase 1 makes such loops *attributed*,
+   not *prevented*.
+2. **Performance.** State-changed is per-tick. Heavy commands
+   (spawn, HTTP, EditBuffer) are not appropriate to issue per-tick by
+   default — most plugins that try this are misusing the handler.
+3. **Conceptual cleanness.** State-changed reads as "observe state and
+   adjust output"; Kakoune-side write-back through `eval-command` is
+   fine, but full process side effects feel like an anti-pattern.
+
+The current `session-ready-command` WIT variant already encodes a
+similar narrowing — at session ready, only `send-keys`, `eval-command`,
+`paste-clipboard`, and `plugin-message` are allowed. That carve-out is
+empirically motivated. This ADR generalizes the pattern: each handler
+returns an effect type whose admissible command set encodes the
+handler's contract, making misuse a **compile error** in both Rust
+(host plugins) and WIT (WASM plugins) — not a runtime warning that
+relies on attribution.
+
+The vocabulary collision: the existing `KakouneSafeCommand` /
+`KakouneSafeEffects` types ([ADR-030 Level 3 / Level 5
+enforcement](#adr-030-observedpolicy-separation--staged-projection-rollout))
+already use the word "Safe", but with a different meaning — *Kakoune
+transparency* (the projection excludes `SendToKakoune`, `InsertText`,
+`EditBuffer`). The new tier hierarchy uses "Safe" in the sense of
+*re-entrance safety for high-frequency handlers* (no process spawn).
+These are orthogonal cuts:
+
+| Concern (existing ADR-030) | Concern (this ADR)                  |
+|----------------------------|-------------------------------------|
+| Does the command write to Kakoune state? | Does the command require source attribution / external process I/O? |
+| `KakouneSafeCommand` excludes `SendToKakoune` / `InsertText` / `EditBuffer` | New `KakouneSafeCommand` excludes `SpawnProcess` / `WriteToProcess` / `HttpRequest` etc. |
+
+Reusing the name across the two cuts will mislead readers and break
+incremental migration tooling. This ADR therefore couples a small
+**rename** of the ADR-030 types to the new tier rollout.
+
+**Decision:**
+
+Introduce a three-tier effect type hierarchy at the handler-return
+boundary. Handlers' return types pick the tier that matches their
+re-entrance / performance / conceptual budget. The tier admissible at
+each handler is fixed by the framework; plugin authors cannot widen
+it.
+
+```rust
+// Tier 0 — observation only. No side-effect commands.
+//
+// For handlers that observe state and report status (e.g.
+// `on_workspace_changed`) without issuing follow-up actions.
+pub struct ObservationEffects {
+    pub redraw: DirtyFlags,
+    pub scroll_plans: Vec<ScrollPlan>,
+    pub state_updates: StateUpdates,
+}
+
+// Tier 1 — host-local + Kakoune-side commands.
+//
+// Allowed: SendKeys, EvalCommand, EditBuffer, PasteClipboard,
+//          PluginMessage, RequestRedraw, InjectInput, SetConfig,
+//          SetSetting, ScheduleTimer, CancelTimer,
+//          RegisterThemeTokens, RegisterSurface/Unregister,
+//          (full list defined by KakouneSideCommand variants).
+//
+// Excluded: SpawnProcess, WriteToProcess, CloseProcessStdin,
+//           KillProcess, ResizePty, HttpRequest, CancelHttpRequest,
+//           Session(_), SpawnPaneClient, ClosePaneClient,
+//           StartProcessTask, Workspace(_).
+//
+// For re-entrance-safe high-frequency contexts.
+pub struct KakouneSideEffects {
+    pub base: ObservationEffects,
+    pub commands: Vec<KakouneSideCommand>,
+}
+
+// Tier 2 — full effects, including external process and session
+// management. Requires source attribution (the handler context
+// produces it; type-system-enforced — the adapter layer fills
+// `source: PluginId` from `self.plugin_id` so authors never touch
+// the field).
+pub struct ProcessCapableEffects {
+    pub base: KakouneSideEffects,
+    pub process_commands: Vec<ProcessCommand>,
+}
+```
+
+**Command variant split:**
+
+```rust
+pub enum KakouneSideCommand {
+    SendToKakoune(KasaneRequest),
+    InsertText(String),
+    EditBuffer(Vec<BufferEdit>),
+    PasteClipboard,
+    PluginMessage { target: PluginId, payload: Box<dyn Any + Send> },
+    RequestRedraw(DirtyFlags),
+    InjectInput(InputEvent),
+    SetConfig { key: String, value: String },
+    SetSetting { plugin_id: PluginId, key: String, value: SettingValue },
+    ScheduleTimer { timer_id: u64, delay: Duration, target: PluginId, payload: Box<dyn Any + Send> },
+    CancelTimer { timer_id: u64 },
+    RegisterThemeTokens(Vec<(String, Style)>),
+    RegisterSurface { surface: Box<dyn Surface>, placement: Placement },
+    RegisterSurfaceRequested { surface: Box<dyn Surface>, placement: SurfacePlacementRequest },
+    UnregisterSurface { surface_id: SurfaceId },
+    UnregisterSurfaceKey { surface_key: String },
+    BindSurfaceSession { surface_id: SurfaceId, session_id: SessionId },
+    UnbindSurfaceSession { surface_id: SurfaceId },
+    ExposeVariable { name: String, value: Value },
+    SetStructuralProjection(Option<ProjectionId>),
+    ToggleAdditiveProjection(ProjectionId),
+    ProjectionOff,
+    DismissDiagnosticOverlay,
+    SetClipboard(String),
+    TriggerPluginReload,
+    Quit,
+}
+
+pub enum ProcessCommand {
+    SpawnProcess { job_id: u64, program: String, args: Vec<String>, stdin_mode: StdinMode },
+    WriteToProcess { job_id: u64, data: Vec<u8> },
+    CloseProcessStdin { job_id: u64 },
+    KillProcess { job_id: u64 },
+    ResizePty { job_id: u64, rows: u16, cols: u16 },
+    HttpRequest { job_id: u64, config: HttpRequestConfig },
+    CancelHttpRequest { job_id: u64 },
+    Session(SessionCommand),
+    SpawnPaneClient { pane_key: String, placement: Placement },
+    ClosePaneClient { pane_key: String },
+    StartProcessTask { task_name: String },
+    Workspace(WorkspaceCommand),
+}
+```
+
+`From<KakouneSideCommand> for Command` and
+`From<ProcessCommand> for Command` lift each tier into the
+type-erased `Command` enum at the dispatcher boundary, so the
+existing event loop pipeline is unchanged.
+
+**Handler return-type mapping:**
+
+| Handler                              | Returns                       | Rationale                                                  |
+|--------------------------------------|-------------------------------|------------------------------------------------------------|
+| `on_workspace_changed`               | `ObservationEffects`          | Read-only by design                                        |
+| `on_state_changed_effects`           | `KakouneSideEffects`          | High-frequency; no process spawn                           |
+| `on_active_session_ready_effects`    | `KakouneSideEffects`          | Already narrow at WIT; aligns the model                    |
+| `on_command_error_effects`           | `KakouneSideEffects`          | Avoid command-error → error loops                          |
+| `on_init_effects`                    | `KakouneSideEffects`          | Startup; narrow                                            |
+| `on_subscription`                    | `KakouneSideEffects`          | Pub/sub callback                                           |
+| `handle_key` / `handle_mouse`        | `ProcessCapableEffects`       | User-driven; spawn is appropriate                          |
+| `handle_drop` / `handle_text_input`  | `ProcessCapableEffects`       | Same                                                       |
+| `on_io_event_effects`                | `ProcessCapableEffects`       | Process chain spawns                                       |
+| `update_effects`                     | `ProcessCapableEffects`       | Command-handler pattern                                    |
+
+**ADR-030 type rename (resolving the "Safe" collision):**
+
+The existing `KakouneSafeCommand` / `KakouneSafeEffects` /
+`KakouneSafeKeyResult` types ([ADR-030
+§Level-3/§Level-5](#adr-030-observedpolicy-separation--staged-projection-rollout))
+are renamed to `KakouneTransparentCommand` /
+`KakouneTransparentEffects` / `KakouneTransparentKeyResult`. The new
+name names what the ADR-030 projection actually proves: the handler
+cannot write to Kakoune state. "Transparent" matches the ADR-030
+vocabulary (`Transparency` flag, `kakoune-safe-command` WIT variant
+becomes `kakoune-transparent-command`).
+
+The freed names are reused by this ADR — `KakouneSafeCommand` /
+`KakouneSafeEffects` from #102 become `KakouneSideCommand` /
+`KakouneSideEffects` to avoid lingering ambiguity (see Rationale §3
+below). The freed `KakouneSafe*` namespace is left unused so a future
+ADR can repurpose it without overloading either prior meaning.
+
+**WIT-level split:**
+
+```wit
+// Tier 0
+record observation-effects {
+    redraw: u16,
+    scroll-plans: list<scroll-plan>,
+    state-updates: state-updates,
+}
+
+variant kakoune-side-command {
+    send-keys(list<string>),
+    eval-command(string),
+    edit-buffer(list<buffer-edit>),
+    paste-clipboard,
+    plugin-message(message-config),
+    request-redraw(u16),
+    inject-input(input-event),
+    set-config(config-entry),
+    set-setting(setting-entry),
+    schedule-timer(timer-config),
+    cancel-timer(u64),
+    register-theme-tokens(list<theme-token-default>),
+    register-surface(register-surface-config),
+    unregister-surface(u32),
+    unregister-surface-key(string),
+    expose-variable(variable-entry),
+    set-structural-projection(option<u32>),
+    toggle-additive-projection(u32),
+    projection-off,
+    dismiss-diagnostic-overlay,
+    set-clipboard(string),
+    quit,
+}
+
+// Tier 1
+record kakoune-side-effects {
+    base: observation-effects,
+    commands: list<kakoune-side-command>,
+}
+
+variant process-command {
+    spawn-process(spawn-process-config),
+    write-to-process(write-process-config),
+    close-process-stdin(u64),
+    kill-process(u64),
+    resize-pty(resize-pty-config),
+    http-request(http-request-config),
+    cancel-http-request(u64),
+    session(session-cmd),
+    spawn-pane-client(spawn-pane-client-config),
+    close-pane-client(string),
+    start-process-task(string),
+    workspace-command(workspace-cmd),
+}
+
+// Tier 2
+record process-capable-effects {
+    base: kakoune-side-effects,
+    process-commands: list<process-command>,
+}
+```
+
+Handler imports / exports reference the appropriate type. WASM plugins
+that try to return `process-command` from a Tier-1 export hit a
+**wit-bindgen compile error** that points to this ADR.
+
+**ABI version:** the WIT split is a backward-incompatible change to
+the plugin contract. ABI version bumps from `4.1.0` → `5.0.0`
+(see [`docs/abi-versioning.md`](abi-versioning.md)).
+
+**Migration:**
+
+*Native (kasane-core, in-tree plugins):*
+
+1. Define the three tier types in `kasane-core/src/plugin/effects.rs`.
+2. Define `KakouneSideCommand` / `ProcessCommand` enums with
+   `From<…> for Command` lifts.
+3. Rename ADR-030 types: `KakouneSafe*` → `KakouneTransparent*`.
+4. Add tier-specific `Plugin::on_state_changed` /
+   `Plugin::on_init` etc. signatures returning the right tier; the
+   bridge converts each tier to the unified `Effects` for the
+   internal dispatcher pipeline.
+5. Migrate all in-tree backends (`BuiltinDragPlugin`,
+   `BuiltinFoldPlugin`, `BuiltinShadowCursorPlugin`,
+   `SemanticZoomPlugin`, etc.) handler by handler.
+
+*WASM (kasane-wasm + examples/wasm/):*
+
+1. WIT bump: write a new `kasane:plugin@5.0.0` package alongside the
+   existing 4.1.0 (no in-place edit during transition).
+2. Update `kasane-plugin-sdk` and `kasane-plugin-sdk-macros` to emit
+   tier-typed bindings; `define_plugin!` infers tier per handler.
+3. Migrate each `examples/wasm/*` plugin one at a time. Plugins that
+   put `SpawnProcess` in `on_state_changed_effects` cannot be lifted
+   blindly — the spawn must move to `handle_key` (a Tier-2 handler)
+   or chain through `update_effects` from a Tier-2 message.
+4. Migration guide at `docs/migration/0.X-to-0.Y.md` documents the
+   rewrite patterns (handle_key intercept, pub/sub chain to
+   `update_effects`).
+5. Drop ABI 4.1.0 support after all in-tree plugins migrate.
+
+*External (`Yus314/sprout`):*
+
+Out of scope for this ADR but the migration the issue ties to. The
+sprout picker moves from a Kakoune-side `set-option` →
+`on_state_changed_effects` → `SpawnProcess` chain to a
+plugin-internal `handle_key` state machine: the plugin captures
+`r` / `l` / `n` directly when in its own "expecting pick kind"
+sub-state, then spawns from `handle_key` (Tier 2 — admissible). The
+user-mode infrastructure shifts from Kakoune-side to plugin-internal,
+which also tightens UX (the plugin can re-prompt, show hints, etc.
+without Kakoune round-trips).
+
+**Re-entrance bonus:**
+
+Tier 1 handlers structurally cannot emit process commands → cannot
+trigger external I/O that cascades back into state-changed. The
+`MAX_COMMAND_CASCADE_DEPTH` runtime guard becomes a backstop for
+exotic cycles via `PluginMessage`, not the primary defence — the
+common case is statically impossible.
+
+**Rationale:**
+
+1. **Mistakes become compile errors, not silent drops.** Phase 0
+   logs the drop. Phase 1 routes attribution through the merge. Phase
+   2/3 removes the misuse from the API surface entirely. A plugin
+   author who writes `SpawnProcess` in `on_state_changed_effects`
+   never gets a runtime error; they get a build error with a pointer
+   to the migration path.
+
+2. **The host stops being responsible for legality checks at the
+   wrong layer.** Today, `handle_process_command` checks
+   `command_source_plugin.is_some()` to gate spawn. After Phase 2/3,
+   the type system enforces "can emit `ProcessCommand` ⇒ has
+   `PluginId`" at the call site, and the dispatcher's `None`-branch
+   becomes unreachable.
+
+3. **Naming sharpens.** `KakouneSafe` meant two things; that hurts
+   readers and migration tooling. Renaming the ADR-030 types to
+   `KakouneTransparent` better describes what they actually witness
+   — the inability to write Kakoune state. Naming Tier 1 as
+   `KakouneSideEffects` instead of reusing `KakouneSafe` underlines
+   that the tier admits *Kakoune-side* effects (writes through
+   `eval-command`, key injection, redraw) rather than claims a
+   blanket "safe" status. The two names then describe disjoint
+   axes of the same `Command` variant space.
+
+4. **Composition with `EffectsBatch`.** The Phase 1 batch shape (per-
+   plugin commands; #101) extends cleanly: each plugin's per-handler
+   tier output lifts into the shared `Command` Vec when the batch
+   collects across plugins. No batch-layer changes needed.
+
+**Alternatives considered:**
+
+1. **Single `Effects` type, runtime check.** Leave the API as it is,
+   add a debug-assert in the dispatcher when a Tier-1 handler tries
+   to emit a process command. Rejected: the silent-drop bug existed
+   for months precisely because there was no compile-time signal;
+   runtime asserts have to be hit on the right code path, often in
+   plugin code authors do not exercise.
+
+2. **Tag commands instead of splitting the enum.** Mark each
+   `Command` variant with a `tier()` method; reject at the dispatch
+   boundary. Rejected: same runtime-shape problem as alt 1, plus the
+   tag function gets out of sync with the actual variant list every
+   time a new command is added.
+
+3. **Two tiers (collapse Tier 0 into Tier 1).** `ObservationEffects`
+   is structurally a `KakouneSideEffects` with empty commands.
+   Rejected: read-only handlers (`on_workspace_changed`) benefit
+   from a type signature that *refuses* to allocate a command vec —
+   tells reviewers "this handler does not perform side effects" at
+   the API surface.
+
+4. **Keep the existing `KakouneSafeCommand` name; rename the new
+   tier.** Less churn for ADR-030 consumers. Rejected because the
+   reverse — renaming the existing types — produces clearer names
+   on net: the existing types' "Safe" was always shorthand for
+   "transparent in the ADR-030 sense", and ADR-030 already calls
+   that property "Transparency".
+
+5. **One mega-ADR covering Phase 0 + Phase 1 + Phase 2/3.**
+   Rejected at the issue level. The phases are independently
+   shippable; mega-ADRs collapse review cost and conflict
+   resolution. Phase 0 / 1 already landed.
+
+**Implications:**
+
+- **Plugin authors (Rust host):** handler signatures change; the
+  bridge converts tier output into the unified `Effects` internally,
+  so consumers downstream of the bridge are unaffected.
+- **Plugin authors (WASM):** WIT bindgen regen required.
+  `define_plugin!` updated to emit per-handler tier types.
+- **CHANGELOG:** Breaking-change entry on ABI 5.0.0 wire bump and
+  Rust handler signature changes.
+- **`docs/abi-versioning.md`:** new row for 5.0.0 with the tier split
+  rationale.
+- **`docs/plugin-api.md` / `docs/plugin-development.md`:** updated
+  handler signature tables, migration cookbook section.
+- **`docs/migration/0.X-to-0.Y.md`:** new migration entry covering
+  the rewrite patterns and the `KakouneSafe* → KakouneTransparent*`
+  rename.
+- **`kak_lint!` / `KakCommand` (ADR-043):** updated to know which
+  tier each command belongs to so structural builders refuse to
+  produce a `ProcessCommand` for a Tier-1 context.
+- **Roadmap:** the WIT split is an item under R2.x's compliance work;
+  scheduling tracked in [Issue
+  #102](https://github.com/Yus314/kasane/issues/102).
+- **`kasane-plugin-sdk` / `kasane-plugin-sdk-macros`:** major bump.
+- **`kasane-wasm`:** bridge layer updates per-handler import dispatch
+  to the right tier export.
+- The runtime `command_source_plugin.is_some()` guard in
+  `handle_process_command` (added in Phase 0) becomes structurally
+  unreachable, but kept as a defence-in-depth backstop with a
+  `tracing::error!`.
 
 ## Related Documents
 

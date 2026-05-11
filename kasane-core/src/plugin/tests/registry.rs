@@ -224,7 +224,7 @@ fn test_init_all_batch_collects_bootstrap_effects() {
     let state = AppState::default();
 
     let batch = registry.init_all_batch(&AppView::new(&state));
-    assert!(batch.effects.redraw.contains(DirtyFlags::STATUS));
+    assert!(batch.redraw.contains(DirtyFlags::STATUS));
 }
 
 #[test]
@@ -234,10 +234,11 @@ fn test_notify_active_session_ready_batch_collects_effects() {
     let state = AppState::default();
 
     let batch = registry.notify_active_session_ready_batch(&AppView::new(&state));
-    assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
-    assert_eq!(batch.effects.commands.len(), 1);
+    assert!(batch.redraw.contains(DirtyFlags::BUFFER));
+    assert_eq!(batch.total_command_count(), 1);
+    let mut commands = batch.per_plugin_commands.into_iter().flat_map(|(_, c)| c);
     assert!(matches!(
-        batch.effects.commands.into_iter().next(),
+        commands.next(),
         Some(Command::SendToKakoune(KasaneRequest::Scroll { .. }))
     ));
 }
@@ -259,8 +260,8 @@ fn test_notify_plugin_active_session_ready_batch_targets_only_requested_plugin()
         &PluginId("beta".to_string()),
         &AppView::new(&state),
     );
-    assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
-    assert!(!batch.effects.redraw.contains(DirtyFlags::STATUS));
+    assert!(batch.redraw.contains(DirtyFlags::BUFFER));
+    assert!(!batch.redraw.contains(DirtyFlags::STATUS));
 }
 
 #[test]
@@ -270,9 +271,9 @@ fn test_notify_state_changed_batch_collects_runtime_effects() {
     let state = AppState::default();
 
     let batch = registry.notify_state_changed_batch(&AppView::new(&state), DirtyFlags::BUFFER);
-    assert!(batch.effects.redraw.contains(DirtyFlags::INFO));
-    assert_eq!(batch.effects.commands.len(), 1);
-    assert_eq!(batch.effects.scroll_plans.len(), 1);
+    assert!(batch.redraw.contains(DirtyFlags::INFO));
+    assert_eq!(batch.total_command_count(), 1);
+    assert_eq!(batch.scroll_plans.len(), 1);
 }
 
 #[test]
@@ -286,9 +287,9 @@ fn test_deliver_message_batch_collects_runtime_effects() {
         Box::new(7u32),
         &AppView::new(&state),
     );
-    assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
-    assert_eq!(batch.effects.commands.len(), 1);
-    assert_eq!(batch.effects.scroll_plans.len(), 1);
+    assert!(batch.redraw.contains(DirtyFlags::BUFFER));
+    assert_eq!(batch.total_command_count(), 1);
+    assert_eq!(batch.scroll_plans.len(), 1);
 }
 
 #[test]
@@ -637,7 +638,7 @@ fn test_lifecycle_defaults() {
     let state = AppState::default();
 
     let batch = registry.init_all_batch(&AppView::new(&state));
-    assert!(batch.effects.redraw.is_empty());
+    assert!(batch.redraw.is_empty());
 
     registry.shutdown_all();
     // No panic
@@ -650,7 +651,7 @@ fn test_init_all_batch_collects_lifecycle_bootstrap_effects() {
     let state = AppState::default();
 
     let batch = registry.init_all_batch(&AppView::new(&state));
-    assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
+    assert!(batch.redraw.contains(DirtyFlags::BUFFER));
 }
 
 #[test]
@@ -660,7 +661,7 @@ fn test_reload_plugin_batch_collects_bootstrap_effects() {
     let state = AppState::default();
 
     let batch = registry.reload_plugin_batch(Box::new(TypedLifecyclePlugin), &AppView::new(&state));
-    assert!(batch.effects.redraw.contains(DirtyFlags::STATUS));
+    assert!(batch.redraw.contains(DirtyFlags::STATUS));
 }
 
 #[test]
@@ -688,9 +689,9 @@ fn test_deliver_message_unknown_target() {
         Box::new(42u32),
         &AppView::new(&state),
     );
-    assert!(batch.effects.redraw.is_empty());
-    assert!(batch.effects.commands.is_empty());
-    assert!(batch.effects.scroll_plans.is_empty());
+    assert!(batch.redraw.is_empty());
+    assert!(batch.per_plugin_commands.is_empty());
+    assert!(batch.scroll_plans.is_empty());
 }
 
 // --- Per-extension-point invalidation tests (Phase 5) ---

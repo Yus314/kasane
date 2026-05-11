@@ -348,7 +348,8 @@ impl PluginRuntime {
     pub fn init_all_batch(&mut self, app: &AppView<'_>) -> EffectsBatch {
         let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
-            batch.effects.merge(slot.backend.on_init_effects(app));
+            let id = slot.backend.id();
+            batch.push(id, slot.backend.on_init_effects(app));
         }
         batch
     }
@@ -362,9 +363,8 @@ impl PluginRuntime {
     pub fn notify_active_session_ready_batch(&mut self, app: &AppView<'_>) -> EffectsBatch {
         let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
-            batch
-                .effects
-                .merge(slot.backend.on_active_session_ready_effects(app));
+            let id = slot.backend.id();
+            batch.push(id, slot.backend.on_active_session_ready_effects(app));
         }
         batch
     }
@@ -377,11 +377,8 @@ impl PluginRuntime {
     ) -> EffectsBatch {
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
-                let mut batch = EffectsBatch::default();
-                batch
-                    .effects
-                    .merge(slot.backend.on_active_session_ready_effects(app));
-                return batch;
+                let effects = slot.backend.on_active_session_ready_effects(app);
+                return EffectsBatch::single(target.clone(), effects);
             }
         }
         EffectsBatch::default()
@@ -395,9 +392,8 @@ impl PluginRuntime {
     ) -> EffectsBatch {
         let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
-            batch
-                .effects
-                .merge(slot.backend.on_state_changed_effects(app, dirty));
+            let id = slot.backend.id();
+            batch.push(id, slot.backend.on_state_changed_effects(app, dirty));
         }
         batch
     }
@@ -595,11 +591,8 @@ impl PluginRuntime {
                     "state restore failed (schema change?), starting fresh"
                 );
             }
-            let mut batch = EffectsBatch::default();
-            batch
-                .effects
-                .merge(self.slots[pos].backend.on_init_effects(app));
-            return batch;
+            let effects = self.slots[pos].backend.on_init_effects(app);
+            return EffectsBatch::single(id, effects);
         }
         EffectsBatch::default()
     }
@@ -761,11 +754,8 @@ impl PluginRuntime {
                 if !slot.capabilities.contains(PluginCapabilities::IO_HANDLER) {
                     return EffectsBatch::default();
                 }
-                let mut batch = EffectsBatch::default();
-                batch
-                    .effects
-                    .merge(slot.backend.on_io_event_effects(event, app));
-                return batch;
+                let effects = slot.backend.on_io_event_effects(event, app);
+                return EffectsBatch::single(target.clone(), effects);
             }
         }
         EffectsBatch::default()
@@ -783,11 +773,8 @@ impl PluginRuntime {
         crate::perf::perf_span!("deliver_command_error");
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
-                let mut batch = EffectsBatch::default();
-                batch
-                    .effects
-                    .merge(slot.backend.on_command_error_effects(error, app));
-                return batch;
+                let effects = slot.backend.on_command_error_effects(error, app);
+                return EffectsBatch::single(target.clone(), effects);
             }
         }
         EffectsBatch::default()
@@ -803,11 +790,8 @@ impl PluginRuntime {
         let mut payload = payload;
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
-                let mut batch = EffectsBatch::default();
-                batch
-                    .effects
-                    .merge(slot.backend.update_effects(payload.as_mut(), app));
-                return batch;
+                let effects = slot.backend.update_effects(payload.as_mut(), app);
+                return EffectsBatch::single(target.clone(), effects);
             }
         }
         EffectsBatch::default()

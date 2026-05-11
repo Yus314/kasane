@@ -358,7 +358,7 @@ where
     let mut session_ready_gate = SessionReadyGate::default();
     let mut bootstrap_dirty = DirtyFlags::empty();
     sync_ready_gate(&mut session_ready_gate, &state);
-    apply_bootstrap_effects(init_batch.effects, &mut bootstrap_dirty);
+    apply_bootstrap_effects(init_batch.redraw, &mut bootstrap_dirty);
     kasane_core::event_loop::notify_workspace_observers(&mut registry, &surface_registry, &state);
 
     // --- Layout restore ---

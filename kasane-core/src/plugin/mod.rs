@@ -10,6 +10,7 @@ pub mod context;
 pub mod debug_overlay;
 pub mod diagnostics;
 pub mod effect_footprint;
+pub mod effect_tiers;
 pub mod effects;
 pub mod element_patch;
 pub mod error_attribution;
@@ -18,8 +19,8 @@ pub mod handler_registry;
 pub(crate) mod handler_table;
 pub(crate) mod inline_box;
 pub mod io;
-pub mod kakoune_safe_command;
-pub mod kakoune_safe_effects;
+pub mod kakoune_transparent_command;
+pub mod kakoune_transparent_effects;
 pub mod manager;
 pub mod process_task;
 pub mod projection_status;
@@ -51,9 +52,13 @@ pub use diagnostics::{
     PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticOverlayState, PluginDiagnosticSeverity,
     PluginDiagnosticTarget, ProviderArtifactStage, report_plugin_diagnostics,
 };
+pub use effect_tiers::{
+    KakouneSideCommand, KakouneSideEffects, ObservationEffects, ProcessCapableEffects,
+    ProcessCommand,
+};
 pub use effects::{
     Effects, EffectsBatch, LifecyclePhase, MouseHandleResult, NullEffects, PluginEffects,
-    RecordingEffects, StateUpdates, TextInputHandleResult,
+    RecordingEffects, SourcedCommands, StateUpdates, TextInputHandleResult,
 };
 pub use kasane_plugin_model::{PluginId, SettingValue};
 pub use manager::{AppliedWinnerDelta, PluginApplyResult, PluginManager, ResolvedPluginSnapshot};
@@ -104,11 +109,14 @@ pub use traits::{
 // Re-export projection status plugin (Phase 10)
 pub use projection_status::ProjectionStatusPlugin;
 
-// Re-export transparent command types (ADR-030 Level 3)
-pub use kakoune_safe_command::{KakouneSafeCommand, KakouneSafeKeyResult};
+// Re-export transparent command types (ADR-030 Level 3; renamed from
+// `KakouneSafe*` per ADR-044 to free that namespace for the tier hierarchy
+// and to better name what these types actually witness — Kakoune
+// transparency).
+pub use kakoune_transparent_command::{KakouneTransparentCommand, KakouneTransparentKeyResult};
 
 // Re-export transparent effects types (ADR-030 Level 5)
-pub use kakoune_safe_effects::KakouneSafeEffects;
+pub use kakoune_transparent_effects::KakouneTransparentEffects;
 
 // Re-export effect footprint types (ADR-030 Level 5)
 pub use command::EffectCategory;

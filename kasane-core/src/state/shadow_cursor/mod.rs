@@ -713,7 +713,7 @@ mod tests {
 
 use crate::display::InteractionPolicy;
 use crate::plugin::{
-    BuiltinTarget, CursorPositionOrn, Effects, FrameworkAccess, HandlerRegistry,
+    BuiltinTarget, CursorPositionOrn, FrameworkAccess, HandlerRegistry, KakouneSideEffects,
     KeyPreDispatchResult, MousePreDispatchResult, OrnamentBatch, OrnamentModality, Plugin,
     StateUpdates, TextInputPreDispatchResult,
 };
@@ -735,14 +735,18 @@ impl Plugin for BuiltinShadowCursorPlugin {
     fn register(&self, r: &mut HandlerRegistry<()>) {
         r.declare_interests(DirtyFlags::BUFFER_CONTENT);
 
-        r.on_state_changed(|_state, app, dirty| {
+        // Tier 1 (ADR-044): this handler only updates the typed shadow_cursor
+        // state channel — no commands, no spawn. Using `on_state_changed_tier1`
+        // makes that an enforced contract: a future edit that returns plain
+        // `Effects` with a `ProcessCommand` would not compile.
+        r.on_state_changed_tier1(|_state, app, dirty| {
             if !dirty.contains(DirtyFlags::BUFFER_CONTENT) {
-                return ((), Effects::default());
+                return ((), KakouneSideEffects::none());
             }
             let app_state = app.as_app_state();
             let shadow = match app_state.runtime.shadow_cursor.as_ref() {
                 Some(s) => s,
-                None => return ((), Effects::default()),
+                None => return ((), KakouneSideEffects::none()),
             };
             if let Some(dum) = &app_state.runtime.display_unit_map {
                 if let Some(unit) = dum.unit_at_line(shadow.display_line) {
@@ -754,16 +758,16 @@ impl Plugin for BuiltinShadowCursorPlugin {
                             .copied()
                             .unwrap_or(true)
                         {
-                            return ((), Effects::default().with_shadow_cursor(None));
+                            return ((), KakouneSideEffects::none().with_shadow_cursor(None));
                         }
                     } else {
-                        return ((), Effects::default().with_shadow_cursor(None));
+                        return ((), KakouneSideEffects::none().with_shadow_cursor(None));
                     }
                 } else {
-                    return ((), Effects::default().with_shadow_cursor(None));
+                    return ((), KakouneSideEffects::none().with_shadow_cursor(None));
                 }
             }
-            ((), Effects::default())
+            ((), KakouneSideEffects::none())
         });
 
         r.on_key_pre_dispatch(|_state, key, app| {

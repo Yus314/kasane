@@ -69,7 +69,7 @@ use super::extension_point::{
 use super::handler_table::{
     ContributeEntry, GutterHandlerEntry, GutterSide, HandlerTable, TransformEntry,
 };
-use super::kakoune_safe_effects::KakouneSafeEffects;
+use super::kakoune_transparent_effects::KakouneTransparentEffects;
 #[allow(unused_imports)]
 use super::process_task::{ProcessTaskEntry, ProcessTaskResult, ProcessTaskSpec};
 #[allow(unused_imports)]
@@ -81,7 +81,7 @@ use super::traits::{
 #[allow(unused_imports)]
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
-    DisplayDirective, Effects, IoEvent, KakouneSafeCommand, OrnamentBatch, OverlayContext,
+    DisplayDirective, Effects, IoEvent, KakouneTransparentCommand, OrnamentBatch, OverlayContext,
     OverlayContribution, PluginState, RenderOrnamentContext, SlotId, TransformContext,
     TransformTarget, VirtualTextItem,
 };
@@ -100,7 +100,7 @@ impl Transparency for Effects {
     const IS_TRANSPARENT: bool = false;
 }
 
-impl Transparency for KakouneSafeEffects {
+impl Transparency for KakouneTransparentEffects {
     const IS_TRANSPARENT: bool = true;
 }
 
@@ -108,7 +108,7 @@ impl Transparency for Command {
     const IS_TRANSPARENT: bool = false;
 }
 
-impl Transparency for KakouneSafeCommand {
+impl Transparency for KakouneTransparentCommand {
     const IS_TRANSPARENT: bool = true;
 }
 
@@ -116,7 +116,7 @@ impl Transparency for KeyHandleResult {
     const IS_TRANSPARENT: bool = false;
 }
 
-impl Transparency for super::KakouneSafeKeyResult {
+impl Transparency for super::KakouneTransparentKeyResult {
     const IS_TRANSPARENT: bool = true;
 }
 
@@ -386,7 +386,7 @@ impl ChordConfig {
 mod tests {
     use super::*;
     use crate::plugin::PluginCapabilities;
-    use crate::plugin::kakoune_safe_command::KakouneSafeCommand;
+    use crate::plugin::kakoune_transparent_command::KakouneTransparentCommand;
     use crate::plugin::traits::PluginBackend;
     use crate::state::DirtyFlags;
 
@@ -682,6 +682,147 @@ mod tests {
         assert!(table.state_changed_handler.is_some());
     }
 
+    /// Issue #102 / ADR-044 Phase A-3a: the tier-1 state-changed setter accepts
+    /// closures returning `KakouneSideEffects` and stores them through the same
+    /// state-changed handler slot as the legacy setter. The compile-time
+    /// rejection of `Effects` returns is witnessed by the `compile_fail`
+    /// doctest at the setter site — see `lifecycle.rs`.
+    #[test]
+    fn tier1_setter_stores_handler_at_state_changed_slot() {
+        use super::super::KakouneSideEffects;
+
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_state_changed_tier1(|state, _app, _dirty| {
+            let new_state = TestState {
+                counter: state.counter + 1,
+            };
+            (new_state, KakouneSideEffects::none())
+        });
+        let table = registry.into_table();
+        assert!(
+            table.state_changed_handler.is_some(),
+            "tier1 setter must store into state_changed_handler"
+        );
+    }
+
+    /// Phase A-3b: tier-1 lifecycle setters route into the standard handler
+    /// slots so the dispatcher sees them indistinguishably from legacy
+    /// `Effects`-typed handlers — the tier check is purely a registration
+    /// constraint.
+    #[test]
+    fn tier1_init_and_session_ready_setters_store_handlers() {
+        use super::super::KakouneSideEffects;
+
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_init_tier1(|state, _app| (state.clone(), KakouneSideEffects::none()));
+        registry.on_session_ready_tier1(|state, _app| (state.clone(), KakouneSideEffects::none()));
+        let table = registry.into_table();
+        assert!(table.init_handler.is_some(), "on_init_tier1 stores handler");
+        assert!(
+            table.session_ready_handler.is_some(),
+            "on_session_ready_tier1 stores handler"
+        );
+    }
+
+    /// Phase A-3b: tier-2 setters accept ProcessCapableEffects (and narrower
+    /// tiers via the From lifts) but reject raw Effects.
+    #[test]
+    fn tier2_io_and_update_setters_store_handlers() {
+        use super::super::{KakouneSideEffects, ProcessCapableEffects};
+
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_io_event_tier2(|state, _event, _app| {
+            (state.clone(), ProcessCapableEffects::none())
+        });
+        // Narrower tier (KakouneSideEffects) lifts into ProcessCapableEffects
+        // via the From impl added in A-3b.
+        registry.on_update_tier2(|state, _msg, _app| (state.clone(), KakouneSideEffects::none()));
+        let table = registry.into_table();
+        assert!(
+            table.io_event_handler.is_some(),
+            "on_io_event_tier2 stores handler"
+        );
+        assert!(
+            table.update_handler.is_some(),
+            "on_update_tier2 stores handler"
+        );
+    }
+
+    /// Phase A-3c: process-task tier-2 setters store entries with
+    /// `transparent: false` (the ADR-030 transparency marker is independent
+    /// of ADR-044 tier; tier-typed handlers do not claim transparency).
+    #[test]
+    fn tier2_process_task_setters_store_entries() {
+        use super::super::ProcessCapableEffects;
+        use crate::plugin::process_task::ProcessTaskSpec;
+
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_process_task_tier2(
+            "task-a",
+            ProcessTaskSpec::new("fd", &["--type", "f"]),
+            |state, _r, _app| (state.clone(), ProcessCapableEffects::none()),
+        );
+        registry.on_process_task_streaming_tier2(
+            "task-b",
+            ProcessTaskSpec::new("rg", &["pattern"]),
+            |state, _r, _app| (state.clone(), ProcessCapableEffects::none()),
+        );
+        let table = registry.into_table();
+        assert_eq!(table.process_tasks.len(), 2);
+        assert!(!table.process_tasks[0].streaming);
+        assert!(table.process_tasks[1].streaming);
+        assert!(!table.process_tasks[0].transparent);
+        assert!(!table.process_tasks[1].transparent);
+    }
+
+    /// Phase A-3d: tier-1 input setters store handlers and route through
+    /// the same erased dispatch slots as the legacy setters. The asymmetric
+    /// command projection (`KakouneSideCommand → Command`, no reverse)
+    /// prevents `SpawnProcess`-bearing closures from compiling against
+    /// `on_key_tier1` / `on_text_input_tier1` / `on_drop_tier1`.
+    #[test]
+    fn tier1_input_setters_store_handlers() {
+        use super::super::KakouneSideCommand;
+
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_key_tier1(
+            |state, _key, _app| -> Option<(TestState, Vec<KakouneSideCommand>)> {
+                Some((state.clone(), vec![]))
+            },
+        );
+        registry.on_text_input_tier1(
+            |state, _text, _app| -> Option<(TestState, Vec<KakouneSideCommand>)> {
+                Some((state.clone(), vec![]))
+            },
+        );
+        registry.on_drop_tier1(
+            |state, _event, _id, _app| -> Option<(TestState, Vec<KakouneSideCommand>)> {
+                Some((state.clone(), vec![]))
+            },
+        );
+        let table = registry.into_table();
+        assert!(table.key_handler.is_some());
+        assert!(table.text_input_handler.is_some());
+        assert!(table.handle_drop_handler.is_some());
+    }
+
+    /// Phase A-3d-mouse: tier-1 mouse fallback setter accepts
+    /// `Option<Vec<KakouneSideCommand>>` and stores into the same fallback
+    /// slot as the legacy setter.
+    #[test]
+    fn tier1_mouse_fallback_setter_stores_handler() {
+        use super::super::KakouneSideCommand;
+
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_mouse_fallback_tier1(
+            |state, _event, _scroll, _app| -> (TestState, Option<Vec<KakouneSideCommand>>) {
+                (state.clone(), None)
+            },
+        );
+        let table = registry.into_table();
+        assert!(table.mouse_fallback_handler.is_some());
+    }
+
     #[test]
     fn on_navigation_policy_sets_capability() {
         let mut registry = HandlerRegistry::<TestState>::new();
@@ -751,9 +892,10 @@ mod tests {
     fn on_key_transparent_sets_input_handler_and_transparency() {
         let mut registry = HandlerRegistry::<TestState>::new();
         registry.on_key(
-            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<KakouneSafeCommand>)> {
-                None
-            },
+            |_state: &TestState,
+             _key,
+             _app|
+             -> Option<(TestState, Vec<KakouneTransparentCommand>)> { None },
         );
         assert!(registry.is_input_transparent());
         let table = registry.into_table();
@@ -776,9 +918,10 @@ mod tests {
     fn mixed_transparent_and_non_transparent_is_not_transparent() {
         let mut registry = HandlerRegistry::<TestState>::new();
         registry.on_key(
-            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<KakouneSafeCommand>)> {
-                None
-            },
+            |_state: &TestState,
+             _key,
+             _app|
+             -> Option<(TestState, Vec<KakouneTransparentCommand>)> { None },
         );
         registry.on_text_input(|_state, _text, _app| None::<(TestState, Vec<Command>)>);
         assert!(!registry.is_input_transparent());
@@ -788,14 +931,16 @@ mod tests {
     fn all_transparent_handlers_means_input_transparent() {
         let mut registry = HandlerRegistry::<TestState>::new();
         registry.on_key(
-            |_state: &TestState, _key, _app| -> Option<(TestState, Vec<KakouneSafeCommand>)> {
-                None
-            },
+            |_state: &TestState,
+             _key,
+             _app|
+             -> Option<(TestState, Vec<KakouneTransparentCommand>)> { None },
         );
         registry.on_text_input(
-            |_state: &TestState, _text, _app| -> Option<(TestState, Vec<KakouneSafeCommand>)> {
-                None
-            },
+            |_state: &TestState,
+             _text,
+             _app|
+             -> Option<(TestState, Vec<KakouneTransparentCommand>)> { None },
         );
         assert!(registry.is_input_transparent());
     }

@@ -27,7 +27,7 @@ fn external_plugin_registers_and_inits() {
     registry.register_backend(Box::new(TestExternalPlugin::new()));
     let state = AppState::default();
     let batch = registry.init_all_batch(&AppView::new(&state));
-    assert!(batch.effects.redraw.contains(DirtyFlags::STATUS));
+    assert!(batch.redraw.contains(DirtyFlags::STATUS));
     // No panic = success; plugin was registered and initialized
 }
 

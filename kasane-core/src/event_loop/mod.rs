@@ -43,16 +43,23 @@ pub use surface::{
 
 // ── EventResult ─────────────────────────────────────────────────
 
-use crate::plugin::extract_redraw_flags;
+use crate::plugin::{SourcedCommands, extract_redraw_flags};
 use crate::scroll::ScrollPlan;
 
 /// Structured result from processing a single event.
+///
+/// `commands` + `command_source` form the single-source channel for first-wins
+/// dispatches (handle_key, handle_mouse, etc). `sourced_commands` is the
+/// multi-source channel for paths that aggregate across plugins (state-changed
+/// notifications, command-error fan-out). The event loop drains both — see
+/// issue #101 for the attribution split.
 pub struct EventResult {
     pub flags: DirtyFlags,
     pub commands: Vec<crate::plugin::Command>,
     pub scroll_plans: Vec<ScrollPlan>,
     pub surface_commands: Vec<SourcedSurfaceCommands>,
     pub command_source: Option<PluginId>,
+    pub sourced_commands: Vec<SourcedCommands>,
     pub workspace_changed: bool,
 }
 
@@ -64,6 +71,7 @@ impl EventResult {
             scroll_plans: vec![],
             surface_commands: vec![],
             command_source: None,
+            sourced_commands: vec![],
             workspace_changed: false,
         }
     }

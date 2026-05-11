@@ -143,9 +143,9 @@ fn test_deliver_io_event_dispatches_to_plugin() {
         &event,
         &AppView::new(&state),
     );
-    assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
-    assert!(batch.effects.commands.is_empty());
-    assert_eq!(batch.effects.scroll_plans.len(), 1);
+    assert!(batch.redraw.contains(DirtyFlags::BUFFER));
+    assert!(batch.per_plugin_commands.is_empty());
+    assert_eq!(batch.scroll_plans.len(), 1);
 }
 
 #[test]
@@ -163,9 +163,9 @@ fn test_deliver_io_event_unknown_target() {
         &event,
         &AppView::new(&state),
     );
-    assert!(batch.effects.redraw.is_empty());
-    assert!(batch.effects.commands.is_empty());
-    assert!(batch.effects.scroll_plans.is_empty());
+    assert!(batch.redraw.is_empty());
+    assert!(batch.per_plugin_commands.is_empty());
+    assert!(batch.scroll_plans.is_empty());
 }
 
 // --- ProcessDispatcher tests ---

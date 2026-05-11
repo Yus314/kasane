@@ -7,7 +7,7 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use super::super::traits::{
     KeyHandleResult, KeyPreDispatchResult, MousePreDispatchResult, TextInputPreDispatchResult,
 };
-use super::super::{AppView, Command, PluginState};
+use super::super::{AppView, Command, KakouneSideCommand, PluginState};
 
 use super::{HandlerRegistry, Transparency};
 
@@ -33,10 +33,44 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         }
     }
 
+    /// Register a tier-1 key handler
+    /// ([ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)).
+    ///
+    /// Plugin authors opt into a **no-spawn** contract for key handlers by
+    /// returning `Vec<KakouneSideCommand>`. The bound is stricter than
+    /// ADR-044's default mapping for input handlers (Tier 2) — it is an
+    /// opt-in tightening for handlers that only need Kakoune-side effects.
+    ///
+    /// The bound rejects `Command` returns at compile time because there is
+    /// intentionally no `From<Command> for KakouneSideCommand` impl (a
+    /// generic `Command` may be a `SpawnProcess` variant).
+    pub fn on_key_tier1<C: Into<KakouneSideCommand> + 'static>(
+        &mut self,
+        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> Option<(S, Vec<C>)> + Send + Sync + 'static,
+    ) {
+        self.table.key_handler = Some(Box::new(move |state, key, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, key, app).map(|(new_state, cmds)| {
+                (
+                    Box::new(new_state) as Box<dyn PluginState>,
+                    cmds.into_iter()
+                        .map(|c| {
+                            let side: KakouneSideCommand = c.into();
+                            side.into()
+                        })
+                        .collect(),
+                )
+            })
+        }));
+    }
+
     /// Register a key middleware handler.
     ///
     /// Accepts closures returning `(S, KeyHandleResult)` or
-    /// `(S, KakouneSafeKeyResult)` for compile-time transparency.
+    /// `(S, KakouneTransparentKeyResult)` for compile-time transparency.
     pub fn on_key_middleware<R: Into<KeyHandleResult> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> (S, R) + Send + Sync + 'static,
@@ -93,7 +127,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Register a committed text input handler (consumes text, returns commands).
     ///
     /// Accepts closures returning `Option<(S, Vec<Command>)>` or
-    /// `Option<(S, Vec<KakouneSafeCommand>)>` for compile-time transparency.
+    /// `Option<(S, Vec<KakouneTransparentCommand>)>` for compile-time transparency.
     pub fn on_text_input<C: Into<Command> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &str, &AppView<'_>) -> Option<(S, Vec<C>)> + Send + Sync + 'static,
@@ -113,6 +147,35 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         if C::IS_TRANSPARENT {
             self.table.transparency.text_input = true;
         }
+    }
+
+    /// Register a tier-1 committed text input handler
+    /// ([ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)).
+    ///
+    /// `Vec<KakouneSideCommand>` opt-in for input handlers that only need
+    /// Kakoune-side effects. Stricter than ADR-044's Tier 2 default for
+    /// input handlers.
+    pub fn on_text_input_tier1<C: Into<KakouneSideCommand> + 'static>(
+        &mut self,
+        handler: impl Fn(&S, &str, &AppView<'_>) -> Option<(S, Vec<C>)> + Send + Sync + 'static,
+    ) {
+        self.table.text_input_handler = Some(Box::new(move |state, text, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, text, app).map(|(new_state, cmds)| {
+                (
+                    Box::new(new_state) as Box<dyn PluginState>,
+                    cmds.into_iter()
+                        .map(|c| {
+                            let side: KakouneSideCommand = c.into();
+                            side.into()
+                        })
+                        .collect(),
+                )
+            })
+        }));
     }
 
     /// Register a committed text input observer (notification only, cannot consume).
@@ -194,6 +257,38 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         }));
     }
 
+    /// Register a tier-1 mouse fallback handler
+    /// ([ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)).
+    ///
+    /// `Option<Vec<KakouneSideCommand>>` opt-in for mouse-fallback handlers
+    /// that only forward Kakoune-side effects (the common case — the
+    /// builtin fallback emits `SendToKakoune` for unhandled mouse events).
+    /// The bound rejects raw `Command` returns at compile time.
+    pub fn on_mouse_fallback_tier1<C: Into<KakouneSideCommand> + 'static>(
+        &mut self,
+        handler: impl Fn(&S, &MouseEvent, i32, &AppView<'_>) -> (S, Option<Vec<C>>)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.mouse_fallback_handler = Some(Box::new(move |state, event, scroll, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, commands) = handler(s, event, scroll, app);
+            let commands = commands.map(|v| {
+                v.into_iter()
+                    .map(|c| {
+                        let side: KakouneSideCommand = c.into();
+                        side.into()
+                    })
+                    .collect()
+            });
+            (Box::new(new_state) as Box<dyn PluginState>, commands)
+        }));
+    }
+
     /// Register a mouse observer (notification only, cannot consume).
     pub fn on_observe_mouse(
         &mut self,
@@ -211,7 +306,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Register a mouse handler (interactive element click).
     ///
     /// Accepts closures returning `Option<(S, Vec<Command>)>` or
-    /// `Option<(S, Vec<KakouneSafeCommand>)>` for compile-time transparency.
+    /// `Option<(S, Vec<KakouneTransparentCommand>)>` for compile-time transparency.
     pub fn on_handle_mouse<C: Into<Command> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &MouseEvent, InteractiveId, &AppView<'_>) -> Option<(S, Vec<C>)>
@@ -253,7 +348,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Register a drop handler (interactive element drop target).
     ///
     /// Accepts closures returning `Option<(S, Vec<Command>)>` or
-    /// `Option<(S, Vec<KakouneSafeCommand>)>` for compile-time transparency.
+    /// `Option<(S, Vec<KakouneTransparentCommand>)>` for compile-time transparency.
     pub fn on_drop<C: Into<Command> + Transparency + 'static>(
         &mut self,
         handler: impl Fn(&S, &DropEvent, InteractiveId, &AppView<'_>) -> Option<(S, Vec<C>)>
@@ -276,6 +371,37 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         if C::IS_TRANSPARENT {
             self.table.transparency.drop_handler = true;
         }
+    }
+
+    /// Register a tier-1 drop handler
+    /// ([ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)).
+    ///
+    /// `Vec<KakouneSideCommand>` opt-in for drop handlers that only need
+    /// Kakoune-side effects.
+    pub fn on_drop_tier1<C: Into<KakouneSideCommand> + 'static>(
+        &mut self,
+        handler: impl Fn(&S, &DropEvent, InteractiveId, &AppView<'_>) -> Option<(S, Vec<C>)>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.handle_drop_handler = Some(Box::new(move |state, event, id, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, event, id, app).map(|(new_state, cmds)| {
+                (
+                    Box::new(new_state) as Box<dyn PluginState>,
+                    cmds.into_iter()
+                        .map(|c| {
+                            let side: KakouneSideCommand = c.into();
+                            side.into()
+                        })
+                        .collect(),
+                )
+            })
+        }));
     }
 
     // =========================================================================
