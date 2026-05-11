@@ -5,7 +5,8 @@ use crate::input::{DropEvent, KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 
 use super::super::traits::{
-    KakouneSideMousePreDispatchResult, KeyHandleResult, KeyPreDispatchResult,
+    KakouneSideKeyPreDispatchResult, KakouneSideMousePreDispatchResult,
+    KakouneSideTextInputPreDispatchResult, KeyHandleResult, KeyPreDispatchResult,
     MousePreDispatchResult, TextInputPreDispatchResult,
 };
 use super::super::{AppView, Command, KakouneSideCommand, PluginState};
@@ -94,6 +95,13 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Pre-dispatch handlers can `Consume` the key (terminating dispatch) or
     /// `Pass` it through with optional state updates and commands. Used by
     /// shadow-cursor-class plugins that need first-look at every keystroke.
+    ///
+    /// **For new code, prefer [`Self::on_key_pre_dispatch_tier1`]** — it pins
+    /// the Tier-1 contract from
+    /// [ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
+    /// at compile time. Key pre-dispatch fires per keystroke and is the
+    /// same re-entrance class as state-changed; process spawn from
+    /// pre-dispatch is an anti-pattern in practice.
     pub fn on_key_pre_dispatch(
         &mut self,
         handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> (S, KeyPreDispatchResult)
@@ -108,6 +116,29 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 .expect("state type mismatch");
             let (new_state, result) = handler(s, key, app);
             (Box::new(new_state) as Box<dyn PluginState>, result)
+        }));
+    }
+
+    /// Register a tier-1 key pre-dispatch handler
+    /// ([ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)).
+    ///
+    /// Returns a [`KakouneSideKeyPreDispatchResult`] whose `commands` is
+    /// `Vec<KakouneSideCommand>`. `pending_buffer_edit` passes through
+    /// unchanged — the algebraic shadow-cursor commit path is
+    /// orthogonal to the tier hierarchy (the dispatch loop later
+    /// serializes the resolved edit into Kakoune-side commands).
+    pub fn on_key_pre_dispatch_tier1<R: Into<KakouneSideKeyPreDispatchResult> + 'static>(
+        &mut self,
+        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> (S, R) + Send + Sync + 'static,
+    ) {
+        self.table.key_pre_dispatch_handler = Some(Box::new(move |state, key, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, tier1) = handler(s, key, app);
+            let tier1: KakouneSideKeyPreDispatchResult = tier1.into();
+            (Box::new(new_state) as Box<dyn PluginState>, tier1.into())
         }));
     }
 
@@ -197,6 +228,11 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     ///
     /// Pre-dispatch handlers can `Consume` the input (terminating dispatch) or
     /// `Pass` it through with optional state updates and commands.
+    ///
+    /// **For new code, prefer [`Self::on_text_input_pre_dispatch_tier1`]**
+    /// — it pins the Tier-1 contract from
+    /// [ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
+    /// at compile time.
     pub fn on_text_input_pre_dispatch(
         &mut self,
         handler: impl Fn(&S, &str, &AppView<'_>) -> (S, TextInputPreDispatchResult)
@@ -211,6 +247,29 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 .expect("state type mismatch");
             let (new_state, result) = handler(s, text, app);
             (Box::new(new_state) as Box<dyn PluginState>, result)
+        }));
+    }
+
+    /// Register a tier-1 text-input pre-dispatch handler
+    /// ([ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)).
+    ///
+    /// Returns a [`KakouneSideTextInputPreDispatchResult`] whose
+    /// `Consumed` carries `Vec<KakouneSideCommand>`. The `Pass` variant
+    /// is identical between tiers (no commands).
+    pub fn on_text_input_pre_dispatch_tier1<
+        R: Into<KakouneSideTextInputPreDispatchResult> + 'static,
+    >(
+        &mut self,
+        handler: impl Fn(&S, &str, &AppView<'_>) -> (S, R) + Send + Sync + 'static,
+    ) {
+        self.table.text_input_pre_dispatch_handler = Some(Box::new(move |state, text, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, tier1) = handler(s, text, app);
+            let tier1: KakouneSideTextInputPreDispatchResult = tier1.into();
+            (Box::new(new_state) as Box<dyn PluginState>, tier1.into())
         }));
     }
 
@@ -554,18 +613,21 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
 
 #[cfg(test)]
 mod tier1_mouse_tests {
-    //! ADR-044 Phase A-3d-mouse: positive integration tests for the tier-1
-    //! mouse pre-dispatch / handle-mouse setters. The compile-fail aspect
-    //! (raw `MousePreDispatchResult` rejected by `on_mouse_pre_dispatch_tier1`
+    //! ADR-044 Phase A-3d-mouse + follow-ups: positive integration tests
+    //! for the tier-1 pre-dispatch / handle-mouse setters across mouse,
+    //! key, and text-input handlers. The compile-fail aspect (raw
+    //! `MousePreDispatchResult` / `KeyPreDispatchResult` /
+    //! `TextInputPreDispatchResult` rejected by their `_tier1` setters,
     //! and raw `Command` rejected by `on_handle_mouse_tier1`) is enforced
-    //! structurally by the bound `R: Into<KakouneSideMousePreDispatchResult>`
-    //! / `C: Into<KakouneSideCommand>` and the absence of reverse `From`
-    //! impls — there is no way to construct a closure that satisfies the
-    //! bound while returning the broad type.
+    //! structurally by the `R: Into<KakouneSide*>` / `C: Into<KakouneSideCommand>`
+    //! bound and the absence of reverse `From` impls — there is no way to
+    //! construct a closure that satisfies the bound while returning the
+    //! broad type.
 
-    use crate::input::{Modifiers, MouseButton, MouseEvent, MouseEventKind};
+    use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
     use crate::plugin::{
-        AppView, HandlerRegistry, KakouneSideCommand, KakouneSideMousePreDispatchResult, Plugin,
+        AppView, HandlerRegistry, KakouneSideCommand, KakouneSideKeyPreDispatchResult,
+        KakouneSideMousePreDispatchResult, KakouneSideTextInputPreDispatchResult, Plugin,
         PluginBackend, PluginBridge, PluginId, StateUpdates,
     };
     use crate::state::{AppState, DirtyFlags};
@@ -680,5 +742,149 @@ mod tier1_mouse_tests {
             Some(commands) => assert_eq!(commands.len(), 1),
             None => panic!("tier-1 handle-mouse should consume the event"),
         }
+    }
+
+    fn probe_key() -> KeyEvent {
+        KeyEvent {
+            key: Key::Char('a'),
+            modifiers: Modifiers::empty(),
+        }
+    }
+
+    #[test]
+    fn tier1_key_pre_dispatch_pass_lifts_to_broad_result() {
+        struct Plug;
+        impl Plugin for Plug {
+            type State = TestState;
+            fn id(&self) -> PluginId {
+                PluginId("test.tier1-kpd-pass".into())
+            }
+            fn register(&self, r: &mut HandlerRegistry<TestState>) {
+                r.on_key_pre_dispatch_tier1(|s, _key, _app| {
+                    (
+                        s.clone(),
+                        KakouneSideKeyPreDispatchResult::Pass {
+                            commands: vec![KakouneSideCommand::request_redraw(DirtyFlags::BUFFER)],
+                            state_updates: StateUpdates::default(),
+                        },
+                    )
+                });
+            }
+        }
+
+        let mut bridge = PluginBridge::new(Plug);
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let result = bridge.handle_key_pre_dispatch(&probe_key(), &app);
+        match result {
+            crate::plugin::KeyPreDispatchResult::Pass { commands, .. } => {
+                assert_eq!(commands.len(), 1, "tier-1 command should lift through");
+            }
+            _ => panic!("expected Pass variant"),
+        }
+    }
+
+    #[test]
+    fn tier1_key_pre_dispatch_consumed_preserves_pending_buffer_edit() {
+        // The shadow-cursor commit channel is orthogonal to the tier
+        // hierarchy; the lift must preserve the optional buffer edit.
+        struct Plug;
+        impl Plugin for Plug {
+            type State = TestState;
+            fn id(&self) -> PluginId {
+                PluginId("test.tier1-kpd-consumed".into())
+            }
+            fn register(&self, r: &mut HandlerRegistry<TestState>) {
+                r.on_key_pre_dispatch_tier1(|s, _key, _app| {
+                    (
+                        s.clone(),
+                        KakouneSideKeyPreDispatchResult::Consumed {
+                            flags: DirtyFlags::STATUS,
+                            commands: vec![],
+                            state_updates: StateUpdates::default(),
+                            pending_buffer_edit: None,
+                        },
+                    )
+                });
+            }
+        }
+
+        let mut bridge = PluginBridge::new(Plug);
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let result = bridge.handle_key_pre_dispatch(&probe_key(), &app);
+        match result {
+            crate::plugin::KeyPreDispatchResult::Consumed {
+                flags,
+                pending_buffer_edit,
+                ..
+            } => {
+                assert!(flags.contains(DirtyFlags::STATUS));
+                assert!(pending_buffer_edit.is_none());
+            }
+            _ => panic!("expected Consumed variant"),
+        }
+    }
+
+    #[test]
+    fn tier1_text_input_pre_dispatch_consumed_lifts_to_broad_result() {
+        struct Plug;
+        impl Plugin for Plug {
+            type State = TestState;
+            fn id(&self) -> PluginId {
+                PluginId("test.tier1-tipd-consumed".into())
+            }
+            fn register(&self, r: &mut HandlerRegistry<TestState>) {
+                r.on_text_input_pre_dispatch_tier1(|s, _text, _app| {
+                    (
+                        s.clone(),
+                        KakouneSideTextInputPreDispatchResult::Consumed {
+                            flags: DirtyFlags::BUFFER,
+                            commands: vec![KakouneSideCommand::request_redraw(DirtyFlags::BUFFER)],
+                            state_updates: StateUpdates::default(),
+                        },
+                    )
+                });
+            }
+        }
+
+        let mut bridge = PluginBridge::new(Plug);
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let result = bridge.handle_text_input_pre_dispatch("hi", &app);
+        match result {
+            crate::plugin::TextInputPreDispatchResult::Consumed {
+                flags, commands, ..
+            } => {
+                assert!(flags.contains(DirtyFlags::BUFFER));
+                assert_eq!(commands.len(), 1, "tier-1 command should lift through");
+            }
+            _ => panic!("expected Consumed variant"),
+        }
+    }
+
+    #[test]
+    fn tier1_text_input_pre_dispatch_pass_round_trips() {
+        struct Plug;
+        impl Plugin for Plug {
+            type State = TestState;
+            fn id(&self) -> PluginId {
+                PluginId("test.tier1-tipd-pass".into())
+            }
+            fn register(&self, r: &mut HandlerRegistry<TestState>) {
+                r.on_text_input_pre_dispatch_tier1(|s, _text, _app| {
+                    (s.clone(), KakouneSideTextInputPreDispatchResult::Pass)
+                });
+            }
+        }
+
+        let mut bridge = PluginBridge::new(Plug);
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let result = bridge.handle_text_input_pre_dispatch("hi", &app);
+        assert!(matches!(
+            result,
+            crate::plugin::TextInputPreDispatchResult::Pass
+        ));
     }
 }

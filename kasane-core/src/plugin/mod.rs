@@ -102,7 +102,8 @@ pub use crate::display::{
 // Re-export traits module
 pub use crate::input::KeyResponse;
 pub use traits::{
-    KakouneSideMousePreDispatchResult, KeyHandleResult, KeyPreDispatchResult,
+    KakouneSideKeyPreDispatchResult, KakouneSideMousePreDispatchResult,
+    KakouneSideTextInputPreDispatchResult, KeyHandleResult, KeyPreDispatchResult,
     MousePreDispatchResult, PluginBackend, TextInputPreDispatchResult,
 };
 

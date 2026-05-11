@@ -154,6 +154,81 @@ pub enum TextInputPreDispatchResult {
     Pass,
 }
 
+/// ADR-044 Phase A-3d-mouse follow-up: tier-1 mirror of
+/// [`KeyPreDispatchResult`]. Same shape, but `commands` is
+/// `Vec<KakouneSideCommand>` so process spawn variants are rejected at
+/// compile time. `pending_buffer_edit` is preserved verbatim — the
+/// algebraic shadow-cursor commit is orthogonal to the tier hierarchy
+/// (the dispatch loop later folds it into Kakoune-side commands via
+/// `state::shadow_cursor::edit_to_commands`).
+pub enum KakouneSideKeyPreDispatchResult {
+    Consumed {
+        flags: DirtyFlags,
+        commands: Vec<super::KakouneSideCommand>,
+        state_updates: StateUpdates,
+        pending_buffer_edit: Option<crate::state::shadow_cursor::BufferEdit>,
+    },
+    Pass {
+        commands: Vec<super::KakouneSideCommand>,
+        state_updates: StateUpdates,
+    },
+}
+
+impl From<KakouneSideKeyPreDispatchResult> for KeyPreDispatchResult {
+    fn from(tier1: KakouneSideKeyPreDispatchResult) -> Self {
+        match tier1 {
+            KakouneSideKeyPreDispatchResult::Consumed {
+                flags,
+                commands,
+                state_updates,
+                pending_buffer_edit,
+            } => KeyPreDispatchResult::Consumed {
+                flags,
+                commands: commands.into_iter().map(Into::into).collect(),
+                state_updates,
+                pending_buffer_edit,
+            },
+            KakouneSideKeyPreDispatchResult::Pass {
+                commands,
+                state_updates,
+            } => KeyPreDispatchResult::Pass {
+                commands: commands.into_iter().map(Into::into).collect(),
+                state_updates,
+            },
+        }
+    }
+}
+
+/// ADR-044 Phase A-3d-mouse follow-up: tier-1 mirror of
+/// [`TextInputPreDispatchResult`]. The `Pass` variant carries no
+/// payload (no commands path) and is therefore identical between
+/// tiers; `Consumed` swaps `Vec<Command>` for `Vec<KakouneSideCommand>`.
+pub enum KakouneSideTextInputPreDispatchResult {
+    Consumed {
+        flags: DirtyFlags,
+        commands: Vec<super::KakouneSideCommand>,
+        state_updates: StateUpdates,
+    },
+    Pass,
+}
+
+impl From<KakouneSideTextInputPreDispatchResult> for TextInputPreDispatchResult {
+    fn from(tier1: KakouneSideTextInputPreDispatchResult) -> Self {
+        match tier1 {
+            KakouneSideTextInputPreDispatchResult::Consumed {
+                flags,
+                commands,
+                state_updates,
+            } => TextInputPreDispatchResult::Consumed {
+                flags,
+                commands: commands.into_iter().map(Into::into).collect(),
+                state_updates,
+            },
+            KakouneSideTextInputPreDispatchResult::Pass => TextInputPreDispatchResult::Pass,
+        }
+    }
+}
+
 /// Internal dispatch ABI. **Plugin authors must use [`Plugin`] +
 /// [`HandlerRegistry`](super::HandlerRegistry) instead.**
 ///
