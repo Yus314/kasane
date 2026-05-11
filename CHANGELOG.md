@@ -2,6 +2,56 @@
 
 ## [Unreleased]
 
+### Added — Plugin DX long-term: test harness + command linter (Issue #81 long-term, 2026-05-11)
+
+Closes the two remaining infrastructural items on the sprout dogfooding
+tracker — #92 (plugin test harness) and #93 (static Kakoune-command
+linter). The remaining child #94 (structured `KakCommand` enum) is
+deferred pending an RFC.
+
+- **`kasane-plugin-sdk-test`** crate (#92): mock-host harness for
+  unit-testing plugins natively, without compiling to `wasm32-wasip2`
+  or driving a real Kakoune. Provides `TestHarness` (setters mirroring
+  the WIT `host-state` surface), `MockHostState` with structured
+  `Mock{Brush,Style,Atom,Coord,Info,Session}` types,
+  `CommandRecord` / `drain_commands` for Effects observation, and a
+  `MockElementArena` recording every `element_builder::*` call.
+  Re-exported as `kasane_plugin_sdk::test` under the SDK's
+  `test-harness` feature, so plugin authors can opt in with a single
+  Cargo.toml line:
+
+  ```toml
+  [features]
+  test-harness = ["kasane-plugin-sdk/test-harness"]
+  ```
+
+  The macros emitted by `define_plugin!` / `generate!` now cfg-switch
+  the `host_state` module: under `test-harness` on a non-wasm target
+  they route into the mock; production WASM builds are unchanged.
+  `examples/wasm/cursor-line` ships 4 end-to-end tests demonstrating
+  the pattern. See `docs/plugin-testing.md` for the cookbook.
+
+- **`kak_lint!`** proc macro (#93): compile-time validator for raw
+  Kakoune command strings. Catches the sprout-dogfooding bug —
+  `declare-user-mode -override` (Kakoune silently rejects;
+  `declare-user-mode` does not accept `-override`), which caused all 11
+  user-mode keymaps to fail to register — before the plugin is ever
+  loaded:
+
+  ```rust
+  // Compile error: unknown flag `-override` for `declare-user-mode`.
+  let _ = kasane_plugin_sdk::kak_lint!("declare-user-mode -override 'sprout'");
+  ```
+
+  Hand-rolled tokenizer handles all four Kakoune quotation forms
+  (`'…'` with `''` escaping, `%{…}`/`%[…]`/`%(…)`/`%<…>`) and follows
+  `try` into its body so the idiomatic
+  `try %[ declare-user-mode … ]` wrapper still gets linted. The
+  catalog ships with 12 setup-heavy commands; unknown commands pass
+  through unchanged (additive policy — no false positives against
+  real Kakoune). Catalog expansion is a one-line entry in
+  `kasane-plugin-sdk-macros/src/lint.rs`.
+
 ### Added — Plugin DX dogfooding suite (Issue #81, 2026-05-11)
 
 The sprout dogfooding tracker (#81) closes 8/12 children with a focused
