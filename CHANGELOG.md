@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-11
+
+The 0.7.0 release lands the **R2.x P7+P9 cascade**
+([ADR-039](docs/decisions.md#adr-039-plugin-path-consolidation-r2x))
+removing `WireFace` from the public plugin API, the **ABI 4.0.0 →
+4.1.0 wire bump** for `eval-command` at session-ready (ADR-041) and
+`command-error-event` plugin observability (ADR-042), and the
+**Issue #81 sprout-dogfooding suite** (12 children + 1 follow-up
+#97) delivering 3 layers of Kakoune-command construction tooling
+(`kak::*`, `kak_lint!`, `kak_cmd::KakCommand`), a native plugin
+test harness, and a host of SDK ergonomic helpers.
+
+Migration: [`docs/migration/0.6-to-0.7.md`](docs/migration/0.6-to-0.7.md)
+walks each breaking-change site plus the §§9.1–9.5 opt-in additions.
+
 ### Added — `kak::set_option` + `kak::set_option_add` (closes [#97](https://github.com/Yus314/kasane/issues/97))
 
 Two SDK helpers that close a silent foot-gun surfaced by the second
