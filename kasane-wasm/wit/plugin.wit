@@ -1,4 +1,4 @@
-package kasane:plugin@4.1.0;
+package kasane:plugin@4.2.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -34,6 +34,18 @@ package kasane:plugin@4.1.0;
 // attributed to them via the `info_show` marker protocol. Host
 // dispatch wiring is staged separately (Step 2); Step 1 reserves
 // the wire space and provides a default no-op via SDK macros.
+//
+// WIT 4.2 (ADR-044 Phase B-2): adds `on-state-changed-tier1-effects`
+// export returning the narrower `kakoune-side-effects` (Phase B-1
+// wire shape). Plugins that opt into the tier-1 contract for the
+// state-changed handler emit Kakoune-side commands only; process
+// spawn / external I/O are rejected at the type level. The host
+// dispatches both the tier-1 and the legacy `on-state-changed-effects`
+// exports per tick and merges their results — the SDK default
+// returns empty effects, so existing plugins observe no behavioural
+// change. Phase B-3 will extend the SDK macros so authors can
+// declare tier-1 directly and the macro emits only the chosen
+// export.
 
 interface types {
     enum named-color {
@@ -1744,6 +1756,7 @@ interface plugin-api {
                surface-event-context, surface-event, surface-descriptor,
                default-scroll-candidate, scroll-policy-result,
                bootstrap-effects, session-ready-effects, runtime-effects,
+               kakoune-side-effects,
                cell-decoration, ornament-context, ornament-batch,
                key-group-decl, key-response,
                display-unit-info, navigation-policy-kind, navigation-action-result,
@@ -1777,6 +1790,18 @@ interface plugin-api {
 
     /// Typed runtime effects for state changes.
     on-state-changed-effects: func(dirty-flags: u16) -> runtime-effects;
+
+    /// Tier-1 state-changed handler (ADR-044 Phase B-2). Returns the
+    /// narrower `kakoune-side-effects` shape — process spawn / external
+    /// I/O variants are absent at the wire level, mirroring the native
+    /// `KakouneSideEffects` tier from Phase A.
+    ///
+    /// The host calls this export *and* `on-state-changed-effects` per
+    /// tick and merges the two results. The SDK default returns empty
+    /// effects, so plugins that have not opted into tier-1 observe no
+    /// behavioural change. Plugins opting into tier-1 should leave the
+    /// legacy export at its default to avoid duplicate effects.
+    on-state-changed-tier1-effects: func(dirty-flags: u16) -> kakoune-side-effects;
 
     /// Notification that the workspace layout has changed.
     on-workspace-changed: func(snapshot: workspace-snapshot);

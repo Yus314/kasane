@@ -272,6 +272,19 @@ impl WasmPluginShared {
             shared.convert_command(command)
         })
     }
+
+    /// ADR-044 Phase B-2: project tier-1 wire effects through the same
+    /// command-conversion pipeline as the legacy `runtime-effects` path
+    /// so attribution / `set-setting` rewrites stay uniform.
+    fn convert_kakoune_side_effects(
+        self: &Arc<Self>,
+        effects: &wit::KakouneSideEffects,
+    ) -> Effects {
+        let shared = Arc::clone(self);
+        convert::wit_kakoune_side_effects_to_effects_with(effects, move |command| {
+            shared.convert_command(command)
+        })
+    }
 }
 
 struct WasmHostedSurface {
@@ -790,9 +803,18 @@ impl PluginBackend for WasmPlugin {
         self.shared
             .call_synced_with_hash(state, "on_state_changed_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
-                Ok(shared.convert_runtime_effects(
-                    &api.call_on_state_changed_effects(&mut rt.store, dirty.bits())?,
-                ))
+                // ADR-044 Phase B-2: dispatch the tier-1 export alongside
+                // the legacy `on-state-changed-effects` and merge. The
+                // SDK default for the tier-1 export returns empty
+                // effects, so plugins that have not opted into tier-1
+                // observe no behavioural change. Plugins opting into
+                // tier-1 should leave the legacy export at its default.
+                let tier1_wit =
+                    api.call_on_state_changed_tier1_effects(&mut rt.store, dirty.bits())?;
+                let legacy_wit = api.call_on_state_changed_effects(&mut rt.store, dirty.bits())?;
+                let mut effects = shared.convert_kakoune_side_effects(&tier1_wit);
+                effects.merge(shared.convert_runtime_effects(&legacy_wit));
+                Ok(effects)
             })
     }
 

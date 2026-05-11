@@ -69,6 +69,7 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "on_active_session_ready_effects",
         "on_shutdown",
         "on_state_changed_effects",
+        "on_state_changed_tier1_effects",
         "on_workspace_changed",
         "surfaces",
         "render_surface",
@@ -224,6 +225,19 @@ pub(crate) fn generate_defaults(
         quote! {
             fn on_state_changed_effects(_dirty_flags: u16) -> RuntimeEffects {
                 Effects::default()
+            }
+        }
+    );
+
+    // ADR-044 Phase B-2: tier-1 state-changed handler. Default returns
+    // empty `KakouneSideEffects`; the host calls this alongside the
+    // legacy export and merges the results, so plugins that have not
+    // opted into the tier-1 contract see no behavioural change.
+    add_default!(
+        "on_state_changed_tier1_effects",
+        quote! {
+            fn on_state_changed_tier1_effects(_dirty_flags: u16) -> KakouneSideEffects {
+                KakouneSideEffects::default()
             }
         }
     );

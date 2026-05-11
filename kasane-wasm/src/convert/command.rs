@@ -202,6 +202,63 @@ pub(crate) fn wit_runtime_effects_to_effects_with(
     }
 }
 
+/// Lift a tier-1 wire command (ADR-044 Phase B-2) into the broader
+/// `wit::Command` enum. The tier-1 variant is a strict subset of
+/// `wit::Command`, so the projection is total. Adapter code routes the
+/// lifted command through its existing `convert_command` so adapter-
+/// context-dependent rewrites (`set-setting`, `register-surface`,
+/// `command-error` `eval-command` wrapping) apply uniformly.
+pub(crate) fn wit_kakoune_side_command_to_wit_command(
+    wc: &wit::KakouneSideCommand,
+) -> wit::Command {
+    match wc {
+        wit::KakouneSideCommand::SendKeys(keys) => wit::Command::SendKeys(keys.clone()),
+        wit::KakouneSideCommand::EvalCommand(cmd) => wit::Command::EvalCommand(cmd.clone()),
+        wit::KakouneSideCommand::PasteClipboard => wit::Command::PasteClipboard,
+        wit::KakouneSideCommand::Quit => wit::Command::Quit,
+        wit::KakouneSideCommand::RequestRedraw(bits) => wit::Command::RequestRedraw(*bits),
+        wit::KakouneSideCommand::SetConfig(entry) => wit::Command::SetConfig(entry.clone()),
+        wit::KakouneSideCommand::SetSetting(entry) => wit::Command::SetSetting(entry.clone()),
+        wit::KakouneSideCommand::ScheduleTimer(tc) => wit::Command::ScheduleTimer(tc.clone()),
+        wit::KakouneSideCommand::CancelTimer(timer_id) => wit::Command::CancelTimer(*timer_id),
+        wit::KakouneSideCommand::PluginMessage(mc) => wit::Command::PluginMessage(mc.clone()),
+        wit::KakouneSideCommand::RegisterSurface(cfg) => wit::Command::RegisterSurface(cfg.clone()),
+        wit::KakouneSideCommand::UnregisterSurface(key) => {
+            wit::Command::UnregisterSurface(key.clone())
+        }
+        wit::KakouneSideCommand::EditBuffer(edits) => wit::Command::EditBuffer(edits.clone()),
+        wit::KakouneSideCommand::InjectKey(key) => wit::Command::InjectKey(*key),
+        wit::KakouneSideCommand::RegisterThemeTokens(tokens) => {
+            wit::Command::RegisterThemeTokens(tokens.clone())
+        }
+    }
+}
+
+/// Convert tier-1 wire effects (ADR-044 Phase B-2) into the broader
+/// [`Effects`] struct via a caller-supplied command projector. The host
+/// adapter passes its full `convert_command` closure so adapter-context
+/// rewrites (`set-setting`, `register-surface`, `command-error` wrap)
+/// apply uniformly with the legacy effects path.
+pub(crate) fn wit_kakoune_side_effects_to_effects_with(
+    effects: &wit::KakouneSideEffects,
+    mut convert_command: impl FnMut(&wit::Command) -> Vec<Command>,
+) -> Effects {
+    Effects {
+        redraw: DirtyFlags::from_bits_truncate(effects.redraw),
+        commands: effects
+            .commands
+            .iter()
+            .flat_map(|c| convert_command(&wit_kakoune_side_command_to_wit_command(c)))
+            .collect(),
+        scroll_plans: effects
+            .scroll_plans
+            .iter()
+            .map(wit_scroll_plan_to_scroll_plan)
+            .collect(),
+        state_updates: kasane_core::plugin::StateUpdates::default(),
+    }
+}
+
 pub(crate) fn wit_bootstrap_effects_to_effects(effects: &wit::BootstrapEffects) -> Effects {
     Effects {
         redraw: DirtyFlags::from_bits_truncate(effects.redraw),

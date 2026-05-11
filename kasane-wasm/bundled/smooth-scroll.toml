@@ -1,6 +1,6 @@
 [plugin]
 id = "smooth_scroll"
-abi_version = "4.1.0"
+abi_version = "4.2.0"
 
 [handlers]
 flags = ["scroll-policy"]

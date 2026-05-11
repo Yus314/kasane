@@ -342,6 +342,16 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 }
             }
 
+            impl ::core::default::Default for KakouneSideEffects {
+                fn default() -> Self {
+                    Self {
+                        redraw: 0,
+                        commands: vec![],
+                        scroll_plans: vec![],
+                    }
+                }
+            }
+
             /// Unified effects type — alias for `RuntimeEffects`.
             ///
             /// Use this in all lifecycle hooks. The `#[plugin]` macro
