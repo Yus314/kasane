@@ -4,7 +4,7 @@
 //! can override these keys via `handle_key()`.
 
 use crate::input::Key;
-use crate::plugin::{Command, HandlerRegistry, Plugin, PluginId};
+use crate::plugin::{HandlerRegistry, KakouneSideCommand, Plugin, PluginId};
 use crate::protocol::KasaneRequest;
 use crate::scroll::ScrollPolicyResult;
 
@@ -22,17 +22,20 @@ impl Plugin for BuiltinInputPlugin {
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
-        r.on_key(|_state, key, app| {
+        // Tier 1 (ADR-044): PageUp/PageDown forward to Kakoune as Scroll
+        // requests; no process spawn. `on_key_tier1` rejects any future
+        // change that would emit a `ProcessCommand` here.
+        r.on_key_tier1(|_state, key, app| {
             if !key.modifiers.is_empty() {
                 return None;
             }
             let cmd = match key.key {
-                Key::PageUp => Command::SendToKakoune(KasaneRequest::Scroll {
+                Key::PageUp => KakouneSideCommand::send_to_kakoune(KasaneRequest::Scroll {
                     amount: -(app.available_height() as i32),
                     line: app.cursor_line() as u32,
                     column: app.cursor_col() as u32,
                 }),
-                Key::PageDown => Command::SendToKakoune(KasaneRequest::Scroll {
+                Key::PageDown => KakouneSideCommand::send_to_kakoune(KasaneRequest::Scroll {
                     amount: app.available_height() as i32,
                     line: app.cursor_line() as u32,
                     column: app.cursor_col() as u32,
@@ -52,7 +55,7 @@ impl Plugin for BuiltinInputPlugin {
 mod tests {
     use super::*;
     use crate::input::{KeyEvent, Modifiers};
-    use crate::plugin::{AppView, PluginBackend, PluginBridge};
+    use crate::plugin::{AppView, Command, PluginBackend, PluginBridge};
     use crate::scroll::{DefaultScrollCandidate, resolve_default_scroll_policy};
     use crate::state::AppState;
 

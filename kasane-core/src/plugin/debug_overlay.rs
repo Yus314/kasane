@@ -16,7 +16,7 @@
 use crate::element::{Element, OverlayAnchor};
 use crate::input::KeyEvent;
 use crate::plugin::context::{OverlayContext, OverlayContribution};
-use crate::plugin::{AppView, Command, HandlerRegistry, Plugin, PluginId};
+use crate::plugin::{AppView, HandlerRegistry, KakouneSideCommand, Plugin, PluginId};
 use crate::protocol::{Atom, Color, NamedColor, Style, WireFace};
 use crate::state::DirtyFlags;
 
@@ -40,12 +40,16 @@ impl Plugin for DebugOverlayPlugin {
     fn register(&self, r: &mut HandlerRegistry<DebugOverlayState>) {
         r.declare_interests(DirtyFlags::BUFFER | DirtyFlags::STATUS);
 
-        // Toggle with Ctrl-Shift-D
-        r.on_key(|state, key, _app| {
+        // Toggle with Ctrl-Shift-D.
+        // Tier 1 (ADR-044): only emits RequestRedraw; no spawn.
+        r.on_key_tier1(|state, key, _app| {
             if is_ctrl_shift_d(key) {
                 let mut new_state = state.clone();
                 new_state.visible = !new_state.visible;
-                Some((new_state, vec![Command::RequestRedraw(DirtyFlags::all())]))
+                Some((
+                    new_state,
+                    vec![KakouneSideCommand::request_redraw(DirtyFlags::all())],
+                ))
             } else {
                 None
             }

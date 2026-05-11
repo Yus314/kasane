@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Changed — built-in plugins migrated to tier-1 setters (Phase A-3f of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
+
+Three in-tree built-in plugins now register through tier-enforced
+setters, pinning their no-spawn contracts at the type level:
+
+- `BuiltinInputPlugin::on_key` → `on_key_tier1` —  PageUp/PageDown
+  forward to Kakoune as `Scroll` requests; no process spawn.
+- `BuiltinMouseFallbackPlugin::on_mouse_fallback` →
+  `on_mouse_fallback_tier1` — mouse-to-Kakoune forwarding never
+  spawns.
+- `DebugOverlayPlugin::on_key` → `on_key_tier1` — only emits
+  `RequestRedraw` when toggling.
+
+Plus `BuiltinShadowCursorPlugin::on_state_changed` (migrated in A-3a
+to `on_state_changed_tier1`). The remaining in-tree builtins
+(`BuiltinDragPlugin::on_mouse_pre_dispatch`,
+`BuiltinFoldPlugin::on_navigation_action`,
+`BuiltinInfoPlugin::on_render_info_overlays`,
+`BuiltinMenuPlugin::on_render_menu_overlay`,
+`ProjectionStatusPlugin::on_contribute`) use handler shapes whose
+tier-enforced variants are not yet provided (mouse pre-dispatch and
+the view-contribution setters have structurally different return
+types — tier enforcement there is tracked under ADR-044 §Remaining
+work).
+
+This validates that the tier API holds up against real in-tree code
+and demonstrates the migration recipe for external plugin authors.
+
 ### Added — `on_mouse_fallback_tier1` (Phase A-3d-mouse of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
 
 Closes the input-handler tier setters with a Tier 1 variant for the

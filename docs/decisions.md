@@ -5733,7 +5733,7 @@ string-based layers cannot provide:
 
 ## ADR-044: Handler → Effect Tier Hierarchy
 
-**Status:** Phase A-1 / A-2 / A-3a / A-3b / A-3c / A-3d shipped (2026-05-11).
+**Status:** Phase A-1 / A-2 / A-3a / A-3b / A-3c / A-3d / A-3f shipped (2026-05-11).
 Phase 2/3 of the silent-drop fix chain
 ([#100](https://github.com/Yus314/kasane/issues/100) → ADR Phase 0,
 [#101](https://github.com/Yus314/kasane/issues/101) → ADR Phase 1,
@@ -5748,7 +5748,8 @@ this ADR → Phase 2/3).
 | A-3a  | First tier-enforced setter: `HandlerRegistry::on_state_changed_tier1`. Asymmetric `From` web (`KakouneSideEffects → Effects`, no reverse) is the enforcement. | `BuiltinShadowCursorPlugin` migrated as canonical example. `compile_fail` doctest witnesses the type-level rejection of raw `Effects` containing `ProcessCommand`. |
 | A-3b  | Tier setters for the rest of the Effects-shaped lifecycle handlers: `on_init_tier1`, `on_session_ready_tier1`, `on_io_event_tier2`, `on_update_tier2`.   | Inter-tier `From` lifts (Tier 0 → Tier 1 → Tier 2) added so narrower-tier closures fit wider-tier setters. `compile_fail` doctest on `ProcessCapableEffects`. |
 | A-3c  | Tier setters for declarative process tasks: `on_process_task_tier2`, `on_process_task_streaming_tier2`.                                                  | All seven Effects-returning lifecycle handler categories now have tier-enforced parallels. Legacy setters remain with docstring pointers.                       |
-| A-3d  | Opt-in **tier-1** input handler setters: `on_key_tier1`, `on_text_input_tier1`, `on_drop_tier1`. ADR mapping puts input at Tier 2 by default; Tier 1 is a stricter opt-in for plugin authors who know their handlers don't spawn. | Bound `C: Into<KakouneSideCommand>` rejects raw `Command` returns. `compile_fail` doctest on `KakouneSideCommand` witnesses the asymmetric command projection. |
+| A-3d  | Opt-in **tier-1** input handler setters: `on_key_tier1`, `on_text_input_tier1`, `on_drop_tier1`, `on_mouse_fallback_tier1`. ADR mapping puts input at Tier 2 by default; Tier 1 is a stricter opt-in for plugin authors who know their handlers don't spawn. | Bound `C: Into<KakouneSideCommand>` rejects raw `Command` returns. `compile_fail` doctest on `KakouneSideCommand` witnesses the asymmetric command projection. |
+| A-3f  | In-tree built-in plugin migration to tier setters. | `BuiltinInputPlugin`, `BuiltinMouseFallbackPlugin`, `DebugOverlayPlugin`, plus `BuiltinShadowCursorPlugin` (migrated in A-3a). Validates the tier API against real in-tree code. |
 
 ### Remaining work
 

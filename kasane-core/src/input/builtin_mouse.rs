@@ -1,7 +1,7 @@
 //! Built-in plugin for mouse-to-Kakoune fallback.
 
 use crate::input;
-use crate::plugin::{Command, FrameworkAccess, HandlerRegistry, Plugin, PluginId};
+use crate::plugin::{FrameworkAccess, HandlerRegistry, KakouneSideCommand, Plugin, PluginId};
 
 /// Built-in plugin that forwards unhandled mouse events to Kakoune.
 ///
@@ -18,7 +18,11 @@ impl Plugin for BuiltinMouseFallbackPlugin {
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
-        r.on_mouse_fallback(|_state, event, scroll_amount, view| {
+        // Tier 1 (ADR-044): mouse-fallback only forwards Kakoune-side input;
+        // it never spawns processes. `on_mouse_fallback_tier1` pins that
+        // contract — a future edit that returns a `ProcessCommand` would
+        // not compile.
+        r.on_mouse_fallback_tier1(|_state, event, scroll_amount, view| {
             let app = view.as_app_state();
             let result = input::mouse_to_kakoune(
                 event,
@@ -27,7 +31,7 @@ impl Plugin for BuiltinMouseFallbackPlugin {
                 app.runtime.display_scroll_offset,
                 app.runtime.segment_map.as_deref(),
             )
-            .map(|req| vec![Command::SendToKakoune(req)]);
+            .map(|req| vec![KakouneSideCommand::send_to_kakoune(req)]);
             ((), result)
         });
     }
