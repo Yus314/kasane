@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Added — `kak::set_option` + `kak::set_option_add` (closes [#97](https://github.com/Yus314/kasane/issues/97))
+
+Two SDK helpers that close a silent foot-gun surfaced by the second
+wave of sprout dogfooding: Kakoune's `%X{…}` expansions (`%opt{…}`,
+`%arg{N}`, `%val{…}`, `%sh{…}`, `%reg{c}`) are **not processed when
+glued to a bareword**, only inside double-quoted strings or as
+standalone tokens. So
+
+```kak
+set-option -add window ui_options sprout_request_arg=%arg{1}
+```
+
+stored the literal text `sprout_request_arg=%arg{1}` rather than the
+expanded value — no Kakoune diagnostic, no compile error, just a
+silently propagated literal that broke sprout's request dispatch.
+
+The new helpers always wrap values in `"…"` so the expansion fires:
+
+```rust
+use kasane_plugin_sdk::kak::{self, Scope};
+
+let cmd = kak::set_option_add(Scope::Window, "ui_options", &[
+    ("sprout_request_id", "%opt{sprout_request_seq}"),
+    ("sprout_request_kind", "pick"),
+    ("sprout_request_arg", "%arg{1}"),
+]);
+// → set-option -add window 'ui_options'
+//   "sprout_request_id=%opt{sprout_request_seq}"
+//   "sprout_request_kind=pick"
+//   "sprout_request_arg=%arg{1}"
+```
+
+Companion helper [`kak::escape_arg_expand`] doubles embedded `"` and
+documents the bareword rule (linking
+`doc/pages/expansions.asciidoc`); the docs are deliberately explicit
+because the bug is invisible in normal testing. For literal values
+where expansions should not happen, fall back to the existing
+[`kak::escape_arg`] (single-quoted) and compose the command yourself.
+
+`examples/wasm/kakoune-bindings-demo` gains a `set_option_add` call
+demonstrating an expansion-bearing entry.
+
 ### Added — Structured `KakCommand` enum ([ADR-043](docs/decisions.md#adr-043-structured-kakcommand-enum-for-type-safe-kakoune-command-construction))
 
 Closes the last open child of the sprout-dogfooding tracker

@@ -20,6 +20,19 @@ kasane_plugin_sdk::define_plugin! {
                 ":info 'counter is %opt{demo_counter}'<ret>",
                 Some("show counter"),
             ),
+            // `set_option_add` wraps each `key=value` entry in `"..."` so
+            // Kakoune processes `%opt{…}` and `%arg{…}` expansions at
+            // command-evaluation time. Writing this as a bareword would
+            // store the literal `demo_request_value=%opt{demo_counter}`
+            // text — the silent foot-gun behind Issue #97.
+            kak::set_option_add(
+                Scope::Window,
+                "ui_options",
+                &[
+                    ("demo_request_value", "%opt{demo_counter}"),
+                    ("demo_request_kind", "snapshot"),
+                ],
+            ),
         ]
     },
 }

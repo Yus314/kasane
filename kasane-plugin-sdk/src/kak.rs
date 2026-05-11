@@ -128,6 +128,102 @@ pub fn define_command(name: &str, params: Option<u32>, body: &str) -> String {
     )
 }
 
+/// Escape a string for use as a Kakoune **double-quoted** argument.
+///
+/// Wraps `s` in `"…"` and escapes embedded `"` as `""`. Unlike
+/// [`escape_arg`] (single-quoted, literal), inside a double-quoted
+/// token Kakoune processes `%X{…}` expansions at command-evaluation
+/// time. Use this whenever the value should resolve dynamic
+/// substitutions like `%opt{name}`, `%arg{N}`, `%val{name}`, `%sh{…}`,
+/// or `%reg{c}`.
+///
+/// # Why this matters — the bareword foot-gun
+///
+/// Kakoune's expansion rule (`doc/pages/expansions.asciidoc`):
+///
+/// > Expansions are processed when unquoted and anywhere inside
+/// > double-quoted strings, **but not inside unquoted words**, inside
+/// > single-quoted strings, or inside %-strings.
+///
+/// So `set-option -add window ui_options foo=%opt{bar}` stores the
+/// **literal string** `foo=%opt{bar}` (because `foo=%opt{bar}` is a
+/// single bareword token). Wrapping in `"…"` is what unlocks
+/// expansion: `set-option -add window ui_options "foo=%opt{bar}"`.
+///
+/// The bug is silent: no Kakoune diagnostic, no compile error, just
+/// a propagated literal where the plugin expected a substituted value.
+/// This helper is the foot-gun-safe form. Surfaced by sprout
+/// dogfooding ([Issue #97](https://github.com/Yus314/kasane/issues/97)).
+pub fn escape_arg_expand(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        if ch == '"' {
+            out.push('"');
+        }
+        out.push(ch);
+    }
+    out.push('"');
+    out
+}
+
+/// `set-option <scope> <name> "<value>"`.
+///
+/// Double-quotes the value so Kakoune processes `%X{…}` expansions
+/// inside it. For a **literal** value where `%`-sequences should be
+/// stored verbatim, use [`escape_arg`] and compose the command yourself
+/// (single-quoted form disables expansion).
+///
+/// See [`escape_arg_expand`] for the bareword foot-gun explanation.
+pub fn set_option(scope: Scope, name: &str, value: &str) -> String {
+    format!(
+        "set-option {} {} {}",
+        scope.as_str(),
+        escape_arg(name),
+        escape_arg_expand(value),
+    )
+}
+
+/// `set-option -add <scope> <name> "k1=v1" "k2=v2" …`.
+///
+/// Each `key=value` entry is emitted as its own double-quoted token,
+/// so `%X{…}` expansions inside any `value` are processed.
+///
+/// Without the double-quote wrapping each entry, Kakoune treats
+/// `key=%opt{x}` as a bareword and stores the literal text — see
+/// [`escape_arg_expand`] for the full explanation.
+///
+/// # Example
+///
+/// ```
+/// use kasane_plugin_sdk::kak::{self, Scope};
+///
+/// let cmd = kak::set_option_add(Scope::Window, "ui_options", &[
+///     ("sprout_request_id", "%opt{sprout_request_seq}"),
+///     ("sprout_request_kind", "pick"),
+///     ("sprout_request_arg", "%arg{1}"),
+/// ]);
+/// assert_eq!(
+///     cmd,
+///     "set-option -add window 'ui_options' \
+///      \"sprout_request_id=%opt{sprout_request_seq}\" \
+///      \"sprout_request_kind=pick\" \
+///      \"sprout_request_arg=%arg{1}\"",
+/// );
+/// ```
+pub fn set_option_add(scope: Scope, name: &str, entries: &[(&str, &str)]) -> String {
+    let mut out = format!(
+        "set-option -add {} {}",
+        scope.as_str(),
+        escape_arg(name),
+    );
+    for (k, v) in entries {
+        out.push(' ');
+        out.push_str(&escape_arg_expand(&format!("{k}={v}")));
+    }
+    out
+}
+
 /// `map <scope> <mode> <key> <action> [-docstring '...']`.
 pub fn map(
     scope: Scope,
@@ -304,6 +400,89 @@ mod tests {
         let out = wrap_balanced("info %sh{ echo hi }");
         assert!(out.starts_with("%{"), "got: {out}");
         assert!(out.ends_with('}'));
+    }
+
+    #[test]
+    fn escape_arg_expand_plain() {
+        assert_eq!(escape_arg_expand("foo"), "\"foo\"");
+    }
+
+    #[test]
+    fn escape_arg_expand_doubles_dquote() {
+        assert_eq!(escape_arg_expand(r#"a"b"#), r#""a""b""#);
+    }
+
+    #[test]
+    fn escape_arg_expand_preserves_percent_sequences() {
+        // %opt{} must survive verbatim — that is the entire point of the
+        // expand form. The helper does not auto-double `%`.
+        assert_eq!(
+            escape_arg_expand("k=%opt{counter}"),
+            "\"k=%opt{counter}\""
+        );
+    }
+
+    #[test]
+    fn set_option_plain() {
+        assert_eq!(
+            set_option(Scope::Global, "myopt", "hello"),
+            "set-option global 'myopt' \"hello\""
+        );
+    }
+
+    #[test]
+    fn set_option_with_expansion() {
+        assert_eq!(
+            set_option(Scope::Window, "myopt", "%val{buffile}"),
+            "set-option window 'myopt' \"%val{buffile}\""
+        );
+    }
+
+    #[test]
+    fn set_option_add_single_entry() {
+        assert_eq!(
+            set_option_add(Scope::Window, "ui_options", &[("k", "v")]),
+            "set-option -add window 'ui_options' \"k=v\""
+        );
+    }
+
+    #[test]
+    fn set_option_add_sprout_regression() {
+        // Exact shape from Issue #97. Without the double-quote wrapping
+        // each entry, %opt{} and %arg{} would have been stored as literal
+        // text in sprout's session-ready setup.
+        let cmd = set_option_add(
+            Scope::Window,
+            "ui_options",
+            &[
+                ("sprout_request_id", "%opt{sprout_request_seq}"),
+                ("sprout_request_kind", "pick"),
+                ("sprout_request_arg", "%arg{1}"),
+            ],
+        );
+        assert_eq!(
+            cmd,
+            "set-option -add window 'ui_options' \
+             \"sprout_request_id=%opt{sprout_request_seq}\" \
+             \"sprout_request_kind=pick\" \
+             \"sprout_request_arg=%arg{1}\""
+        );
+    }
+
+    #[test]
+    fn set_option_add_no_entries() {
+        // Empty list is a no-op set-option -add (Kakoune accepts it).
+        assert_eq!(
+            set_option_add(Scope::Global, "list", &[]),
+            "set-option -add global 'list'"
+        );
+    }
+
+    #[test]
+    fn set_option_add_value_with_embedded_dquote() {
+        let cmd = set_option_add(Scope::Global, "list", &[("k", r#"say "hi""#)]);
+        // Inside `"..."`, embedded `"` is doubled.
+        assert_eq!(cmd, "set-option -add global 'list' \"k=say \"\"hi\"\"\"");
     }
 
     #[test]
