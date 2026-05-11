@@ -86,6 +86,7 @@
 //! you don't write.
 
 pub mod kak;
+pub mod kak_cmd;
 
 /// Attribute macro that fills in default implementations for all
 /// unimplemented `Guest` trait methods.

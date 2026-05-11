@@ -2,12 +2,54 @@
 
 ## [Unreleased]
 
+### Added — Structured `KakCommand` enum ([ADR-043](docs/decisions.md#adr-043-structured-kakcommand-enum-for-type-safe-kakoune-command-construction))
+
+Closes the last open child of the sprout-dogfooding tracker
+([Issue #94](https://github.com/Yus314/kasane/issues/94)). Adds the
+`kasane_plugin_sdk::kak_cmd` module exposing a `KakCommand` enum that
+represents a Kakoune command as a Rust value rather than a string:
+
+```rust
+use kasane_plugin_sdk::kak_cmd::{KakCommand, DeclareUserMode, DefineCommand, Map, Scope};
+
+let setup: Vec<KakCommand> = vec![
+    DeclareUserMode::new("sprout").try_idempotent().into(),
+    DefineCommand::new("bump", "increment-counter")
+        .override_existing()
+        .docstring("bump the sprout counter")
+        .into(),
+    Map::new(Scope::Global, "sprout", "b", ":bump<ret>")
+        .docstring("bump")
+        .into(),
+];
+
+// Render each as a Kakoune command string.
+let strings: Vec<String> = setup.iter().map(KakCommand::render).collect();
+```
+
+The renderer centralizes quoting/escaping (single-quote with `''`
+escape, balanced `%X…Y` body delimiters with `{}` → `[]` → `()` → `<>`
+fallback). Each variant has builder methods only for the flags Kakoune
+accepts — `DeclareUserMode` exposes no `override_existing()` because
+Kakoune does not accept that flag (the sprout regression that motivated
+this whole tracker).
+
+The new module complements the existing `kak::*` string builders and
+`kak_lint!` validator; the cookbook in `docs/plugin-development.md`
+documents the three-layer choice. Initial catalog covers 12 commands
+(declare-user-mode, define-command, map, declare-option, set-option,
+unset-option, evaluate-commands, hook, alias, echo, info, try);
+adding a command is additive — one variant + one args struct.
+
+Pure SDK addition: no WIT change, no ABI bump, no plugin recompile.
+Opt-in via `use kasane_plugin_sdk::kak_cmd;`.
+
 ### Added — Plugin DX long-term: test harness + command linter (Issue #81 long-term, 2026-05-11)
 
-Closes the two remaining infrastructural items on the sprout dogfooding
-tracker — #92 (plugin test harness) and #93 (static Kakoune-command
-linter). The remaining child #94 (structured `KakCommand` enum) is
-deferred pending an RFC.
+Closes two infrastructural items on the sprout dogfooding tracker —
+#92 (plugin test harness) and #93 (static Kakoune-command linter).
+The last child, #94 (structured `KakCommand` enum), is covered by the
+ADR-043 entry above.
 
 - **`kasane-plugin-sdk-test`** crate (#92): mock-host harness for
   unit-testing plugins natively, without compiling to `wasm32-wasip2`

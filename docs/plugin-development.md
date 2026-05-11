@@ -231,6 +231,44 @@ Note: at session-ready the WIT `session-ready-command` variant excludes
 `eval-command`; runtime callsites should prefer `Command::EvalCommand`
 where available.
 
+### Structured command construction (`kak_cmd`)
+
+For plugins that compose Kakoune commands programmatically — e.g., a
+fuzzy-finder building a `define-command` body from user input — prefer
+the
+[`kasane_plugin_sdk::kak_cmd`](https://docs.rs/kasane-plugin-sdk/latest/kasane_plugin_sdk/kak_cmd/index.html)
+module's `KakCommand` enum (ADR-043). Each variant is a Rust value
+with builder methods for optional flags, and rendering centralises all
+quoting / escaping rules in one place:
+
+```rust
+use kasane_plugin_sdk::kak_cmd::{KakCommand, DeclareUserMode, DefineCommand, Map, Scope};
+
+let setup: Vec<KakCommand> = vec![
+    DeclareUserMode::new("sprout").try_idempotent().into(),
+    DefineCommand::new("bump", "increment-counter")
+        .override_existing()
+        .docstring("bump the sprout counter")
+        .into(),
+    Map::new(Scope::Global, "sprout", "b", ":bump<ret>")
+        .docstring("bump")
+        .into(),
+];
+
+let strings: Vec<String> = setup.iter().map(KakCommand::render).collect();
+```
+
+The renderer cannot produce an unknown flag (the builder doesn't expose
+one). Plugins that prefer one-liner strings still have the `kak::*`
+module; plugins that hand-compose can validate with `kak_lint!`. The
+three layers cover different niches:
+
+| Layer | Best for |
+|---|---|
+| `kak::*` | single command, one-liner, no composition |
+| `kak_lint!` | hand-composed literal strings that need flag validation |
+| `kak_cmd::KakCommand` | programmatic composition, inspection, transformation |
+
 ### Compile-time validation of raw command strings
 
 When a plugin composes a Kakoune command string by hand — i.e., not via a
