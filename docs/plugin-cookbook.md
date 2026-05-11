@@ -181,12 +181,12 @@ Key points:
   `-override` here), `define_command` uses `-override`, `declare_option`
   is naturally idempotent.
 - `kakoune_setup_effects![...]` sends each entry as its own
-  `Command::SendKeys` so a failure in one command does **not** block the
-  rest — unlike a single `evaluate-commands %{ ... }` block which
-  cascade-fails on the first error.
-- `EvalCommand` is *not* available at session-ready (the WIT
-  `session-ready-command` variant excludes it); use the `keys::command`
-  path that the macro wraps for you.
+  `KakouneSideCommand::EvalCommand` so a failure in one command does
+  **not** block the rest — unlike a single `evaluate-commands %{ ... }`
+  block which cascade-fails on the first error. The macro's
+  `KakouneSideEffects → SessionReadyEffects` `From` impl forwards each
+  entry to `SessionReadyCommand::EvalCommand` automatically (WIT 4.0.0+,
+  ADR-041). Requires a host on WIT 4.0.0 or higher.
 
 See: `examples/wasm/kakoune-bindings-demo/`
 

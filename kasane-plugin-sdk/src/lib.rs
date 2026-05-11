@@ -374,16 +374,20 @@ pub mod modifiers {
 /// callsites — issuing a `keys::command` from inside insert mode will
 /// exit insert mode as a side-effect.
 ///
-/// # Runtime callsites — prefer `EvalCommand`
+/// # Prefer `EvalCommand` for command issuance
 ///
-/// For runtime command issuance prefer `Command::EvalCommand(String)`,
-/// which sends the command body directly without `<esc>` mode reset and
-/// without per-character keystroke simulation.
+/// `Command::EvalCommand(String)` (WIT `eval-command(string)`) sends the
+/// command body directly without `<esc>` mode reset and without
+/// per-character keystroke simulation. Available in both
+/// runtime callsites and `on_active_session_ready_effects`
+/// (ADR-041 added `eval-command` to the `session-ready-command` variant
+/// in WIT 4.0.0; see [`crate::kakoune_setup_effects!`] for the
+/// session-ready composer that wraps it).
 ///
-/// **However**, `EvalCommand` is *not* available in
-/// `on_active_session_ready_effects` — the `SessionReadyCommand` variant
-/// excludes it. Use `keys::command(...)` at session-ready and switch to
-/// `EvalCommand` for runtime callsites.
+/// `keys::command(...)` is retained for cases where the keystroke shape
+/// itself is the goal — driving a Kakoune mapping that listens on key
+/// events, or producing input the user could have typed by hand. It is
+/// also the only path on hosts predating WIT 4.0.0.
 pub mod keys {
     /// Push each character of `text` as an escaped key string.
     ///
@@ -417,6 +421,15 @@ pub mod keys {
     ///
     /// See the [module-level docs](self) for the escape rules, the
     /// `<esc>` mode side-effect, and when to prefer `EvalCommand` instead.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use kasane_plugin_sdk::keys;
+    /// let k = keys::command("edit foo.rs");
+    /// // k = ["<esc>", ":", "e", "d", "i", "t", "<space>",
+    /// //      "f", "o", "o", ".", "r", "s", "<ret>"]
+    /// ```
     pub fn command(cmd: &str) -> Vec<String> {
         let mut keys = vec!["<esc>".to_string(), ":".to_string()];
         push_literal(&mut keys, cmd);

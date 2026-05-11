@@ -227,9 +227,10 @@ failure isolation. See the
 [Plugin Cookbook entry](./plugin-cookbook.md#register-kakoune-apis-at-session-ready)
 and `examples/wasm/kakoune-bindings-demo/`.
 
-Note: at session-ready the WIT `session-ready-command` variant excludes
-`eval-command`; runtime callsites should prefer `Command::EvalCommand`
-where available.
+As of WIT 4.0.0 (ADR-041), `eval-command(string)` is a case of the
+`session-ready-command` variant, so `kakoune_setup_effects!` composes
+over `EvalCommand` at both session-ready and runtime callsites without
+the `<esc>:cmd<ret>` keystroke-simulation wrapping.
 
 ### Structured command construction (`kak_cmd`)
 
