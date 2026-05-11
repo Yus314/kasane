@@ -741,6 +741,41 @@ macro_rules! kakoune_setup_effects {
     }};
 }
 
+/// Build a `KakouneSideEffects` value (ADR-044 Phase B-2 tier-1 effects)
+/// from an iterable of Kakoune command strings. Each command becomes its
+/// own `KakouneSideCommand::EvalCommand` entry.
+///
+/// Use this macro in the body of a `define_plugin!` `on_state_changed_tier1_effects(...)`
+/// block — it returns `KakouneSideEffects` directly, mirroring how
+/// [`kakoune_setup_effects!`] returns `Effects` for the legacy path.
+///
+/// # Example
+///
+/// ```ignore
+/// define_plugin! {
+///     manifest: "kasane-plugin.toml",
+///     on_state_changed_tier1_effects(_dirty) {
+///         kakoune_side_setup_effects![
+///             kak::echo("state changed"),
+///         ]
+///     },
+/// }
+/// ```
+#[macro_export]
+macro_rules! kakoune_side_setup_effects {
+    [ $( $cmd:expr ),* $(,)? ] => {{
+        KakouneSideEffects {
+            redraw: 0,
+            commands: vec![
+                $(
+                    KakouneSideCommand::EvalCommand($cmd.into())
+                ),*
+            ],
+            scroll_plans: vec![],
+        }
+    }};
+}
+
 /// Route slot-based dispatch. Returns `None` for unmatched slots.
 ///
 /// # Example

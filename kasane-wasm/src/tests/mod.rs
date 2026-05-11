@@ -26,6 +26,7 @@ mod prompt_highlight;
 mod session_ui;
 mod smooth_scroll;
 mod surface_probe;
+mod tier1_state;
 
 fn load_cursor_line_plugin() -> crate::WasmPlugin {
     let loader = WasmPluginLoader::new().expect("failed to create loader");

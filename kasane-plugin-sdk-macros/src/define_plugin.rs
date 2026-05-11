@@ -19,6 +19,7 @@ pub(crate) struct PluginDef {
     on_init_effects: Option<proc_macro2::TokenStream>,
     on_active_session_ready_effects: Option<proc_macro2::TokenStream>,
     on_state_changed_effects: Option<OnStateChanged>,
+    on_state_changed_tier1_effects: Option<OnStateChanged>,
     on_workspace_changed: Option<ParamBodyDef>,
     update_effects: Option<ParamBodyDef>,
     slots: Option<Vec<SlotEntry>>,
@@ -366,6 +367,20 @@ pub(crate) fn define_plugin_impl(
 
     let has_bindings = !auto_bindings.is_empty();
 
+    // ADR-044 Phase B-3: refuse to emit both legacy and tier-1 exports
+    // for the same handler. The host calls both per tick and merges, so
+    // dual-defined plugins would observe duplicate effects. Force the
+    // author to pick one.
+    if def.on_state_changed_effects.is_some() && def.on_state_changed_tier1_effects.is_some() {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "define_plugin! cannot declare both `on_state_changed_effects` and \
+             `on_state_changed_tier1_effects`; pick one. The host calls both \
+             exports per tick and merges, so dual definitions emit duplicate \
+             effects.",
+        ));
+    }
+
     let on_state_changed_method = if has_osc || has_bindings {
         let param_name = &osc_param_name;
 
@@ -401,6 +416,38 @@ pub(crate) fn define_plugin_impl(
     } else {
         quote! {}
     };
+
+    // ADR-044 Phase B-3: tier-1 state-changed export. Mirrors the legacy
+    // path but returns `KakouneSideEffects`; the host calls both and
+    // merges (legacy default = empty). Auto-bindings stay on the legacy
+    // path so the tier-1 export is purely user-authored.
+    let on_state_changed_tier1_method =
+        if let Some(ref tier1) = def.on_state_changed_tier1_effects {
+            let param_name = &tier1.param;
+            let body = &tier1.body;
+            let wrapped = if has_state {
+                quote! {
+                    STATE.with(|__s| {
+                        let __old_gen = __s.borrow().generation;
+                        let mut state = __KasaneStateMutGuard {
+                            inner: __s.borrow_mut(),
+                            old_generation: __old_gen,
+                            mutated: false,
+                        };
+                        { #body }
+                    })
+                }
+            } else {
+                quote! { { #body } }
+            };
+            quote! {
+                fn on_state_changed_tier1_effects(#param_name: u16) -> KakouneSideEffects {
+                    #wrapped
+                }
+            }
+        } else {
+            quote! {}
+        };
 
     let on_workspace_changed_method = if let Some(ref workspace_changed) = def.on_workspace_changed
     {
@@ -877,6 +924,7 @@ pub(crate) fn define_plugin_impl(
             #on_init_method
             #on_active_session_ready_method
             #on_state_changed_method
+            #on_state_changed_tier1_method
             #on_workspace_changed_method
             #update_effects_method
             #slots_method
@@ -1053,6 +1101,7 @@ impl syn::parse::Parse for PluginDef {
             on_init_effects: None,
             on_active_session_ready_effects: None,
             on_state_changed_effects: None,
+            on_state_changed_tier1_effects: None,
             on_workspace_changed: None,
             update_effects: None,
             slots: None,
@@ -1201,6 +1250,17 @@ impl syn::parse::Parse for PluginDef {
                     let body;
                     syn::braced!(body in input);
                     def.on_state_changed_effects = Some(OnStateChanged {
+                        param,
+                        body: body.parse()?,
+                    });
+                }
+                "on_state_changed_tier1_effects" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.on_state_changed_tier1_effects = Some(OnStateChanged {
                         param,
                         body: body.parse()?,
                     });
