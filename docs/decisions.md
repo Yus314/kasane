@@ -5754,7 +5754,8 @@ this ADR → Phase 2/3).
 | B-1   | WIT tier-type foundation: add `kakoune-side-command` / `kakoune-side-effects` / `process-command` / `process-capable-effects` to `kasane-wasm/wit/plugin.wit` (single canonical copy; the two SDK paths are symlinks). | Types declared, no handler exports yet wired (deferred to B-2). ABI stays 4.1.0 — no rebuild required for bundled `.wasm` plugins. |
 | B-2   | WIT ABI 4.2.0 bump: add `on-state-changed-tier1-effects` export returning `kakoune-side-effects`, host dispatch merges with the legacy export, SDK macros provide a default no-op so existing plugins recompile without source changes. | All 13 `.wasm` blobs rebuilt; host `convert_kakoune_side_effects` routes tier-1 commands through the existing `convert_command` so attribution / `set-setting` / `command-error` rewrites stay uniform. Commit `2aca004d`. |
 | B-3   | `define_plugin!` learns the tier-1 DSL key `on_state_changed_tier1_effects(...)` and rejects declaring both legacy and tier-1 simultaneously. SDK ships `kakoune_side_setup_effects!` (eval-command shorthand) and `tier1_effects(commands)` (Vec helper). | Conflict diagnostic is compile-time. Fixture guest `kasane-wasm/guests/tier1-state/` + host test `tier1_state.rs` witness the macro → wire → host merge end-to-end. Commit `6a44b1dd`. |
-| B-4   | First batch of `examples/wasm/*` plugins migrated to the tier-1 form: `color-preview`, `image-preview`, `session-ui`, `selection-algebra`. None emit process commands, so the migration is pure type-narrowing. | `cursor-line` stays on the legacy export because its `#[bind]` auto-binding currently emits onto the legacy path (separate macro change). `sel-badge` / `fuzzy-finder` / `pane-manager` / `prompt-highlight` / `smooth-scroll` / `kakoune-bindings-demo` declare no explicit `on_state_changed_effects` block. Commit `964171ef`. |
+| B-4   | First batch of `examples/wasm/*` plugins migrated to the tier-1 form: `color-preview`, `image-preview`, `session-ui`, `selection-algebra`. None emit process commands, so the migration is pure type-narrowing. | `sel-badge` / `fuzzy-finder` / `pane-manager` / `prompt-highlight` / `smooth-scroll` / `kakoune-bindings-demo` declare no explicit `on_state_changed_effects` block. Commit `964171ef`. |
+| B-4-bind | `define_plugin!` `#[bind]` auto-bindings default to the tier-1 export. When the user writes no explicit handler block (or writes the tier-1 form), bindings emit inside `on_state_changed_tier1_effects` with body `KakouneSideEffects::default()`. An explicit legacy block keeps bindings on the legacy path for source compatibility. | `cursor-line` (only `#[bind]`, no explicit handler) migrated by macro change alone; its in-tree test that drove the legacy export was updated to drive the tier-1 entry point. |
 | A-3e  | `HandlerRegistry::on_command_error` and `HandlerRegistry::on_subscription` setters. Both handlers were previously only reachable via overriding the `PluginBackend` trait method, so the canonical Plugin-trait path had no way to register them. | `on_command_error` accepts `&PluginErrorEvent` and returns `Effects` through the same `dispatch_state_effect!` machinery as the lifecycle handlers. `on_subscription` mirrors the WIT `on-subscription(topic, values) -> runtime-effects` shape and now also takes `&AppView<'_>`. The exhaustive dispatch coverage test gains both handler names. |
 | A-3e effect plumbing | Widen `PluginBackend::deliver_subscriptions` from `-> bool` (a flag no caller read) to `-> Effects` and add `app: &AppView<'_>`. Add `PluginEffects::evaluate_pubsub(&mut self, app) -> EffectsBatch` and route it from `state/update.rs` after `notify_state_changed`. PluginRuntime now owns the topic bus so oscillation history persists across frames without the caller threading a bus in. | Both the native `PluginBridge` and the WASM adapter now forward `on_subscription` effects up. A new test (`test_on_subscription_effects_flow_back_through_evaluate_pubsub`) witnesses a `redraw: BUFFER` flag traveling from a plugin's `on_subscription` handler into the dispatcher's `EffectsBatch`. |
 | A-3g  | `#[deprecated(since = "0.7.1")]` on the seven legacy lifecycle setters (`on_init`, `on_session_ready`, `on_state_changed`, `on_io_event`, `on_update`, `on_process_task`, `on_process_task_streaming`) with notes pointing at the tier replacement. | In-tree test fixtures and the `#[kasane::plugin]` proc-macro emission gate the warnings with scoped `#[allow(deprecated)]`. Input setters (`on_key`, `on_text_input`, `on_drop`, `on_mouse_fallback`) stay un-deprecated because tier-1 there is a stricter opt-in, not the default. |
@@ -5874,11 +5875,14 @@ edits + 10–15 rebuilt `.wasm` blobs. The 4.0 → 4.1 precedent
   no plugin migration is required. Two stale module docstrings
   in `handler_registry/mod.rs` and `process_task.rs` were updated
   to use the tier-1 / tier-2 setters as the recommended example.
-- **B-4 leftovers** — `cursor-line` cannot migrate until the
-  `define_plugin!` `#[bind]` auto-binding generator learns to route
-  onto the tier-1 export. The remaining `examples/wasm/*` plugins
-  declare no `on_state_changed_effects` block at all, so there is
-  nothing to migrate for them under the current Phase B scope.
+- ~~**B-4 leftovers**~~ — *Closed.* `define_plugin!` now routes
+  `#[bind]` auto-bindings into the tier-1 export by default; only an
+  explicit legacy `on_state_changed_effects` block keeps bindings on
+  the legacy path. `cursor-line` migrated end-to-end (its `#[bind]`
+  auto-binding now drives the tier-1 export, with the legacy export
+  staying at the SDK no-op default). The remaining `examples/wasm/*`
+  plugins declare no `on_state_changed_effects` block at all, so
+  they have nothing to migrate.
 - **Phase B-5 / future ABI bump** — WIT 5.0.0 wire bump + WASM plugin migration. Each WIT
   copy is ~2,057 lines, triplicated across `kasane-wasm/`,
   `kasane-plugin-sdk/`, and `kasane-plugin-sdk-macros/`. The split

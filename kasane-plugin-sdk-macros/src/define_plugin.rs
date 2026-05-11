@@ -334,13 +334,42 @@ pub(crate) fn define_plugin_impl(
         quote! {}
     };
 
-    // Determine the dirty-flags parameter name early so auto-bindings can reference it.
+    // ADR-044 Phase B-3: refuse to emit both legacy and tier-1 exports
+    // for the same handler. The host calls both per tick and merges, so
+    // dual-defined plugins would observe duplicate effects. Force the
+    // author to pick one.
+    if def.on_state_changed_effects.is_some() && def.on_state_changed_tier1_effects.is_some() {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "define_plugin! cannot declare both `on_state_changed_effects` and \
+             `on_state_changed_tier1_effects`; pick one. The host calls both \
+             exports per tick and merges, so dual definitions emit duplicate \
+             effects.",
+        ));
+    }
+
     let has_osc = def.on_state_changed_effects.is_some();
-    let osc_param_name = def
-        .on_state_changed_effects
-        .as_ref()
-        .map(|osc| osc.param.clone())
-        .unwrap_or_else(|| syn::Ident::new("__flags", proc_macro2::Span::call_site()));
+    let has_osc_tier1 = def.on_state_changed_tier1_effects.is_some();
+
+    // ADR-044 Phase B-4: when the user did not declare an explicit legacy
+    // `on_state_changed_effects` block, route `#[bind]` auto-bindings into
+    // the tier-1 export. Bindings on plugins like `cursor-line` (no
+    // explicit handler block, only `#[bind]`) thus emit as tier-1, with
+    // the legacy export staying at its SDK-default no-op. When the user
+    // explicitly wrote the legacy block, bindings stay on the legacy path
+    // for source compatibility.
+    let bindings_target_tier1 = !has_osc;
+
+    // Determine the dirty-flags parameter name. If the user wrote a
+    // handler block, use its parameter so the body sees the same name.
+    // Otherwise, an auto-bindings-only emission picks `__flags`.
+    let osc_param_name = if let Some(osc) = def.on_state_changed_effects.as_ref() {
+        osc.param.clone()
+    } else if let Some(t1) = def.on_state_changed_tier1_effects.as_ref() {
+        t1.param.clone()
+    } else {
+        syn::Ident::new("__flags", proc_macro2::Span::call_site())
+    };
 
     // Generate auto-binding code from #[bind] attributes
     let auto_bindings: Vec<proc_macro2::TokenStream> = if let Some(ref state_def) = def.state {
@@ -365,23 +394,21 @@ pub(crate) fn define_plugin_impl(
         vec![]
     };
 
-    let has_bindings = !auto_bindings.is_empty();
+    let legacy_bindings = if !bindings_target_tier1 {
+        auto_bindings.clone()
+    } else {
+        Vec::new()
+    };
+    let tier1_bindings = if bindings_target_tier1 {
+        auto_bindings
+    } else {
+        Vec::new()
+    };
 
-    // ADR-044 Phase B-3: refuse to emit both legacy and tier-1 exports
-    // for the same handler. The host calls both per tick and merges, so
-    // dual-defined plugins would observe duplicate effects. Force the
-    // author to pick one.
-    if def.on_state_changed_effects.is_some() && def.on_state_changed_tier1_effects.is_some() {
-        return Err(syn::Error::new(
-            proc_macro2::Span::call_site(),
-            "define_plugin! cannot declare both `on_state_changed_effects` and \
-             `on_state_changed_tier1_effects`; pick one. The host calls both \
-             exports per tick and merges, so dual definitions emit duplicate \
-             effects.",
-        ));
-    }
-
-    let on_state_changed_method = if has_osc || has_bindings {
+    // Legacy export: emit if the user wrote it, OR if bindings target
+    // the legacy path (i.e., user declared the legacy block — which only
+    // happens together with `has_osc` per the rule above).
+    let on_state_changed_method = if has_osc || !legacy_bindings.is_empty() {
         let param_name = &osc_param_name;
 
         let sync_body = def
@@ -399,7 +426,7 @@ pub(crate) fn define_plugin_impl(
                         old_generation: __old_gen,
                         mutated: false,
                     };
-                    #( #auto_bindings )*
+                    #( #legacy_bindings )*
                     { #sync_body }
                 })
             }
@@ -417,36 +444,42 @@ pub(crate) fn define_plugin_impl(
         quote! {}
     };
 
-    // ADR-044 Phase B-3: tier-1 state-changed export. Mirrors the legacy
-    // path but returns `KakouneSideEffects`; the host calls both and
-    // merges (legacy default = empty). Auto-bindings stay on the legacy
-    // path so the tier-1 export is purely user-authored.
-    let on_state_changed_tier1_method =
-        if let Some(ref tier1) = def.on_state_changed_tier1_effects {
-            let param_name = &tier1.param;
-            let body = &tier1.body;
-            let wrapped = if has_state {
-                quote! {
-                    STATE.with(|__s| {
-                        let __old_gen = __s.borrow().generation;
-                        let mut state = __KasaneStateMutGuard {
-                            inner: __s.borrow_mut(),
-                            old_generation: __old_gen,
-                            mutated: false,
-                        };
-                        { #body }
-                    })
-                }
-            } else {
-                quote! { { #body } }
-            };
+    // Tier-1 export: emit if the user wrote it, OR if auto-bindings exist
+    // and target the tier-1 path (i.e., no explicit legacy block was
+    // declared). When emitted from bindings alone, the body defaults to
+    // `KakouneSideEffects::default()` so the bindings still mutate STATE
+    // per tick and the host receives an empty (but well-formed) tier-1
+    // result.
+    let on_state_changed_tier1_method = if has_osc_tier1 || !tier1_bindings.is_empty() {
+        let param_name = &osc_param_name;
+        let sync_body = def
+            .on_state_changed_tier1_effects
+            .as_ref()
+            .map(|t| t.body.clone())
+            .unwrap_or_else(|| quote! { KakouneSideEffects::default() });
+        let wrapped = if has_state {
             quote! {
-                fn on_state_changed_tier1_effects(#param_name: u16) -> KakouneSideEffects {
-                    #wrapped
-                }
+                STATE.with(|__s| {
+                    let __old_gen = __s.borrow().generation;
+                    let mut state = __KasaneStateMutGuard {
+                        inner: __s.borrow_mut(),
+                        old_generation: __old_gen,
+                        mutated: false,
+                    };
+                    #( #tier1_bindings )*
+                    { #sync_body }
+                })
             }
         } else {
-            quote! {}
+            quote! { { #sync_body } }
+        };
+        quote! {
+            fn on_state_changed_tier1_effects(#param_name: u16) -> KakouneSideEffects {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
         };
 
     let on_workspace_changed_method = if let Some(ref workspace_changed) = def.on_workspace_changed
