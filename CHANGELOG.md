@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Changed (BREAKING) — WIT 5.0.0 tier-typed handler exports (Phase B-5 of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
+
+WIT bumps to `kasane:plugin@5.0.0`. The `runtime-effects` record is
+removed; the five `runtime-effects`-returning handler exports now
+return their ADR-mapped tier:
+
+| Handler | New return | Tier |
+|---|---|---|
+| `on-state-changed-effects` | `kakoune-side-effects` | T1 |
+| `on-command-error-effects` | `kakoune-side-effects` | T1 |
+| `on-subscription` | `kakoune-side-effects` | T1 |
+| `on-io-event-effects` | `process-capable-effects` | T2 |
+| `update-effects` | `process-capable-effects` | T2 |
+
+The transitional `on-state-changed-tier1-effects` parallel from
+`4.2.0` (B-2) is collapsed into the renamed `on-state-changed-effects`.
+ABI 4.x plugins are rejected at load with a pointer to the migration
+guide. SDK `Effects` alias becomes `ProcessCapableEffects` (Tier 2);
+tier-1 handler bodies use `KakouneSideEffects` directly. Migration
+recipe in [`docs/migration/0.6-to-0.7.md` §8.3](docs/migration/0.6-to-0.7.md).
+
 ### Added — tier WIT type foundation in `kasane:plugin@4.1.0` (Phase B-1 of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
 
 The WIT contract gains the four tier types from ADR-044's Phase A

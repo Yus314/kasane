@@ -35,9 +35,9 @@ mod tests {
 
     /// Drive `display()` end-to-end with the mock host.
     fn run_display(_h: &mut TestHarness) -> Vec<DisplayDirective> {
-        // ADR-044 Phase B-4: `#[bind]` auto-bindings now emit onto the
-        // tier-1 export, so trigger the binding via the tier-1 entry point.
-        let _ = crate::__KasanePlugin::on_state_changed_tier1_effects(crate::dirty::ALL);
+        // ADR-044 Phase B-5: `#[bind]` auto-bindings emit onto the
+        // single tier-1 `on_state_changed_effects` export.
+        let _ = crate::__KasanePlugin::on_state_changed_effects(crate::dirty::ALL);
         crate::__KasanePlugin::display()
     }
 

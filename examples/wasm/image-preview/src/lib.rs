@@ -163,7 +163,7 @@ kasane_plugin_sdk::define_plugin! {
         cursor_col: i32 = -1,
     },
 
-    on_state_changed_tier1_effects(dirty) {
+    on_state_changed_effects(dirty) {
         if dirty & dirty::BUFFER != 0 {
             let new_path = host_state::get_line_text(state.cursor_line as u32).and_then(|text| {
                 detect_image_ref(&text, state.cursor_col.max(0) as usize)

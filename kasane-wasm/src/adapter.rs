@@ -266,22 +266,29 @@ impl WasmPluginShared {
             .collect()
     }
 
-    fn convert_runtime_effects(self: &Arc<Self>, effects: &wit::RuntimeEffects) -> Effects {
-        let shared = Arc::clone(self);
-        convert::wit_runtime_effects_to_effects_with(effects, move |command| {
-            shared.convert_command(command)
-        })
-    }
-
-    /// ADR-044 Phase B-2: project tier-1 wire effects through the same
-    /// command-conversion pipeline as the legacy `runtime-effects` path
-    /// so attribution / `set-setting` rewrites stay uniform.
+    /// ADR-044: project tier-1 wire effects through the shared
+    /// command-conversion pipeline so attribution / `set-setting`
+    /// rewrites stay uniform.
     fn convert_kakoune_side_effects(
         self: &Arc<Self>,
         effects: &wit::KakouneSideEffects,
     ) -> Effects {
         let shared = Arc::clone(self);
         convert::wit_kakoune_side_effects_to_effects_with(effects, move |command| {
+            shared.convert_command(command)
+        })
+    }
+
+    /// ADR-044: project tier-2 process-capable wire effects through the
+    /// shared command-conversion pipeline. The tier-1 base + tier-2
+    /// process commands are both lifted to `wit::Command` and routed
+    /// through `convert_command`.
+    fn convert_process_capable_effects(
+        self: &Arc<Self>,
+        effects: &wit::ProcessCapableEffects,
+    ) -> Effects {
+        let shared = Arc::clone(self);
+        convert::wit_process_capable_effects_to_effects_with(effects, move |command| {
             shared.convert_command(command)
         })
     }
@@ -803,18 +810,8 @@ impl PluginBackend for WasmPlugin {
         self.shared
             .call_synced_with_hash(state, "on_state_changed_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
-                // ADR-044 Phase B-2: dispatch the tier-1 export alongside
-                // the legacy `on-state-changed-effects` and merge. The
-                // SDK default for the tier-1 export returns empty
-                // effects, so plugins that have not opted into tier-1
-                // observe no behavioural change. Plugins opting into
-                // tier-1 should leave the legacy export at its default.
-                let tier1_wit =
-                    api.call_on_state_changed_tier1_effects(&mut rt.store, dirty.bits())?;
-                let legacy_wit = api.call_on_state_changed_effects(&mut rt.store, dirty.bits())?;
-                let mut effects = shared.convert_kakoune_side_effects(&tier1_wit);
-                effects.merge(shared.convert_runtime_effects(&legacy_wit));
-                Ok(effects)
+                let wit_effects = api.call_on_state_changed_effects(&mut rt.store, dirty.bits())?;
+                Ok(shared.convert_kakoune_side_effects(&wit_effects))
             })
     }
 
@@ -1519,8 +1516,9 @@ impl PluginBackend for WasmPlugin {
             self.shared
                 .call_synced_with_hash(state, "update_effects", |rt| {
                     let api = rt.instance.kasane_plugin_plugin_api();
-                    Ok(shared
-                        .convert_runtime_effects(&api.call_update_effects(&mut rt.store, bytes)?))
+                    Ok(shared.convert_process_capable_effects(
+                        &api.call_update_effects(&mut rt.store, bytes)?,
+                    ))
                 })
         } else {
             tracing::warn!(
@@ -1581,7 +1579,7 @@ impl PluginBackend for WasmPlugin {
                         Ok(effects) => {
                             // ADR-044 Phase A-3e: forward the converted effects up
                             // so the dispatcher can route commands and scroll plans.
-                            let converted = shared.convert_runtime_effects(&effects);
+                            let converted = shared.convert_kakoune_side_effects(&effects);
                             if let Ok(h) = api.call_state_hash(&mut runtime.store) {
                                 shared.set_state_hash(h);
                             }
@@ -1651,7 +1649,7 @@ impl PluginBackend for WasmPlugin {
             .call_synced_with_hash(state, "on_io_event_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
                 let wit_event = convert::io_event_to_wit(event);
-                Ok(shared.convert_runtime_effects(
+                Ok(shared.convert_process_capable_effects(
                     &api.call_on_io_event_effects(&mut rt.store, &wit_event)?,
                 ))
             })
@@ -1659,6 +1657,9 @@ impl PluginBackend for WasmPlugin {
 
     /// ADR-042 Phase B: dispatch a plugin-attributed Kakoune command
     /// failure to the WASM guest's `on-command-error-effects` export.
+    /// ADR-044 narrows the return tier to `kakoune-side-effects` so
+    /// the error path cannot trigger process spawn (avoids
+    /// error → spawn → error cascades).
     fn on_command_error_effects(
         &mut self,
         error: &kasane_core::plugin::error_attribution::PluginErrorEvent,
@@ -1669,7 +1670,7 @@ impl PluginBackend for WasmPlugin {
             .call_synced_with_hash(state, "on_command_error_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
                 let wit_error = convert::plugin_error_event_to_wit(error);
-                Ok(shared.convert_runtime_effects(
+                Ok(shared.convert_kakoune_side_effects(
                     &api.call_on_command_error_effects(&mut rt.store, &wit_error)?,
                 ))
             })

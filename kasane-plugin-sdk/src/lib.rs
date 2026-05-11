@@ -683,20 +683,17 @@ macro_rules! process_event {
     ($event:expr => |$bind:ident| $body:block) => {
         match $event {
             IoEvent::Process($bind) => $body,
-            _ => Effects {
-                redraw: 0,
-                commands: vec![],
-                scroll_plans: vec![],
-            },
+            _ => Effects::default(),
         }
     };
 }
 
-/// Build an `Effects` value (= `RuntimeEffects`) from an iterable of
-/// Kakoune command strings. Each command becomes its own
-/// `Command::EvalCommand` entry, so a single bad command does **not**
-/// block the rest from registering — unlike a `evaluate-commands %{ ... }`
-/// block which cascade-fails on the first error.
+/// Build a `KakouneSideEffects` value (ADR-044 Tier 1) from an iterable
+/// of Kakoune command strings. Each command becomes its own
+/// `KakouneSideCommand::EvalCommand` entry, so a single bad command does
+/// **not** block the rest from registering — unlike a
+/// `evaluate-commands %{ ... }` block which cascade-fails on the first
+/// error.
 ///
 /// Requires WIT ABI **4.0.0 or higher** (ADR-041 adds
 /// `eval-command(string)` to `session-ready-command`). On older ABIs
@@ -705,12 +702,14 @@ macro_rules! process_event {
 /// overhead, and could not represent multi-line bodies.
 ///
 /// When used inside `define_plugin!`'s `on_active_session_ready_effects`,
-/// the macro's `Effects → SessionReadyEffects` `From` impl converts each
-/// `Command::EvalCommand` to `SessionReadyCommand::EvalCommand` automatically.
+/// the macro's `KakouneSideEffects → SessionReadyEffects` `From` impl
+/// converts each `KakouneSideCommand::EvalCommand` to
+/// `SessionReadyCommand::EvalCommand` automatically.
 ///
 /// Designed for composition with helpers from the [`kak`] module. The
-/// macro expands in the plugin crate's context, where `Effects` and
-/// `Command` are in scope (provided by `generate!()` / `define_plugin!`).
+/// macro expands in the plugin crate's context, where `KakouneSideEffects`
+/// and `KakouneSideCommand` are in scope (provided by `generate!()` /
+/// `define_plugin!`).
 ///
 /// # Example
 ///
@@ -729,11 +728,11 @@ macro_rules! process_event {
 #[macro_export]
 macro_rules! kakoune_setup_effects {
     [ $( $cmd:expr ),* $(,)? ] => {{
-        Effects {
+        KakouneSideEffects {
             redraw: 0,
             commands: vec![
                 $(
-                    Command::EvalCommand($cmd.into())
+                    KakouneSideCommand::EvalCommand($cmd.into())
                 ),*
             ],
             scroll_plans: vec![],
@@ -741,20 +740,17 @@ macro_rules! kakoune_setup_effects {
     }};
 }
 
-/// Build a `KakouneSideEffects` value (ADR-044 Phase B-2 tier-1 effects)
-/// from an iterable of Kakoune command strings. Each command becomes its
-/// own `KakouneSideCommand::EvalCommand` entry.
-///
-/// Use this macro in the body of a `define_plugin!` `on_state_changed_tier1_effects(...)`
-/// block — it returns `KakouneSideEffects` directly, mirroring how
-/// [`kakoune_setup_effects!`] returns `Effects` for the legacy path.
+/// Alias for [`kakoune_setup_effects!`] — both produce a
+/// `KakouneSideEffects` value from a list of Kakoune command strings.
+/// Retained because pre-WIT-5.0 plugins disambiguated the tier-1 path
+/// with this name; tier-1 is now the only path so the names converge.
 ///
 /// # Example
 ///
 /// ```ignore
 /// define_plugin! {
 ///     manifest: "kasane-plugin.toml",
-///     on_state_changed_tier1_effects(_dirty) {
+///     on_state_changed_effects(_dirty) {
 ///         kakoune_side_setup_effects![
 ///             kak::echo("state changed"),
 ///         ]

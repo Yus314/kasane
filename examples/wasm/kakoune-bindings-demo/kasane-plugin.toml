@@ -1,6 +1,6 @@
 [plugin]
 id = "kakoune_bindings_demo"
-abi_version = "4.2.0"
+abi_version = "5.0.0"
 
 # ADR-042 Phase B Step 3: opt into host-side command-error wrapping.
 # Every Command::EvalCommand this plugin emits is auto-wrapped with a

@@ -8,7 +8,7 @@ the crate-level axis follows Rust semver and is enforced by Cargo.
 
 | Axis | Source of truth | Example |
 |---|---|---|
-| WIT ABI | `kasane-wasm/wit/plugin.wit:1` | `package kasane:plugin@4.2.0;` |
+| WIT ABI | `kasane-wasm/wit/plugin.wit:1` | `package kasane:plugin@5.0.0;` |
 | SDK crate semver | `kasane-plugin-sdk/Cargo.toml` | `version = "0.6.0"` |
 
 The two move together for major bumps that change the wire format. The
@@ -34,7 +34,7 @@ major-only:
 WIT `variant` cases are ordered, and the wire encoding depends on that
 order. Appending a case to an existing variant shifts the discriminant
 of every case after it. A plugin compiled against `4.0.0` cannot safely
-decode `4.2.0` records, even though Rust semver would call this a
+decode `5.0.0` records, even though Rust semver would call this a
 non-breaking change.
 
 Kasane therefore treats the entire `major.minor` pair as a single wire
@@ -74,9 +74,18 @@ SDK that uses only existing WIT types is a *crate* minor bump but
 | Kasane host | WIT ABI | SDK crate |
 |---|---|---|
 | 0.6.x | 3.0.0 | 0.6.x |
-| 0.7.x | 4.2.0 | 0.7.x |
+| 0.7.x | 5.0.0 | 0.7.x |
 
 Future entries land here as releases ship.
+
+ABI 5.0.0 is the [ADR-044](decisions.md#adr-044-handler--effect-tier-hierarchy)
+tier-hierarchy split: the five `runtime-effects`-returning exports
+(`on-state-changed-effects`, `on-command-error-effects`,
+`on-subscription`, `update-effects`, `on-io-event-effects`) now return
+their ADR-mapped tier — `kakoune-side-effects` (Tier 1) or
+`process-capable-effects` (Tier 2). The `runtime-effects` record and
+the transitional B-2 `on-state-changed-tier1-effects` parallel are
+removed. ABI 4.x plugins are rejected at load time.
 
 ---
 

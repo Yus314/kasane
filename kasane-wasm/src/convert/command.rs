@@ -182,32 +182,12 @@ fn wit_focus_dir_to_focus_direction(dir: wit::FocusDir) -> kasane_core::workspac
     }
 }
 
-pub(crate) fn wit_runtime_effects_to_effects_with(
-    effects: &wit::RuntimeEffects,
-    mut convert_command: impl FnMut(&wit::Command) -> Vec<Command>,
-) -> Effects {
-    Effects {
-        redraw: DirtyFlags::from_bits_truncate(effects.redraw),
-        commands: effects
-            .commands
-            .iter()
-            .flat_map(&mut convert_command)
-            .collect(),
-        scroll_plans: effects
-            .scroll_plans
-            .iter()
-            .map(wit_scroll_plan_to_scroll_plan)
-            .collect(),
-        state_updates: kasane_core::plugin::StateUpdates::default(),
-    }
-}
-
-/// Lift a tier-1 wire command (ADR-044 Phase B-2) into the broader
-/// `wit::Command` enum. The tier-1 variant is a strict subset of
-/// `wit::Command`, so the projection is total. Adapter code routes the
-/// lifted command through its existing `convert_command` so adapter-
-/// context-dependent rewrites (`set-setting`, `register-surface`,
-/// `command-error` `eval-command` wrapping) apply uniformly.
+/// Lift a tier-1 wire command (ADR-044) into the broader `wit::Command`
+/// enum. The tier-1 variant is a strict subset of `wit::Command`, so
+/// the projection is total. Adapter code routes the lifted command
+/// through its existing `convert_command` so adapter-context-dependent
+/// rewrites (`set-setting`, `register-surface`, `command-error`
+/// `eval-command` wrapping) apply uniformly.
 pub(crate) fn wit_kakoune_side_command_to_wit_command(
     wc: &wit::KakouneSideCommand,
 ) -> wit::Command {
@@ -234,11 +214,66 @@ pub(crate) fn wit_kakoune_side_command_to_wit_command(
     }
 }
 
-/// Convert tier-1 wire effects (ADR-044 Phase B-2) into the broader
-/// [`Effects`] struct via a caller-supplied command projector. The host
-/// adapter passes its full `convert_command` closure so adapter-context
-/// rewrites (`set-setting`, `register-surface`, `command-error` wrap)
-/// apply uniformly with the legacy effects path.
+/// Lift a tier-2 wire process command (ADR-044) into the broader
+/// `wit::Command` enum. Like the tier-1 lift, this is total because
+/// `process-command` is a strict subset of `wit::Command`. The adapter
+/// routes the lifted command through `convert_command` for uniform
+/// attribution / rewrite behaviour.
+pub(crate) fn wit_process_command_to_wit_command(wc: &wit::ProcessCommand) -> wit::Command {
+    match wc {
+        wit::ProcessCommand::SpawnProcess(cfg) => wit::Command::SpawnProcess(cfg.clone()),
+        wit::ProcessCommand::SpawnSession(cfg) => wit::Command::SpawnSession(cfg.clone()),
+        wit::ProcessCommand::CloseSession(key) => wit::Command::CloseSession(key.clone()),
+        wit::ProcessCommand::SwitchSession(key) => wit::Command::SwitchSession(key.clone()),
+        wit::ProcessCommand::WriteToProcess(cfg) => wit::Command::WriteToProcess(cfg.clone()),
+        wit::ProcessCommand::CloseProcessStdin(job) => wit::Command::CloseProcessStdin(*job),
+        wit::ProcessCommand::KillProcess(job) => wit::Command::KillProcess(*job),
+        wit::ProcessCommand::ResizePty(cfg) => wit::Command::ResizePty(*cfg),
+        wit::ProcessCommand::SpawnPaneClient(cfg) => wit::Command::SpawnPaneClient(cfg.clone()),
+        wit::ProcessCommand::ClosePaneClient(key) => wit::Command::ClosePaneClient(key.clone()),
+        wit::ProcessCommand::WorkspaceCommand(cmd) => wit::Command::WorkspaceCommand(*cmd),
+        wit::ProcessCommand::HttpRequest(cfg) => wit::Command::HttpRequest(cfg.clone()),
+        wit::ProcessCommand::CancelHttpRequest(job) => wit::Command::CancelHttpRequest(*job),
+    }
+}
+
+/// Convert tier-2 process-capable wire effects (ADR-044) into the
+/// unified [`Effects`] struct via a caller-supplied command projector.
+/// `process-capable-effects.base` carries the tier-1 surface and
+/// `process-commands` carries the process-side surface; both are
+/// projected through the same `convert_command` closure so adapter-
+/// context rewrites (`set-setting`, `register-surface`,
+/// `command-error` wrap) apply uniformly.
+pub(crate) fn wit_process_capable_effects_to_effects_with(
+    effects: &wit::ProcessCapableEffects,
+    mut convert_command: impl FnMut(&wit::Command) -> Vec<Command>,
+) -> Effects {
+    let base = &effects.base;
+    let mut commands: Vec<Command> = base
+        .commands
+        .iter()
+        .flat_map(|c| convert_command(&wit_kakoune_side_command_to_wit_command(c)))
+        .collect();
+    commands.extend(
+        effects
+            .process_commands
+            .iter()
+            .flat_map(|c| convert_command(&wit_process_command_to_wit_command(c))),
+    );
+    Effects {
+        redraw: DirtyFlags::from_bits_truncate(base.redraw),
+        commands,
+        scroll_plans: base
+            .scroll_plans
+            .iter()
+            .map(wit_scroll_plan_to_scroll_plan)
+            .collect(),
+        state_updates: kasane_core::plugin::StateUpdates::default(),
+    }
+}
+
+/// Convert tier-1 wire effects (ADR-044) into the broader [`Effects`]
+/// struct via a caller-supplied command projector.
 pub(crate) fn wit_kakoune_side_effects_to_effects_with(
     effects: &wit::KakouneSideEffects,
     mut convert_command: impl FnMut(&wit::Command) -> Vec<Command>,
@@ -294,6 +329,17 @@ pub(crate) fn wit_session_ready_effects_to_effects(effects: &wit::SessionReadyEf
 }
 
 #[cfg(test)]
-pub(crate) fn wit_runtime_effects_to_effects(effects: &wit::RuntimeEffects) -> Effects {
-    wit_runtime_effects_to_effects_with(effects, |command| vec![wit_command_to_command(command)])
+pub(crate) fn wit_kakoune_side_effects_to_effects(effects: &wit::KakouneSideEffects) -> Effects {
+    wit_kakoune_side_effects_to_effects_with(effects, |command| {
+        vec![wit_command_to_command(command)]
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn wit_process_capable_effects_to_effects(
+    effects: &wit::ProcessCapableEffects,
+) -> Effects {
+    wit_process_capable_effects_to_effects_with(effects, |command| {
+        vec![wit_command_to_command(command)]
+    })
 }

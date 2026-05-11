@@ -332,16 +332,6 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 }
             }
 
-            impl ::core::default::Default for RuntimeEffects {
-                fn default() -> Self {
-                    Self {
-                        redraw: 0,
-                        commands: vec![],
-                        scroll_plans: vec![],
-                    }
-                }
-            }
-
             impl ::core::default::Default for KakouneSideEffects {
                 fn default() -> Self {
                     Self {
@@ -352,28 +342,47 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 }
             }
 
-            /// Unified effects type — alias for `RuntimeEffects`.
-            ///
-            /// Use this in all lifecycle hooks. The `#[plugin]` macro
-            /// auto-converts to the WIT-specific return type via `Into`.
-            pub type Effects = RuntimeEffects;
+            impl ::core::default::Default for ProcessCapableEffects {
+                fn default() -> Self {
+                    Self {
+                        base: KakouneSideEffects::default(),
+                        process_commands: vec![],
+                    }
+                }
+            }
 
-            impl ::core::convert::From<RuntimeEffects> for BootstrapEffects {
-                fn from(e: RuntimeEffects) -> Self {
+            /// Lift a tier-1 effect bag into the tier-2 process-capable
+            /// shape (ADR-044). The asymmetric direction — narrower into
+            /// wider — is the only legal one; `process-capable-effects`
+            /// → `kakoune-side-effects` is intentionally absent so the
+            /// type system rejects process-spawn from a tier-1 handler.
+            impl ::core::convert::From<KakouneSideEffects> for ProcessCapableEffects {
+                fn from(e: KakouneSideEffects) -> Self {
+                    Self { base: e, process_commands: vec![] }
+                }
+            }
+
+            impl ::core::convert::From<KakouneSideEffects> for BootstrapEffects {
+                fn from(e: KakouneSideEffects) -> Self {
                     Self { redraw: e.redraw }
                 }
             }
 
-            impl ::core::convert::From<RuntimeEffects> for SessionReadyEffects {
-                fn from(e: RuntimeEffects) -> Self {
+            /// Lift tier-1 effects into the session-ready wire shape so
+            /// helper macros (`kakoune_setup_effects!`) compose at the
+            /// `on_active_session_ready_effects` boundary. Only the
+            /// admissible session-ready commands survive; richer
+            /// variants are silently filtered (the surface is narrower
+            /// by design).
+            impl ::core::convert::From<KakouneSideEffects> for SessionReadyEffects {
+                fn from(e: KakouneSideEffects) -> Self {
                     Self {
                         redraw: e.redraw,
                         commands: e.commands.into_iter().filter_map(|c| match c {
-                            Command::SendKeys(keys) => Some(SessionReadyCommand::SendKeys(keys)),
-                            // ABI 4.0.0 (ADR-041): eval-command is available at session-ready.
-                            Command::EvalCommand(cmd) => Some(SessionReadyCommand::EvalCommand(cmd)),
-                            Command::PasteClipboard => Some(SessionReadyCommand::PasteClipboard),
-                            Command::PluginMessage(msg) => Some(SessionReadyCommand::PluginMessage(msg)),
+                            KakouneSideCommand::SendKeys(keys) => Some(SessionReadyCommand::SendKeys(keys)),
+                            KakouneSideCommand::EvalCommand(cmd) => Some(SessionReadyCommand::EvalCommand(cmd)),
+                            KakouneSideCommand::PasteClipboard => Some(SessionReadyCommand::PasteClipboard),
+                            KakouneSideCommand::PluginMessage(msg) => Some(SessionReadyCommand::PluginMessage(msg)),
                             _ => None,
                         }).collect(),
                         scroll_plans: e.scroll_plans,
@@ -1113,31 +1122,78 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 
             // --- Effects shortcuts ---
 
-            /// Effects with commands only (no redraw flag, no scroll).
+            /// Tier-2 alias for `ProcessCapableEffects` (ADR-044). Returned
+            /// by tier-2 helpers below and the canonical `Effects::default()`
+            /// shorthand inside `update_effects` / `on_io_event_effects`
+            /// bodies. Tier-1 contexts (`on_state_changed_effects`,
+            /// `on_command_error_effects`, `on_subscription`) use
+            /// `KakouneSideEffects` directly; the asymmetric `From`
+            /// (`KakouneSideEffects → ProcessCapableEffects`) lifts into
+            /// the wider type but never the reverse.
+            pub type Effects = ProcessCapableEffects;
+
+            fn __split_command(cmd: Command, base: &mut KakouneSideEffects, process: &mut Vec<ProcessCommand>) {
+                match cmd {
+                    Command::SendKeys(k) => base.commands.push(KakouneSideCommand::SendKeys(k)),
+                    Command::EvalCommand(s) => base.commands.push(KakouneSideCommand::EvalCommand(s)),
+                    Command::PasteClipboard => base.commands.push(KakouneSideCommand::PasteClipboard),
+                    Command::Quit => base.commands.push(KakouneSideCommand::Quit),
+                    Command::RequestRedraw(b) => base.commands.push(KakouneSideCommand::RequestRedraw(b)),
+                    Command::SetConfig(c) => base.commands.push(KakouneSideCommand::SetConfig(c)),
+                    Command::SetSetting(s) => base.commands.push(KakouneSideCommand::SetSetting(s)),
+                    Command::ScheduleTimer(t) => base.commands.push(KakouneSideCommand::ScheduleTimer(t)),
+                    Command::CancelTimer(id) => base.commands.push(KakouneSideCommand::CancelTimer(id)),
+                    Command::PluginMessage(m) => base.commands.push(KakouneSideCommand::PluginMessage(m)),
+                    Command::RegisterSurface(c) => base.commands.push(KakouneSideCommand::RegisterSurface(c)),
+                    Command::UnregisterSurface(k) => base.commands.push(KakouneSideCommand::UnregisterSurface(k)),
+                    Command::EditBuffer(e) => base.commands.push(KakouneSideCommand::EditBuffer(e)),
+                    Command::InjectKey(k) => base.commands.push(KakouneSideCommand::InjectKey(k)),
+                    Command::RegisterThemeTokens(t) => base.commands.push(KakouneSideCommand::RegisterThemeTokens(t)),
+                    Command::SpawnProcess(c) => process.push(ProcessCommand::SpawnProcess(c)),
+                    Command::SpawnSession(c) => process.push(ProcessCommand::SpawnSession(c)),
+                    Command::CloseSession(k) => process.push(ProcessCommand::CloseSession(k)),
+                    Command::SwitchSession(k) => process.push(ProcessCommand::SwitchSession(k)),
+                    Command::WriteToProcess(c) => process.push(ProcessCommand::WriteToProcess(c)),
+                    Command::CloseProcessStdin(j) => process.push(ProcessCommand::CloseProcessStdin(j)),
+                    Command::KillProcess(j) => process.push(ProcessCommand::KillProcess(j)),
+                    Command::ResizePty(c) => process.push(ProcessCommand::ResizePty(c)),
+                    Command::SpawnPaneClient(c) => process.push(ProcessCommand::SpawnPaneClient(c)),
+                    Command::ClosePaneClient(k) => process.push(ProcessCommand::ClosePaneClient(k)),
+                    Command::WorkspaceCommand(c) => process.push(ProcessCommand::WorkspaceCommand(c)),
+                    Command::HttpRequest(c) => process.push(ProcessCommand::HttpRequest(c)),
+                    Command::CancelHttpRequest(j) => process.push(ProcessCommand::CancelHttpRequest(j)),
+                }
+            }
+
+            /// Tier-2 effects from a flat `Vec<Command>`. Variants are
+            /// auto-routed into the tier-1 `base.commands` or tier-2
+            /// `process_commands` slot per ADR-044.
             pub fn effects(commands: Vec<Command>) -> Effects {
-                Effects { redraw: 0, commands, scroll_plans: vec![] }
+                let mut base = KakouneSideEffects::default();
+                let mut process = Vec::new();
+                for c in commands {
+                    __split_command(c, &mut base, &mut process);
+                }
+                ProcessCapableEffects { base, process_commands: process }
             }
 
             /// Tier-1 effects with commands only, mirroring [`effects`] for
             /// the [`KakouneSideEffects`] return type used by
-            /// `on_state_changed_tier1_effects` (ADR-044 Phase B).
+            /// `on_state_changed_effects` / `on_command_error_effects` /
+            /// `on_subscription` (ADR-044 Phase B).
             pub fn tier1_effects(commands: Vec<KakouneSideCommand>) -> KakouneSideEffects {
                 KakouneSideEffects { redraw: 0, commands, scroll_plans: vec![] }
             }
 
-            /// Effects with commands + trailing RequestRedraw(ALL).
+            /// Tier-2 effects with commands + trailing RequestRedraw(ALL).
             pub fn effects_redraw(mut commands: Vec<Command>) -> Effects {
                 commands.push(Command::RequestRedraw(#sdk_dirty_all));
-                Effects { redraw: 0, commands, scroll_plans: vec![] }
+                effects(commands)
             }
 
-            /// Effects with only RequestRedraw(ALL).
+            /// Tier-2 effects with only RequestRedraw(ALL).
             pub fn just_redraw() -> Effects {
-                Effects {
-                    redraw: 0,
-                    commands: vec![Command::RequestRedraw(#sdk_dirty_all)],
-                    scroll_plans: vec![],
-                }
+                effects(vec![Command::RequestRedraw(#sdk_dirty_all)])
             }
 
             // --- Key handler shortcuts ---

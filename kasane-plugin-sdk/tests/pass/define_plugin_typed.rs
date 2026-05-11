@@ -1,3 +1,6 @@
+// ADR-044 Phase B-5: handler-return tiers. Init / session-ready /
+// state-changed are tier-1 (`KakouneSideEffects`). Update / io-event are
+// tier-2 (`Effects` = `ProcessCapableEffects`).
 kasane_plugin_sdk::define_plugin! {
     id: "typed_define_plugin",
 
@@ -6,7 +9,7 @@ kasane_plugin_sdk::define_plugin! {
     },
 
     on_init_effects() {
-        Effects {
+        KakouneSideEffects {
             redraw: dirty::STATUS,
             commands: vec![],
             scroll_plans: vec![],
@@ -14,7 +17,7 @@ kasane_plugin_sdk::define_plugin! {
     },
 
     on_active_session_ready_effects() {
-        Effects {
+        KakouneSideEffects {
             redraw: dirty::STATUS,
             commands: vec![],
             scroll_plans: vec![],
@@ -23,7 +26,7 @@ kasane_plugin_sdk::define_plugin! {
 
     on_state_changed_effects(dirty_flags) {
         let _ = dirty_flags;
-        Effects {
+        KakouneSideEffects {
             redraw: dirty::BUFFER,
             commands: vec![],
             scroll_plans: vec![],
@@ -57,9 +60,10 @@ kasane_plugin_sdk::define_plugin! {
     },
 
     display_directives() {
-        vec![DisplayDirective::InsertAfter(InsertAfterDirective {
-            after: 0,
-            content: vec![Atom { face: default_face(), contents: "typed".to_string() }],
+        vec![DisplayDirective::InsertAfter(InterlineDirective {
+            line: 0,
+            content: 0,
+            priority: 0,
         })]
     },
 }

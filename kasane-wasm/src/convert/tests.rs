@@ -227,10 +227,10 @@ fn convert_bootstrap_effects_from_wit() {
 }
 
 #[test]
-fn convert_runtime_effects_from_wit() {
-    let effects = wit::RuntimeEffects {
+fn convert_kakoune_side_effects_from_wit() {
+    let effects = wit::KakouneSideEffects {
         redraw: DirtyFlags::SESSION.bits(),
-        commands: vec![wit::Command::Quit],
+        commands: vec![wit::KakouneSideCommand::Quit],
         scroll_plans: vec![wit::ScrollPlan {
             total_amount: 3,
             line: 9,
@@ -241,7 +241,7 @@ fn convert_runtime_effects_from_wit() {
         }],
     };
 
-    let converted = wit_runtime_effects_to_effects(&effects);
+    let converted = wit_kakoune_side_effects_to_effects(&effects);
 
     assert_eq!(converted.redraw, DirtyFlags::SESSION);
     assert!(matches!(converted.commands.as_slice(), [Command::Quit]));
@@ -256,6 +256,28 @@ fn convert_runtime_effects_from_wit() {
             ScrollAccumulationMode::Replace,
         )]
     );
+}
+
+#[test]
+fn convert_process_capable_effects_from_wit() {
+    let effects = wit::ProcessCapableEffects {
+        base: wit::KakouneSideEffects {
+            redraw: DirtyFlags::SESSION.bits(),
+            commands: vec![wit::KakouneSideCommand::Quit],
+            scroll_plans: vec![],
+        },
+        process_commands: vec![wit::ProcessCommand::CloseProcessStdin(42)],
+    };
+
+    let converted = wit_process_capable_effects_to_effects(&effects);
+
+    assert_eq!(converted.redraw, DirtyFlags::SESSION);
+    assert_eq!(converted.commands.len(), 2);
+    assert!(matches!(&converted.commands[0], Command::Quit));
+    assert!(matches!(
+        &converted.commands[1],
+        Command::CloseProcessStdin { job_id: 42 }
+    ));
 }
 
 #[test]

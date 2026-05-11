@@ -1,4 +1,4 @@
-package kasane:plugin@4.2.0;
+package kasane:plugin@5.0.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -46,6 +46,20 @@ package kasane:plugin@4.2.0;
 // change. Phase B-3 will extend the SDK macros so authors can
 // declare tier-1 directly and the macro emits only the chosen
 // export.
+//
+// WIT 5.0 (ADR-044 Phase B-5): collapses the dual-export migration
+// into a single tier-typed contract. The five `runtime-effects`-
+// returning exports now return their ADR-mapped tier:
+//   on-state-changed-effects   -> kakoune-side-effects (Tier 1)
+//   on-command-error-effects   -> kakoune-side-effects (Tier 1)
+//   on-subscription            -> kakoune-side-effects (Tier 1)
+//   on-io-event-effects        -> process-capable-effects (Tier 2)
+//   update-effects             -> process-capable-effects (Tier 2)
+// The transitional `on-state-changed-tier1-effects` parallel from
+// B-2 is removed; its role is now filled by the renamed
+// `on-state-changed-effects`. The `runtime-effects` record itself is
+// removed. ABI 4.x plugins are rejected at load time with a pointer
+// to the migration guide (`docs/migration/0.6-to-0.7.md` §ADR-044).
 
 interface types {
     enum named-color {
@@ -369,12 +383,6 @@ interface types {
     record session-ready-effects {
         redraw: u16,
         commands: list<session-ready-command>,
-        scroll-plans: list<scroll-plan>,
-    }
-
-    record runtime-effects {
-        redraw: u16,
-        commands: list<command>,
         scroll-plans: list<scroll-plan>,
     }
 
@@ -1755,8 +1763,8 @@ interface plugin-api {
                capability, plugin-authority, io-event, surface-view-context,
                surface-event-context, surface-event, surface-descriptor,
                default-scroll-candidate, scroll-policy-result,
-               bootstrap-effects, session-ready-effects, runtime-effects,
-               kakoune-side-effects,
+               bootstrap-effects, session-ready-effects,
+               kakoune-side-effects, process-capable-effects,
                cell-decoration, ornament-context, ornament-batch,
                key-group-decl, key-response,
                display-unit-info, navigation-policy-kind, navigation-action-result,
@@ -1788,20 +1796,14 @@ interface plugin-api {
     /// Typed active-session-ready startup effects.
     on-active-session-ready-effects: func() -> session-ready-effects;
 
-    /// Typed runtime effects for state changes.
-    on-state-changed-effects: func(dirty-flags: u16) -> runtime-effects;
-
-    /// Tier-1 state-changed handler (ADR-044 Phase B-2). Returns the
-    /// narrower `kakoune-side-effects` shape — process spawn / external
-    /// I/O variants are absent at the wire level, mirroring the native
-    /// `KakouneSideEffects` tier from Phase A.
-    ///
-    /// The host calls this export *and* `on-state-changed-effects` per
-    /// tick and merges the two results. The SDK default returns empty
-    /// effects, so plugins that have not opted into tier-1 observe no
-    /// behavioural change. Plugins opting into tier-1 should leave the
-    /// legacy export at its default to avoid duplicate effects.
-    on-state-changed-tier1-effects: func(dirty-flags: u16) -> kakoune-side-effects;
+    /// Tier-1 state-changed handler (ADR-044). Returns
+    /// `kakoune-side-effects` — process spawn / external I/O variants
+    /// are absent at the wire level, mirroring the native
+    /// `KakouneSideEffects` tier. State-changed fires per tick, so the
+    /// type-system rejection of process commands is the structural
+    /// guard against re-entrance loops described in ADR-044
+    /// §"Re-entrance bonus".
+    on-state-changed-effects: func(dirty-flags: u16) -> kakoune-side-effects;
 
     /// Notification that the workspace layout has changed.
     on-workspace-changed: func(snapshot: workspace-snapshot);
@@ -1911,8 +1913,12 @@ interface plugin-api {
 
     // --- v0.3.0: Inter-plugin messaging ---
 
-    /// Typed runtime effects for inter-plugin messages.
-    update-effects: func(payload: list<u8>) -> runtime-effects;
+    /// Tier-2 inter-plugin message handler (ADR-044). Returns
+    /// `process-capable-effects` — full effect surface including
+    /// process spawn and external I/O is admissible. `update` is the
+    /// canonical command-handler pattern, so spawning a process from
+    /// a delivered message is the intended use.
+    update-effects: func(payload: list<u8>) -> process-capable-effects;
 
     // --- v0.5.0: Contribute / Transform / Annotate ---
 
@@ -1972,21 +1978,27 @@ interface plugin-api {
 
     // --- v0.6.0: I/O event handling ---
 
-    /// Typed runtime effects for I/O events.
-    on-io-event-effects: func(event: io-event) -> runtime-effects;
+    /// Tier-2 I/O event handler (ADR-044). Returns
+    /// `process-capable-effects` — process chains commonly originate
+    /// from I/O completion (e.g. spawn next stage on stdout EOF), so
+    /// the full effect surface is admissible.
+    on-io-event-effects: func(event: io-event) -> process-capable-effects;
 
     // --- WIT 4.1.0 (ADR-042 Phase B): command-error observability ---
 
-    /// Typed runtime effects for plugin-attributed Kakoune command
-    /// failures. Fired by the host when an `info_show` with the
-    /// reserved title `__kasane_plugin_error__` is observed and the
-    /// embedded plugin-id matches this plugin.
+    /// Tier-1 command-error handler (ADR-044). Fired by the host
+    /// when an `info_show` with the reserved title
+    /// `__kasane_plugin_error__` is observed and the embedded
+    /// plugin-id matches this plugin. Returns `kakoune-side-effects`
+    /// — emitting a process command from an error handler would risk
+    /// error → spawn → error loops, so the tier rejects it
+    /// structurally.
     ///
     /// Default impl returns empty effects (no-op). Plugins that opt
     /// into command-error observability override this to surface the
     /// failure (e.g. as a status badge, info popup, or internal
     /// state update).
-    on-command-error-effects: func(error: command-error) -> runtime-effects;
+    on-command-error-effects: func(error: command-error) -> kakoune-side-effects;
 
     // --- v0.22.0: view dependency declaration ---
 
@@ -2011,8 +2023,13 @@ interface plugin-api {
     /// Returns None to skip (no publication this frame).
     publish-value: func(topic: string) -> option<channel-value>;
 
-    /// Called during delivery phase with all published values for a subscribed topic.
-    on-subscription: func(topic: string, values: list<channel-value>) -> runtime-effects;
+    /// Tier-1 subscription delivery handler (ADR-044). Called during
+    /// the delivery phase with all published values for a subscribed
+    /// topic. Returns `kakoune-side-effects` — pub/sub fires every
+    /// state-changed evaluation, so process spawn from a delivery
+    /// callback would create the same re-entrance pressure as
+    /// state-changed and is rejected at the type level.
+    on-subscription: func(topic: string, values: list<channel-value>) -> kakoune-side-effects;
 
     // --- v0.24.0: Extension point bridge ---
 

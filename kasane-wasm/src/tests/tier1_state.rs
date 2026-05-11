@@ -9,11 +9,13 @@ fn load_tier1_state_plugin() -> crate::WasmPlugin {
         .expect("failed to load plugin")
 }
 
-/// ADR-044 Phase B-3: the `define_plugin!` `on_state_changed_tier1_effects`
-/// arm emits the tier-1 wire export. The host calls both the tier-1 and
-/// the legacy export per tick and merges. This fixture only declares
-/// the tier-1 form, so the legacy export stays at the SDK default
-/// (empty effects) and the merged result equals just the tier-1 output.
+/// ADR-044 Phase B-5: the WIT 5.0.0 `on-state-changed-effects` export
+/// returns `kakoune-side-effects` directly (the transitional B-2
+/// dual-export was collapsed). This fixture exercises the tier-1
+/// dispatch end-to-end: a `define_plugin!` `on_state_changed_effects`
+/// arm whose body returns `KakouneSideEffects` round-trips through
+/// the host's `convert_kakoune_side_effects` to produce a single
+/// Kakoune-side command in `Effects::commands`.
 #[test]
 fn tier1_export_drives_state_change_effects() {
     let mut plugin = load_tier1_state_plugin();

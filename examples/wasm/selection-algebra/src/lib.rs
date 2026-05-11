@@ -584,7 +584,7 @@ kasane_plugin_sdk::define_plugin! {
         panel_selected: usize = 0,
     },
 
-    on_state_changed_tier1_effects(dirty) {
+    on_state_changed_effects(dirty) {
         // ---- Enabled guard ----
         if !__setting_enabled() {
             if state.regex_ok || state.diff_active || !state.match_lines.is_empty() {

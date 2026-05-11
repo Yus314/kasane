@@ -231,7 +231,7 @@ fn manifest_wasm_id_mismatch_detected() {
     let toml = r#"
 [plugin]
 id = "wrong_id"
-abi_version = "4.2.0"
+abi_version = "5.0.0"
 
 [handlers]
 flags = ["annotator"]

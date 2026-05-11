@@ -69,7 +69,6 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "on_active_session_ready_effects",
         "on_shutdown",
         "on_state_changed_effects",
-        "on_state_changed_tier1_effects",
         "on_workspace_changed",
         "surfaces",
         "render_surface",
@@ -191,16 +190,20 @@ pub(crate) fn generate_defaults(
 
     // --- Lifecycle ---
 
+    // ADR-044: init / session-ready are tier-1; lift through
+    // `KakouneSideEffects::default()` to the narrower wire types so the
+    // `From<KakouneSideEffects>` impls (not `From<ProcessCapableEffects>`)
+    // are selected.
     add_default!(
         "on_init_effects",
-        quote! { fn on_init_effects() -> BootstrapEffects { Effects::default().into() } }
+        quote! { fn on_init_effects() -> BootstrapEffects { KakouneSideEffects::default().into() } }
     );
 
     add_default!(
         "on_active_session_ready_effects",
         quote! {
             fn on_active_session_ready_effects() -> SessionReadyEffects {
-                Effects::default().into()
+                KakouneSideEffects::default().into()
             }
         }
     );
@@ -220,23 +223,13 @@ pub(crate) fn generate_defaults(
         quote! { fn restore_state(_data: Vec<u8>) -> bool { false } }
     );
 
+    // ADR-044 Phase B-5: state-changed is tier-1. The default returns
+    // empty `KakouneSideEffects` so plugins without an explicit handler
+    // body emit a well-formed (no-op) tier-1 effect bag.
     add_default!(
         "on_state_changed_effects",
         quote! {
-            fn on_state_changed_effects(_dirty_flags: u16) -> RuntimeEffects {
-                Effects::default()
-            }
-        }
-    );
-
-    // ADR-044 Phase B-2: tier-1 state-changed handler. Default returns
-    // empty `KakouneSideEffects`; the host calls this alongside the
-    // legacy export and merges the results, so plugins that have not
-    // opted into the tier-1 contract see no behavioural change.
-    add_default!(
-        "on_state_changed_tier1_effects",
-        quote! {
-            fn on_state_changed_tier1_effects(_dirty_flags: u16) -> KakouneSideEffects {
+            fn on_state_changed_effects(_dirty_flags: u16) -> KakouneSideEffects {
                 KakouneSideEffects::default()
             }
         }
@@ -625,7 +618,7 @@ pub(crate) fn generate_defaults(
 
     add_default!(
         "update_effects",
-        quote! { fn update_effects(_payload: Vec<u8>) -> RuntimeEffects { Effects::default() } }
+        quote! { fn update_effects(_payload: Vec<u8>) -> ProcessCapableEffects { ProcessCapableEffects::default() } }
     );
 
     // --- WASI capabilities ---
@@ -644,16 +637,16 @@ pub(crate) fn generate_defaults(
 
     add_default!(
         "on_io_event_effects",
-        quote! { fn on_io_event_effects(_event: IoEvent) -> RuntimeEffects { Effects::default() } }
+        quote! { fn on_io_event_effects(_event: IoEvent) -> ProcessCapableEffects { ProcessCapableEffects::default() } }
     );
 
-    // --- Command-error events (ADR-042 Phase B) ---
+    // --- Command-error events (ADR-042 Phase B; ADR-044 narrows to tier-1) ---
 
     add_default!(
         "on_command_error_effects",
         quote! {
-            fn on_command_error_effects(_error: CommandError) -> RuntimeEffects {
-                Effects::default()
+            fn on_command_error_effects(_error: CommandError) -> KakouneSideEffects {
+                KakouneSideEffects::default()
             }
         }
     );
@@ -692,8 +685,8 @@ pub(crate) fn generate_defaults(
     add_default!(
         "on_subscription",
         quote! {
-            fn on_subscription(_topic: String, _values: Vec<ChannelValue>) -> RuntimeEffects {
-                Effects::default()
+            fn on_subscription(_topic: String, _values: Vec<ChannelValue>) -> KakouneSideEffects {
+                KakouneSideEffects::default()
             }
         }
     );
