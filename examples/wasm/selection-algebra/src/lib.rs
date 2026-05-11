@@ -584,7 +584,7 @@ kasane_plugin_sdk::define_plugin! {
         panel_selected: usize = 0,
     },
 
-    on_state_changed_effects(dirty) {
+    on_state_changed_tier1_effects(dirty) {
         // ---- Enabled guard ----
         if !__setting_enabled() {
             if state.regex_ok || state.diff_active || !state.match_lines.is_empty() {
@@ -603,10 +603,10 @@ kasane_plugin_sdk::define_plugin! {
             if state.panel_open {
                 state.panel_open = false;
             }
-            return Effects::default();
+            return KakouneSideEffects::default();
         }
 
-        let mut cmds: Vec<Command> = Vec::new();
+        let mut cmds: Vec<KakouneSideCommand> = Vec::new();
         let mut need_scan = false;
 
         // ---- Phase 1: Prompt mode detection ----
@@ -792,7 +792,7 @@ kasane_plugin_sdk::define_plugin! {
                         let fade_ms = __setting_diff_fade_ms();
                         if fade_ms > 0 {
                             state.diff_timer_gen = state.diff_timer_gen.wrapping_add(1);
-                            cmds.push(Command::ScheduleTimer(TimerConfig {
+                            cmds.push(KakouneSideCommand::ScheduleTimer(TimerConfig {
                                 timer_id: state.diff_timer_gen as u64,
                                 delay_ms: fade_ms as u64,
                                 target_plugin: "selection_algebra".to_string(),
@@ -815,7 +815,7 @@ kasane_plugin_sdk::define_plugin! {
             }
         }
 
-        effects(cmds)
+        tier1_effects(cmds)
     },
 
     update_effects(payload) {

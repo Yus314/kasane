@@ -279,7 +279,7 @@ kasane_plugin_sdk::define_plugin! {
         active_line: i32 = 0,
     },
 
-    on_state_changed_effects(dirty) {
+    on_state_changed_tier1_effects(dirty) {
         if dirty & dirty::BUFFER != 0 {
             let line_count = host_state::get_line_count();
             for i in 0..line_count {
@@ -308,7 +308,7 @@ kasane_plugin_sdk::define_plugin! {
             let lc = line_count as usize;
             state.color_lines.retain(|&k, _| k < lc);
         }
-        effects(vec![])
+        KakouneSideEffects::default()
     },
 
     handle_mouse(event, id) {

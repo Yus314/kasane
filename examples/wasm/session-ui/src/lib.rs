@@ -98,14 +98,14 @@ kasane_plugin_sdk::define_plugin! {
         selected: usize = 0,
     },
 
-    on_state_changed_effects(dirty) {
+    on_state_changed_tier1_effects(dirty) {
         if dirty & dirty::SESSION != 0 {
             state.switcher_open = false;
             if state.session_count > 0 && state.selected >= state.session_count as usize {
                 state.selected = state.session_count as usize - 1;
             }
         }
-        Effects::default()
+        KakouneSideEffects::default()
     },
 
     slots {

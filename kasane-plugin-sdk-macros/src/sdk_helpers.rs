@@ -1118,6 +1118,13 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 Effects { redraw: 0, commands, scroll_plans: vec![] }
             }
 
+            /// Tier-1 effects with commands only, mirroring [`effects`] for
+            /// the [`KakouneSideEffects`] return type used by
+            /// `on_state_changed_tier1_effects` (ADR-044 Phase B).
+            pub fn tier1_effects(commands: Vec<KakouneSideCommand>) -> KakouneSideEffects {
+                KakouneSideEffects { redraw: 0, commands, scroll_plans: vec![] }
+            }
+
             /// Effects with commands + trailing RequestRedraw(ALL).
             pub fn effects_redraw(mut commands: Vec<Command>) -> Effects {
                 commands.push(Command::RequestRedraw(#sdk_dirty_all));
