@@ -27,7 +27,7 @@ impl Viewport {
         };
 
         let params_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("glyphon params"),
+            label: Some("kasane text params"),
             size: mem::size_of::<Params>() as u64,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             mapped_at_creation: false,

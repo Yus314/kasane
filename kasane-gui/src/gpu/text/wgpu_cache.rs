@@ -49,7 +49,7 @@ impl Cache {
     /// Creates a new `Cache` with the given `device`.
     pub fn new(device: &Device) -> Self {
         let sampler = device.create_sampler(&SamplerDescriptor {
-            label: Some("glyphon sampler"),
+            label: Some("kasane text sampler"),
             min_filter: FilterMode::Nearest,
             mag_filter: FilterMode::Nearest,
             mipmap_filter: MipmapFilterMode::Nearest,
@@ -59,7 +59,7 @@ impl Cache {
         });
 
         let shader = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("glyphon shader"),
+            label: Some("kasane text shader"),
             source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
         });
 
@@ -129,7 +129,7 @@ impl Cache {
                     count: None,
                 },
             ],
-            label: Some("glyphon atlas bind group layout"),
+            label: Some("kasane text atlas bind group layout"),
         });
 
         let uniforms_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -143,7 +143,7 @@ impl Cache {
                 },
                 count: None,
             }],
-            label: Some("glyphon uniforms bind group layout"),
+            label: Some("kasane text uniforms bind group layout"),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -184,7 +184,7 @@ impl Cache {
                     resource: BindingResource::Sampler(&self.0.sampler),
                 },
             ],
-            label: Some("glyphon atlas bind group"),
+            label: Some("kasane text atlas bind group"),
         })
     }
 
@@ -195,7 +195,7 @@ impl Cache {
                 binding: 0,
                 resource: buffer.as_entire_binding(),
             }],
-            label: Some("glyphon uniforms bind group"),
+            label: Some("kasane text uniforms bind group"),
         })
     }
 
@@ -222,7 +222,7 @@ impl Cache {
             .map(|(_, _, _, p)| p.clone())
             .unwrap_or_else(|| {
                 let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-                    label: Some("glyphon pipeline"),
+                    label: Some("kasane text pipeline"),
                     layout: Some(pipeline_layout),
                     vertex: VertexState {
                         module: shader,
