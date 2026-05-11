@@ -1,0 +1,5 @@
+error: unknown flag `-override` for Kakoune command `declare-user-mode`. accepted flags: -docstring, -hidden
+ --> tests/fail/kak_lint_override.rs:7:42
+  |
+7 |     let _ = kasane_plugin_sdk::kak_lint!("declare-user-mode -override 'sprout'");
+  |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

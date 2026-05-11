@@ -1,0 +1,5 @@
+error: unknown flag `-no-such-flag` for Kakoune command `map`. accepted flags: -docstring
+ --> tests/fail/kak_lint_unknown_flag.rs:2:42
+  |
+2 |     let _ = kasane_plugin_sdk::kak_lint!("map -no-such-flag global user b ':bump<ret>'");
+  |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

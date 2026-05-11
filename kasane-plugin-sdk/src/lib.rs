@@ -99,6 +99,32 @@ pub use kasane_plugin_sdk_macros::kasane_wasm_plugin as plugin;
 /// single declaration. See the proc macro documentation for full syntax.
 pub use kasane_plugin_sdk_macros::kasane_define_plugin as define_plugin;
 
+/// Compile-time Kakoune command string validator.
+///
+/// Validates a string literal against the SDK's catalog of known Kakoune
+/// commands and rejects unknown flags at compile time. Unknown commands
+/// pass through unchanged — the catalog is strictly additive.
+///
+/// Motivating bug: sprout's session-ready setup used
+/// `declare-user-mode -override foo`, which Kakoune silently rejects
+/// (`-override` is not accepted by `declare-user-mode`), causing all 11
+/// user-mode keymaps to fail to register. See Issue #93.
+///
+/// # Example
+///
+/// ```ignore
+/// use kasane_plugin_sdk::{kak_lint, Command};
+///
+/// // Valid — compiles, expands to the input string literal.
+/// let cmd = Command::EvalCommand(
+///     kak_lint!("declare-user-mode 'sprout'").to_string()
+/// );
+///
+/// // Invalid — compile error.
+/// // let bad = kak_lint!("declare-user-mode -override 'sprout'");
+/// ```
+pub use kasane_plugin_sdk_macros::kasane_kak_lint as kak_lint;
+
 /// Slot indices matching `kasane_core::plugin::Slot`.
 pub mod slot {
     pub const BUFFER_LEFT: u8 = 0;

@@ -231,6 +231,36 @@ Note: at session-ready the WIT `session-ready-command` variant excludes
 `eval-command`; runtime callsites should prefer `Command::EvalCommand`
 where available.
 
+### Compile-time validation of raw command strings
+
+When a plugin composes a Kakoune command string by hand — i.e., not via a
+`kak::*` helper — wrap the literal in
+[`kasane_plugin_sdk::kak_lint!`](https://docs.rs/kasane-plugin-sdk/latest/kasane_plugin_sdk/macro.kak_lint.html)
+to catch typo'd or invalid flags at compile time.
+
+```rust
+use kasane_plugin_sdk::{kak_lint, Command};
+
+// Valid — compiles, expands to the input string literal.
+let ok = Command::EvalCommand(kak_lint!("write").to_string());
+
+// Invalid — compile error:
+//   unknown flag `-override` for Kakoune command `declare-user-mode`.
+//   accepted flags: -docstring, -hidden
+// let bad = kak_lint!("declare-user-mode -override 'sprout'");
+```
+
+The motivating bug for the linter was sprout's session-ready setup which
+passed `-override` to `declare-user-mode` — a flag Kakoune silently
+rejects — causing all 11 user-mode keymaps to fail to register (Issue
+\#93). The linter's catalog covers the most common setup commands
+(`declare-user-mode`, `define-command`, `map`, `declare-option`,
+`set-option`, `evaluate-commands`, `hook`, `alias`, `echo`, `info`,
+`try`, `unset-option`). Commands not in the catalog pass through
+unchanged so the macro never produces a false positive against a real
+Kakoune command. To expand coverage, edit `CATALOG` in
+`kasane-plugin-sdk-macros/src/lint.rs`.
+
 ### Build & Deploy
 
 ```bash

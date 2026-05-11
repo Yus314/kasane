@@ -12,6 +12,7 @@ use proc_macro::TokenStream;
 mod defaults;
 mod define_plugin;
 mod key_map;
+mod lint;
 mod manifest;
 mod sdk_helpers;
 
@@ -127,4 +128,29 @@ pub fn kasane_define_plugin(input: TokenStream) -> TokenStream {
         Ok(tokens) => tokens.into(),
         Err(e) => e.into_compile_error().into(),
     }
+}
+
+/// Compile-time Kakoune command string validator (closes #93).
+///
+/// Takes a string literal, checks the command name + flags against the
+/// SDK's catalog of known Kakoune commands, and emits a `compile_error!`
+/// for unknown flags on cataloged commands. Unknown commands pass through
+/// unchanged — the catalog is additive, never producing a false positive.
+///
+/// The expanded value is the original string literal, so the macro can be
+/// dropped into any place a `&'static str` is expected.
+///
+/// # Example
+///
+/// ```ignore
+/// // Valid — compiles.
+/// let ok = kasane_plugin_sdk::kak_lint!("declare-user-mode 'sprout'");
+///
+/// // Invalid — compile error: `-override` is not accepted by
+/// // `declare-user-mode` (Issue #81 motivating bug).
+/// let bad = kasane_plugin_sdk::kak_lint!("declare-user-mode -override 'sprout'");
+/// ```
+#[proc_macro]
+pub fn kasane_kak_lint(input: TokenStream) -> TokenStream {
+    lint::kak_lint_impl(input)
 }
