@@ -5,7 +5,8 @@ use crate::input::{DropEvent, KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 
 use super::super::traits::{
-    KeyHandleResult, KeyPreDispatchResult, MousePreDispatchResult, TextInputPreDispatchResult,
+    KakouneSideMousePreDispatchResult, KeyHandleResult, KeyPreDispatchResult,
+    MousePreDispatchResult, TextInputPreDispatchResult,
 };
 use super::super::{AppView, Command, KakouneSideCommand, PluginState};
 
@@ -218,6 +219,13 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Pre-dispatch handlers can `Consume` the event (terminating dispatch) or
     /// `Pass` it through with optional state updates and commands. Used by
     /// drag-tracking and shadow-cursor-class plugins.
+    ///
+    /// **For new code, prefer [`Self::on_mouse_pre_dispatch_tier1`]** — it
+    /// pins the Tier-1 contract from
+    /// [ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
+    /// at compile time. Mouse pre-dispatch fires per mouse tick (move
+    /// included), so process spawn from the broad `MousePreDispatchResult`
+    /// is the same re-entrance class of bug that motivated the ADR.
     pub fn on_mouse_pre_dispatch(
         &mut self,
         handler: impl Fn(&S, &MouseEvent, &AppView<'_>) -> (S, MousePreDispatchResult)
@@ -232,6 +240,31 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 .expect("state type mismatch");
             let (new_state, result) = handler(s, event, app);
             (Box::new(new_state) as Box<dyn PluginState>, result)
+        }));
+    }
+
+    /// Register a tier-1 mouse pre-dispatch handler
+    /// ([ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)).
+    ///
+    /// Returns a [`KakouneSideMousePreDispatchResult`] whose `commands`
+    /// field is `Vec<KakouneSideCommand>` — the bound rejects raw
+    /// [`MousePreDispatchResult`] returns at compile time, because there
+    /// is intentionally no `From<MousePreDispatchResult>` impl on the
+    /// tier-1 type. Migrate by replacing `Vec<Command>` with
+    /// `Vec<KakouneSideCommand>` and the result variant with the
+    /// `KakouneSideMousePreDispatchResult::*` parallel.
+    pub fn on_mouse_pre_dispatch_tier1<R: Into<KakouneSideMousePreDispatchResult> + 'static>(
+        &mut self,
+        handler: impl Fn(&S, &MouseEvent, &AppView<'_>) -> (S, R) + Send + Sync + 'static,
+    ) {
+        self.table.mouse_pre_dispatch_handler = Some(Box::new(move |state, event, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, tier1) = handler(s, event, app);
+            let tier1: KakouneSideMousePreDispatchResult = tier1.into();
+            (Box::new(new_state) as Box<dyn PluginState>, tier1.into())
         }));
     }
 
@@ -329,6 +362,40 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         if C::IS_TRANSPARENT {
             self.table.transparency.mouse_handler = true;
         }
+    }
+
+    /// Register a tier-1 mouse handler
+    /// ([ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)).
+    ///
+    /// `Option<Vec<KakouneSideCommand>>` opt-in for click handlers that
+    /// only emit Kakoune-side effects. The bound rejects raw `Command`
+    /// returns at compile time — interactive-element click handlers
+    /// rarely need to spawn processes, so the tier-1 narrowing matches
+    /// the common case.
+    pub fn on_handle_mouse_tier1<C: Into<KakouneSideCommand> + 'static>(
+        &mut self,
+        handler: impl Fn(&S, &MouseEvent, InteractiveId, &AppView<'_>) -> Option<(S, Vec<C>)>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.handle_mouse_handler = Some(Box::new(move |state, event, id, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, event, id, app).map(|(new_state, cmds)| {
+                (
+                    Box::new(new_state) as Box<dyn PluginState>,
+                    cmds.into_iter()
+                        .map(|c| {
+                            let side: KakouneSideCommand = c.into();
+                            side.into()
+                        })
+                        .collect(),
+                )
+            })
+        }));
     }
 
     /// Register a drop observer (notification only, cannot consume).
@@ -483,4 +550,135 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
 
     // =========================================================================
     // Renderer extension point handlers
+}
+
+#[cfg(test)]
+mod tier1_mouse_tests {
+    //! ADR-044 Phase A-3d-mouse: positive integration tests for the tier-1
+    //! mouse pre-dispatch / handle-mouse setters. The compile-fail aspect
+    //! (raw `MousePreDispatchResult` rejected by `on_mouse_pre_dispatch_tier1`
+    //! and raw `Command` rejected by `on_handle_mouse_tier1`) is enforced
+    //! structurally by the bound `R: Into<KakouneSideMousePreDispatchResult>`
+    //! / `C: Into<KakouneSideCommand>` and the absence of reverse `From`
+    //! impls — there is no way to construct a closure that satisfies the
+    //! bound while returning the broad type.
+
+    use crate::input::{Modifiers, MouseButton, MouseEvent, MouseEventKind};
+    use crate::plugin::{
+        AppView, HandlerRegistry, KakouneSideCommand, KakouneSideMousePreDispatchResult, Plugin,
+        PluginBackend, PluginBridge, PluginId, StateUpdates,
+    };
+    use crate::state::{AppState, DirtyFlags};
+
+    #[derive(Clone, Default, PartialEq, Hash, Debug)]
+    struct TestState {
+        last_event: u64,
+    }
+
+    fn probe_event() -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Press(MouseButton::Left),
+            line: 0,
+            column: 0,
+            modifiers: Modifiers::empty(),
+        }
+    }
+
+    #[test]
+    fn tier1_mouse_pre_dispatch_pass_lifts_to_broad_result() {
+        struct Plug;
+        impl Plugin for Plug {
+            type State = TestState;
+            fn id(&self) -> PluginId {
+                PluginId("test.tier1-mpd-pass".into())
+            }
+            fn register(&self, r: &mut HandlerRegistry<TestState>) {
+                r.on_mouse_pre_dispatch_tier1(|state, _event, _app| {
+                    (
+                        TestState {
+                            last_event: state.last_event + 1,
+                        },
+                        KakouneSideMousePreDispatchResult::Pass {
+                            commands: vec![KakouneSideCommand::request_redraw(DirtyFlags::BUFFER)],
+                            state_updates: StateUpdates::default(),
+                        },
+                    )
+                });
+            }
+        }
+
+        let mut bridge = PluginBridge::new(Plug);
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let result = bridge.handle_mouse_pre_dispatch(&probe_event(), &app);
+        match result {
+            crate::plugin::MousePreDispatchResult::Pass { commands, .. } => {
+                assert_eq!(commands.len(), 1, "tier-1 command should lift through");
+            }
+            _ => panic!("expected Pass variant"),
+        }
+    }
+
+    #[test]
+    fn tier1_mouse_pre_dispatch_consumed_lifts_to_broad_result() {
+        struct Plug;
+        impl Plugin for Plug {
+            type State = TestState;
+            fn id(&self) -> PluginId {
+                PluginId("test.tier1-mpd-consumed".into())
+            }
+            fn register(&self, r: &mut HandlerRegistry<TestState>) {
+                r.on_mouse_pre_dispatch_tier1(|s, _event, _app| {
+                    (
+                        s.clone(),
+                        KakouneSideMousePreDispatchResult::Consumed {
+                            flags: DirtyFlags::BUFFER,
+                            commands: vec![],
+                            state_updates: StateUpdates::default(),
+                        },
+                    )
+                });
+            }
+        }
+
+        let mut bridge = PluginBridge::new(Plug);
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let result = bridge.handle_mouse_pre_dispatch(&probe_event(), &app);
+        match result {
+            crate::plugin::MousePreDispatchResult::Consumed { flags, .. } => {
+                assert!(flags.contains(DirtyFlags::BUFFER));
+            }
+            _ => panic!("expected Consumed variant"),
+        }
+    }
+
+    #[test]
+    fn tier1_handle_mouse_lifts_to_broad_commands() {
+        struct Plug;
+        impl Plugin for Plug {
+            type State = TestState;
+            fn id(&self) -> PluginId {
+                PluginId("test.tier1-handle-mouse".into())
+            }
+            fn register(&self, r: &mut HandlerRegistry<TestState>) {
+                r.on_handle_mouse_tier1(|s, _event, _id, _app| {
+                    Some((
+                        s.clone(),
+                        vec![KakouneSideCommand::request_redraw(DirtyFlags::BUFFER)],
+                    ))
+                });
+            }
+        }
+
+        let mut bridge = PluginBridge::new(Plug);
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let id = crate::element::InteractiveId::framework(0);
+        let result = bridge.handle_mouse(&probe_event(), id, &app);
+        match result {
+            Some(commands) => assert_eq!(commands.len(), 1),
+            None => panic!("tier-1 handle-mouse should consume the event"),
+        }
+    }
 }

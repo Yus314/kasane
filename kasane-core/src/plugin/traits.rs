@@ -94,6 +94,54 @@ pub enum MousePreDispatchResult {
     },
 }
 
+/// ADR-044 Phase A-3d-mouse: tier-1 mirror of [`MousePreDispatchResult`].
+///
+/// Both variants carry `Vec<KakouneSideCommand>` instead of `Vec<Command>`,
+/// rejecting `ProcessCommand` variants (`SpawnProcess`, `HttpRequest`,
+/// etc.) at compile time. The asymmetric `From` lift below feeds the
+/// dispatch table a broad [`MousePreDispatchResult`]; there is
+/// intentionally no reverse impl, mirroring the
+/// `KakouneSideEffects → Effects` projection used elsewhere in
+/// [ADR-044](../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy).
+///
+/// Pre-dispatch handlers fire on every mouse tick (move included), so
+/// the tier-1 narrowing is the natural enforcement against the
+/// silent-spawn class of bugs that motivated the ADR.
+pub enum KakouneSideMousePreDispatchResult {
+    Consumed {
+        flags: DirtyFlags,
+        commands: Vec<super::KakouneSideCommand>,
+        state_updates: StateUpdates,
+    },
+    Pass {
+        commands: Vec<super::KakouneSideCommand>,
+        state_updates: StateUpdates,
+    },
+}
+
+impl From<KakouneSideMousePreDispatchResult> for MousePreDispatchResult {
+    fn from(tier1: KakouneSideMousePreDispatchResult) -> Self {
+        match tier1 {
+            KakouneSideMousePreDispatchResult::Consumed {
+                flags,
+                commands,
+                state_updates,
+            } => MousePreDispatchResult::Consumed {
+                flags,
+                commands: commands.into_iter().map(Into::into).collect(),
+                state_updates,
+            },
+            KakouneSideMousePreDispatchResult::Pass {
+                commands,
+                state_updates,
+            } => MousePreDispatchResult::Pass {
+                commands: commands.into_iter().map(Into::into).collect(),
+                state_updates,
+            },
+        }
+    }
+}
+
 /// Result of text input pre-dispatch (before the text input handler chain).
 pub enum TextInputPreDispatchResult {
     /// Text input was consumed by the pre-dispatch handler.

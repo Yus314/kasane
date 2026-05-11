@@ -5733,9 +5733,10 @@ string-based layers cannot provide:
 
 ## ADR-044: Handler → Effect Tier Hierarchy
 
-**Status:** Phase A (A-1 / A-2 / A-3a / A-3b / A-3c / A-3d / A-3e /
-A-3e effect plumbing / A-3f / A-3g) + Phase B-1 / B-2 / B-3 / B-4
-shipped (2026-05-11). Phase 2/3 of the silent-drop fix chain
+**Status:** Phase A (A-1 / A-2 / A-3a / A-3b / A-3c / A-3d /
+A-3d-mouse / A-3e / A-3e effect plumbing / A-3f / A-3g) + Phase
+B-1 / B-2 / B-3 / B-4 / B-4-bind shipped (2026-05-11). Phase 2/3
+of the silent-drop fix chain
 ([#100](https://github.com/Yus314/kasane/issues/100) → ADR Phase 0,
 [#101](https://github.com/Yus314/kasane/issues/101) → ADR Phase 1,
 this ADR → Phase 2/3).
@@ -5756,6 +5757,7 @@ this ADR → Phase 2/3).
 | B-3   | `define_plugin!` learns the tier-1 DSL key `on_state_changed_tier1_effects(...)` and rejects declaring both legacy and tier-1 simultaneously. SDK ships `kakoune_side_setup_effects!` (eval-command shorthand) and `tier1_effects(commands)` (Vec helper). | Conflict diagnostic is compile-time. Fixture guest `kasane-wasm/guests/tier1-state/` + host test `tier1_state.rs` witness the macro → wire → host merge end-to-end. Commit `6a44b1dd`. |
 | B-4   | First batch of `examples/wasm/*` plugins migrated to the tier-1 form: `color-preview`, `image-preview`, `session-ui`, `selection-algebra`. None emit process commands, so the migration is pure type-narrowing. | `sel-badge` / `fuzzy-finder` / `pane-manager` / `prompt-highlight` / `smooth-scroll` / `kakoune-bindings-demo` declare no explicit `on_state_changed_effects` block. Commit `964171ef`. |
 | B-4-bind | `define_plugin!` `#[bind]` auto-bindings default to the tier-1 export. When the user writes no explicit handler block (or writes the tier-1 form), bindings emit inside `on_state_changed_tier1_effects` with body `KakouneSideEffects::default()`. An explicit legacy block keeps bindings on the legacy path for source compatibility. | `cursor-line` (only `#[bind]`, no explicit handler) migrated by macro change alone; its in-tree test that drove the legacy export was updated to drive the tier-1 entry point. |
+| A-3d-mouse | `KakouneSideMousePreDispatchResult` enum mirrors `MousePreDispatchResult` with `Vec<KakouneSideCommand>` instead of `Vec<Command>`; `From` lift feeds the dispatch table. `HandlerRegistry::on_mouse_pre_dispatch_tier1` accepts the new enum (via `Into` bound), and `HandlerRegistry::on_handle_mouse_tier1` mirrors A-3d's other per-command-bound input setters for click handlers. | Three positive integration tests cover the `Pass`, `Consumed`, and click-handler lift paths. Existing legacy docstrings point at the new tier-1 siblings. |
 | A-3e  | `HandlerRegistry::on_command_error` and `HandlerRegistry::on_subscription` setters. Both handlers were previously only reachable via overriding the `PluginBackend` trait method, so the canonical Plugin-trait path had no way to register them. | `on_command_error` accepts `&PluginErrorEvent` and returns `Effects` through the same `dispatch_state_effect!` machinery as the lifecycle handlers. `on_subscription` mirrors the WIT `on-subscription(topic, values) -> runtime-effects` shape and now also takes `&AppView<'_>`. The exhaustive dispatch coverage test gains both handler names. |
 | A-3e effect plumbing | Widen `PluginBackend::deliver_subscriptions` from `-> bool` (a flag no caller read) to `-> Effects` and add `app: &AppView<'_>`. Add `PluginEffects::evaluate_pubsub(&mut self, app) -> EffectsBatch` and route it from `state/update.rs` after `notify_state_changed`. PluginRuntime now owns the topic bus so oscillation history persists across frames without the caller threading a bus in. | Both the native `PluginBridge` and the WASM adapter now forward `on_subscription` effects up. A new test (`test_on_subscription_effects_flow_back_through_evaluate_pubsub`) witnesses a `redraw: BUFFER` flag traveling from a plugin's `on_subscription` handler into the dispatcher's `EffectsBatch`. |
 | A-3g  | `#[deprecated(since = "0.7.1")]` on the seven legacy lifecycle setters (`on_init`, `on_session_ready`, `on_state_changed`, `on_io_event`, `on_update`, `on_process_task`, `on_process_task_streaming`) with notes pointing at the tier replacement. | In-tree test fixtures and the `#[kasane::plugin]` proc-macro emission gate the warnings with scoped `#[allow(deprecated)]`. Input setters (`on_key`, `on_text_input`, `on_drop`, `on_mouse_fallback`) stay un-deprecated because tier-1 there is a stricter opt-in, not the default. |
@@ -5856,11 +5858,20 @@ edits + 10–15 rebuilt `.wasm` blobs. The 4.0 → 4.1 precedent
 
 ### Remaining work
 
-- **A-3d-mouse** — `on_mouse_pre_dispatch` and the various mouse-handler
-  setters do not yet have tier-1 variants. They take `MousePreDispatchResult`
-  which is more complex than the key/text/drop pattern (state-update
-  channel + commands), so the lift requires a tier-typed result type
-  rather than just a per-command bound.
+- ~~**A-3d-mouse**~~ — *Closed.* New `KakouneSideMousePreDispatchResult`
+  enum mirrors `MousePreDispatchResult` with `Vec<KakouneSideCommand>`
+  in place of `Vec<Command>`; `From<KakouneSideMousePreDispatchResult>
+  for MousePreDispatchResult` provides the asymmetric lift.
+  `HandlerRegistry` gains `on_mouse_pre_dispatch_tier1` (bound on
+  `Into<KakouneSideMousePreDispatchResult>`) and `on_handle_mouse_tier1`
+  (per-command bound, sibling of A-3d's other tier-1 input setters).
+  Three positive integration tests in
+  `kasane-core/src/plugin/handler_registry/input.rs` exercise both
+  the `Pass` and `Consumed` lift paths plus the click-handler tier-1
+  setter. Existing legacy setter docstrings now point at the new
+  tier-1 sibling. The remaining un-tier-1'd pre-dispatch setters
+  (`on_key_pre_dispatch`, `on_text_input_pre_dispatch`) follow the
+  exact same pattern and can be added later if needed.
 - ~~**A-3f leftovers**~~ — *Closed.* Survey of the four named
   candidates (`BuiltinDragPlugin`, `BuiltinFoldPlugin`,
   `SemanticZoomPlugin`, `WidgetPlugin`) plus all other in-tree

@@ -102,8 +102,8 @@ pub use crate::display::{
 // Re-export traits module
 pub use crate::input::KeyResponse;
 pub use traits::{
-    KeyHandleResult, KeyPreDispatchResult, MousePreDispatchResult, PluginBackend,
-    TextInputPreDispatchResult,
+    KakouneSideMousePreDispatchResult, KeyHandleResult, KeyPreDispatchResult,
+    MousePreDispatchResult, PluginBackend, TextInputPreDispatchResult,
 };
 
 // Re-export projection status plugin (Phase 10)
