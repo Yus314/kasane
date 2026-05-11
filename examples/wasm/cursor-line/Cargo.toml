@@ -6,7 +6,11 @@ edition = "2024"
 [workspace]
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Enable the SDK's mock host so this plugin can be unit-tested natively.
+test-harness = ["kasane-plugin-sdk/test-harness"]
 
 [dependencies]
 kasane-plugin-sdk = { path = "../../../kasane-plugin-sdk" }

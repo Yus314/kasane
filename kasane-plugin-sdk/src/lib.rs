@@ -1718,63 +1718,11 @@ mod tests {
 /// Test harness for WASM plugins (feature-gated: `test-harness`).
 ///
 /// Provides a mock host environment for unit-testing Kasane WASM plugins
-/// without the full runtime. See [`test::TestHarness`] for usage.
+/// without the full runtime. The implementation lives in the companion
+/// crate `kasane-plugin-sdk-test`; this re-export is the supported entry
+/// point for plugin authors and is the path the macro-emitted host shims
+/// use internally.
 #[cfg(feature = "test-harness")]
-pub mod test;
+pub use kasane_plugin_sdk_test as test;
 
-#[cfg(all(test, feature = "test-harness"))]
-mod test_harness_tests {
-    use super::test::*;
-
-    #[test]
-    fn harness_default_state() {
-        let h = TestHarness::new();
-        let state = h.state();
-        assert_eq!(state.cursor_line, 1);
-        assert_eq!(state.cursor_col, 1);
-        assert_eq!(state.cols, 80);
-        assert_eq!(state.rows, 24);
-        assert!(state.focused);
-    }
-
-    #[test]
-    fn harness_set_cursor() {
-        let mut h = TestHarness::new();
-        h.set_cursor_line(42);
-        h.set_cursor_col(10);
-        assert_eq!(mock_host_state::get_cursor_line(), 42);
-        assert_eq!(mock_host_state::get_cursor_col(), 10);
-    }
-
-    #[test]
-    fn harness_element_arena() {
-        let h = TestHarness::new();
-        let handle = mock_element_builder::create_text("hello", "default");
-        let arena = h.arena();
-        assert_eq!(arena.len(), 1);
-        assert!(arena.get(handle).unwrap().contains("hello"));
-    }
-
-    #[test]
-    fn harness_logs() {
-        let mut h = TestHarness::new();
-        mock_host_log::log_message(1, "test message");
-        let logs = h.drain_logs();
-        assert_eq!(logs.len(), 1);
-        assert_eq!(logs[0].level, 1);
-        assert_eq!(logs[0].message, "test message");
-    }
-
-    #[test]
-    fn harness_cleanup_on_drop() {
-        {
-            let mut h = TestHarness::new();
-            h.set_cursor_line(99);
-            mock_element_builder::create_text("temp", "default");
-        }
-        // After drop, state should be reset
-        assert_eq!(mock_host_state::get_cursor_line(), 1);
-        let h = TestHarness::new();
-        assert!(h.arena().is_empty());
-    }
-}
+// Harness self-tests live in the `kasane-plugin-sdk-test` crate.

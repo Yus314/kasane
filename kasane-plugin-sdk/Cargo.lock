@@ -141,6 +141,7 @@ name = "kasane-plugin-sdk"
 version = "0.6.0"
 dependencies = [
  "kasane-plugin-sdk-macros",
+ "kasane-plugin-sdk-test",
  "postcard",
  "serde",
  "trybuild",
@@ -157,6 +158,10 @@ dependencies = [
  "syn",
  "toml 0.9.12+spec-1.1.0",
 ]
+
+[[package]]
+name = "kasane-plugin-sdk-test"
+version = "0.6.0"
 
 [[package]]
 name = "leb128fmt"

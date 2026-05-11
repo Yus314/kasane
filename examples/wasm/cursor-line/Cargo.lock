@@ -135,6 +135,7 @@ name = "kasane-plugin-sdk"
 version = "0.6.0"
 dependencies = [
  "kasane-plugin-sdk-macros",
+ "kasane-plugin-sdk-test",
  "postcard",
  "serde",
  "wit-bindgen",
@@ -150,6 +151,10 @@ dependencies = [
  "syn",
  "toml",
 ]
+
+[[package]]
+name = "kasane-plugin-sdk-test"
+version = "0.6.0"
 
 [[package]]
 name = "kasane-wasm-cursor-line"

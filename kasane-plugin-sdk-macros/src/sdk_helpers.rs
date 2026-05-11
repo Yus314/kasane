@@ -53,7 +53,6 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
         #[allow(dead_code)]
         mod __kasane_sdk {
             pub use super::exports::kasane::plugin::plugin_api::Guest;
-            pub use super::kasane::plugin::host_state;
             pub use super::kasane::plugin::element_builder;
             pub use super::kasane::plugin::types::*;
 
@@ -61,6 +60,261 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             pub use super::kasane::plugin::host_log;
 
             use super::kasane::plugin::types::*;
+
+            // -----------------------------------------------------------------
+            // host_state: cfg-switched between wit-bindgen-generated bindings
+            // (real plugin) and a mock shim (`feature = "test-harness"` in the
+            // plugin crate).
+            //
+            // The shim delegates to `kasane_plugin_sdk::test::mock_host_state`
+            // and constructs WIT types (Style/Atom/Coord) locally from the
+            // SDK's mock equivalents. Functions returning types that the
+            // harness does not yet model (e.g. selection-set, history) are
+            // omitted from the shim — plugins that depend on them must
+            // avoid calling those paths in tests, or fall back to extracting
+            // the dependent logic into a pure function.
+            #[cfg(not(feature = "test-harness"))]
+            pub use super::kasane::plugin::host_state;
+
+            #[cfg(feature = "test-harness")]
+            pub use __kasane_test_host_state as host_state;
+
+            #[cfg(feature = "test-harness")]
+            #[allow(dead_code)]
+            pub mod __kasane_test_host_state {
+                use super::*;
+
+                fn to_brush(b: ::kasane_plugin_sdk::test::MockBrush) -> Brush {
+                    use ::kasane_plugin_sdk::test::MockBrush;
+                    match b {
+                        MockBrush::Default => Brush::DefaultColor,
+                        MockBrush::Rgb { r, g, b } => Brush::Rgb(RgbColor { r, g, b }),
+                    }
+                }
+
+                fn to_style(m: ::kasane_plugin_sdk::test::MockStyle) -> Style {
+                    Style {
+                        fg: to_brush(m.fg),
+                        bg: to_brush(m.bg),
+                        font_weight: if m.bold { 700u16 } else { 400u16 },
+                        font_slant: if m.italic { FontSlant::Italic } else { FontSlant::Normal },
+                        font_features: 0u32,
+                        font_variations: vec![],
+                        letter_spacing: 0.0f32,
+                        underline: if m.underline {
+                            Some(TextDecoration {
+                                style: DecorationStyle::Solid,
+                                color: Brush::DefaultColor,
+                                thickness: None,
+                            })
+                        } else { None },
+                        strikethrough: None,
+                        blink: false,
+                        reverse: m.reverse,
+                        dim: m.dim,
+                    }
+                }
+
+                fn to_atom(m: ::kasane_plugin_sdk::test::MockAtom) -> Atom {
+                    Atom {
+                        style: to_style(m.style),
+                        contents: m.contents,
+                    }
+                }
+
+                fn to_coord(c: ::kasane_plugin_sdk::test::MockCoord) -> Coord {
+                    Coord { line: c.line, column: c.column }
+                }
+
+                // --- Primitive returns ---
+                pub fn get_cursor_line() -> i32 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_cursor_line()
+                }
+                pub fn get_cursor_col() -> i32 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_cursor_col()
+                }
+                pub fn get_cursor_count() -> u32 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_cursor_count()
+                }
+                pub fn get_secondary_cursor_count() -> u32 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_secondary_cursor_count()
+                }
+                pub fn get_cursor_mode() -> u8 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_cursor_mode()
+                }
+                pub fn get_editor_mode() -> u8 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_editor_mode()
+                }
+                pub fn get_line_count() -> u32 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_line_count()
+                }
+                pub fn get_line_text(line: u32) -> Option<String> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_line_text(line)
+                }
+                pub fn get_lines_text(start: u32, end: u32) -> Vec<String> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_lines_text(start, end)
+                }
+                pub fn is_line_dirty(line: u32) -> bool {
+                    ::kasane_plugin_sdk::test::mock_host_state::is_line_dirty(line)
+                }
+                pub fn get_buffer_file_path() -> Option<String> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_buffer_file_path()
+                }
+                pub fn get_cols() -> u16 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_cols()
+                }
+                pub fn get_rows() -> u16 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_rows()
+                }
+                pub fn get_widget_columns() -> u16 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_widget_columns()
+                }
+                pub fn is_focused() -> bool {
+                    ::kasane_plugin_sdk::test::mock_host_state::is_focused()
+                }
+                pub fn is_dragging() -> bool {
+                    ::kasane_plugin_sdk::test::mock_host_state::is_dragging()
+                }
+                pub fn has_menu() -> bool {
+                    ::kasane_plugin_sdk::test::mock_host_state::has_menu()
+                }
+                pub fn get_menu_item_count() -> u32 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_menu_item_count()
+                }
+                pub fn get_menu_selected() -> i32 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_menu_selected()
+                }
+                pub fn get_menu_mode() -> Option<String> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_menu_mode()
+                }
+                pub fn has_info() -> bool {
+                    ::kasane_plugin_sdk::test::mock_host_state::has_info()
+                }
+                pub fn get_info_count() -> u32 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_info_count()
+                }
+                pub fn get_info_style(idx: u32) -> Option<String> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_info_style(idx)
+                }
+                pub fn get_status_style() -> String {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_status_style()
+                }
+                pub fn get_config_string(key: &str) -> Option<String> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_config_string(key)
+                }
+                pub fn get_ui_option(key: &str) -> Option<String> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_ui_option(key)
+                }
+                pub fn get_setting_bool(key: &str) -> Option<bool> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_setting_bool(key)
+                }
+                pub fn get_setting_integer(key: &str) -> Option<i64> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_setting_integer(key)
+                }
+                pub fn get_setting_float(key: &str) -> Option<f64> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_setting_float(key)
+                }
+                pub fn get_setting_string(key: &str) -> Option<String> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_setting_string(key)
+                }
+                pub fn is_dark_background() -> bool {
+                    ::kasane_plugin_sdk::test::mock_host_state::is_dark_background()
+                }
+                pub fn get_session_count() -> u32 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_session_count()
+                }
+                pub fn get_active_session_key() -> Option<String> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_active_session_key()
+                }
+                pub fn get_active_session_name() -> Option<String> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_active_session_name()
+                }
+                pub fn get_display_unit_count() -> u32 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_display_unit_count()
+                }
+                pub fn get_syntax_generation() -> u64 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_syntax_generation()
+                }
+                pub fn get_fold_ranges() -> Vec<(u32, u32)> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_fold_ranges()
+                }
+                pub fn get_scopes_at(line: u32, byte_offset: u32) -> Vec<String> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_scopes_at(line, byte_offset)
+                }
+                pub fn get_indent_level(line: u32) -> u32 {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_indent_level(line)
+                }
+
+                // --- Complex returns: WIT type construction from Mock* ---
+                pub fn get_theme_style(token: &str) -> Option<Style> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_theme_style(token).map(to_style)
+                }
+                pub fn get_default_style() -> Style {
+                    to_style(::kasane_plugin_sdk::test::mock_host_state::get_default_style())
+                }
+                pub fn get_padding_style() -> Style {
+                    to_style(::kasane_plugin_sdk::test::mock_host_state::get_padding_style())
+                }
+                pub fn get_status_default_style() -> Style {
+                    to_style(::kasane_plugin_sdk::test::mock_host_state::get_status_default_style())
+                }
+                pub fn get_status_prompt() -> Vec<Atom> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_status_prompt()
+                        .into_iter().map(to_atom).collect()
+                }
+                pub fn get_status_content() -> Vec<Atom> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_status_content()
+                        .into_iter().map(to_atom).collect()
+                }
+                pub fn get_status_line() -> Vec<Atom> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_status_line()
+                        .into_iter().map(to_atom).collect()
+                }
+                pub fn get_status_mode_line() -> Vec<Atom> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_status_mode_line()
+                        .into_iter().map(to_atom).collect()
+                }
+                pub fn get_menu_item(idx: u32) -> Option<Vec<Atom>> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_menu_item(idx)
+                        .map(|atoms| atoms.into_iter().map(to_atom).collect())
+                }
+                pub fn get_menu_anchor() -> Option<Coord> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_menu_anchor().map(to_coord)
+                }
+                pub fn get_menu_style() -> Option<Style> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_menu_style().map(to_style)
+                }
+                pub fn get_menu_selected_style() -> Option<Style> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_menu_selected_style().map(to_style)
+                }
+                pub fn get_info_title(idx: u32) -> Option<Vec<Atom>> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_info_title(idx)
+                        .map(|atoms| atoms.into_iter().map(to_atom).collect())
+                }
+                pub fn get_info_content(idx: u32) -> Option<Vec<Vec<Atom>>> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_info_content(idx).map(|rows| {
+                        rows.into_iter()
+                            .map(|atoms| atoms.into_iter().map(to_atom).collect())
+                            .collect()
+                    })
+                }
+                pub fn get_info_anchor(idx: u32) -> Option<Coord> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_info_anchor(idx).map(to_coord)
+                }
+                pub fn get_secondary_cursor(idx: u32) -> Option<Coord> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_secondary_cursor(idx).map(to_coord)
+                }
+                pub fn get_all_secondary_cursors() -> Vec<Coord> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_all_secondary_cursors()
+                        .into_iter().map(to_coord).collect()
+                }
+                pub fn get_lines_atoms(start: u32, end: u32) -> Vec<Vec<Atom>> {
+                    ::kasane_plugin_sdk::test::mock_host_state::get_lines_atoms(start, end)
+                        .into_iter()
+                        .map(|atoms| atoms.into_iter().map(to_atom).collect())
+                        .collect()
+                }
+            }
 
             impl ::core::default::Default for BootstrapEffects {
                 fn default() -> Self {
@@ -539,12 +793,12 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             /// Query the host theme for a style associated with a token name.
             /// Returns `None` if the token is not in the theme.
             pub fn get_theme_style(token: &str) -> Option<Style> {
-                super::kasane::plugin::host_state::get_theme_style(token)
+                host_state::get_theme_style(token)
             }
 
             /// Whether the current editor background is dark.
             pub fn is_dark_background() -> bool {
-                super::kasane::plugin::host_state::is_dark_background()
+                host_state::is_dark_background()
             }
 
             /// Query the host theme for a style, falling back to `fallback` if not found.

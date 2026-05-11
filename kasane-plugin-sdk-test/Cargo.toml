@@ -1,0 +1,15 @@
+[package]
+name = "kasane-plugin-sdk-test"
+version = "0.6.0"
+edition = "2024"
+description = "Mock host harness for unit-testing Kasane WASM plugins"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Yus314/kasane"
+rust-version = "1.85"
+keywords = ["kakoune", "wasm", "plugin", "testing", "mock"]
+categories = ["development-tools::testing"]
+readme = "README.md"
+
+[workspace]
+
+[dependencies]

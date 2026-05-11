@@ -47,6 +47,7 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane-plugin-package/` | Plugin package format — `.kpk` build/inspect/verify, manifest parsing, filesystem utilities |
 | `kasane-plugin-sdk/` | SDK for WASM guest plugins — WIT bindings, constants, helper macros (excluded from workspace, independent crate) |
 | `kasane-plugin-sdk-macros/` | Proc macros for WASM SDK — `define_plugin!` all-in-one macro (excluded from workspace, independent crate) |
+| `kasane-plugin-sdk-test/` | Mock-host harness for native plugin unit tests — pulled in by SDK `test-harness` feature; re-exported as `kasane_plugin_sdk::test` (excluded from workspace, independent crate) |
 | `kasane-wasm-bench/` | WASM benchmarks — wasmtime Component Model overhead measurement (Phase W0) |
 | `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, selection-algebra, fuzzy-finder, pane-manager, prompt-highlight, session-ui, smooth-scroll, image-preview |
 | `examples/line-numbers/` | Native plugin example — `Plugin` trait with `kasane::run()` |
