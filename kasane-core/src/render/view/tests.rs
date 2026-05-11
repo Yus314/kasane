@@ -249,9 +249,6 @@ fn find_text_content(el: &Element, needle: &str) -> bool {
         Element::Flex { children, .. } => children
             .iter()
             .any(|c| find_text_content(&c.element, needle)),
-        Element::ResolvedSlot { children, .. } => children
-            .iter()
-            .any(|c| find_text_content(&c.element, needle)),
         Element::Container { child, .. } => find_text_content(child, needle),
         Element::Interactive { child, .. } => find_text_content(child, needle),
         Element::Stack { base, overlays, .. } => {
@@ -353,9 +350,6 @@ fn find_status_container(el: &Element) -> Option<&Element> {
     match el {
         Element::Container { child, .. } => Some(child.as_ref()),
         Element::Flex { children, .. } => children
-            .iter()
-            .find_map(|c| find_status_container(&c.element)),
-        Element::ResolvedSlot { children, .. } => children
             .iter()
             .find_map(|c| find_status_container(&c.element)),
         _ => None,

@@ -142,7 +142,7 @@ The intermediate type `Element` is the initial algebra of a polynomial endofunct
 P(X) = Text × Style
      + Vec<Atom>                                     -- StyledLine
      + (SlotName × Direction × Gap)                  -- SlotPlaceholder
-     + (Direction × Vec<(X, Flex)> × Gap × Align²)   -- Flex / ResolvedSlot
+     + (Direction × Vec<(X, Flex)> × Gap × Align² × FlexSlotMetadata?)  -- Flex (resolved-slot form: slot = Some)
      + (X × Vec<(X × Anchor)>)                       -- Stack
      + (X × Offset × Direction)                      -- Scrollable
      + (X × BorderOpt × ShadowBool × Edges × Style × TitleOpt) -- Container

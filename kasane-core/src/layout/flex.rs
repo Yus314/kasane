@@ -111,12 +111,6 @@ pub fn measure(element: &Element, constraints: Constraints, state: &AppState) ->
             gap,
             ..
         } => measure_flex(*direction, children, *gap, constraints, state),
-        Element::ResolvedSlot {
-            direction,
-            children,
-            gap,
-            ..
-        } => measure_flex(*direction, children, *gap, constraints, state),
         Element::Container {
             child,
             border,
@@ -285,20 +279,6 @@ pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
             *gap,
             *align,
             *cross_align,
-            area,
-            state,
-        ),
-        Element::ResolvedSlot {
-            direction,
-            children,
-            gap,
-            ..
-        } => place_flex(
-            *direction,
-            children,
-            *gap,
-            Align::Start,
-            Align::Start,
             area,
             state,
         ),
@@ -646,6 +626,7 @@ mod tests {
             gap: 1,
             align: Align::Start,
             cross_align: Align::Start,
+            slot: None,
         };
         let result = place(&el, root_area(80, 24), &state);
         assert_eq!(result.children.len(), 2);
@@ -806,6 +787,7 @@ mod tests {
             gap: 0,
             align: Align::Center,
             cross_align: Align::Start,
+            slot: None,
         };
         let result = place(&el, root_area(80, 10), &state);
         // Center offset = 8 / 2 = 4
@@ -823,6 +805,7 @@ mod tests {
             gap: 0,
             align: Align::End,
             cross_align: Align::Start,
+            slot: None,
         };
         let result = place(&el, root_area(20, 10), &state);
         assert_eq!(result.children[0].area.x, 17);
@@ -837,6 +820,7 @@ mod tests {
             gap: 0,
             align: Align::Start,
             cross_align: Align::Start,
+            slot: None,
         };
         let result = place(&el, root_area(20, 10), &state);
         assert_eq!(result.children[0].area.x, 0);
@@ -852,6 +836,7 @@ mod tests {
             gap: 0,
             align: Align::Start,
             cross_align: Align::Center,
+            slot: None,
         };
         let result = place(&el, root_area(20, 10), &state);
         assert_eq!(result.children[0].area.y, 4);
@@ -868,6 +853,7 @@ mod tests {
             gap: 0,
             align: Align::Start,
             cross_align: Align::End,
+            slot: None,
         };
         let result = place(&el, root_area(20, 10), &state);
         assert_eq!(result.children[0].area.x, 17);
@@ -887,6 +873,7 @@ mod tests {
             gap: 0,
             align: Align::End,
             cross_align: Align::Start,
+            slot: None,
         };
         let result = place(&el, root_area(20, 10), &state);
         assert_eq!(result.children[0].area.x, 0); // still starts at 0

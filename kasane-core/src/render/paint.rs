@@ -1,8 +1,6 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use std::ops::Range;
-
 use super::grid::CellGrid;
 use super::terminal_style::TerminalStyle;
 use super::theme::Theme;
@@ -153,25 +151,7 @@ pub(crate) enum BufferLineAction<'a> {
         char_style: Style,
     },
     /// Render editable synthetic content (editable virtual text).
-    /// When a shadow cursor is active on this line, `shadow_override` contains
-    /// the replacement text and cursor position for rendering.
-    EditableSynthetic {
-        atoms: &'a [Atom],
-        #[allow(dead_code)] // Will be used when shadow override rendering is connected
-        shadow_override: Option<ShadowRenderInfo>,
-    },
-}
-
-/// Rendering information for a shadow cursor override on an editable line.
-#[derive(Debug)]
-#[allow(dead_code)] // Fields will be used when shadow override rendering is connected
-pub(crate) struct ShadowRenderInfo {
-    /// Byte range within the synthetic content to replace.
-    pub span_byte_range: Range<usize>,
-    /// Replacement text (working_text from the shadow cursor).
-    pub replacement_text: String,
-    /// Cursor position as grapheme offset from span start.
-    pub cursor_grapheme_offset: usize,
+    EditableSynthetic { atoms: &'a [Atom] },
 }
 
 /// Analyze a single display line and return a `BufferLineAction` describing what to render.
@@ -231,10 +211,7 @@ pub(crate) fn analyze_buffer_line<'a>(
             && let Some(entry) = dm.entry(DisplayLine(display_line))
             && matches!(entry.source(), SourceMapping::Projected { .. })
         {
-            return BufferLineAction::EditableSynthetic {
-                atoms: &syn.atoms,
-                shadow_override: None, // Caller fills in from ShadowCursor state
-            };
+            return BufferLineAction::EditableSynthetic { atoms: &syn.atoms };
         }
         return BufferLineAction::Synthetic { atoms: &syn.atoms };
     }
@@ -337,10 +314,7 @@ pub(crate) fn paint_buffer_ref(
         ) {
             BufferLineAction::Skip => continue,
             BufferLineAction::Synthetic { atoms }
-            | BufferLineAction::EditableSynthetic {
-                atoms,
-                shadow_override: _,
-            } => {
+            | BufferLineAction::EditableSynthetic { atoms } => {
                 let fill_style = atoms
                     .first()
                     .map(|a| a.unresolved_style().style.clone())

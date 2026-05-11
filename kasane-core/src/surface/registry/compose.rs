@@ -379,6 +379,7 @@ impl SurfaceRegistry {
                         gap: 0,
                         align: crate::element::Align::Start,
                         cross_align: crate::element::Align::Start,
+                        slot: None,
                     },
                     first_reports,
                 )

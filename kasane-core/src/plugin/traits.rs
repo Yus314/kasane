@@ -48,11 +48,18 @@ impl From<KeyResponse> for KeyHandleResult {
 /// Pre-dispatch handlers run before `observe_key_all` and `dispatch_key_middleware`.
 /// They are used for features like the shadow cursor that need to intercept keys
 /// before any other plugin sees them.
-pub enum KeyPreDispatchResult {
+///
+/// `Cmd` parameter selects the command tier: defaults to [`Command`] (the
+/// full set); aliased as [`KakouneSideKeyPreDispatchResult`] when the
+/// handler is narrowed to ADR-044 Tier 1 (Kakoune-side-only, no process
+/// spawn). The asymmetric `From` impl widens tier-1 → full via the
+/// existing `KakouneSideCommand → Command` lift; no reverse impl exists
+/// (you cannot widen a process-spawning command into the tier-1 subset).
+pub enum KeyPreDispatchResult<Cmd = Command> {
     /// Key was consumed by the pre-dispatch handler.
     Consumed {
         flags: DirtyFlags,
-        commands: Vec<Command>,
+        commands: Vec<Cmd>,
         state_updates: StateUpdates,
         /// Algebraic shadow-cursor commit pending intercept dispatch.
         /// Producers (e.g. `BuiltinShadowCursorPlugin`) populate this
@@ -70,9 +77,43 @@ pub enum KeyPreDispatchResult {
     /// This allows pre-dispatch handlers to update state (e.g., deactivate shadow cursor)
     /// while still letting the key proceed through normal dispatch.
     Pass {
-        commands: Vec<Command>,
+        commands: Vec<Cmd>,
         state_updates: StateUpdates,
     },
+}
+
+/// ADR-044 Phase A-3d-mouse follow-up: tier-1 alias of
+/// [`KeyPreDispatchResult`]. Same shape, but `commands` is
+/// `Vec<KakouneSideCommand>` so process spawn variants are rejected at
+/// compile time. `pending_buffer_edit` is preserved verbatim — the
+/// algebraic shadow-cursor commit is orthogonal to the tier hierarchy
+/// (the dispatch loop later folds it into Kakoune-side commands via
+/// `state::shadow_cursor::edit_to_commands`).
+pub type KakouneSideKeyPreDispatchResult = KeyPreDispatchResult<super::KakouneSideCommand>;
+
+impl From<KakouneSideKeyPreDispatchResult> for KeyPreDispatchResult {
+    fn from(tier1: KakouneSideKeyPreDispatchResult) -> Self {
+        match tier1 {
+            KeyPreDispatchResult::Consumed {
+                flags,
+                commands,
+                state_updates,
+                pending_buffer_edit,
+            } => KeyPreDispatchResult::Consumed {
+                flags,
+                commands: commands.into_iter().map(Into::into).collect(),
+                state_updates,
+                pending_buffer_edit,
+            },
+            KeyPreDispatchResult::Pass {
+                commands,
+                state_updates,
+            } => KeyPreDispatchResult::Pass {
+                commands: commands.into_iter().map(Into::into).collect(),
+                state_updates,
+            },
+        }
+    }
 }
 
 /// Result of mouse pre-dispatch (before observation and hit-test dispatch).
@@ -80,49 +121,34 @@ pub enum KeyPreDispatchResult {
 /// Pre-dispatch handlers run before `observe_mouse_all` and `dispatch_mouse_handler`.
 /// They are used for features like drag state tracking and shadow cursor deactivation
 /// that need to intercept mouse events before any other plugin sees them.
-pub enum MousePreDispatchResult {
+///
+/// `Cmd` parameter selects the command tier; see [`KeyPreDispatchResult`]
+/// for the ADR-044 tier-typing rationale.
+pub enum MousePreDispatchResult<Cmd = Command> {
     /// Mouse event was consumed by the pre-dispatch handler.
     Consumed {
         flags: DirtyFlags,
-        commands: Vec<Command>,
+        commands: Vec<Cmd>,
         state_updates: StateUpdates,
     },
     /// Pass through to normal mouse dispatch. Commands (if any) are applied first.
     Pass {
-        commands: Vec<Command>,
+        commands: Vec<Cmd>,
         state_updates: StateUpdates,
     },
 }
 
-/// ADR-044 Phase A-3d-mouse: tier-1 mirror of [`MousePreDispatchResult`].
-///
-/// Both variants carry `Vec<KakouneSideCommand>` instead of `Vec<Command>`,
-/// rejecting `ProcessCommand` variants (`SpawnProcess`, `HttpRequest`,
-/// etc.) at compile time. The asymmetric `From` lift below feeds the
-/// dispatch table a broad [`MousePreDispatchResult`]; there is
-/// intentionally no reverse impl, mirroring the
-/// `KakouneSideEffects → Effects` projection used elsewhere in
-/// [ADR-044](../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy).
+/// ADR-044 Phase A-3d-mouse: tier-1 alias of [`MousePreDispatchResult`].
 ///
 /// Pre-dispatch handlers fire on every mouse tick (move included), so
 /// the tier-1 narrowing is the natural enforcement against the
 /// silent-spawn class of bugs that motivated the ADR.
-pub enum KakouneSideMousePreDispatchResult {
-    Consumed {
-        flags: DirtyFlags,
-        commands: Vec<super::KakouneSideCommand>,
-        state_updates: StateUpdates,
-    },
-    Pass {
-        commands: Vec<super::KakouneSideCommand>,
-        state_updates: StateUpdates,
-    },
-}
+pub type KakouneSideMousePreDispatchResult = MousePreDispatchResult<super::KakouneSideCommand>;
 
 impl From<KakouneSideMousePreDispatchResult> for MousePreDispatchResult {
     fn from(tier1: KakouneSideMousePreDispatchResult) -> Self {
         match tier1 {
-            KakouneSideMousePreDispatchResult::Consumed {
+            MousePreDispatchResult::Consumed {
                 flags,
                 commands,
                 state_updates,
@@ -131,7 +157,7 @@ impl From<KakouneSideMousePreDispatchResult> for MousePreDispatchResult {
                 commands: commands.into_iter().map(Into::into).collect(),
                 state_updates,
             },
-            KakouneSideMousePreDispatchResult::Pass {
+            MousePreDispatchResult::Pass {
                 commands,
                 state_updates,
             } => MousePreDispatchResult::Pass {
@@ -143,79 +169,30 @@ impl From<KakouneSideMousePreDispatchResult> for MousePreDispatchResult {
 }
 
 /// Result of text input pre-dispatch (before the text input handler chain).
-pub enum TextInputPreDispatchResult {
+///
+/// `Cmd` parameter selects the command tier; see [`KeyPreDispatchResult`]
+/// for the ADR-044 tier-typing rationale. The `Pass` variant carries no
+/// payload (no commands path) and is identical across tiers.
+pub enum TextInputPreDispatchResult<Cmd = Command> {
     /// Text input was consumed by the pre-dispatch handler.
     Consumed {
         flags: DirtyFlags,
-        commands: Vec<Command>,
+        commands: Vec<Cmd>,
         state_updates: StateUpdates,
     },
     /// Pass through to normal text input dispatch.
     Pass,
 }
 
-/// ADR-044 Phase A-3d-mouse follow-up: tier-1 mirror of
-/// [`KeyPreDispatchResult`]. Same shape, but `commands` is
-/// `Vec<KakouneSideCommand>` so process spawn variants are rejected at
-/// compile time. `pending_buffer_edit` is preserved verbatim — the
-/// algebraic shadow-cursor commit is orthogonal to the tier hierarchy
-/// (the dispatch loop later folds it into Kakoune-side commands via
-/// `state::shadow_cursor::edit_to_commands`).
-pub enum KakouneSideKeyPreDispatchResult {
-    Consumed {
-        flags: DirtyFlags,
-        commands: Vec<super::KakouneSideCommand>,
-        state_updates: StateUpdates,
-        pending_buffer_edit: Option<crate::state::shadow_cursor::BufferEdit>,
-    },
-    Pass {
-        commands: Vec<super::KakouneSideCommand>,
-        state_updates: StateUpdates,
-    },
-}
-
-impl From<KakouneSideKeyPreDispatchResult> for KeyPreDispatchResult {
-    fn from(tier1: KakouneSideKeyPreDispatchResult) -> Self {
-        match tier1 {
-            KakouneSideKeyPreDispatchResult::Consumed {
-                flags,
-                commands,
-                state_updates,
-                pending_buffer_edit,
-            } => KeyPreDispatchResult::Consumed {
-                flags,
-                commands: commands.into_iter().map(Into::into).collect(),
-                state_updates,
-                pending_buffer_edit,
-            },
-            KakouneSideKeyPreDispatchResult::Pass {
-                commands,
-                state_updates,
-            } => KeyPreDispatchResult::Pass {
-                commands: commands.into_iter().map(Into::into).collect(),
-                state_updates,
-            },
-        }
-    }
-}
-
-/// ADR-044 Phase A-3d-mouse follow-up: tier-1 mirror of
-/// [`TextInputPreDispatchResult`]. The `Pass` variant carries no
-/// payload (no commands path) and is therefore identical between
-/// tiers; `Consumed` swaps `Vec<Command>` for `Vec<KakouneSideCommand>`.
-pub enum KakouneSideTextInputPreDispatchResult {
-    Consumed {
-        flags: DirtyFlags,
-        commands: Vec<super::KakouneSideCommand>,
-        state_updates: StateUpdates,
-    },
-    Pass,
-}
+/// ADR-044 Phase A-3d-mouse follow-up: tier-1 alias of
+/// [`TextInputPreDispatchResult`].
+pub type KakouneSideTextInputPreDispatchResult =
+    TextInputPreDispatchResult<super::KakouneSideCommand>;
 
 impl From<KakouneSideTextInputPreDispatchResult> for TextInputPreDispatchResult {
     fn from(tier1: KakouneSideTextInputPreDispatchResult) -> Self {
         match tier1 {
-            KakouneSideTextInputPreDispatchResult::Consumed {
+            TextInputPreDispatchResult::Consumed {
                 flags,
                 commands,
                 state_updates,
@@ -224,7 +201,7 @@ impl From<KakouneSideTextInputPreDispatchResult> for TextInputPreDispatchResult 
                 commands: commands.into_iter().map(Into::into).collect(),
                 state_updates,
             },
-            KakouneSideTextInputPreDispatchResult::Pass => TextInputPreDispatchResult::Pass,
+            TextInputPreDispatchResult::Pass => TextInputPreDispatchResult::Pass,
         }
     }
 }
@@ -245,9 +222,12 @@ impl From<KakouneSideTextInputPreDispatchResult> for TextInputPreDispatchResult 
 /// ADR-038 for rationale and the narrow exception clause.
 ///
 /// All methods are defined directly on this trait with default no-op
-/// impls. The R1.x super-trait migration (PubSubMember /
-/// ExtensionParticipant / Io) was retired in R2.x P3 (2026-05-08, ADR-039)
-/// because narrow capability-trait views had zero workspace consumers.
+/// impls. Narrow super-trait views (PubSubMember / ExtensionParticipant
+/// / Io) were considered and rejected under [ADR-039] because they had
+/// zero workspace consumers when checked; the flat layout here is the
+/// canonical one.
+///
+/// [ADR-039]: ../../../../docs/decisions.md#adr-039-plugin-path-consolidation-r2x
 #[doc(hidden)]
 pub trait PluginBackend: Any {
     fn id(&self) -> PluginId;

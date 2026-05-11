@@ -93,10 +93,6 @@ pub struct ClientBufferSurface {
     surface_key: CompactString,
 }
 
-/// Backward-compatible alias for `ClientBufferSurface`.
-#[deprecated(note = "use `ClientBufferSurface` directly")]
-pub type MirrorBufferSurface = ClientBufferSurface;
-
 impl ClientBufferSurface {
     pub fn new(surface_id: SurfaceId) -> Self {
         let key = CompactString::new(format!("kasane.buffer.client.{}", surface_id.0));

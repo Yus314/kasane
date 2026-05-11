@@ -122,32 +122,6 @@ impl WorkspaceNode {
         }
     }
 
-    /// Test whether any direct child satisfies a predicate (including floating entries).
-    #[allow(dead_code)]
-    fn any_child(&self, f: &mut impl FnMut(&WorkspaceNode) -> bool) -> bool {
-        match self {
-            WorkspaceNode::Leaf { .. } => false,
-            WorkspaceNode::Split { first, second, .. } => f(first) || f(second),
-            WorkspaceNode::Tabs { tabs, .. } => tabs.iter().any(&mut *f),
-            WorkspaceNode::Float { base, floating } => {
-                f(base) || floating.iter().any(|e| f(&e.node))
-            }
-        }
-    }
-
-    /// Search direct children for the first result of `f` (including floating entries).
-    #[allow(dead_code)]
-    fn find_in_children<T>(&self, f: &mut impl FnMut(&WorkspaceNode) -> Option<T>) -> Option<T> {
-        match self {
-            WorkspaceNode::Leaf { .. } => None,
-            WorkspaceNode::Split { first, second, .. } => f(first).or_else(|| f(second)),
-            WorkspaceNode::Tabs { tabs, .. } => tabs.iter().find_map(&mut *f),
-            WorkspaceNode::Float { base, floating } => {
-                f(base).or_else(|| floating.iter().find_map(|e| f(&e.node)))
-            }
-        }
-    }
-
     /// Search direct children mutably for the first `true` result (including floating entries).
     fn find_in_children_mut(&mut self, f: &mut impl FnMut(&mut WorkspaceNode) -> bool) -> bool {
         match self {

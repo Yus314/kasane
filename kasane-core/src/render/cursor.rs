@@ -28,20 +28,6 @@ pub fn find_buffer_x_offset(element: &Element, layout: &LayoutResult) -> u16 {
             }
             0
         }
-        Element::ResolvedSlot { children, .. } => {
-            for (i, child) in children.iter().enumerate() {
-                if let Some(child_layout) = layout.children.get(i) {
-                    let x = find_buffer_x_offset(&child.element, child_layout);
-                    if x > 0 {
-                        return x;
-                    }
-                    if matches!(child.element, Element::BufferRef { .. }) {
-                        return child_layout.area.x;
-                    }
-                }
-            }
-            0
-        }
         Element::Container { child, .. } | Element::Interactive { child, .. } => layout
             .children
             .first()
@@ -80,7 +66,7 @@ pub fn find_buffer_origin_in_rect(
                 None
             }
         }
-        Element::Flex { children, .. } | Element::ResolvedSlot { children, .. } => {
+        Element::Flex { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 if let Some(child_layout) = layout.children.get(i)
                     && let Some(pos) =
@@ -109,7 +95,7 @@ fn collect_buffer_origins(element: &Element, layout: &LayoutResult, origins: &mu
         Element::BufferRef { .. } => {
             origins.push((layout.area.x, layout.area.y));
         }
-        Element::Flex { children, .. } | Element::ResolvedSlot { children, .. } => {
+        Element::Flex { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 if let Some(child_layout) = layout.children.get(i) {
                     collect_buffer_origins(&child.element, child_layout, origins);
@@ -228,24 +214,11 @@ pub fn neutralize_unfocused_cursors(
 /// to find that slot and returns its layout width (0 when absent or empty).
 pub fn find_status_left_slot_width(element: &Element, layout: &LayoutResult) -> u16 {
     match element {
-        Element::ResolvedSlot {
-            slot_name,
+        Element::Flex {
             children,
+            slot: Some(meta),
             ..
-        } => {
-            if slot_name == "kasane.status.left" {
-                return layout.area.w;
-            }
-            for (i, child) in children.iter().enumerate() {
-                if let Some(cl) = layout.children.get(i) {
-                    let w = find_status_left_slot_width(&child.element, cl);
-                    if w > 0 {
-                        return w;
-                    }
-                }
-            }
-            0
-        }
+        } if meta.slot_name == "kasane.status.left" => layout.area.w,
         Element::Flex { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 if let Some(cl) = layout.children.get(i) {

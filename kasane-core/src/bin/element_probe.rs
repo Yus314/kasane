@@ -15,18 +15,13 @@ use kasane_core::state::AppState;
 
 fn walk(element: &Element, dist: &mut std::collections::BTreeMap<&'static str, Vec<usize>>) {
     match element {
-        Element::Flex { children, .. } => {
-            dist.entry("Flex.children")
-                .or_default()
-                .push(children.len());
-            for c in children {
-                walk(&c.element, dist);
-            }
-        }
-        Element::ResolvedSlot { children, .. } => {
-            dist.entry("ResolvedSlot.children")
-                .or_default()
-                .push(children.len());
+        Element::Flex { children, slot, .. } => {
+            let key = if slot.is_some() {
+                "Flex.children (resolved-slot)"
+            } else {
+                "Flex.children"
+            };
+            dist.entry(key).or_default().push(children.len());
             for c in children {
                 walk(&c.element, dist);
             }

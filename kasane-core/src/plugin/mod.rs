@@ -9,7 +9,6 @@ pub mod compose;
 pub mod context;
 pub mod debug_overlay;
 pub mod diagnostics;
-pub mod effect_footprint;
 pub mod effect_tiers;
 pub mod effects;
 pub mod element_patch;
@@ -119,9 +118,7 @@ pub use kakoune_transparent_command::{KakouneTransparentCommand, KakouneTranspar
 // Re-export transparent effects types (ADR-030 Level 5)
 pub use kakoune_transparent_effects::KakouneTransparentEffects;
 
-// Re-export effect footprint types (ADR-030 Level 5)
 pub use command::EffectCategory;
-pub use effect_footprint::{EffectFootprint, compute_transitive_footprints};
 
 // Re-export recovery witness types (ADR-030 Level 4)
 pub use recovery_witness::{RecoveryMechanism, RecoveryWitness};

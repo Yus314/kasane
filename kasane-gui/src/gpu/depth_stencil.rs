@@ -47,60 +47,6 @@ pub fn pipeline_depth_stencil() -> wgpu::DepthStencilState {
     }
 }
 
-/// Build a `DepthStencilState` for the stencil-write pass (PushClip).
-/// Increments the stencil value where the clip shape is drawn.
-pub fn stencil_write_increment() -> wgpu::DepthStencilState {
-    wgpu::DepthStencilState {
-        format: DS_FORMAT,
-        depth_write_enabled: Some(false),
-        depth_compare: Some(wgpu::CompareFunction::Always),
-        stencil: wgpu::StencilState {
-            front: wgpu::StencilFaceState {
-                compare: wgpu::CompareFunction::Always,
-                fail_op: wgpu::StencilOperation::Keep,
-                depth_fail_op: wgpu::StencilOperation::Keep,
-                pass_op: wgpu::StencilOperation::IncrementClamp,
-            },
-            back: wgpu::StencilFaceState {
-                compare: wgpu::CompareFunction::Always,
-                fail_op: wgpu::StencilOperation::Keep,
-                depth_fail_op: wgpu::StencilOperation::Keep,
-                pass_op: wgpu::StencilOperation::IncrementClamp,
-            },
-            read_mask: 0xFF,
-            write_mask: 0xFF,
-        },
-        bias: wgpu::DepthBiasState::default(),
-    }
-}
-
-/// Build a `DepthStencilState` for the stencil-restore pass (PopClip).
-/// Decrements the stencil value where the clip shape is drawn.
-pub fn stencil_write_decrement() -> wgpu::DepthStencilState {
-    wgpu::DepthStencilState {
-        format: DS_FORMAT,
-        depth_write_enabled: Some(false),
-        depth_compare: Some(wgpu::CompareFunction::Always),
-        stencil: wgpu::StencilState {
-            front: wgpu::StencilFaceState {
-                compare: wgpu::CompareFunction::Always,
-                fail_op: wgpu::StencilOperation::Keep,
-                depth_fail_op: wgpu::StencilOperation::Keep,
-                pass_op: wgpu::StencilOperation::DecrementClamp,
-            },
-            back: wgpu::StencilFaceState {
-                compare: wgpu::CompareFunction::Always,
-                fail_op: wgpu::StencilOperation::Keep,
-                depth_fail_op: wgpu::StencilOperation::Keep,
-                pass_op: wgpu::StencilOperation::DecrementClamp,
-            },
-            read_mask: 0xFF,
-            write_mask: 0xFF,
-        },
-        bias: wgpu::DepthBiasState::default(),
-    }
-}
-
 impl DepthStencilState {
     /// Create a new depth/stencil texture at the given dimensions.
     pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {

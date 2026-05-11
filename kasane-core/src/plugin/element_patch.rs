@@ -272,6 +272,7 @@ impl ElementPatch {
                     gap: 0,
                     align: Align::Start,
                     cross_align: Align::Start,
+                    slot: None,
                 })
             }
 
@@ -281,6 +282,7 @@ impl ElementPatch {
                 gap: 0,
                 align: Align::Start,
                 cross_align: Align::Start,
+                slot: None,
             }),
 
             Self::Append { element: append } => subject.map_element(|el| Element::Flex {
@@ -289,6 +291,7 @@ impl ElementPatch {
                 gap: 0,
                 align: Align::Start,
                 cross_align: Align::Start,
+                slot: None,
             }),
 
             Self::Replace { element } => subject.map_element(|_| element),

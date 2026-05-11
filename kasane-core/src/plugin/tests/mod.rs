@@ -11,7 +11,6 @@ mod command_classification;
 mod commands;
 mod compose;
 mod directive_classification;
-mod effect_footprint;
 mod hooks;
 mod io;
 mod projection;

@@ -1990,18 +1990,20 @@ Phase 5a — `TransparentEffects` + lifecycle transparency:
 - `is_lifecycle_transparent()` and `is_fully_transparent()` queries.
 - Per-task `transparent` flag on `ProcessTaskEntry`.
 
-Phase 5b — `EffectCategory` + `EffectFootprint`:
+Phase 5b — `EffectCategory`:
 - `EffectCategory` bitflags (14 categories) with exhaustive
   `Command::effect_category()` classification method.
 - `CASCADE_TRIGGERS` composite constant: `PLUGIN_MESSAGE | TIMER | INPUT_INJECTION`.
-- `EffectFootprint` per-plugin footprint (local + transitive).
-- `compute_transitive_footprints()` — least fixed point iteration on
-  `(𝒫(EffectCategory), ⊆)`. Conservative approximation: plugins with
-  `PLUGIN_MESSAGE` or `INPUT_INJECTION` inherit the global footprint union.
 - Theoretical note: the design analysis found that T12's "free monad"
   claim is algebraically a free monoid (list). The correct framework is
   a graded monad `(𝒫(EffectCategory), ∪, ∅)` where each handler
   carries a grade (set of effect categories it may produce).
+- The original Phase 5b also shipped a per-plugin `EffectFootprint`
+  + `compute_transitive_footprints()` least-fixed-point analysis. That
+  artefact was retired (R3.x cleanup) after a workspace grep confirmed
+  zero non-test consumers: the math was correct but no dispatcher ever
+  read the result. The conservative `EffectCategory` classification
+  remains the source of truth for transparency tier checks.
 
 **Level 6 — Type-level `&mut AppState` Ownership (shipped).**
 

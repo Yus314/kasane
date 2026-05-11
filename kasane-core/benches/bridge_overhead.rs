@@ -38,7 +38,7 @@ use kasane_core::display::{
 use kasane_core::display_algebra::bridge::resolve_via_algebra;
 use kasane_core::element::Element;
 use kasane_core::plugin::PluginId;
-use kasane_core::protocol::{Atom, WireFace};
+use kasane_core::protocol::Atom;
 
 const LINE_COUNT: usize = 24;
 

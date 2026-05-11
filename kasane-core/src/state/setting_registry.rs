@@ -50,12 +50,6 @@ impl CoreSettingRegistry {
             .get(key)
             .map(|entry| (entry.apply)(state, value))
     }
-
-    /// Returns an iterator over all registered core setting keys.
-    #[cfg(test)]
-    fn keys(&self) -> impl Iterator<Item = &&'static str> {
-        self.entries.keys()
-    }
 }
 
 /// Global core setting registry, initialized on first access.

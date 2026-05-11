@@ -1,9 +1,9 @@
-//! Parley-backed `CellMetrics` calculation (ADR-031, Phase 9).
+//! `CellMetrics` calculation backed by Parley + swash.
 //!
-//! Parallel implementation of [`crate::gpu::metrics::CellMetrics::calculate`]
-//! using Parley + swash instead of cosmic-text. Produces a [`CellMetrics`]
-//! with the same field semantics so the rest of the renderer is agnostic to
-//! the text-shaping backend.
+//! Computes the canonical cell advance width, cell height, and baseline from the
+//! user's [`FontConfig`] by shaping a probe glyph through Parley. Output is a
+//! [`CellMetrics`] consumed by the rest of the renderer; downstream code is
+//! agnostic to the text-shaping backend choice.
 //!
 //! How "cell width" is determined:
 //!
@@ -28,9 +28,6 @@ use kasane_core::protocol::{Atom, Style};
 use super::Brush;
 
 /// Compute [`CellMetrics`] using Parley.
-///
-/// Mirrors the public API of [`CellMetrics::calculate`] (which uses
-/// cosmic-text) so callers can swap backends behind a configuration toggle.
 pub fn calculate_with_parley(
     text_state: &mut ParleyText,
     font_config: &FontConfig,

@@ -383,24 +383,32 @@ fn compose_base_from_salsa(
     } else {
         let mut children = Vec::new();
         if !status_left.is_empty() {
-            children.push(FlexChild::fixed(Element::ResolvedSlot {
-                surface_key: "primary".into(),
-                slot_name: "kasane.status.left".into(),
-                instance_id: ResolvedSlotInstanceId(1),
+            children.push(FlexChild::fixed(Element::Flex {
                 direction: Direction::Row,
                 children: status_left,
                 gap: 0,
+                align: crate::element::Align::Start,
+                cross_align: crate::element::Align::Start,
+                slot: Some(crate::element::FlexSlotMetadata {
+                    surface_key: "primary".into(),
+                    slot_name: "kasane.status.left".into(),
+                    instance_id: ResolvedSlotInstanceId(1),
+                }),
             }));
         }
         children.push(FlexChild::flexible(transformed_status, 1.0));
         if !status_right.is_empty() {
-            children.push(FlexChild::fixed(Element::ResolvedSlot {
-                surface_key: "primary".into(),
-                slot_name: "kasane.status.right".into(),
-                instance_id: ResolvedSlotInstanceId(2),
+            children.push(FlexChild::fixed(Element::Flex {
                 direction: Direction::Row,
                 children: status_right,
                 gap: 0,
+                align: crate::element::Align::Start,
+                cross_align: crate::element::Align::Start,
+                slot: Some(crate::element::FlexSlotMetadata {
+                    surface_key: "primary".into(),
+                    slot_name: "kasane.status.right".into(),
+                    instance_id: ResolvedSlotInstanceId(2),
+                }),
             }));
         }
         Element::row(children)

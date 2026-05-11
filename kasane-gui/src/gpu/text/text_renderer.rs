@@ -160,7 +160,7 @@ impl TextRenderer {
 }
 
 /// Round `size` up to the next power-of-two `COPY_BUFFER_ALIGNMENT`-aligned
-/// buffer size — same growth strategy the glyphon-derived renderer used.
+/// buffer size.
 fn next_copy_buffer_size(size: u64) -> u64 {
     let align_mask = COPY_BUFFER_ALIGNMENT - 1;
     ((size.next_power_of_two() + align_mask) & !align_mask).max(COPY_BUFFER_ALIGNMENT)

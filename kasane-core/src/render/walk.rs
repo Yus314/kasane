@@ -182,13 +182,6 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
                 }
             }
         }
-        Element::ResolvedSlot { children, .. } => {
-            for (i, child) in children.iter().enumerate() {
-                if let Some(child_layout) = layout.children.get(i) {
-                    walk_paint(visitor, &child.element, child_layout, state, theme);
-                }
-            }
-        }
         Element::Grid { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 if let Some(child_layout) = layout.children.get(i) {

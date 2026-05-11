@@ -882,6 +882,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             gap,
             align: kasane_core::element::Align::Start,
             cross_align: kasane_core::element::Align::Start,
+            slot: None,
         };
         self.store_element(element)
     }
@@ -909,6 +910,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             gap,
             align: kasane_core::element::Align::Start,
             cross_align: kasane_core::element::Align::Start,
+            slot: None,
         };
         self.store_element(element)
     }

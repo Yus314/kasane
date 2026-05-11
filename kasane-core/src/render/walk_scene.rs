@@ -1,6 +1,7 @@
 //! ScenePaintVisitor — GPU backend PaintVisitor implementation.
 //!
-//! Emits `DrawCommand`s for GPU rendering via wgpu+glyphon.
+//! Emits `DrawCommand`s consumed by the wgpu + Parley + swash scene
+//! renderer in `kasane-gui`.
 
 use std::ops::Range;
 

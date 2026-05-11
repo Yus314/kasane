@@ -49,16 +49,6 @@ pub fn hit_test(element: &Element, layout: &LayoutResult, x: u16, y: u16) -> Opt
             }
             None
         }
-        Element::ResolvedSlot { children, .. } => {
-            for (i, child) in children.iter().enumerate() {
-                if let Some(child_layout) = layout.children.get(i)
-                    && let Some(id) = hit_test(&child.element, child_layout, x, y)
-                {
-                    return Some(id);
-                }
-            }
-            None
-        }
         Element::Grid { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 if let Some(child_layout) = layout.children.get(i)

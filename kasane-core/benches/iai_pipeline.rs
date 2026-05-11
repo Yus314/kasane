@@ -190,7 +190,7 @@ fn setup_bridge_mixed_full() -> kasane_core::display::DirectiveSet {
     use kasane_core::display::{DirectiveSet, DisplayDirective, GutterSide, InlineBoxAlignment};
     use kasane_core::element::Element;
     use kasane_core::plugin::PluginId;
-    use kasane_core::protocol::{Atom, WireFace};
+    use kasane_core::protocol::Atom;
 
     const LINE_COUNT: usize = 24;
     let pid = |s: &str| PluginId(s.to_string());

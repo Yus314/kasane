@@ -199,7 +199,7 @@ fn inject_owner(element: &mut Element, tag: PluginTag) {
             }
             inject_owner(child, tag);
         }
-        Element::Flex { children, .. } | Element::ResolvedSlot { children, .. } => {
+        Element::Flex { children, .. } => {
             for c in children {
                 inject_owner(&mut c.element, tag);
             }
@@ -2038,6 +2038,7 @@ mod tests {
                 gap: 0,
                 align: crate::element::Align::Start,
                 cross_align: crate::element::Align::Start,
+                slot: None,
             }),
             overlays: vec![Overlay {
                 element: overlay_el,

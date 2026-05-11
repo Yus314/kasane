@@ -315,6 +315,16 @@ impl InteractiveId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ResolvedSlotInstanceId(pub u64);
 
+/// Metadata attached to a `Flex` produced by resolving a `SlotPlaceholder`.
+/// Surfaces (`surface/resolve.rs`) read this to backfill per-slot areas
+/// in the surface render report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlexSlotMetadata {
+    pub surface_key: CompactString,
+    pub slot_name: CompactString,
+    pub instance_id: ResolvedSlotInstanceId,
+}
+
 /// Line style for borders.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BorderLineStyle {
@@ -477,14 +487,10 @@ pub enum Element {
         gap: u16,
         align: Align,
         cross_align: Align,
-    },
-    ResolvedSlot {
-        surface_key: CompactString,
-        slot_name: CompactString,
-        instance_id: ResolvedSlotInstanceId,
-        direction: Direction,
-        children: Vec<FlexChild>,
-        gap: u16,
+        /// `Some` when this `Flex` is the resolved form of a `SlotPlaceholder`;
+        /// carries the originating slot's identity for surface render report
+        /// backfill. `None` for plugin-authored flex containers.
+        slot: Option<FlexSlotMetadata>,
     },
     Stack {
         base: Box<Element>,
@@ -614,6 +620,7 @@ impl Element {
             gap: 0,
             align: Align::Start,
             cross_align: Align::Start,
+            slot: None,
         }
     }
 
@@ -624,6 +631,7 @@ impl Element {
             gap: 0,
             align: Align::Start,
             cross_align: Align::Start,
+            slot: None,
         }
     }
 

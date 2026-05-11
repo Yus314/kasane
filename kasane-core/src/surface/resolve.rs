@@ -345,18 +345,21 @@ fn collect_resolved_slot_areas(
     areas: &mut HashMap<(CompactString, ResolvedSlotInstanceId), Rect>,
 ) {
     match element {
-        Element::ResolvedSlot {
-            surface_key,
-            instance_id,
+        Element::Flex {
             children,
+            slot: Some(meta),
             ..
         } => {
-            areas.insert((surface_key.clone(), *instance_id), layout.area);
+            areas.insert((meta.surface_key.clone(), meta.instance_id), layout.area);
             for (child, child_layout) in children.iter().zip(layout.children.iter()) {
                 collect_resolved_slot_areas(&child.element, child_layout, areas);
             }
         }
-        Element::Flex { children, .. } => {
+        Element::Flex {
+            children,
+            slot: None,
+            ..
+        } => {
             for (child, child_layout) in children.iter().zip(layout.children.iter()) {
                 collect_resolved_slot_areas(&child.element, child_layout, areas);
             }
@@ -395,7 +398,7 @@ fn collect_resolved_slot_areas(
 fn contains_slot_placeholder(element: &Element) -> bool {
     match element {
         Element::SlotPlaceholder { .. } => true,
-        Element::ResolvedSlot { children, .. } | Element::Flex { children, .. } => children
+        Element::Flex { children, .. } => children
             .iter()
             .any(|child| contains_slot_placeholder(&child.element)),
         Element::Stack { base, overlays } => {
@@ -440,17 +443,29 @@ impl SlotScanner<'_> {
                 direction,
                 gap,
             } => self.scan_placeholder(slot_name, *direction, *gap, policy, constraints),
-            Element::ResolvedSlot { slot_name, .. } => {
+            Element::Flex {
+                direction,
+                children,
+                gap,
+                slot: Some(meta),
+                ..
+            } => {
                 self.owner_errors.push(OwnerValidationError {
                     surface_key: self.descriptor.surface_key.clone(),
                     kind: OwnerValidationErrorKind::UnexpectedResolvedSlot,
-                    detail: format!("surface input tree contains resolved slot {slot_name}").into(),
+                    detail: format!(
+                        "surface input tree contains resolved slot {}",
+                        meta.slot_name
+                    )
+                    .into(),
                 });
+                let _ = (direction, children, gap);
             }
             Element::Flex {
                 direction,
                 children,
                 gap,
+                slot: None,
                 ..
             } => self.scan_flex_children(*direction, children, *gap, policy, constraints),
             Element::Stack { base, overlays } => {
@@ -608,25 +623,29 @@ fn substitute_slots(
     match element {
         Element::SlotPlaceholder { slot_name, .. } => {
             if let Some(data) = slots.remove(&slot_name) {
-                Element::ResolvedSlot {
-                    surface_key: data.surface_key,
-                    slot_name,
-                    instance_id: data.instance_id,
+                Element::Flex {
                     direction: data.direction,
                     children: data.children,
                     gap: data.gap,
+                    align: crate::element::Align::Start,
+                    cross_align: crate::element::Align::Start,
+                    slot: Some(crate::element::FlexSlotMetadata {
+                        surface_key: data.surface_key,
+                        slot_name,
+                        instance_id: data.instance_id,
+                    }),
                 }
             } else {
                 Element::Empty
             }
         }
-        Element::ResolvedSlot { .. } => Element::Empty,
         Element::Flex {
             direction,
             children,
             gap,
             align,
             cross_align,
+            slot,
         } => Element::Flex {
             direction,
             children: children
@@ -639,6 +658,7 @@ fn substitute_slots(
             gap,
             align,
             cross_align,
+            slot,
         },
         Element::Stack { base, overlays } => Element::Stack {
             base: Box::new(substitute_slots(*base, slots)),
@@ -714,11 +734,17 @@ fn validate_contribution_tree(
             ContributorIssueKind::UnresolvedSlotPlaceholder,
             format!("contribution contains unresolved slot placeholder {slot_name}").into(),
         )),
-        Element::ResolvedSlot { slot_name, .. } => Err((
+        Element::Flex {
+            slot: Some(meta), ..
+        } => Err((
             ContributorIssueKind::UnexpectedResolvedSlot,
-            format!("contribution contains resolved slot {slot_name}").into(),
+            format!("contribution contains resolved slot {}", meta.slot_name).into(),
         )),
-        Element::Flex { children, .. } => {
+        Element::Flex {
+            children,
+            slot: None,
+            ..
+        } => {
             for child in children {
                 validate_contribution_tree(&child.element)?;
             }
@@ -836,13 +862,17 @@ mod tests {
 
     #[test]
     fn test_resolved_tree_accepts_resolved_slot() {
-        let root = Element::ResolvedSlot {
-            surface_key: "kasane.buffer".into(),
-            slot_name: "kasane.buffer.left".into(),
-            instance_id: ResolvedSlotInstanceId(1),
+        let root = Element::Flex {
             direction: Direction::Row,
             children: vec![FlexChild::fixed(Element::plain_text("ok"))],
             gap: 0,
+            align: crate::element::Align::Start,
+            cross_align: crate::element::Align::Start,
+            slot: Some(crate::element::FlexSlotMetadata {
+                surface_key: "kasane.buffer".into(),
+                slot_name: "kasane.buffer.left".into(),
+                instance_id: ResolvedSlotInstanceId(1),
+            }),
         };
         let tree = ResolvedTree::new(root, vec![]).unwrap();
         assert_eq!(tree.slot_records.len(), 0);
@@ -850,13 +880,17 @@ mod tests {
 
     #[test]
     fn test_backfill_surface_report_areas_sets_slot_area() {
-        let element = Element::ResolvedSlot {
-            surface_key: "kasane.buffer".into(),
-            slot_name: "kasane.buffer.left".into(),
-            instance_id: ResolvedSlotInstanceId(7),
+        let element = Element::Flex {
             direction: Direction::Row,
             children: vec![FlexChild::fixed(Element::plain_text("ok"))],
             gap: 0,
+            align: crate::element::Align::Start,
+            cross_align: crate::element::Align::Start,
+            slot: Some(crate::element::FlexSlotMetadata {
+                surface_key: "kasane.buffer".into(),
+                slot_name: "kasane.buffer.left".into(),
+                instance_id: ResolvedSlotInstanceId(7),
+            }),
         };
         let area = Rect {
             x: 0,
@@ -1080,7 +1114,10 @@ mod tests {
                     overlays[0].anchor,
                     crate::element::OverlayAnchor::Fill
                 ));
-                assert!(matches!(overlays[0].element, Element::ResolvedSlot { .. }));
+                assert!(matches!(
+                    overlays[0].element,
+                    Element::Flex { slot: Some(_), .. }
+                ));
             }
             other => panic!(
                 "expected resolved stack root, got {:?}",

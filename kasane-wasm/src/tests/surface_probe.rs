@@ -238,13 +238,13 @@ fn integrates_with_surface_registry_and_resolver() {
                 other => panic!("expected surface title, got {other:?}"),
             }
             match &children[1].element {
-                Element::ResolvedSlot {
-                    slot_name,
+                Element::Flex {
                     direction,
                     children,
+                    slot: Some(meta),
                     ..
                 } => {
-                    assert_eq!(slot_name, "surface_probe.sidebar.top");
+                    assert_eq!(meta.slot_name, "surface_probe.sidebar.top");
                     assert_eq!(*direction, Direction::Column);
                     assert_eq!(children.len(), 1);
                     match &children[0].element {

@@ -2,9 +2,8 @@ use kasane_core::element::{Direction, Element, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    AnnotateContext, AppView, Command, ContribSizeHint, ContributeContext, Contribution,
-    DisplayDirective, IoEvent, OverlayContext, PluginBackend, PluginId, PluginRuntime,
-    ProcessEvent, SlotId,
+    AppView, Command, ContribSizeHint, ContributeContext, Contribution, DisplayDirective, IoEvent,
+    OverlayContext, PluginBackend, PluginId, PluginRuntime, ProcessEvent, SlotId,
 };
 use kasane_core::protocol::Color;
 use kasane_core::state::{AppState, DirtyFlags};
@@ -121,16 +120,6 @@ fn load_pane_manager_with_manifest() -> crate::WasmPlugin {
         .load_with_manifest(bytes, &manifest, &crate::WasiCapabilityConfig::default())
         .map_err(|(_, e)| e)
         .expect("failed to load plugin with manifest")
-}
-
-fn default_annotate_ctx() -> AnnotateContext {
-    AnnotateContext {
-        line_width: 80,
-        gutter_width: 0,
-        display_map: None,
-        pane_surface_id: None,
-        pane_focused: true,
-    }
 }
 
 fn default_contribute_ctx(state: &AppState) -> ContributeContext {

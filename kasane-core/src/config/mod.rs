@@ -194,39 +194,40 @@ impl Default for LogConfig {
     }
 }
 
+/// Predicate that returns `true` when two configs differ on a single field.
+type FieldDiffersFn = fn(&Config, &Config) -> bool;
+
+/// Configuration fields that require a restart to take effect (cannot be hot-reloaded).
+///
+/// Each entry pairs a stable field name (surfaced to the user in restart-required
+/// diagnostics) with a predicate that returns `true` when the two configs differ on
+/// that field. Adding a new restart-required field is a one-line table entry.
+const RESTART_REQUIRED_FIELDS: &[(&str, FieldDiffersFn)] = &[
+    ("ui.backend", |a, b| a.ui.backend != b.ui.backend),
+    ("ui.border_style", |a, b| {
+        a.ui.border_style != b.ui.border_style
+    }),
+    ("ui.image_protocol", |a, b| {
+        a.ui.image_protocol != b.ui.image_protocol
+    }),
+    ("scroll.lines_per_scroll", |a, b| {
+        a.scroll.lines_per_scroll != b.scroll.lines_per_scroll
+    }),
+    ("window", |a, b| a.window != b.window),
+    ("font", |a, b| a.font != b.font),
+    ("log", |a, b| a.log != b.log),
+    ("plugins", |a, b| a.plugins != b.plugins),
+    ("settings", |a, b| a.settings != b.settings),
+];
+
 impl Config {
     /// Compare two configs and return the names of fields that require a restart
     /// to take effect (i.e., cannot be hot-reloaded).
     pub fn restart_required_diff(&self, new: &Config) -> Vec<&'static str> {
-        let mut fields = Vec::new();
-        if self.ui.backend != new.ui.backend {
-            fields.push("ui.backend");
-        }
-        if self.ui.border_style != new.ui.border_style {
-            fields.push("ui.border_style");
-        }
-        if self.ui.image_protocol != new.ui.image_protocol {
-            fields.push("ui.image_protocol");
-        }
-        if self.scroll.lines_per_scroll != new.scroll.lines_per_scroll {
-            fields.push("scroll.lines_per_scroll");
-        }
-        if self.window != new.window {
-            fields.push("window");
-        }
-        if self.font != new.font {
-            fields.push("font");
-        }
-        if self.log != new.log {
-            fields.push("log");
-        }
-        if self.plugins != new.plugins {
-            fields.push("plugins");
-        }
-        if self.settings != new.settings {
-            fields.push("settings");
-        }
-        fields
+        RESTART_REQUIRED_FIELDS
+            .iter()
+            .filter_map(|(name, differs)| differs(self, new).then_some(*name))
+            .collect()
     }
 
     pub fn load() -> Self {
