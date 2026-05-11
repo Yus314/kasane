@@ -257,7 +257,9 @@ fn compose_base_from_salsa(
         Some(Arc::clone(display_map))
     };
 
-    // Read annotations from Salsa input (set by sync_plugin_contributions)
+    // Read annotations from Salsa input (set by sync_plugin_contributions).
+    // Per-line lists are stored as `Option<Arc<Vec<…>>>`, so the clones below
+    // are O(1) reference bumps rather than per-frame Vec deep-clones.
     let line_backgrounds = handles.annotations.line_backgrounds(db).clone();
     let left_gutter = handles.annotations.left_gutter(db).clone();
     let right_gutter = handles.annotations.right_gutter(db).clone();
@@ -287,11 +289,11 @@ fn compose_base_from_salsa(
     {
         Element::BufferRef {
             line_range: effective_start..effective_end,
-            line_backgrounds: line_backgrounds.map(Arc::new),
+            line_backgrounds,
             display_map: dm_for_element,
             state: None,
-            inline_decorations: inline_decorations.map(Arc::new),
-            virtual_text: virtual_text.map(Arc::new),
+            inline_decorations,
+            virtual_text,
         }
     } else {
         buffer_el

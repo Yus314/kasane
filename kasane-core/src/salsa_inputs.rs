@@ -116,19 +116,21 @@ pub struct SlotContributionsInput {
 /// Plugin line annotation results.
 ///
 /// Stores gutter elements and line backgrounds from plugin annotations,
-/// collected during the sync phase.
+/// collected during the sync phase. Per-line lists are `Arc`-wrapped so the
+/// pipeline reads them via `Arc::clone` (O(1)) instead of a fresh `Vec` clone
+/// per frame.
 #[salsa::input]
 pub struct AnnotationResultInput {
     #[returns(ref)]
-    pub line_backgrounds: Option<Vec<Option<crate::protocol::WireFace>>>,
+    pub line_backgrounds: Option<Arc<Vec<Option<crate::protocol::WireFace>>>>,
     #[returns(ref)]
     pub left_gutter: Option<crate::element::Element>,
     #[returns(ref)]
     pub right_gutter: Option<crate::element::Element>,
     #[returns(ref)]
-    pub inline_decorations: Option<Vec<Option<crate::render::InlineDecoration>>>,
+    pub inline_decorations: Option<Arc<Vec<Option<crate::render::InlineDecoration>>>>,
     #[returns(ref)]
-    pub virtual_text: Option<Vec<Option<Vec<crate::protocol::Atom>>>>,
+    pub virtual_text: Option<Arc<Vec<Option<Vec<crate::protocol::Atom>>>>>,
 }
 
 /// Plugin overlay contributions.

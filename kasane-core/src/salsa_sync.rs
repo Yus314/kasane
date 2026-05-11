@@ -373,10 +373,13 @@ pub fn sync_plugin_contributions(
             pane_focused: true,
         };
         let result = registry.collect_annotations(&AppView::new(state), &annotate_ctx);
+        // Wrap per-line lists in `Arc` so the pipeline reader can share the
+        // allocation across frames with `Arc::clone` instead of paying for a
+        // fresh `Vec` deep-clone every frame (`pipeline_salsa.rs`).
         inputs
             .annotations
             .set_line_backgrounds(db)
-            .to(result.line_backgrounds);
+            .to(result.line_backgrounds.map(Arc::new));
         inputs
             .annotations
             .set_left_gutter(db)
@@ -388,11 +391,11 @@ pub fn sync_plugin_contributions(
         inputs
             .annotations
             .set_inline_decorations(db)
-            .to(result.inline_decorations);
+            .to(result.inline_decorations.map(Arc::new));
         inputs
             .annotations
             .set_virtual_text(db)
-            .to(result.virtual_text);
+            .to(result.virtual_text.map(Arc::new));
     }
 
     // Plugin overlays: only re-collect if any overlay provider is stale
