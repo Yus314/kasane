@@ -10,9 +10,9 @@
 //! ```ignore
 //! fn register(&self, r: &mut HandlerRegistry<MyState>) {
 //!     r.declare_interests(DirtyFlags::BUFFER);
-//!     r.on_state_changed(|state, app, dirty| {
+//!     r.on_state_changed_tier1(|state, app, dirty| {
 //!         // ...
-//!         (new_state, Effects::default())
+//!         (new_state, KakouneSideEffects::default())
 //!     });
 //!     r.on_decorate_background(|state, line, app, ctx| {
 //!         // ...

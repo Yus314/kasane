@@ -8,22 +8,25 @@
 //! # Example (Native Plugin)
 //!
 //! ```ignore
-//! r.on_process_task(
+//! r.on_process_task_tier2(
 //!     "file_list",
 //!     ProcessTaskSpec::new("fd", &["--type", "f"])
 //!         .fallback(ProcessTaskSpec::new("find", &[".", "-type", "f"])),
-//!     |state, result| match result {
+//!     |state, result, _app| match result {
 //!         ProcessTaskResult::Completed { stdout, .. } => {
 //!             let files: Vec<String> = String::from_utf8_lossy(&stdout)
 //!                 .lines()
 //!                 .map(String::from)
 //!                 .collect();
-//!             (MyState { files, ..state.clone() }, Effects::none())
+//!             (MyState { files, ..state.clone() }, ProcessCapableEffects::default())
 //!         }
 //!         ProcessTaskResult::Failed(msg) => {
-//!             (MyState { error: Some(msg.clone()), ..state.clone() }, Effects::none())
+//!             (
+//!                 MyState { error: Some(msg.clone()), ..state.clone() },
+//!                 ProcessCapableEffects::default(),
+//!             )
 //!         }
-//!         _ => (state.clone(), Effects::none()),
+//!         _ => (state.clone(), ProcessCapableEffects::default()),
 //!     },
 //! );
 //! ```

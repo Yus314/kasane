@@ -5860,12 +5860,20 @@ edits + 10–15 rebuilt `.wasm` blobs. The 4.0 → 4.1 precedent
   which is more complex than the key/text/drop pattern (state-update
   channel + commands), so the lift requires a tier-typed result type
   rather than just a per-command bound.
-- **A-3f leftovers** — `BuiltinDragPlugin`, `BuiltinFoldPlugin`,
-  `SemanticZoomPlugin`, and the widget plugin paths still need
-  lifecycle handler review for tier migration. The A-3f landing
-  shipped the headline plugins (`BuiltinShadowCursorPlugin`,
-  `BuiltinInputPlugin`, `BuiltinMouseFallbackPlugin`,
-  `DebugOverlayPlugin`); these are the cleanup tail.
+- ~~**A-3f leftovers**~~ — *Closed.* Survey of the four named
+  candidates (`BuiltinDragPlugin`, `BuiltinFoldPlugin`,
+  `SemanticZoomPlugin`, `WidgetPlugin`) plus all other in-tree
+  `impl Plugin` sites confirmed none of them register against the
+  seven deprecated lifecycle setters: BuiltinDragPlugin uses
+  `on_mouse_pre_dispatch`, BuiltinFoldPlugin uses
+  `on_navigation_action`, SemanticZoomPlugin uses
+  `define_projection` + `on_key_map`, and WidgetPlugin uses the
+  view-side handlers (`on_contribute`, `on_decorate_background`,
+  `on_transform_for`, `on_decorate_gutter`, `on_decorate_inline`,
+  `on_virtual_text`). The remaining-work entry was speculative;
+  no plugin migration is required. Two stale module docstrings
+  in `handler_registry/mod.rs` and `process_task.rs` were updated
+  to use the tier-1 / tier-2 setters as the recommended example.
 - **B-4 leftovers** — `cursor-line` cannot migrate until the
   `define_plugin!` `#[bind]` auto-binding generator learns to route
   onto the tier-1 export. The remaining `examples/wasm/*` plugins
