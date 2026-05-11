@@ -5753,6 +5753,97 @@ this ADR → Phase 2/3).
 | A-3f  | In-tree built-in plugin migration to tier setters. | `BuiltinInputPlugin`, `BuiltinMouseFallbackPlugin`, `DebugOverlayPlugin`, plus `BuiltinShadowCursorPlugin` (migrated in A-3a). Validates the tier API against real in-tree code. |
 | B-1   | WIT tier-type foundation: add `kakoune-side-command` / `kakoune-side-effects` / `process-command` / `process-capable-effects` to `kasane-wasm/wit/plugin.wit` (single canonical copy; the two SDK paths are symlinks). | Types declared, no handler exports yet wired (deferred to B-2). ABI stays 4.1.0 — no rebuild required for bundled `.wasm` plugins. |
 
+### Phase B-2 execution playbook
+
+The next focused session should execute Phase B-2 as a single PR.
+Concrete steps, in order:
+
+1. **WIT changes** (`kasane-wasm/wit/plugin.wit`):
+   - Bump package version: `package kasane:plugin@4.1.0;` →
+     `package kasane:plugin@4.2.0;`
+   - Add export to `plugin-api` interface:
+     ```wit
+     /// Tier-1 state-changed handler (ADR-044). Returns tier-1 effects
+     /// that the host lifts to the unified runtime-effects pipeline.
+     /// Plugins that override this take precedence over
+     /// `on-state-changed-effects` for the same dirty event.
+     on-state-changed-tier1-effects: func(dirty-flags: u16) -> kakoune-side-effects;
+     ```
+   - Verify the new export reference forces wit-bindgen to generate
+     Rust types for `kakoune-side-command` / `kakoune-side-effects`.
+
+2. **Host abi.rs** (`kasane-wasm/src/abi.rs`):
+   - `HOST_ABI_VERSION: &str = "4.1.0";` → `"4.2.0"`
+   - The compatibility rule (`host minor ≥ plugin minor`) means
+     4.1.0-built plugins remain loadable against 4.2.0 host **iff**
+     bindgen synthesises a default-empty impl for new exports. Verify
+     against the existing precedent of `on-command-error-effects`
+     (ABI 4.0 → 4.1 in commit `858581db`).
+
+3. **Host adapter** (`kasane-wasm/src/adapter.rs`):
+   - Add `convert_kakoune_side_effects(effects: &wit::KakouneSideEffects) -> Effects`
+     mirroring the existing `convert_runtime_effects`.
+   - Add a dispatch site that calls `on_state_changed_tier1_effects`
+     before / instead of `on_state_changed_effects`. Decide priority
+     rule (recommend: tier1 export wins when both implemented).
+
+4. **Convert layer** (`kasane-wasm/src/convert/command.rs`):
+   - Add `wit_kakoune_side_command_to_command(&wit::KakouneSideCommand) -> Command`.
+   - Add converter for `wit::KakouneSideEffects` → `core::Effects`,
+     reusing the command converter.
+
+5. **Rebuild all bundled and fixture WASMs**:
+   - `kasane-wasm/bundled/*.wasm` (6 plugins: color-preview,
+     cursor-line, fuzzy-finder, pane-manager, sel-badge,
+     smooth-scroll)
+   - `kasane-wasm/fixtures/*.wasm` (~10 fixtures including
+     instantiate-trap, prompt-highlight, sel-badge, selection-algebra,
+     session-ui, smooth-scroll, surface-probe, plus mirrors of
+     bundled set)
+   - Build incantation per plugin:
+     ```bash
+     cargo build --target wasm32-unknown-unknown --release \
+       --manifest-path examples/wasm/$name/Cargo.toml
+     cp examples/wasm/$name/target/wasm32-unknown-unknown/release/${name//-/_}.wasm \
+        kasane-wasm/bundled/$name.wasm
+     ```
+   - Note: some plugins use `wasm32-wasip2` target (check each
+     `Cargo.toml`'s `[profile.release]` / `[package]` settings).
+   - Bump `abi_version` in each `.toml` manifest (bundled + fixtures)
+     from `"4.1.0"` to `"4.2.0"`.
+
+6. **Version-string sweep**:
+   - `kasane/src/locked_wasm_provider.rs`, `kasane/src/plugin_cmd/*`,
+     `kasane/src/plugin_lock.rs`, `kasane/src/plugin_store.rs`,
+     `kasane-wasm/src/tests/discovery.rs`, `kasane-wasm/src/tests/mod.rs`
+     — search for `4.1.0` and update where the host's expected
+     version is referenced.
+
+7. **Verify**:
+   - `cargo build --workspace`
+   - `cargo test --workspace` (in particular `cargo test -p kasane-wasm`
+     — its discovery / lifecycle tests will exercise the new export
+     path)
+   - `cargo clippy --workspace -- -D warnings`
+
+8. **Migration sequencing for B-3 / B-4** (deferred to next PRs after
+   B-2 lands):
+   - B-3: extend `kasane-plugin-sdk` to expose `KakouneSideEffects`
+     / `KakouneSideCommand` on the guest side; extend
+     `kasane-plugin-sdk-macros` so `define_plugin!` detects
+     `fn on_state_changed -> (S, KakouneSideEffects)` and emits the
+     tier1 export.
+   - B-4: migrate `examples/wasm/*` plugins one at a time. The
+     migration recipe is: replace `on_state_changed -> (S, Effects)`
+     with `on_state_changed -> (S, KakouneSideEffects)`; replace
+     `Command::*` constructions with `KakouneSideCommand::*`.
+     Plugins that emit process commands stay on the legacy export
+     until ADR-044 §A-3e (process-capable handler exports) lands.
+
+The total B-2 size estimate is ~150 LoC of host code + WIT + manifest
+edits + 10–15 rebuilt `.wasm` blobs. The 4.0 → 4.1 precedent
+(`858581db`) is the closest analogue: 61 files, +123/−48 LoC.
+
 ### Remaining work
 
 - **A-3d-mouse** — `on_mouse_pre_dispatch` and the various mouse-handler
