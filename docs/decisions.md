@@ -5733,8 +5733,9 @@ string-based layers cannot provide:
 
 ## ADR-044: Handler → Effect Tier Hierarchy
 
-**Status:** Phase A-1 / A-2 / A-3a / A-3b / A-3c / A-3d / A-3f shipped (2026-05-11).
-Phase 2/3 of the silent-drop fix chain
+**Status:** Phase A (A-1 / A-2 / A-3a / A-3b / A-3c / A-3d / A-3f) +
+Phase B-1 (WIT type foundation) shipped (2026-05-11). Phase 2/3 of
+the silent-drop fix chain
 ([#100](https://github.com/Yus314/kasane/issues/100) → ADR Phase 0,
 [#101](https://github.com/Yus314/kasane/issues/101) → ADR Phase 1,
 this ADR → Phase 2/3).
@@ -5750,6 +5751,7 @@ this ADR → Phase 2/3).
 | A-3c  | Tier setters for declarative process tasks: `on_process_task_tier2`, `on_process_task_streaming_tier2`.                                                  | All seven Effects-returning lifecycle handler categories now have tier-enforced parallels. Legacy setters remain with docstring pointers.                       |
 | A-3d  | Opt-in **tier-1** input handler setters: `on_key_tier1`, `on_text_input_tier1`, `on_drop_tier1`, `on_mouse_fallback_tier1`. ADR mapping puts input at Tier 2 by default; Tier 1 is a stricter opt-in for plugin authors who know their handlers don't spawn. | Bound `C: Into<KakouneSideCommand>` rejects raw `Command` returns. `compile_fail` doctest on `KakouneSideCommand` witnesses the asymmetric command projection. |
 | A-3f  | In-tree built-in plugin migration to tier setters. | `BuiltinInputPlugin`, `BuiltinMouseFallbackPlugin`, `DebugOverlayPlugin`, plus `BuiltinShadowCursorPlugin` (migrated in A-3a). Validates the tier API against real in-tree code. |
+| B-1   | WIT tier-type foundation: add `kakoune-side-command` / `kakoune-side-effects` / `process-command` / `process-capable-effects` to `kasane-wasm/wit/plugin.wit` (single canonical copy; the two SDK paths are symlinks). | Types declared, no handler exports yet wired (deferred to B-2). ABI stays 4.1.0 — no rebuild required for bundled `.wasm` plugins. |
 
 ### Remaining work
 

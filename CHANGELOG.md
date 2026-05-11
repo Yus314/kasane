@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Added — tier WIT type foundation in `kasane:plugin@4.1.0` (Phase B-1 of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
+
+The WIT contract gains the four tier types from ADR-044's Phase A
+work, mirroring the native-side projections in
+`kasane-core/src/plugin/effect_tiers.rs`:
+
+- `kakoune-side-command` variant (Tier 1) — Kakoune-side and host-local
+  commands. Intentionally excludes process / session / pane / workspace
+  / HTTP variants.
+- `kakoune-side-effects` record (Tier 1).
+- `process-command` variant (Tier 2) — process / session / pane /
+  workspace / HTTP commands that require source attribution.
+- `process-capable-effects` record (Tier 2) with `base:
+  kakoune-side-effects` so the two cuts compose.
+
+**No ABI bump yet (still 4.1.0)**: the types are declared but no
+handler export references them. Phase B-2 adds the first tier-typed
+handler export (`on-state-changed-tier1-effects` returning
+`kakoune-side-effects`), at which point wit-bindgen will generate
+Rust types for these variants and the ABI minor-bumps to 4.2.0. The
+full 4.x → 5.0.0 transition (replace existing handler signatures
+with tier-typed ones, drop legacy exports) is tracked under ADR-044
+§Remaining work.
+
+This is a **type-declaration-only** change to the WIT contract;
+bundled `.wasm` plugins (`color-preview`, `cursor-line`,
+`fuzzy-finder`, `pane-manager`, `sel-badge`, `smooth-scroll`) and
+all in-tree `examples/wasm/*` need no rebuild.
+
 ### Changed — built-in plugins migrated to tier-1 setters (Phase A-3f of [ADR-044](docs/decisions.md#adr-044-handler--effect-tier-hierarchy), [#102](https://github.com/Yus314/kasane/issues/102))
 
 Three in-tree built-in plugins now register through tier-enforced

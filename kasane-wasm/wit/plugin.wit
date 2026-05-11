@@ -366,6 +366,76 @@ interface types {
         scroll-plans: list<scroll-plan>,
     }
 
+    // ── ADR-044 tier hierarchy: Phase B foundation (Phase B-1) ──
+    //
+    // The variants and records below mirror the native-side tier types in
+    // `kasane-core/src/plugin/effect_tiers.rs`. They are added to the WIT
+    // contract as Phase B-1 of [ADR-044]
+    // (../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy):
+    // shape declared, no handler exports yet wired (that lands in B-2).
+    //
+    // **Tier 1 — `kakoune-side-command` / `kakoune-side-effects`**: handlers
+    // that fire in re-entrance-prone contexts (state-changed, session-ready,
+    // command-error, init, subscription) emit Kakoune-side and host-local
+    // effects only. The variant intentionally **excludes**
+    // `spawn-process`, `spawn-session` / `close-session` / `switch-session`,
+    // `write-to-process` / `close-process-stdin` / `kill-process` /
+    // `resize-pty`, `spawn-pane-client` / `close-pane-client`,
+    // `workspace-command`, `http-request` / `cancel-http-request`. Authors
+    // who want those effects must use `process-capable-effects`.
+    //
+    // **Tier 2 — `process-command` / `process-capable-effects`**: handlers
+    // where process spawn / external I/O are appropriate (handle-key,
+    // handle-mouse, handle-drop, handle-text-input, io-event, update).
+    // `process-capable-effects.base: kakoune-side-effects` plus
+    // `process-commands: list<process-command>` so the two cuts compose
+    // without redundancy.
+
+    variant kakoune-side-command {
+        send-keys(list<string>),
+        eval-command(string),
+        paste-clipboard,
+        quit,
+        request-redraw(u16),
+        set-config(config-entry),
+        set-setting(setting-entry),
+        schedule-timer(timer-config),
+        cancel-timer(u64),
+        plugin-message(message-config),
+        register-surface(dynamic-surface-config),
+        unregister-surface(string),
+        edit-buffer(list<buffer-edit>),
+        inject-key(key-event),
+        register-theme-tokens(list<theme-token-default>),
+    }
+
+    record kakoune-side-effects {
+        redraw: u16,
+        commands: list<kakoune-side-command>,
+        scroll-plans: list<scroll-plan>,
+    }
+
+    variant process-command {
+        spawn-process(spawn-process-config),
+        spawn-session(session-config),
+        close-session(option<string>),
+        switch-session(string),
+        write-to-process(write-process-config),
+        close-process-stdin(u64),
+        kill-process(u64),
+        resize-pty(resize-pty-config),
+        spawn-pane-client(spawn-pane-client-config),
+        close-pane-client(string),
+        workspace-command(workspace-cmd),
+        http-request(http-request-config),
+        cancel-http-request(u64),
+    }
+
+    record process-capable-effects {
+        base: kakoune-side-effects,
+        process-commands: list<process-command>,
+    }
+
     variant display-directive {
         // Spatial
         fold(fold-directive),
