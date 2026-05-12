@@ -106,6 +106,7 @@ pub struct BufferEdit {
     pub replacement: String,
 }
 
+#[derive(kasane_macros::VariantMeta)]
 pub enum Command {
     SendToKakoune(KasaneRequest),
     InsertText(String),
@@ -281,48 +282,6 @@ impl Command {
     /// The three variants that write to Kakoune (A9, T10, §9.1).
     pub const KAKOUNE_WRITING_VARIANTS: &'static [&'static str] =
         &["SendToKakoune", "InsertText", "EditBuffer"];
-
-    /// All variant names of this enum.
-    pub const ALL_VARIANT_NAMES: &'static [&'static str] = &[
-        "BindSurfaceSession",
-        "CancelHttpRequest",
-        "CancelTimer",
-        "ClosePaneClient",
-        "CloseProcessStdin",
-        "DismissDiagnosticOverlay",
-        "EditBuffer",
-        "ExposeVariable",
-        "HttpRequest",
-        "InjectInput",
-        "InsertText",
-        "KillProcess",
-        "PasteClipboard",
-        "PluginMessage",
-        "ProjectionOff",
-        "Quit",
-        "RegisterSurface",
-        "RegisterSurfaceRequested",
-        "RegisterThemeTokens",
-        "RequestRedraw",
-        "ResizePty",
-        "ScheduleTimer",
-        "SendToKakoune",
-        "Session",
-        "SetClipboard",
-        "SetConfig",
-        "SetSetting",
-        "SetStructuralProjection",
-        "SpawnPaneClient",
-        "SpawnProcess",
-        "StartProcessTask",
-        "ToggleAdditiveProjection",
-        "TriggerPluginReload",
-        "UnbindSurfaceSession",
-        "UnregisterSurface",
-        "UnregisterSurfaceKey",
-        "Workspace",
-        "WriteToProcess",
-    ];
 
     /// Convenience: execute a Kakoune command string.
     ///
@@ -587,50 +546,6 @@ impl Command {
             Command::SetStructuralProjection(_) => EffectCategory::CONFIG_MUTATION,
             Command::ToggleAdditiveProjection(_) => EffectCategory::CONFIG_MUTATION,
             Command::ProjectionOff => EffectCategory::CONFIG_MUTATION,
-        }
-    }
-
-    /// Returns the variant name as a string (for classification tests).
-    pub fn variant_name(&self) -> &'static str {
-        match self {
-            Command::SendToKakoune(_) => "SendToKakoune",
-            Command::InsertText(_) => "InsertText",
-            Command::PasteClipboard => "PasteClipboard",
-            Command::SetClipboard(_) => "SetClipboard",
-            Command::DismissDiagnosticOverlay => "DismissDiagnosticOverlay",
-            Command::TriggerPluginReload => "TriggerPluginReload",
-            Command::Quit => "Quit",
-            Command::RequestRedraw(_) => "RequestRedraw",
-            Command::ScheduleTimer { .. } => "ScheduleTimer",
-            Command::PluginMessage { .. } => "PluginMessage",
-            Command::SetConfig { .. } => "SetConfig",
-            Command::SetSetting { .. } => "SetSetting",
-            Command::Workspace(_) => "Workspace",
-            Command::RegisterSurface { .. } => "RegisterSurface",
-            Command::RegisterSurfaceRequested { .. } => "RegisterSurfaceRequested",
-            Command::UnregisterSurface { .. } => "UnregisterSurface",
-            Command::UnregisterSurfaceKey { .. } => "UnregisterSurfaceKey",
-            Command::RegisterThemeTokens(_) => "RegisterThemeTokens",
-            Command::SpawnProcess { .. } => "SpawnProcess",
-            Command::Session(_) => "Session",
-            Command::WriteToProcess { .. } => "WriteToProcess",
-            Command::CloseProcessStdin { .. } => "CloseProcessStdin",
-            Command::KillProcess { .. } => "KillProcess",
-            Command::ResizePty { .. } => "ResizePty",
-            Command::EditBuffer { .. } => "EditBuffer",
-            Command::InjectInput(_) => "InjectInput",
-            Command::SpawnPaneClient { .. } => "SpawnPaneClient",
-            Command::ClosePaneClient { .. } => "ClosePaneClient",
-            Command::BindSurfaceSession { .. } => "BindSurfaceSession",
-            Command::UnbindSurfaceSession { .. } => "UnbindSurfaceSession",
-            Command::StartProcessTask { .. } => "StartProcessTask",
-            Command::HttpRequest { .. } => "HttpRequest",
-            Command::CancelHttpRequest { .. } => "CancelHttpRequest",
-            Command::CancelTimer { .. } => "CancelTimer",
-            Command::ExposeVariable { .. } => "ExposeVariable",
-            Command::SetStructuralProjection(_) => "SetStructuralProjection",
-            Command::ToggleAdditiveProjection(_) => "ToggleAdditiveProjection",
-            Command::ProjectionOff => "ProjectionOff",
         }
     }
 }

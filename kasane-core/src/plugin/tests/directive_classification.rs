@@ -86,17 +86,20 @@ fn all_variant_names_count() {
     let instances = make_all_directive_instances();
     assert_eq!(
         instances.len(),
-        display::ALL_VARIANT_NAMES.len(),
+        DisplayDirective::ALL_VARIANT_NAMES.len(),
         "make_all_directive_instances() must produce exactly one instance per variant"
     );
 }
 
 #[test]
 fn all_variant_names_are_unique() {
-    let set: BTreeSet<_> = display::ALL_VARIANT_NAMES.iter().copied().collect();
+    let set: BTreeSet<_> = DisplayDirective::ALL_VARIANT_NAMES
+        .iter()
+        .copied()
+        .collect();
     assert_eq!(
         set.len(),
-        display::ALL_VARIANT_NAMES.len(),
+        DisplayDirective::ALL_VARIANT_NAMES.len(),
         "ALL_VARIANT_NAMES must not contain duplicates"
     );
 }
@@ -107,7 +110,10 @@ fn variant_name_covers_all() {
         .iter()
         .map(|d| d.variant_name())
         .collect();
-    let from_const: BTreeSet<_> = display::ALL_VARIANT_NAMES.iter().copied().collect();
+    let from_const: BTreeSet<_> = DisplayDirective::ALL_VARIANT_NAMES
+        .iter()
+        .copied()
+        .collect();
     assert_eq!(
         from_instances, from_const,
         "variant_name() must match ALL_VARIANT_NAMES exactly"
@@ -116,7 +122,10 @@ fn variant_name_covers_all() {
 
 #[test]
 fn destructive_set_matches_semantics() {
-    assert_eq!(display::DESTRUCTIVE_VARIANTS, &["Hide", "HideInline"]);
+    assert_eq!(
+        DisplayDirective::DESTRUCTIVE_VARIANTS,
+        &["Hide", "HideInline"]
+    );
 }
 
 #[test]
@@ -125,8 +134,14 @@ fn safe_covers_exactly_non_destructive() {
         .iter()
         .copied()
         .collect();
-    let destructive: BTreeSet<_> = display::DESTRUCTIVE_VARIANTS.iter().copied().collect();
-    let all: BTreeSet<_> = display::ALL_VARIANT_NAMES.iter().copied().collect();
+    let destructive: BTreeSet<_> = DisplayDirective::DESTRUCTIVE_VARIANTS
+        .iter()
+        .copied()
+        .collect();
+    let all: BTreeSet<_> = DisplayDirective::ALL_VARIANT_NAMES
+        .iter()
+        .copied()
+        .collect();
     assert_eq!(safe, &all - &destructive);
 }
 
@@ -136,7 +151,7 @@ fn is_destructive_matches_constants() {
         let name = d.variant_name();
         assert_eq!(
             d.is_destructive(),
-            display::DESTRUCTIVE_VARIANTS.contains(&name),
+            DisplayDirective::DESTRUCTIVE_VARIANTS.contains(&name),
             "classification mismatch for {name}"
         );
     }
@@ -144,9 +159,18 @@ fn is_destructive_matches_constants() {
 
 #[test]
 fn classification_is_exhaustive_partition() {
-    let preserving: BTreeSet<_> = display::PRESERVING_VARIANTS.iter().copied().collect();
-    let destructive: BTreeSet<_> = display::DESTRUCTIVE_VARIANTS.iter().copied().collect();
-    let all: BTreeSet<_> = display::ALL_VARIANT_NAMES.iter().copied().collect();
+    let preserving: BTreeSet<_> = DisplayDirective::PRESERVING_VARIANTS
+        .iter()
+        .copied()
+        .collect();
+    let destructive: BTreeSet<_> = DisplayDirective::DESTRUCTIVE_VARIANTS
+        .iter()
+        .copied()
+        .collect();
+    let all: BTreeSet<_> = DisplayDirective::ALL_VARIANT_NAMES
+        .iter()
+        .copied()
+        .collect();
 
     // Union == ALL
     let union: BTreeSet<_> = preserving
@@ -259,11 +283,11 @@ fn inline_box_is_inline_category() {
 #[test]
 fn inline_box_is_preserving() {
     assert!(
-        display::PRESERVING_VARIANTS.contains(&"InlineBox"),
+        DisplayDirective::PRESERVING_VARIANTS.contains(&"InlineBox"),
         "InlineBox must be a preserving variant"
     );
     assert!(
-        !display::DESTRUCTIVE_VARIANTS.contains(&"InlineBox"),
+        !DisplayDirective::DESTRUCTIVE_VARIANTS.contains(&"InlineBox"),
         "InlineBox must not be a destructive variant"
     );
 }
