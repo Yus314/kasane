@@ -515,37 +515,31 @@ mod intercept_tests {
         }
     }
 
-    /// A minimal PluginBackend that returns a fixed verdict from
-    /// `intercept_buffer_edit` and default impls for everything
-    /// else.
+    /// A minimal plugin that returns a fixed verdict from
+    /// `intercept_buffer_edit`.
     struct FixedVerdictBackend {
         id: PluginId,
         verdict: BufferEditVerdict,
     }
 
-    impl PluginBackend for FixedVerdictBackend {
+    impl crate::plugin::Plugin for FixedVerdictBackend {
+        type State = ();
+
         fn id(&self) -> PluginId {
             self.id.clone()
         }
 
-        fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
-            Effects::default()
-        }
-
-        fn intercept_buffer_edit(
-            &mut self,
-            _edit: &BufferEdit,
-            _state: &AppView<'_>,
-        ) -> BufferEditVerdict {
-            self.verdict.clone()
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            let verdict = self.verdict.clone();
+            r.on_buffer_edit_intercept(move |state, _edit, _app| (state.clone(), verdict.clone()));
         }
     }
 
-    fn backend(id: &str, verdict: BufferEditVerdict) -> FixedVerdictBackend {
-        FixedVerdictBackend {
+    fn backend(id: &str, verdict: BufferEditVerdict) -> crate::plugin::PluginBridge {
+        crate::plugin::PluginBridge::new(FixedVerdictBackend {
             id: PluginId(id.into()),
             verdict,
-        }
+        })
     }
 
     #[test]
@@ -615,27 +609,24 @@ mod intercept_tests {
 
     #[test]
     fn veto_does_not_invoke_subsequent_handlers() {
-        // A counter-driven backend that we can inspect.
+        // A counter-driven plugin that we can inspect.
         struct CountingBackend {
             id: PluginId,
             invoked: std::sync::Arc<std::sync::atomic::AtomicUsize>,
             verdict: BufferEditVerdict,
         }
-        impl PluginBackend for CountingBackend {
+        impl crate::plugin::Plugin for CountingBackend {
+            type State = ();
             fn id(&self) -> PluginId {
                 self.id.clone()
             }
-            fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
-                Effects::default()
-            }
-            fn intercept_buffer_edit(
-                &mut self,
-                _edit: &BufferEdit,
-                _state: &AppView<'_>,
-            ) -> BufferEditVerdict {
-                self.invoked
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                self.verdict.clone()
+            fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+                let invoked = self.invoked.clone();
+                let verdict = self.verdict.clone();
+                r.on_buffer_edit_intercept(move |state, _edit, _app| {
+                    invoked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    (state.clone(), verdict.clone())
+                });
             }
         }
 
@@ -643,11 +634,11 @@ mod intercept_tests {
         let app = AppView::new(&app_state);
         let mut a = backend("vetoer", BufferEditVerdict::Veto);
         let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let mut b = CountingBackend {
+        let mut b = crate::plugin::PluginBridge::new(CountingBackend {
             id: PluginId("after-veto".into()),
             invoked: counter.clone(),
             verdict: BufferEditVerdict::PassThrough,
-        };
+        });
         let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a, &mut b];
         let _ = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
         assert_eq!(
