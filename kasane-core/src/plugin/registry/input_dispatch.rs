@@ -9,8 +9,8 @@ use crate::state::DirtyFlags;
 use crate::plugin::effects::{MouseHandleResult, StateUpdates, TextInputHandleResult};
 use crate::plugin::traits::MousePreDispatchResult;
 use crate::plugin::{
-    AppView, Command, KeyHandleResult, KeyPreDispatchResult, PluginCapabilities, PluginId,
-    TextInputPreDispatchResult,
+    AppView, Command, KeyHandleResult, KeyPreDispatchResult, PluginBackend, PluginCapabilities,
+    PluginId, TextInputPreDispatchResult,
 };
 
 use super::{KeyDispatchResult, PluginRuntime, PluginSlot};
@@ -236,7 +236,7 @@ impl PluginRuntime {
             let mut backends: Vec<&mut dyn crate::plugin::PluginBackend> = self
                 .slots
                 .iter_mut()
-                .map(|s| s.backend.as_backend_mut())
+                .map(|s| &mut *s.backend as &mut dyn crate::plugin::PluginBackend)
                 .collect();
             if let Some(final_edit) = fold_intercept_chain(edit, &mut backends, app)
                 && !final_edit.is_hippocratic_noop()

@@ -605,8 +605,7 @@ mod tests {
             Ok(PluginCollect {
                 factories: vec![plugin_factory(descriptor, move || match variant {
                     FactoryVariant::Ok => {
-                        Ok(Box::new(crate::plugin::PluginBridge::new(DemoPlugin))
-                            as Box<dyn PluginBackend>)
+                        Ok(Box::new(crate::plugin::PluginBridge::new(DemoPlugin)))
                     }
                     FactoryVariant::Err => Err(anyhow!("factory exploded")),
                 })],

@@ -34,11 +34,7 @@ impl<'a> PluginView<'a> {
                 if !slot.capabilities.contains(PluginCapabilities::CONTRIBUTOR) {
                     return None;
                 }
-                let result = if let Some(bridge) = slot.backend.as_native() {
-                    bridge.contribute_to(region, state, ctx)
-                } else {
-                    slot.backend.contribute_to(region, state, ctx)
-                };
+                let result = slot.backend.contribute_to(region, state, ctx);
                 result.map(|contribution| SourcedContribution {
                     contributor: slot.backend.id(),
                     contribution,
@@ -86,11 +82,7 @@ impl<'a> PluginView<'a> {
                 let cache_key = (plugin_id.clone(), region.clone());
 
                 if slot.needs_recollect {
-                    let contribution_opt = if let Some(bridge) = slot.backend.as_native() {
-                        bridge.contribute_to(region, state, ctx)
-                    } else {
-                        slot.backend.contribute_to(region, state, ctx)
-                    };
+                    let contribution_opt = slot.backend.contribute_to(region, state, ctx);
                     let result = contribution_opt.map(|contribution| SourcedContribution {
                         contributor: plugin_id,
                         contribution,

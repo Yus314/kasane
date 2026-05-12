@@ -21,7 +21,7 @@ mod transforms;
 
 use crate::element::OverlayAnchor;
 use crate::plugin::element_patch::ElementPatch;
-use crate::plugin::{GutterSide, PluginId, TransformTarget};
+use crate::plugin::{GutterSide, PluginBackend, PluginId, TransformTarget};
 
 use super::PluginSlot;
 

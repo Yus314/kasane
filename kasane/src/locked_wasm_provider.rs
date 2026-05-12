@@ -4,9 +4,9 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
 use kasane_core::plugin::{
-    PluginBackend, PluginCollect, PluginDescriptor, PluginDiagnostic, PluginFactory, PluginId,
-    PluginProvider, PluginRank, PluginRevision, PluginSource, ProviderArtifactStage,
-    ProviderConfigUpdate, plugin_factory,
+    PluginCollect, PluginDescriptor, PluginDiagnostic, PluginFactory, PluginId, PluginProvider,
+    PluginRank, PluginRevision, PluginSource, ProviderArtifactStage, ProviderConfigUpdate,
+    plugin_factory,
 };
 use kasane_plugin_package::package;
 use kasane_wasm::{
@@ -534,7 +534,7 @@ fn locked_wasm_package_factory(
         let plugin = loader
             .load_package_file(&package_path, &wasi_config)
             .map_err(|(_, err)| err)?;
-        Ok(Box::new(plugin) as Box<dyn PluginBackend>)
+        Ok(Box::new(plugin))
     })
 }
 
@@ -546,7 +546,7 @@ fn locked_bundled_wasm_factory(
     plugin_factory(descriptor, move || {
         let plugin =
             load_bundled_plugin_by_plugin_id(&plugin_id, &wasi_config).map_err(|(_, err)| err)?;
-        Ok(Box::new(plugin) as Box<dyn PluginBackend>)
+        Ok(Box::new(plugin))
     })
 }
 

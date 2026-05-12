@@ -26,11 +26,7 @@ impl<'a> PluginView<'a> {
         let mut chain: Vec<(usize, i16, PluginId)> = Vec::new();
         for (i, slot) in self.slots.iter().enumerate() {
             if slot.capabilities.contains(PluginCapabilities::TRANSFORMER) {
-                let prio = if let Some(bridge) = slot.backend.as_native() {
-                    bridge.transform_priority()
-                } else {
-                    slot.backend.transform_priority()
-                };
+                let prio = slot.backend.transform_priority();
                 chain.push((i, prio, slot.backend.id()));
             }
         }
@@ -51,11 +47,7 @@ impl<'a> PluginView<'a> {
                 target_line: target.as_buffer_line(),
             };
             let slot = &self.slots[*i];
-            let patch_opt = if let Some(bridge) = slot.backend.as_native() {
-                bridge.transform_patch(&target, state, &ctx)
-            } else {
-                slot.backend.transform_patch(&target, state, &ctx)
-            };
+            let patch_opt = slot.backend.transform_patch(&target, state, &ctx);
             match patch_opt {
                 Some(p) if p.is_pure() => patches.push(p),
                 Some(_) | None => return None, // impure or legacy → fall back to imperative
@@ -90,11 +82,7 @@ impl<'a> PluginView<'a> {
         let mut chain: Vec<(usize, i16, PluginId)> = Vec::new();
         for (i, slot) in self.slots.iter().enumerate() {
             if slot.capabilities.contains(PluginCapabilities::TRANSFORMER) {
-                let prio = if let Some(bridge) = slot.backend.as_native() {
-                    bridge.transform_priority()
-                } else {
-                    slot.backend.transform_priority()
-                };
+                let prio = slot.backend.transform_priority();
                 chain.push((i, prio, slot.backend.id()));
             }
         }
@@ -117,11 +105,7 @@ impl<'a> PluginView<'a> {
                     target_line: target.as_buffer_line(),
                 };
                 let slot = &self.slots[*i];
-                let patch = if let Some(bridge) = slot.backend.as_native() {
-                    bridge.transform_patch(&target, state, &ctx)
-                } else {
-                    slot.backend.transform_patch(&target, state, &ctx)
-                };
+                let patch = slot.backend.transform_patch(&target, state, &ctx);
                 (*i, slot.backend.id(), patch)
             })
             .collect();
@@ -158,11 +142,7 @@ impl<'a> PluginView<'a> {
                         target_line: target.as_buffer_line(),
                     };
                     let slot = &self.slots[slot_idx];
-                    result = if let Some(bridge) = slot.backend.as_native() {
-                        bridge.transform(&target, result, state, &ctx)
-                    } else {
-                        slot.backend.transform(&target, result, state, &ctx)
-                    };
+                    result = slot.backend.transform(&target, result, state, &ctx);
                 }
             }
         }
@@ -232,12 +212,9 @@ impl<'a> PluginView<'a> {
                 continue;
             }
             let input = current.as_deref().unwrap_or(item);
-            let transformed = if let Some(bridge) = slot.backend.as_native() {
-                bridge.transform_menu_item(input, index, selected, state)
-            } else {
-                slot.backend
-                    .transform_menu_item(input, index, selected, state)
-            };
+            let transformed = slot
+                .backend
+                .transform_menu_item(input, index, selected, state);
             if let Some(transformed) = transformed {
                 current = Some(transformed);
             }

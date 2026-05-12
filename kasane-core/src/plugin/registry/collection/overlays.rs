@@ -21,12 +21,9 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            let result_opt = if let Some(bridge) = slot.backend.as_native() {
-                bridge.contribute_overlay_with_ctx(state, &running_ctx)
-            } else {
-                slot.backend
-                    .contribute_overlay_with_ctx(state, &running_ctx)
-            };
+            let result_opt = slot
+                .backend
+                .contribute_overlay_with_ctx(state, &running_ctx);
             if let Some(mut oc) = result_opt {
                 oc.plugin_id = slot.backend.id();
                 // Record this overlay's rect for subsequent plugins' avoidance.
@@ -51,11 +48,7 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            let overlay = if let Some(bridge) = slot.backend.as_native() {
-                bridge.render_menu_overlay(state, self)
-            } else {
-                slot.backend.render_menu_overlay(state, self)
-            };
+            let overlay = slot.backend.render_menu_overlay(state, self);
             if let Some(overlay) = overlay {
                 return Some(overlay);
             }
@@ -79,11 +72,7 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            let overlays = if let Some(bridge) = slot.backend.as_native() {
-                bridge.render_info_overlays(state, avoid, self)
-            } else {
-                slot.backend.render_info_overlays(state, avoid, self)
-            };
+            let overlays = slot.backend.render_info_overlays(state, avoid, self);
             if let Some(overlays) = overlays {
                 return Some(overlays);
             }

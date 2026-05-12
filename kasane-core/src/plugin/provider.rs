@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use super::diagnostics::PluginDiagnostic;
 use super::setting::SettingValue;
-use super::{PluginBackend, PluginId};
+use super::{PluginBridge, PluginId};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PluginSource {
@@ -54,7 +54,11 @@ pub struct PluginDescriptor {
 
 pub trait PluginFactory: Send + Sync {
     fn descriptor(&self) -> &PluginDescriptor;
-    fn create(&self) -> Result<Box<dyn PluginBackend>>;
+    /// Build a fresh [`PluginBridge`] instance. The runtime takes
+    /// ownership and stores it directly in a `PluginSlot` (no trait
+    /// erasure — every plugin in the runtime is a `PluginBridge` as of
+    /// Phase β-3.3c).
+    fn create(&self) -> Result<Box<PluginBridge>>;
 }
 
 #[derive(Default)]
@@ -111,40 +115,38 @@ struct ClosurePluginFactory<F> {
 
 impl<F> PluginFactory for ClosurePluginFactory<F>
 where
-    F: Fn() -> Result<Box<dyn PluginBackend>> + Send + Sync + 'static,
+    F: Fn() -> Result<Box<PluginBridge>> + Send + Sync + 'static,
 {
     fn descriptor(&self) -> &PluginDescriptor {
         &self.descriptor
     }
 
-    fn create(&self) -> Result<Box<dyn PluginBackend>> {
+    fn create(&self) -> Result<Box<PluginBridge>> {
         (self.create)()
     }
 }
 
 pub fn plugin_factory(
     descriptor: PluginDescriptor,
-    create: impl Fn() -> Result<Box<dyn PluginBackend>> + Send + Sync + 'static,
+    create: impl Fn() -> Result<Box<PluginBridge>> + Send + Sync + 'static,
 ) -> Arc<dyn PluginFactory> {
     Arc::new(ClosurePluginFactory { descriptor, create })
 }
 
-pub fn host_plugin<P, F>(id: impl Into<String>, create: F) -> Arc<dyn PluginFactory>
+pub fn host_plugin<F>(id: impl Into<String>, create: F) -> Arc<dyn PluginFactory>
 where
-    P: PluginBackend + 'static,
-    F: Fn() -> P + Send + Sync + 'static,
+    F: Fn() -> PluginBridge + Send + Sync + 'static,
 {
     host_plugin_with_provider("host", id, create)
 }
 
-pub fn host_plugin_with_provider<P, F>(
+pub fn host_plugin_with_provider<F>(
     provider: impl Into<String>,
     id: impl Into<String>,
     create: F,
 ) -> Arc<dyn PluginFactory>
 where
-    P: PluginBackend + 'static,
-    F: Fn() -> P + Send + Sync + 'static,
+    F: Fn() -> PluginBridge + Send + Sync + 'static,
 {
     let descriptor = PluginDescriptor {
         id: PluginId(id.into()),
@@ -157,14 +159,13 @@ where
     plugin_factory(descriptor, move || Ok(Box::new(create())))
 }
 
-pub fn builtin_plugin<P, F>(
+pub fn builtin_plugin<F>(
     name: impl Into<String>,
     id: impl Into<String>,
     create: F,
 ) -> Arc<dyn PluginFactory>
 where
-    P: PluginBackend + 'static,
-    F: Fn() -> P + Send + Sync + 'static,
+    F: Fn() -> PluginBridge + Send + Sync + 'static,
 {
     let descriptor = PluginDescriptor {
         id: PluginId(id.into()),

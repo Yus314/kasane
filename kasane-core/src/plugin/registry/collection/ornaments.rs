@@ -24,11 +24,7 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            let batch = if let Some(bridge) = slot.backend.as_native() {
-                bridge.render_ornaments(state, ctx)
-            } else {
-                slot.backend.render_ornaments(state, ctx)
-            };
+            let batch = slot.backend.render_ornaments(state, ctx);
             if batch.is_empty() {
                 continue;
             }
