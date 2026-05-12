@@ -6,34 +6,24 @@ use crate::plugin::{
 
 // --- Input observation tests ---
 
-struct ObservingPlugin {
-    observed_keys: std::cell::RefCell<Vec<String>>,
-}
+struct ObservingPlugin;
 
-impl ObservingPlugin {
-    fn new() -> Self {
-        ObservingPlugin {
-            observed_keys: std::cell::RefCell::new(Vec::new()),
-        }
-    }
-}
+impl crate::plugin::Plugin for ObservingPlugin {
+    type State = ();
 
-impl PluginBackend for ObservingPlugin {
     fn id(&self) -> PluginId {
         PluginId("observer".to_string())
     }
 
-    fn observe_key(&mut self, key: &KeyEvent, _state: &AppView<'_>) {
-        self.observed_keys
-            .borrow_mut()
-            .push(format!("{:?}", key.key));
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.on_observe_key(|_state, _key, _app| ());
     }
 }
 
 #[test]
 fn test_observe_key_called() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ObservingPlugin::new()));
+    registry.register(ObservingPlugin);
     let state = AppState::default();
     let key = KeyEvent {
         key: crate::input::Key::Char('a'),
@@ -50,28 +40,26 @@ fn test_observe_key_called() {
 
 struct IconPlugin;
 
-impl PluginBackend for IconPlugin {
+impl crate::plugin::Plugin for IconPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("icons".to_string())
     }
 
-    fn transform_menu_item(
-        &self,
-        item: &[crate::protocol::Atom],
-        _index: usize,
-        _selected: bool,
-        _state: &AppView<'_>,
-    ) -> Option<Vec<crate::protocol::Atom>> {
-        let mut result = vec![crate::protocol::Atom::plain("★ ")];
-        result.extend(item.iter().cloned());
-        Some(result)
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.on_menu_transform(|_state, item, _index, _selected, _app| {
+            let mut result = vec![crate::protocol::Atom::plain("★ ")];
+            result.extend(item.iter().cloned());
+            Some(result)
+        });
     }
 }
 
 #[test]
 fn test_transform_menu_item() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(IconPlugin));
+    registry.register(IconPlugin);
     let state = AppState::default();
     let item = vec![crate::protocol::Atom::plain("foo")];
     let result = registry
@@ -117,28 +105,23 @@ struct RenderOrnamentPlugin {
     batch: OrnamentBatch,
 }
 
-impl PluginBackend for RenderOrnamentPlugin {
+impl crate::plugin::Plugin for RenderOrnamentPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("render-ornament-test".to_string())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::RENDER_ORNAMENT
-    }
-
-    fn render_ornaments(
-        &self,
-        _state: &AppView<'_>,
-        _ctx: &RenderOrnamentContext,
-    ) -> OrnamentBatch {
-        self.batch.clone()
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        let batch = self.batch.clone();
+        r.on_render_ornaments(move |_state, _app, _ctx| batch.clone());
     }
 }
 
 #[test]
 fn test_collect_ornaments() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(RenderOrnamentPlugin {
+    registry.register(RenderOrnamentPlugin {
         batch: OrnamentBatch {
             emphasis: vec![CellDecoration {
                 target: DecorationTarget::Column { column: 3 },
@@ -166,7 +149,7 @@ fn test_collect_ornaments() {
                 modality: OrnamentModality::Must,
             }],
         },
-    }));
+    });
 
     let state = AppState::default();
     let collected = registry
@@ -182,7 +165,7 @@ fn test_collect_ornaments() {
 #[test]
 fn test_cursor_style_does_not_compete_with_effects() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(RenderOrnamentPlugin {
+    registry.register(RenderOrnamentPlugin {
         batch: OrnamentBatch {
             emphasis: vec![],
             cursor_style: Some(CursorStyleOrn {
@@ -199,7 +182,7 @@ fn test_cursor_style_does_not_compete_with_effects() {
             }],
             surfaces: vec![],
         },
-    }));
+    });
 
     let state = AppState::default();
     let collected = registry
@@ -221,39 +204,34 @@ fn test_cursor_effects_accumulate() {
         id: &'static str,
         effect: CursorEffect,
     }
-    impl PluginBackend for EffectPlugin {
+    impl crate::plugin::Plugin for EffectPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId(self.id.to_string())
         }
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::RENDER_ORNAMENT
-        }
-        fn render_ornaments(
-            &self,
-            _state: &AppView<'_>,
-            _ctx: &RenderOrnamentContext,
-        ) -> OrnamentBatch {
-            OrnamentBatch {
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            let effect = self.effect;
+            r.on_render_ornaments(move |_state, _app, _ctx| OrnamentBatch {
                 cursor_effects: vec![CursorEffectOrn {
-                    kind: self.effect,
+                    kind: effect,
                     style: crate::protocol::Style::default(),
                     priority: 10,
                     modality: OrnamentModality::Approximate,
                 }],
                 ..OrnamentBatch::default()
-            }
+            });
         }
     }
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(EffectPlugin {
+    registry.register(EffectPlugin {
         id: "halo",
         effect: CursorEffect::Halo,
-    }));
-    registry.register_backend(Box::new(EffectPlugin {
+    });
+    registry.register(EffectPlugin {
         id: "ring",
         effect: CursorEffect::Ring,
-    }));
+    });
 
     let state = AppState::default();
     let collected = registry
@@ -271,44 +249,41 @@ fn test_cursor_style_modality_wins_over_priority() {
         priority: i16,
         modality: OrnamentModality,
     }
-    impl PluginBackend for CursorStylePlugin {
+    impl crate::plugin::Plugin for CursorStylePlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId(self.id.to_string())
         }
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::RENDER_ORNAMENT
-        }
-        fn render_ornaments(
-            &self,
-            _state: &AppView<'_>,
-            _ctx: &RenderOrnamentContext,
-        ) -> OrnamentBatch {
-            OrnamentBatch {
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            let style = self.style;
+            let priority = self.priority;
+            let modality = self.modality;
+            r.on_render_ornaments(move |_state, _app, _ctx| OrnamentBatch {
                 cursor_style: Some(CursorStyleOrn {
-                    hint: self.style.into(),
-                    priority: self.priority,
-                    modality: self.modality,
+                    hint: style.into(),
+                    priority,
+                    modality,
                 }),
                 ..OrnamentBatch::default()
-            }
+            });
         }
     }
 
     let mut registry = PluginRuntime::new();
     // Plugin A: Must modality but low priority
-    registry.register_backend(Box::new(CursorStylePlugin {
+    registry.register(CursorStylePlugin {
         id: "must-low",
         style: crate::render::CursorStyle::Bar,
         priority: 5,
         modality: OrnamentModality::Must,
-    }));
+    });
     // Plugin B: Approximate modality but high priority
-    registry.register_backend(Box::new(CursorStylePlugin {
+    registry.register(CursorStylePlugin {
         id: "approx-high",
         style: crate::render::CursorStyle::Underline,
         priority: 100,
         modality: OrnamentModality::Approximate,
-    }));
+    });
 
     let state = AppState::default();
     let collected = registry
