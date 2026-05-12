@@ -1,18 +1,54 @@
 use std::collections::HashMap;
 
+use thiserror::Error;
+
 use crate::config::{ThemeConfig, ThemeValue};
 use crate::element::{ElementStyle, StyleToken};
 use crate::protocol::Style as PStyle;
 use crate::protocol::{Attributes, Color, NamedColor, WireFace};
+
+/// Errors surfaced while building a [`Theme`] from a [`ThemeConfig`].
+///
+/// The runtime [`Theme::resolve`] path is infallible (missing tokens fall
+/// back to the caller-supplied `fallback`); these errors describe
+/// problems detected during construction that would otherwise resolve to
+/// `Default` silently.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ThemeError {
+    /// `@target` reference resolved to no defined token. The owning
+    /// `token` ends up at its default style.
+    #[error("theme token '{token}' references undefined '@{referenced}'")]
+    UndefinedTokenReference { token: String, referenced: String },
+
+    /// Reference cycle (e.g. A → B → A). The starting token ends up at
+    /// its default style.
+    #[error("theme token '{token}' is part of a reference cycle via '@{chain}'")]
+    CircularReference { token: String, chain: String },
+
+    /// Face spec did not parse cleanly. `reason` indicates the specific
+    /// shape problem (currently: unknown colour name).
+    #[error("theme token '{token}' has malformed face spec '{spec}': {reason}")]
+    MalformedFaceSpec {
+        token: String,
+        spec: String,
+        reason: String,
+    },
+}
 
 /// Theme maps StyleTokens to styles for consistent visual styling.
 ///
 /// Storage and the public API are both `Style`-native. Wire-format `WireFace`
 /// values produced by [`parse_face_spec`] are converted to `Style` at the
 /// theme boundary, so callers never see the legacy bitflag representation.
+///
+/// Construction via [`Theme::from_config`] may surface non-fatal issues
+/// (undefined references, circular references, malformed face specs);
+/// drain them with [`Theme::take_build_errors`] right after construction
+/// to log or attribute them to the user's configuration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     map: HashMap<StyleToken, PStyle>,
+    build_errors: Vec<ThemeError>,
 }
 
 impl Theme {
@@ -20,7 +56,17 @@ impl Theme {
     pub fn new() -> Self {
         Theme {
             map: HashMap::new(),
+            build_errors: Vec::new(),
         }
+    }
+
+    /// Drain the non-fatal errors collected during config-driven
+    /// construction. The vector is replaced with an empty one, so a
+    /// subsequent call returns no entries. Callers typically invoke this
+    /// immediately after [`Theme::from_config`] / [`Theme::from_config_with_variant`]
+    /// to log or surface the errors via the diagnostic overlay.
+    pub fn take_build_errors(&mut self) -> Vec<ThemeError> {
+        std::mem::take(&mut self.build_errors)
     }
 
     /// Create the default theme with Kakoune-compatible face values.
@@ -102,7 +148,10 @@ impl Theme {
             .into(),
         );
 
-        Theme { map }
+        Theme {
+            map,
+            build_errors: Vec::new(),
+        }
     }
 
     /// Set a token's style.
@@ -158,10 +207,7 @@ impl Theme {
         for (name, value) in &config.faces {
             match value {
                 ThemeValue::FaceSpec(spec) => {
-                    if let Some(face) = parse_face_spec(spec) {
-                        let token = normalize_config_key(name);
-                        theme.set_style(token, face.into());
-                    }
+                    apply_face_spec(&mut theme, name, spec);
                 }
                 ThemeValue::TokenRef(ref_name) => {
                     pending_refs.push((name.clone(), ref_name.clone()));
@@ -176,10 +222,7 @@ impl Theme {
             for (name, value) in variant_faces {
                 match value {
                     ThemeValue::FaceSpec(spec) => {
-                        if let Some(face) = parse_face_spec(spec) {
-                            let token = normalize_config_key(name);
-                            theme.set_style(token, face.into());
-                        }
+                        apply_face_spec(&mut theme, name, spec);
                         // Remove any pending ref for this key (variant overrides base)
                         pending_refs.retain(|(n, _)| n != name);
                     }
@@ -287,10 +330,33 @@ fn normalize_config_key(name: &str) -> StyleToken {
     StyleToken::new(name.replace('_', "."))
 }
 
+/// Parse a face spec and store it under `name`, surfacing any malformed
+/// spec as a [`ThemeError::MalformedFaceSpec`] on the theme's
+/// `build_errors`. The best-effort partial face is still applied so the
+/// user sees as much of their configured colour as parses cleanly.
+fn apply_face_spec(theme: &mut Theme, name: &str, spec: &str) {
+    let token = normalize_config_key(name);
+    match parse_face_spec_strict(spec) {
+        Ok(face) => {
+            theme.set_style(token, face.into());
+        }
+        Err((partial, reason)) => {
+            theme.set_style(token, partial.into());
+            theme.build_errors.push(ThemeError::MalformedFaceSpec {
+                token: name.to_string(),
+                spec: spec.to_string(),
+                reason,
+            });
+        }
+    }
+}
+
 /// Resolve `@token` references iteratively.
 ///
-/// Follows reference chains (A→B→C) up to 10 iterations.
-/// Circular references are detected and fall back to default face.
+/// Follows reference chains (A→B→C) up to 10 iterations. Circular references
+/// and undefined targets are reported via [`ThemeError`] on
+/// `theme.build_errors`, and the originating token falls back to the
+/// default style so the rest of the theme remains usable.
 fn resolve_token_refs(
     theme: &mut Theme,
     pending: &[(String, String)],
@@ -306,10 +372,15 @@ fn resolve_token_refs(
         let mut visited = HashSet::new();
         visited.insert(name.clone());
         let mut resolved = false;
+        let mut chain: Vec<String> = vec![target_name.clone()];
 
         for _ in 0..MAX_ITER {
             if visited.contains(&current_ref) {
-                // Circular reference detected
+                // Circular reference detected.
+                theme.build_errors.push(ThemeError::CircularReference {
+                    token: name.clone(),
+                    chain: chain.join(" → @"),
+                });
                 tracing::warn!(
                     "theme: circular reference detected for token '{name}' → '@{current_ref}'"
                 );
@@ -325,13 +396,24 @@ fn resolve_token_refs(
 
             match target_value {
                 Some(ThemeValue::FaceSpec(spec)) => {
-                    if let Some(face) = parse_face_spec(spec) {
-                        theme.set_style(token.clone(), face.into());
-                        resolved = true;
+                    match parse_face_spec_strict(spec) {
+                        Ok(face) => {
+                            theme.set_style(token.clone(), face.into());
+                        }
+                        Err((partial, reason)) => {
+                            theme.set_style(token.clone(), partial.into());
+                            theme.build_errors.push(ThemeError::MalformedFaceSpec {
+                                token: name.clone(),
+                                spec: spec.clone(),
+                                reason,
+                            });
+                        }
                     }
+                    resolved = true;
                     break;
                 }
                 Some(ThemeValue::TokenRef(next_ref)) => {
+                    chain.push(next_ref.clone());
                     current_ref = next_ref.clone();
                     // Continue chain resolution
                 }
@@ -341,6 +423,13 @@ fn resolve_token_refs(
                     if let Some(style) = theme.get_style(&ref_token).cloned() {
                         theme.set_style(token.clone(), style);
                         resolved = true;
+                    } else {
+                        theme
+                            .build_errors
+                            .push(ThemeError::UndefinedTokenReference {
+                                token: name.clone(),
+                                referenced: current_ref.clone(),
+                            });
                     }
                     break;
                 }
@@ -357,7 +446,23 @@ fn resolve_token_refs(
 /// Parse a simple face spec like "red,blue+bi" into a WireFace.
 /// Format: "fg,bg+attrs" where fg/bg are color names or "default",
 /// and attrs is a combination of b(old), i(talic), u(nderline), r(everse), d(im).
+///
+/// Lossy variant: unknown colour names silently degrade to `Color::Default`.
+/// New code that needs to surface malformed specs should call
+/// [`parse_face_spec_strict`] instead.
 pub(crate) fn parse_face_spec(spec: &str) -> Option<WireFace> {
+    Some(parse_face_spec_strict(spec).unwrap_or_else(|(face, _)| face))
+}
+
+/// Strict variant of [`parse_face_spec`] that returns the partial face
+/// alongside a description of the first encountered problem (currently
+/// always: unknown colour name). Used by [`Theme::from_config_with_variant`]
+/// to surface malformed specs through [`ThemeError::MalformedFaceSpec`].
+///
+/// On error the returned `WireFace` still contains the best-effort parse
+/// (unknown components fall back to `Color::Default`), so callers can
+/// choose to either reject the spec entirely or accept the degraded face.
+pub(crate) fn parse_face_spec_strict(spec: &str) -> Result<WireFace, (WireFace, String)> {
     let (colors_part, attrs_part) = if let Some(pos) = spec.find('+') {
         (&spec[..pos], Some(&spec[pos + 1..]))
     } else {
@@ -365,8 +470,10 @@ pub(crate) fn parse_face_spec(spec: &str) -> Option<WireFace> {
     };
 
     let mut parts = colors_part.splitn(2, ',');
-    let fg = parse_color_name(parts.next().unwrap_or("default").trim());
-    let bg = parse_color_name(parts.next().unwrap_or("default").trim());
+    let fg_name = parts.next().unwrap_or("default").trim();
+    let bg_name = parts.next().unwrap_or("default").trim();
+    let (fg, fg_unknown) = parse_color_name_strict(fg_name);
+    let (bg, bg_unknown) = parse_color_name_strict(bg_name);
 
     let attributes = attrs_part
         .map(|a| {
@@ -385,15 +492,35 @@ pub(crate) fn parse_face_spec(spec: &str) -> Option<WireFace> {
         })
         .unwrap_or(Attributes::empty());
 
-    Some(WireFace {
+    let face = WireFace {
         fg,
         bg,
         underline: Color::Default,
         attributes,
-    })
+    };
+
+    match (fg_unknown, bg_unknown) {
+        (Some(name), _) => Err((face, format!("unknown foreground colour '{name}'"))),
+        (None, Some(name)) => Err((face, format!("unknown background colour '{name}'"))),
+        (None, None) => Ok(face),
+    }
 }
 
-fn parse_color_name(name: &str) -> Color {
+/// Parse a colour name, returning the colour and the original unknown
+/// name (if the input did not match any known palette entry / RGB form
+/// / explicit `default`).
+fn parse_color_name_strict(name: &str) -> (Color, Option<String>) {
+    let color = parse_color_name_inner(name);
+    let unknown = matches!(color, Color::Default) && !name.is_empty() && name != "default";
+    let unknown_name = if unknown {
+        Some(name.to_string())
+    } else {
+        None
+    };
+    (color, unknown_name)
+}
+
+fn parse_color_name_inner(name: &str) -> Color {
     match name {
         "default" | "" => Color::Default,
         "black" => Color::Named(NamedColor::Black),
@@ -729,5 +856,77 @@ mod tests {
         // status_mode → @accent → "cyan,default" (from dark variant)
         let style = theme.get_style(&StyleToken::new("status.mode")).unwrap();
         assert_eq!(style.fg, Brush::Named(NamedColor::Cyan));
+    }
+
+    #[test]
+    fn build_error_surfaces_undefined_reference() {
+        let mut config = ThemeConfig::default();
+        config
+            .faces
+            .insert("a".into(), ThemeValue::TokenRef("nonexistent".into()));
+        let mut theme = Theme::from_config(&config);
+        let errors = theme.take_build_errors();
+        assert!(
+            errors.iter().any(
+                |e| matches!(e, ThemeError::UndefinedTokenReference { token, referenced }
+                    if token == "a" && referenced == "nonexistent")
+            ),
+            "expected UndefinedTokenReference for token 'a', got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn build_error_surfaces_circular_reference() {
+        let mut config = ThemeConfig::default();
+        config
+            .faces
+            .insert("a".into(), ThemeValue::TokenRef("b".into()));
+        config
+            .faces
+            .insert("b".into(), ThemeValue::TokenRef("a".into()));
+        let mut theme = Theme::from_config(&config);
+        let errors = theme.take_build_errors();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ThemeError::CircularReference { .. })),
+            "expected CircularReference error, got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn build_error_surfaces_malformed_face_spec() {
+        let mut config = ThemeConfig::default();
+        config.faces.insert(
+            "a".into(),
+            ThemeValue::FaceSpec("plum,default".into()), // "plum" is not a known colour
+        );
+        let mut theme = Theme::from_config(&config);
+        let errors = theme.take_build_errors();
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                ThemeError::MalformedFaceSpec { token, .. } if token == "a"
+            )),
+            "expected MalformedFaceSpec for token 'a', got {errors:?}"
+        );
+        // Partial parse still produces a usable face (fg falls back to Default).
+        let style = theme.get_style(&StyleToken::new("a")).unwrap();
+        assert_eq!(style.fg, Brush::Default);
+        assert_eq!(style.bg, Brush::Default);
+    }
+
+    #[test]
+    fn take_build_errors_drains_the_queue() {
+        let mut config = ThemeConfig::default();
+        config
+            .faces
+            .insert("a".into(), ThemeValue::FaceSpec("plum,default".into()));
+        let mut theme = Theme::from_config(&config);
+        assert!(!theme.take_build_errors().is_empty());
+        assert!(
+            theme.take_build_errors().is_empty(),
+            "drain must be idempotent after the first call"
+        );
     }
 }

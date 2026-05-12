@@ -502,7 +502,11 @@ impl AppState {
         self.config.menu_position = config.menu.position;
         self.config.search_dropdown = config.search.dropdown;
         self.config.status_at_top = config.ui.status_position == StatusPosition::Top;
-        self.config.theme = Theme::from_config(&config.theme);
+        let mut new_theme = Theme::from_config(&config.theme);
+        for err in new_theme.take_build_errors() {
+            tracing::warn!(theme_error = %err, "theme config issue surfaced during apply_config");
+        }
+        self.config.theme = new_theme;
         self.config
             .theme
             .apply_color_context(&self.inference.color_context);
