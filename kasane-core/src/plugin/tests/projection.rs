@@ -22,29 +22,23 @@ struct ProjectionTestPlugin {
     directive_map: Vec<(String, Vec<DisplayDirective>)>,
 }
 
-impl PluginBackend for ProjectionTestPlugin {
+impl Plugin for ProjectionTestPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId(self.id.to_string())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::DISPLAY_TRANSFORM
-    }
-
-    fn projection_descriptors(&self) -> &[ProjectionDescriptor] {
-        &self.descriptors
-    }
-
-    fn projection_directives(
-        &self,
-        id: &ProjectionId,
-        _state: &AppView<'_>,
-    ) -> Vec<DisplayDirective> {
-        self.directive_map
-            .iter()
-            .find(|(k, _)| k == &*id.0)
-            .map(|(_, v)| v.clone())
-            .unwrap_or_default()
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        for desc in &self.descriptors {
+            let directives: Vec<DisplayDirective> = self
+                .directive_map
+                .iter()
+                .find(|(k, _)| k == &*desc.id.0)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default();
+            r.define_projection(desc.clone(), move |_state, _app| directives.clone());
+        }
     }
 }
 
@@ -79,14 +73,14 @@ fn state_with_lines(n: usize) -> AppState {
 #[test]
 fn no_projection_active_produces_identity_map() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ProjectionTestPlugin {
+    registry.register(ProjectionTestPlugin {
         id: "proj-test",
         descriptors: vec![make_structural_descriptor("outline")],
         directive_map: vec![(
             "outline".into(),
             vec![DisplayDirective::Hide { range: 1..3 }],
         )],
-    }));
+    });
 
     let state = state_with_lines(5);
     let dm = registry.view().collect_display_map(&AppView::new(&state));
@@ -97,14 +91,14 @@ fn no_projection_active_produces_identity_map() {
 #[test]
 fn structural_projection_active_applies_directives() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ProjectionTestPlugin {
+    registry.register(ProjectionTestPlugin {
         id: "proj-test",
         descriptors: vec![make_structural_descriptor("outline")],
         directive_map: vec![(
             "outline".into(),
             vec![DisplayDirective::Hide { range: 1..3 }],
         )],
-    }));
+    });
 
     let mut state = state_with_lines(5);
     state
@@ -130,7 +124,7 @@ fn structural_projection_active_applies_directives() {
 #[test]
 fn additive_projection_active_applies_directives() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ProjectionTestPlugin {
+    registry.register(ProjectionTestPlugin {
         id: "proj-test",
         descriptors: vec![make_additive_descriptor("error-lens")],
         directive_map: vec![(
@@ -140,7 +134,7 @@ fn additive_projection_active_applies_directives() {
                 summary: vec![Atom::plain("error: unused variable")],
             }],
         )],
-    }));
+    });
 
     let mut state = state_with_lines(4);
     state
@@ -156,7 +150,7 @@ fn additive_projection_active_applies_directives() {
 #[test]
 fn structural_and_additive_compose() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ProjectionTestPlugin {
+    registry.register(ProjectionTestPlugin {
         id: "proj-test",
         descriptors: vec![
             make_structural_descriptor("outline"),
@@ -175,7 +169,7 @@ fn structural_and_additive_compose() {
                 }],
             ),
         ],
-    }));
+    });
 
     let mut state = state_with_lines(5);
     state
@@ -195,7 +189,7 @@ fn structural_and_additive_compose() {
 #[test]
 fn inactive_projection_not_collected() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ProjectionTestPlugin {
+    registry.register(ProjectionTestPlugin {
         id: "proj-test",
         descriptors: vec![
             make_structural_descriptor("outline"),
@@ -208,7 +202,7 @@ fn inactive_projection_not_collected() {
             ),
             ("focus".into(), vec![DisplayDirective::Hide { range: 3..5 }]),
         ],
-    }));
+    });
 
     let mut state = state_with_lines(5);
     // Only activate "outline", not "focus"
@@ -228,14 +222,14 @@ fn inactive_projection_not_collected() {
 #[test]
 fn cursor_safety_net_prevents_hiding_cursor_line() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ProjectionTestPlugin {
+    registry.register(ProjectionTestPlugin {
         id: "proj-test",
         descriptors: vec![make_structural_descriptor("outline")],
         directive_map: vec![(
             "outline".into(),
             vec![DisplayDirective::Hide { range: 0..3 }],
         )],
-    }));
+    });
 
     let mut state = state_with_lines(5);
     state.observed.cursor_pos.line = 1; // cursor on line 1
@@ -271,16 +265,16 @@ fn legacy_plugin_without_projections_still_works() {
 #[test]
 fn collect_projection_descriptors_returns_all() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ProjectionTestPlugin {
+    registry.register(ProjectionTestPlugin {
         id: "proj-a",
         descriptors: vec![make_structural_descriptor("outline")],
         directive_map: vec![],
-    }));
-    registry.register_backend(Box::new(ProjectionTestPlugin {
+    });
+    registry.register(ProjectionTestPlugin {
         id: "proj-b",
         descriptors: vec![make_additive_descriptor("error-lens")],
         directive_map: vec![],
-    }));
+    });
 
     let descriptors = registry.view().collect_projection_descriptors();
     assert_eq!(descriptors.len(), 2);
