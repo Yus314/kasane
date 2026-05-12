@@ -2,7 +2,7 @@ use super::*;
 use std::collections::HashSet;
 
 use crate::element::{Direction, OverlayAnchor};
-use crate::plugin::{AppView, LineAnnotation, PluginBackend, PluginId, PluginRuntime, SlotId};
+use crate::plugin::{PluginId, PluginRuntime, SlotId};
 use crate::protocol::{Atom, Color, Coord, InfoStyle, MenuStyle, NamedColor, WireFace};
 use crate::state::AppState;
 use crate::surface::{
@@ -166,34 +166,22 @@ fn test_status_bar_resolves_default_face() {
 
 #[test]
 fn test_status_left_slot_in_status_bar() {
-    use crate::plugin::{
-        ContribSizeHint, ContributeContext, Contribution, PluginBackend, PluginCapabilities,
-        PluginId,
-    };
+    use crate::plugin::{ContribSizeHint, Contribution, PluginId};
 
     struct StatusLeftPlugin;
-    impl PluginBackend for StatusLeftPlugin {
+    impl crate::plugin::Plugin for StatusLeftPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("status_left".into())
         }
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::CONTRIBUTOR
-        }
-        fn contribute_to(
-            &self,
-            region: &SlotId,
-            _state: &AppView<'_>,
-            _ctx: &ContributeContext,
-        ) -> Option<Contribution> {
-            if *region == SlotId::STATUS_LEFT {
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.on_contribute(SlotId::STATUS_LEFT, |_state, _app, _ctx| {
                 Some(Contribution {
                     element: Element::plain_text("[L]"),
                     priority: 0,
                     size_hint: ContribSizeHint::Auto,
                 })
-            } else {
-                None
-            }
+            });
         }
     }
 
@@ -202,7 +190,7 @@ fn test_status_left_slot_in_status_bar() {
     state.observed.status_mode_line = make_line("normal");
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(StatusLeftPlugin));
+    registry.register(StatusLeftPlugin);
 
     let el = view(&state, &registry.view());
 
@@ -494,29 +482,34 @@ fn test_buffer_surface_abstract_shape() {
 fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
     struct GutterPlugin;
 
-    impl PluginBackend for GutterPlugin {
+    impl crate::plugin::Plugin for GutterPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("gutter_plugin".into())
         }
-
-        fn annotate_line_with_ctx(
-            &self,
-            line: usize,
-            _state: &AppView<'_>,
-            _ctx: &crate::plugin::AnnotateContext,
-        ) -> Option<LineAnnotation> {
-            if line == 0 {
-                Some(LineAnnotation {
-                    left_gutter: Some(Element::plain_text("L")),
-                    right_gutter: Some(Element::plain_text("R")),
-                    background: None,
-                    priority: 0,
-                    inline: None,
-                    virtual_text: vec![],
-                })
-            } else {
-                None
-            }
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.on_decorate_gutter(
+                crate::plugin::GutterSide::Left,
+                0,
+                |_state, line, _app, _ctx| {
+                    if line == 0 {
+                        Some(Element::plain_text("L"))
+                    } else {
+                        None
+                    }
+                },
+            );
+            r.on_decorate_gutter(
+                crate::plugin::GutterSide::Right,
+                0,
+                |_state, line, _app, _ctx| {
+                    if line == 0 {
+                        Some(Element::plain_text("R"))
+                    } else {
+                        None
+                    }
+                },
+            );
         }
     }
 
@@ -524,7 +517,7 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
     state.observed.lines = vec![make_line("buffer")].into();
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(GutterPlugin));
+    registry.register(GutterPlugin);
     let element = build_buffer_surface_abstract(&state, &registry.view());
 
     match element {
