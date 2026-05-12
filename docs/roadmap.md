@@ -154,11 +154,13 @@ Decisions taken at program open:
 | α-3 deletion — delete 7 deprecated setters | pending | Blocker: `bridge.rs::AllHandlersPlugin` (exhaustive_handler_dispatch_coverage fixture) intentionally exercises every legacy setter; bundle with Phase β-3 when the fixture itself becomes obsolete |
 | α-4 — Delete legacy `#[kasane_plugin]` macro mode | pending | `kasane-macros/src/plugin.rs::expand_kasane_plugin` (~600 LoC) + 5 legacy-macro consumers (plugin_integration.rs, external_plugin.rs, 7 trybuild fixtures). Phase β-3 deletes PluginBackend so legacy macro becomes uncompilable then; bundle |
 | α-5 — Extract `handler_registry/mod.rs` test block | ✅ 2026-05-12 (`fa3aae3a`) | 999→382 LoC; `tests.rs` sibling (616 LoC). 41 tests verified |
-| β-prep — One-method dispatch spike + iai_pipeline measurement | pending | GO/NO-GO gate for Phase β commitment |
-| β-1 — Introduce `PluginEntry`, keep `PluginBackend` adapter | pending | `PluginRuntime::plugins: Vec<PluginEntry>`; bridge still wraps |
+| β-prep — One-method dispatch spike + iai_pipeline measurement | ✅ 2026-05-12 (`d14a0684`) | GO verdict: dispatch_overhead bench confirms 9ns vtable savings (~0.14% per frame). Phase β's primary value is structural simplification (-2900 LoC), not perf |
+| β-1 — Architecture B: SlotImpl enum dual-storage | ✅ 2026-05-12 (`543c51e6`) | `PluginSlot.backend: SlotImpl { Native(Box<PluginBridge>) \| External(Box<dyn PluginBackend>) }`. `PluginBackend::is_bridge()` discriminator + Rust 1.86 trait-object upcast for Box→PluginBridge downcast at register_backend. Deref preserves all 141 call sites. Perf-neutral vs phase0 (p>0.05) |
+| β-1.5 — Native fast-path in `notify_state_changed_batch` | ✅ 2026-05-12 (`e956270f`) | First dispatcher branching via `SlotImpl::as_native_mut()`. PluginBridge calls direct concrete method (no vtable); External falls back to `Box<dyn>` path. Pattern proven |
+| β-1.6+ — Expand fast-path to remaining dispatchers | pending | Mechanical: ~10 more frequently-called dispatchers in `registry/mod.rs` (init_all_batch, notify_active_session_ready_batch, evaluate_pubsub, etc.) |
 | β-2 — Migrate ≈50 test fixtures to `impl Plugin` | pending | Mostly mechanical; state-bearing fixtures verified individually |
-| β-3 — Delete `PluginBackend` trait | pending | `bridge.rs` 964→200 prod, `traits.rs` 846→150, `exhaustive_handler_dispatch_coverage` test deleted (structurally eliminated failure mode) |
-| β-4 — WIT 6.0.0 + WasmPlugin into_entry() + bundled WASM rebuild | pending | Subsumes ADR-046 Wave 2 atomic PR |
+| β-3 — Delete `PluginBackend` trait | pending | `bridge.rs` 964→200 prod, `traits.rs` 846→150, `exhaustive_handler_dispatch_coverage` test deleted (structurally eliminated failure mode). Bundles α-3 + α-4 |
+| β-4 — WIT 6.0.0 + WasmPlugin into_entry() + bundled WASM rebuild | pending | Subsumes ADR-046 Wave 2 atomic PR + α-1 remainder |
 | β-5 — Documentation rewrite (`plugin-api.md`, `plugin-development.md`, `migration/0.7-to-0.8.md`) | pending | `.claude/rules/plugin-docs.md` sweep at ABI ship time |
 
 Phase α/β supersedes ADR-046 W1-A through W1-F as the implementation
