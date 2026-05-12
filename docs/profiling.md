@@ -234,28 +234,6 @@ cargo bench -p kasane-gui --bench cpu_rendering
 
 These functions were extracted from `CellRenderer::render()` as free functions in `kasane_gui::gpu::cell_renderer`.
 
-## Runtime Tracing with `perf-tracing`
-
-The `perf-tracing` feature gates tracing spans on hot-path functions. When disabled (default), the `perf_span!` macro expands to nothing (zero cost).
-
-### Enable tracing
-
-```sh
-cargo run -p kasane --features kasane-core/perf-tracing
-```
-
-Spans are emitted via the `tracing` crate. Use a subscriber like `tracing-subscriber` with `RUST_LOG=info` to capture them.
-
-### Instrumented functions
-
-| Function | Span name |
-|----------|-----------|
-| `view()` | `view` |
-| `place()` | `layout_place` |
-| `paint()` | `paint` |
-| `grid.diff()` | `grid_diff` |
-| `grid.swap()` | `grid_swap` |
-
 ### GPU line shaping cache (kasane-gui)
 
 The GPU text pipeline caches Parley layout results per display line.

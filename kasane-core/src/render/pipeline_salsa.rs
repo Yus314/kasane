@@ -81,8 +81,6 @@ impl SalsaViewSource<'_> {
     fn prepare(&mut self, _dirty: DirtyFlags, _registry: &PluginView<'_>) {}
 
     fn view_sections(&mut self, state: &AppState, registry: &PluginView<'_>) -> view::ViewSections {
-        crate::perf::perf_span!("salsa_view_sections");
-
         let db = self.db;
         let h = self.handles;
 
@@ -505,8 +503,6 @@ fn render_cached_core(
     image_protocol: super::ImageProtocol,
     image_requests: Option<&mut Vec<super::ImageRequest>>,
 ) -> (RenderResult, DisplayMapRef) {
-    crate::perf::perf_span!("render_pipeline");
-
     let frame = prepare_frame(source, state, registry, dirty);
     let dm = dm_ref(&frame.display_map);
     let dso = frame.display_scroll_offset as u16;
@@ -639,8 +635,6 @@ fn scene_render_core<'a>(
     dirty: DirtyFlags,
     scene_cache: &'a mut SceneCache,
 ) -> (&'a [DrawCommand], RenderResult, DisplayMapRef) {
-    crate::perf::perf_span!("scene_render_pipeline");
-
     scene_cache.invalidate(dirty, cell_size, state.runtime.cols, state.runtime.rows);
 
     let frame = prepare_frame(source, state, registry, dirty);

@@ -778,7 +778,6 @@ impl PluginRuntime {
         event: &IoEvent,
         app: &AppView<'_>,
     ) -> EffectsBatch {
-        crate::perf::perf_span!("deliver_io_event");
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
                 if !slot.capabilities.contains(PluginCapabilities::IO_HANDLER) {
@@ -800,7 +799,6 @@ impl PluginRuntime {
         error: &super::error_attribution::PluginErrorEvent,
         app: &AppView<'_>,
     ) -> EffectsBatch {
-        crate::perf::perf_span!("deliver_command_error");
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
                 let effects = slot.backend.on_command_error_effects(error, app);

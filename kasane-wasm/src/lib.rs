@@ -6,7 +6,7 @@ pub mod capability;
 mod convert;
 pub mod error;
 mod host;
-pub mod manifest;
+pub use kasane_plugin_package::manifest;
 
 mod bindings {
     wasmtime::component::bindgen!({

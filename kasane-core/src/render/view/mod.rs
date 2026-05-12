@@ -24,8 +24,6 @@ pub fn view(state: &AppState, registry: &PluginView<'_>) -> Element {
 
 /// Build decomposed view sections without caching.
 pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> ViewSections {
-    crate::perf::perf_span!("view_sections");
-
     let base = legacy_surface_compose_result(state, registry);
     let app_view = AppView::new(state);
     let display_map = registry.collect_display_map(&app_view);

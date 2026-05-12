@@ -293,7 +293,6 @@ impl CellGrid {
     /// Same logic as `diff()` but reuses the provided buffer, avoiding per-frame allocation.
     #[doc(hidden)]
     pub fn diff_into(&self, buf: &mut Vec<CellDiff>) {
-        crate::perf::perf_span!("grid_diff_into");
         buf.clear();
         if self.previous.is_empty() {
             // Full redraw
@@ -402,7 +401,6 @@ impl CellGrid {
 
     #[doc(hidden)]
     pub fn swap(&mut self) {
-        crate::perf::perf_span!("grid_swap");
         std::mem::swap(&mut self.previous, &mut self.current);
         let size = self.width as usize * self.height as usize;
         if self.current.len() == size {

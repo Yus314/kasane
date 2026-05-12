@@ -27,7 +27,6 @@ image = { workspace = true, optional = true }
 resvg = { workspace = true, optional = true }
 
 [features]
-perf-tracing = []
 bench-alloc = []
 tui-image = ["image"]
 svg = ["resvg"]

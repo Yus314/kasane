@@ -14,7 +14,6 @@ use crate::state::AppState;
 
 /// Paint an element tree into a CellGrid using pre-computed layout results.
 pub fn paint(element: &Element, layout: &LayoutResult, grid: &mut CellGrid, state: &AppState) {
-    crate::perf::perf_span!("paint");
     let theme = &state.config.theme;
     super::walk::walk_paint_grid(
         element,
