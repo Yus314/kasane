@@ -354,6 +354,10 @@ impl PluginBackend for PluginBridge {
         PluginAuthorities::empty()
     }
 
+    fn allows_process_spawn(&self) -> bool {
+        self.table.allows_process_spawn
+    }
+
     fn suppressed_builtins(&self) -> &std::collections::HashSet<super::BuiltinTarget> {
         &self.table.suppressed_builtins
     }

@@ -569,6 +569,11 @@ pub(crate) struct HandlerTable {
     pub(crate) surfaces_factory: Option<ErasedSurfacesFactory>,
     pub(crate) workspace_request: Option<crate::workspace::Placement>,
 
+    // --- Process-spawn policy ---
+    /// `true` (default) lets `PluginRuntime::plugin_allows_process_spawn` return
+    /// allow; `false` opts the plugin out of process spawning entirely.
+    pub(crate) allows_process_spawn: bool,
+
     // --- Config ---
     pub(crate) interests: DirtyFlags,
 
@@ -642,6 +647,7 @@ impl HandlerTable {
             process_tasks: Vec::new(),
             surfaces_factory: None,
             workspace_request: None,
+            allows_process_spawn: true,
             interests: DirtyFlags::ALL,
             transparency: TransparencyFlags::default(),
             recovery: RecoveryFlags::default(),

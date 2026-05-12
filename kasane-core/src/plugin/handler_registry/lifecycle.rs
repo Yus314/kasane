@@ -466,6 +466,14 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         self.table.workspace_request = Some(placement);
     }
 
+    /// Opt out of process spawning for this plugin.
+    ///
+    /// `PluginRuntime::plugin_allows_process_spawn` returns `false` for any
+    /// plugin that calls this during `register`. Default is allowed.
+    pub fn deny_process_spawn(&mut self) {
+        self.table.allows_process_spawn = false;
+    }
+
     /// Register an update (message) handler.
     ///
     /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.

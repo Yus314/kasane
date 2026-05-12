@@ -229,17 +229,18 @@ fn test_plugin_allows_process_spawn_default_true() {
 #[test]
 fn test_plugin_allows_process_spawn_denied() {
     struct DenySpawnPlugin;
-    impl PluginBackend for DenySpawnPlugin {
+    impl crate::plugin::Plugin for DenySpawnPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("deny_spawn".to_string())
         }
-        fn allows_process_spawn(&self) -> bool {
-            false
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.deny_process_spawn();
         }
     }
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(DenySpawnPlugin));
+    registry.register(DenySpawnPlugin);
     assert!(!registry.plugin_allows_process_spawn(&PluginId("deny_spawn".to_string())));
 }
 
