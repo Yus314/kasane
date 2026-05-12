@@ -134,8 +134,55 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                     .downcast_ref::<S>()
                     .expect("state type mismatch");
                 let value = handler(s, app);
-                ChannelValue::new(&value).expect("publish serialization failed")
+                Some(ChannelValue::new(&value).expect("publish serialization failed"))
             }),
+        });
+    }
+
+    /// Publish a pre-formed [`ChannelValue`] on a topic, with `Option`
+    /// semantics so the handler can opt out per frame.
+    ///
+    /// Counterpart to [`Self::publish`] for adapters that produce
+    /// already-encoded values — primarily WASM plugins via the
+    /// `publish-value(topic) -> option<channel-value>` WIT export.
+    pub fn publish_raw(
+        &mut self,
+        topic: TopicId,
+        handler: impl Fn(&S, &AppView<'_>) -> Option<ChannelValue> + Send + Sync + 'static,
+    ) {
+        self.table.publishers.push(PublishEntry {
+            topic,
+            handler: Box::new(move |state: &dyn PluginState, app: &AppView<'_>| {
+                let s = state
+                    .as_any()
+                    .downcast_ref::<S>()
+                    .expect("state type mismatch");
+                handler(s, app)
+            }),
+        });
+    }
+
+    /// Register interest in a topic without a per-value handler.
+    ///
+    /// Counterpart to [`Self::subscribe`] for adapters whose contract
+    /// dispatches the full value batch in a single call (and so does
+    /// not need a per-value mutation hook) — primarily WASM plugins
+    /// that pair this with [`Self::on_subscription`] for the per-topic
+    /// batch dispatch via the WIT `on-subscription(topic, values)`
+    /// export. The per-value handler is a no-op clone so the existing
+    /// `deliver_subscriptions` per-value loop stays well-defined.
+    pub fn subscribe_raw(&mut self, topic: TopicId) {
+        self.table.subscribers.push(SubscribeEntry {
+            topic,
+            handler: Box::new(
+                move |state: &dyn PluginState, _value: &ChannelValue| -> Box<dyn PluginState> {
+                    let s = state
+                        .as_any()
+                        .downcast_ref::<S>()
+                        .expect("state type mismatch");
+                    Box::new(s.clone()) as Box<dyn PluginState>
+                },
+            ),
         });
     }
 
@@ -196,7 +243,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                     .downcast_ref::<S>()
                     .expect("state type mismatch");
                 let value = handler(s, app);
-                ChannelValue::new(&value).expect("publish serialization failed")
+                Some(ChannelValue::new(&value).expect("publish serialization failed"))
             }),
         });
         topic

@@ -89,9 +89,15 @@ impl<T> std::fmt::Debug for Topic<T> {
 // Type-erased handler types
 // =============================================================================
 
-/// Type-erased publisher: `fn(&dyn PluginState, &AppView) -> ChannelValue`.
+/// Type-erased publisher: `fn(&dyn PluginState, &AppView) -> Option<ChannelValue>`.
+///
+/// `None` lets the publisher opt out of emitting on a given frame —
+/// matches the WIT `publish-value(topic) -> option<channel-value>` shape
+/// used by WASM plugins. Native [`HandlerRegistry::publish`] /
+/// [`HandlerRegistry::publish_typed`] callers always wrap their `T`
+/// return in `Some`, preserving the behavior of always-on publication.
 pub(crate) type ErasedPublisher =
-    Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> ChannelValue + Send + Sync>;
+    Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> Option<ChannelValue> + Send + Sync>;
 
 /// Type-erased subscriber: `fn(&dyn PluginState, &ChannelValue) -> Box<dyn PluginState>`.
 pub(crate) type ErasedSubscriber =

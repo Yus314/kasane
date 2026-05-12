@@ -795,6 +795,12 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
 ///   `on_persist_state`, `on_restore_state`, `declare_surfaces`;
 ///   `workspace_request` skipped — `WasmPlugin` does not override
 ///   the trait default of `None`)
+/// - **β-3.3b.10 — Process tasks + pubsub + lens** (5 handlers:
+///   `on_update_tier2`, one `publish_raw` per declared topic, one
+///   `subscribe_raw` per subscribed topic plus a single
+///   `on_subscription` for the per-topic batch dispatch,
+///   `on_command_error`, `declare_lenses`; `start_process_task` is
+///   skipped — `WasmPlugin` does not override the trait default)
 impl Plugin for WasmPlugin {
     type State = ();
 
@@ -1551,6 +1557,142 @@ impl Plugin for WasmPlugin {
         // workspace_request: WasmPlugin does not override the trait
         // default (`None`), so no `declare_workspace_request` call is
         // needed. The cap remains `None` once the loader flips.
+
+        // ---- β-3.3b.10 — Process tasks + pubsub + lens ----
+
+        // update_effects → on_update_tier2. Closure downcasts the
+        // `&mut dyn Any` message to `Vec<u8>` (the WIT cross-boundary
+        // shape) and discards anything else with a warning, matching
+        // the trait method.
+        let shared = Arc::clone(&self.shared);
+        r.on_update_tier2(move |_state, msg, app| {
+            let effects = if let Some(bytes) = msg.downcast_ref::<Vec<u8>>() {
+                let bytes = bytes.clone();
+                shared.call_synced_with_hash_arc(app, "update_effects", move |s, rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    Ok(s.convert_process_capable_effects_typed(
+                        &api.call_update_effects(&mut rt.store, &bytes)?,
+                    ))
+                })
+            } else {
+                tracing::warn!(
+                    "WASM plugin {} received non-byte message, ignoring typed update_effects",
+                    shared.plugin_id.0
+                );
+                kasane_core::plugin::ProcessCapableEffects::none()
+            };
+            ((), effects)
+        });
+
+        // collect_publications → publish_raw per topic in publish_topics.
+        // The closure clones the WIT topic name and calls
+        // `publish-value(topic) -> option<channel-value>` per frame.
+        for topic_str in &self.shared.publish_topics {
+            let shared = Arc::clone(&self.shared);
+            let topic = kasane_core::plugin::TopicId::new(topic_str.clone());
+            let wit_topic = topic_str.clone();
+            r.publish_raw(topic, move |_state, app| {
+                shared.call_synced(app, "publish_value", |rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    Ok(api
+                        .call_publish_value(&mut rt.store, &wit_topic)?
+                        .map(|wv| convert::wit_channel_value_to_core(&wv)))
+                })
+            });
+        }
+
+        // deliver_subscriptions → subscribe_raw + on_subscription. The
+        // bridge's `deliver_subscriptions` iterates `subscribers` to
+        // know which topics this plugin observes and dispatches the
+        // batch through `subscription_handler` per topic. WasmPlugin's
+        // dispatch is the WIT `on-subscription(topic, values)` export;
+        // we register one `subscribe_raw` per declared topic to declare
+        // interest, then a single `on_subscription` that routes the
+        // matching topic batch into the WIT call.
+        if !self.shared.subscribe_topics.is_empty() {
+            for topic_str in &self.shared.subscribe_topics {
+                let topic = kasane_core::plugin::TopicId::new(topic_str.clone());
+                r.subscribe_raw(topic);
+            }
+            let shared = Arc::clone(&self.shared);
+            r.on_subscription(move |_state, topic, values, _app| {
+                let wit_values: Vec<_> = values.iter().map(convert::channel_value_to_wit).collect();
+                if wit_values.is_empty() {
+                    return ((), kasane_core::plugin::Effects::default());
+                }
+                let wit_topic = topic.to_string();
+                let shared_for_call = Arc::clone(&shared);
+                let effects = shared.with_runtime(|runtime| {
+                    let api = runtime.instance.kasane_plugin_plugin_api();
+                    match api.call_on_subscription(&mut runtime.store, &wit_topic, &wit_values) {
+                        Ok(eff) => {
+                            let converted = shared_for_call.convert_kakoune_side_effects(&eff);
+                            if let Ok(h) = api.call_state_hash(&mut runtime.store) {
+                                shared_for_call.set_state_hash(h);
+                            }
+                            converted
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "WASM plugin {}.on_subscription failed: {e}",
+                                shared_for_call.plugin_id.0
+                            );
+                            kasane_core::plugin::Effects::default()
+                        }
+                    }
+                });
+                ((), effects)
+            });
+        }
+
+        // on_command_error_effects → on_command_error.
+        let shared = Arc::clone(&self.shared);
+        r.on_command_error(move |_state, error, app| {
+            let wit_error = convert::plugin_error_event_to_wit(error);
+            let effects =
+                shared.call_synced_with_hash_arc(app, "on_command_error_effects", move |s, rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    Ok(s.convert_kakoune_side_effects(
+                        &api.call_on_command_error_effects(&mut rt.store, &wit_error)?,
+                    ))
+                });
+            ((), effects)
+        });
+
+        // register_lenses → declare_lenses. The factory queries the WIT
+        // `declare-lenses` export each invocation and constructs one
+        // WasmLensAdapter per declaration; the host's lens-sync step
+        // calls the factory once per registration phase, matching the
+        // trait method's `register_lenses_into` shape.
+        let shared = Arc::clone(&self.shared);
+        r.declare_lenses(move || {
+            let declarations = shared.with_runtime(|rt| {
+                match rt
+                    .instance
+                    .kasane_plugin_plugin_api()
+                    .call_declare_lenses(&mut rt.store)
+                {
+                    Ok(decls) => decls,
+                    Err(e) => {
+                        tracing::error!(
+                            "WASM plugin {}.declare_lenses failed: {e}",
+                            shared.plugin_id.0
+                        );
+                        Vec::new()
+                    }
+                }
+            });
+            declarations
+                .into_iter()
+                .map(|wit_decl| {
+                    let decl = convert::wit_lens_declaration_to_native(&wit_decl);
+                    Arc::new(WasmLensAdapter {
+                        shared: Arc::clone(&shared),
+                        declaration: decl,
+                    }) as Arc<dyn kasane_core::lens::Lens>
+                })
+                .collect()
+        });
     }
 }
 

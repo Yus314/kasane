@@ -933,8 +933,9 @@ impl PluginBackend for PluginBridge {
     fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
         let plugin_id = self.id.clone();
         for entry in &self.table.publishers {
-            let value = (entry.handler)(&*self.state, state);
-            bus.publish(entry.topic.clone(), plugin_id.clone(), value);
+            if let Some(value) = (entry.handler)(&*self.state, state) {
+                bus.publish(entry.topic.clone(), plugin_id.clone(), value);
+            }
         }
     }
 
