@@ -215,10 +215,10 @@ impl StyleToken {
 /// or a semantic [`StyleToken`] that the renderer resolves through the
 /// active [`Theme`](crate::render::Theme).
 ///
-/// ADR-031 Phase B3 commit 3c: the legacy `Direct(WireFace)` variant is replaced
-/// by `Inline(Arc<UnresolvedStyle>)` so the Element tree no longer holds
-/// `WireFace` directly. The `From<WireFace> for ElementStyle` impl preserves the
-/// callsite ergonomics.
+/// The Element tree no longer holds `WireFace` directly; instead the
+/// `Inline(Arc<UnresolvedStyle>)` variant is used. The
+/// `From<WireFace> for ElementStyle` impl preserves callsite ergonomics
+/// (ADR-031).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ElementStyle {
     Inline(Arc<crate::protocol::UnresolvedStyle>),
@@ -241,9 +241,9 @@ impl From<Arc<crate::protocol::UnresolvedStyle>> for ElementStyle {
 impl From<crate::protocol::Style> for ElementStyle {
     /// Wrap a post-resolve [`Style`](crate::protocol::Style) in an
     /// [`UnresolvedStyle`](crate::protocol::UnresolvedStyle) envelope with
-    /// all `final_*` flags `false` (no further deferral expected). The
-    /// Phase B3 successor to `From<WireFace>` for plugin / host code that
-    /// already holds a `Style`.
+    /// all `final_*` flags `false` (no further deferral expected). Use
+    /// from plugin / host code that already holds a `Style` instead of
+    /// going through `From<WireFace>`.
     fn from(style: crate::protocol::Style) -> Self {
         ElementStyle::Inline(Arc::new(crate::protocol::UnresolvedStyle {
             style,
@@ -587,10 +587,8 @@ impl Element {
 
     /// Construct a plain text element with the default style.
     ///
-    /// Equivalent to `Element::plain_text(s)` without the explicit
-    /// face argument. Phase B3 callers should prefer this constructor at the
-    /// many test / authoring sites that previously wrote
-    /// `Element::plain_text(s)`.
+    /// Prefer this constructor at test / authoring sites instead of
+    /// supplying an explicit face argument.
     #[inline]
     pub fn plain_text(s: impl Into<CompactString>) -> Self {
         Element::Text(

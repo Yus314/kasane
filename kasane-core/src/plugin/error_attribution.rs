@@ -1,7 +1,7 @@
-//! Plugin command-error attribution (Phase A — inbound recognition only).
+//! Plugin command-error attribution (ADR-042).
 //!
-//! Implements the marker-based attribution protocol from ADR-042:
-//! when a plugin wraps its Kakoune-side command body as
+//! Implements the marker-based attribution protocol: when a plugin wraps
+//! its Kakoune-side command body as
 //!
 //! ```text
 //! try %[ <cmd> ] catch %[
@@ -17,10 +17,9 @@
 //! plugin-id + error message, logs the attributed failure, and
 //! **suppresses** the UI popup so the marker never reaches the end-user.
 //!
-//! Phase A surfaces errors via `tracing` only — there is no WIT-level
-//! plugin-back-dispatch yet. Phase B (post-ADR-041 ABI 4.0.0) adds the
-//! `on-command-error-effects` export so plugins observe their own errors
-//! programmatically.
+//! Errors surface via `tracing` and through the
+//! `on-command-error-effects` WIT export, so plugins observe their own
+//! errors programmatically.
 
 use crate::protocol::Line;
 
@@ -58,9 +57,9 @@ pub fn is_plugin_error_marker(title: &Line) -> bool {
     line_to_string(title) == PLUGIN_ERROR_MARKER
 }
 
-/// ADR-042 Phase B Step 3: wrap a Kakoune-command body with the
-/// catch-info pattern so failures surface as a marker `info_show` to
-/// be attributed to `plugin_id`.
+/// Wrap a Kakoune-command body with the catch-info pattern (ADR-042) so
+/// failures surface as a marker `info_show` to be attributed to
+/// `plugin_id`.
 ///
 /// Produces:
 ///
@@ -207,7 +206,7 @@ mod tests {
         assert_eq!(parse_plugin_error(&[]), None);
     }
 
-    // --- wrap_command_with_marker tests (Phase B Step 3) ---
+    // --- wrap_command_with_marker tests ---
 
     #[test]
     fn wrap_simple_body_uses_braces() {

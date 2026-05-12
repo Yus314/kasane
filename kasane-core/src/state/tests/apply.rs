@@ -190,8 +190,8 @@ fn test_apply_multiple_infos() {
 
 #[test]
 fn test_apply_info_show_plugin_error_marker_suppressed() {
-    // ADR-042 Phase A: when info_show carries the reserved marker title,
-    // the state must NOT gain an info popup (suppression) and the dirty
+    // When info_show carries the reserved marker title (ADR-042), the
+    // state must NOT gain an info popup (suppression) and the dirty
     // flags must be empty (no UI redraw triggered by the marker).
     let mut state = AppState::default();
 

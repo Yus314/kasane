@@ -80,10 +80,10 @@ pub(crate) type ErasedUpdateHandler = Box<
         + Sync,
 >;
 
-/// ADR-044 Phase A-3e: HandlerRegistry-driven `on_command_error`.
-/// Fires when a Kakoune command attributed to this plugin fails. The
-/// handler receives the parsed [`super::error_attribution::PluginErrorEvent`]
-/// and returns updated state + effects.
+/// HandlerRegistry-driven `on_command_error` (ADR-044). Fires when a
+/// Kakoune command attributed to this plugin fails. The handler receives
+/// the parsed [`super::error_attribution::PluginErrorEvent`] and returns
+/// updated state + effects.
 pub(crate) type ErasedCommandErrorHandler = Box<
     dyn Fn(
             &dyn PluginState,
@@ -94,9 +94,9 @@ pub(crate) type ErasedCommandErrorHandler = Box<
         + Sync,
 >;
 
-/// ADR-044 Phase A-3e: HandlerRegistry-driven `on_subscription`.
-/// Fires once per subscribed topic during the pub/sub delivery phase
-/// with **all** values published on that topic this tick. Mirrors the
+/// HandlerRegistry-driven `on_subscription` (ADR-044). Fires once per
+/// subscribed topic during the pub/sub delivery phase with **all** values
+/// published on that topic this tick. Mirrors the
 /// WIT `on-subscription(topic, values) -> runtime-effects` export so
 /// native and WASM plugins observe the same per-topic batch shape.
 ///
@@ -398,7 +398,7 @@ pub(crate) struct TransparencyFlags {
     pub(crate) state_changed_handler: bool,
     pub(crate) io_event_handler: bool,
     pub(crate) update_handler: bool,
-    // --- Command-error / Pub-sub effects (ADR-044 Phase A-3e) ---
+    // --- Command-error / Pub-sub effects ---
     pub(crate) command_error_handler: bool,
     pub(crate) subscription_handler: bool,
 }
@@ -496,7 +496,7 @@ pub(crate) struct HandlerTable {
     pub(crate) shutdown_handler: Option<ErasedShutdownHandler>,
     pub(crate) update_handler: Option<ErasedUpdateHandler>,
 
-    // --- Command-error / Pub-sub effects (ADR-044 Phase A-3e) ---
+    // --- Command-error / Pub-sub effects ---
     pub(crate) command_error_handler: Option<ErasedCommandErrorHandler>,
     pub(crate) subscription_handler: Option<ErasedSubscriptionHandler>,
 

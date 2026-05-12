@@ -476,8 +476,8 @@ pub trait PluginEffects {
         action: NavigationAction,
     ) -> ActionResult;
 
-    /// ADR-042 Phase B: dispatch a Kakoune-command-error event to the
-    /// originating plugin's `on_command_error_effects` handler.
+    /// Dispatch a Kakoune-command-error event (ADR-042) to the originating
+    /// plugin's `on_command_error_effects` handler.
     fn dispatch_command_error(
         &mut self,
         target: &PluginId,
@@ -485,11 +485,10 @@ pub trait PluginEffects {
         app: &AppView<'_>,
     ) -> EffectsBatch;
 
-    /// ADR-044 Phase A-3e: drive the pub/sub bus for this tick and
-    /// collect any per-topic batch effects emitted by plugins'
-    /// `on_subscription` handlers. Implementations own the topic bus;
-    /// the caller treats it as a typed effect-collection step
-    /// analogous to [`Self::notify_state_changed`].
+    /// Drive the pub/sub bus for this tick and collect any per-topic batch
+    /// effects emitted by plugins' `on_subscription` handlers.
+    /// Implementations own the topic bus; the caller treats it as a typed
+    /// effect-collection step analogous to [`Self::notify_state_changed`].
     fn evaluate_pubsub(&mut self, app: &AppView<'_>) -> EffectsBatch;
 }
 

@@ -174,11 +174,11 @@ fn test_face_minimal() {
     assert_eq!(f, WireFace::default());
 }
 
-// `test_atom_deserialize`: removed in ADR-031 Phase A.2 — `Atom` no longer
-// implements `Deserialize` directly because its `style_id` is host-side state
-// (an interner key), not a wire-format field. Deserialisation goes through
-// the `WireAtom` → `intern_line` path inside `parse_request`, which the
-// `test_*` tests below exercise end-to-end.
+// `Atom` does not implement `Deserialize` directly because its `style_id`
+// is host-side state (an interner key), not a wire-format field.
+// Deserialisation goes through the `WireAtom` → `intern_line` path
+// inside `parse_request`, which the `test_*` tests below exercise
+// end-to-end.
 
 #[test]
 fn test_coord_deserialize() {

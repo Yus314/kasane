@@ -40,9 +40,8 @@ pub struct CellSize {
 
 /// An Atom with faces resolved against a base face.
 ///
-/// ADR-031 Phase A.3.6: only `style` is stored (the Parley-native
-/// representation). The `face()` accessor projects to the legacy
-/// `WireFace` for consumers that still expect it.
+/// Stores only the Parley-native [`Style`]; the [`face()`](Self::face)
+/// accessor projects to [`WireFace`] for consumers that still expect it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedAtom {
     pub contents: compact_str::CompactString,
@@ -84,7 +83,6 @@ pub struct BufferParagraph {
     /// Styled atoms (resolved against base face).
     pub atoms: Vec<ResolvedAtom>,
     /// Base style for the line (used for background fill).
-    /// ADR-031 Phase A.3: migrated from `WireFace`.
     pub base_face: Style,
     /// Semantic annotations (cursors, etc.).
     pub annotations: Vec<ParagraphAnnotation>,
@@ -255,7 +253,6 @@ pub enum DrawCommand {
     /// background (similar to VS Code's Command Palette).
     FillRect {
         rect: PixelRect,
-        /// ADR-031 Phase A.3: Style.
         face: Style,
         elevated: bool,
     },
@@ -278,7 +275,6 @@ pub enum DrawCommand {
     DrawText {
         pos: PixelPos,
         text: compact_str::CompactString,
-        /// ADR-031 Phase A.3: Style.
         face: Style,
         max_width: f32,
     },
@@ -287,7 +283,6 @@ pub enum DrawCommand {
     DrawBorder {
         rect: PixelRect,
         line_style: BorderLineStyle,
-        /// ADR-031 Phase A.3: Style.
         face: Style,
         /// Optional interior fill (background inside the border).
         fill_face: Option<Style>,
@@ -297,7 +292,6 @@ pub enum DrawCommand {
     DrawBorderTitle {
         rect: PixelRect,
         title: Vec<ResolvedAtom>,
-        /// ADR-031 Phase A.3: Style.
         border_face: Style,
         /// Whether the parent container is elevated (shadow=true).
         elevated: bool,
@@ -316,7 +310,6 @@ pub enum DrawCommand {
         pos: PixelPos,
         width: f32,
         ch: compact_str::CompactString,
-        /// ADR-031 Phase A.3: Style.
         face: Style,
     },
 

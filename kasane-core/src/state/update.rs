@@ -132,12 +132,11 @@ fn update_inner<E: PluginEffects>(
             }
             let flags = state.apply(req);
 
-            // ADR-042 Phase B: drain plugin-error events the apply
-            // layer queued and dispatch each to its originating plugin
-            // (resolved by plugin-id). The handler returns Effects with a
-            // known source, so commands flow through `sourced_commands`
-            // (issue #101) — they must not lose attribution before
-            // reaching `handle_command_batch`.
+            // Drain plugin-error events the apply layer queued and dispatch
+            // each to its originating plugin (resolved by plugin-id). The
+            // handler returns Effects with a known source, so commands flow
+            // through `sourced_commands` (issue #101) — they must not lose
+            // attribution before reaching `handle_command_batch`.
             let pending_errors = state.drain_pending_plugin_errors();
             let mut sourced_commands: Vec<SourcedCommands> = Vec::new();
             let mut scroll_plans = Vec::new();
@@ -164,11 +163,11 @@ fn update_inner<E: PluginEffects>(
                 }
                 extra_redraw |= batch.redraw;
                 sourced_commands.extend(batch.drain_sourced_commands());
-                // ADR-044 Phase A-3e: drive pub/sub after state-changed
-                // dispatch so publishers see post-tick state. The bus is
-                // owned by the runtime; effects from `on_subscription`
-                // handlers flow into the same `sourced_commands` /
-                // `scroll_plans` stream as `notify_state_changed`.
+                // Drive pub/sub after state-changed dispatch so publishers
+                // see post-tick state. The bus is owned by the runtime;
+                // effects from `on_subscription` handlers flow into the same
+                // `sourced_commands` / `scroll_plans` stream as
+                // `notify_state_changed`.
                 let mut pubsub_batch = effects.evaluate_pubsub(&AppView::new(state));
                 scroll_plans.append(&mut pubsub_batch.scroll_plans);
                 if let Some(sc) = pubsub_batch.state_updates.shadow_cursor.take() {

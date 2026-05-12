@@ -1,10 +1,7 @@
-//! Parley pipeline microbenchmarks (ADR-031, Phase 9b prep).
+//! Parley pipeline microbenchmarks (ADR-031).
 //!
-//! Measures the CPU cost of the new Parley + swash + L1/L2/L3 pipeline so
-//! we can compare it to the cosmic-text baseline captured at Phase 0
-//! (see `baselines/pre-parley.tar.gz`). These numbers inform the Phase 11
-//! go/no-go decision: if the steady-state warm-cache cost stays comfortably
-//! below the 70 µs full-frame target, Parley is on track.
+//! Measures the CPU cost of the Parley + swash + L1/L2/L3 pipeline
+//! against the 70 µs full-frame target.
 //!
 //! Bench layout — single-line and per-frame variants:
 //!
@@ -18,9 +15,7 @@
 //! - `parley/frame_one_line_changed/24_lines` — 24-line frame with one
 //!   changed line (typical typing edit)
 //!
-//! These benches run end-to-end through Parley + swash + atlas eviction;
-//! the cosmic-text path is not exercised so the numbers are directly
-//! attributable to the Parley stack.
+//! These benches run end-to-end through Parley + swash + atlas eviction.
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;

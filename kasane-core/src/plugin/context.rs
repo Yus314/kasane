@@ -242,9 +242,9 @@ pub struct AnnotateContext {
 /// A background layer with z-ordering and blend mode.
 #[derive(Debug, Clone)]
 pub struct BackgroundLayer {
-    /// Inline style applied to the background. ADR-031 Phase B3 commit 4b
-    /// migrated from `WireFace` to the post-resolve [`Style`]: decoration is
-    /// already past the inheritance pass and `final_*` flags do not apply.
+    /// Inline style applied to the background. Stored as post-resolve
+    /// [`Style`]: decoration is already past the inheritance pass and
+    /// `final_*` flags do not apply.
     pub style: crate::protocol::Style,
     pub z_order: i16,
     pub blend: BlendMode,
@@ -324,11 +324,10 @@ pub struct AnnotationResult {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CellDecoration {
     pub target: DecorationTarget,
-    /// Inline style applied to the targeted cell(s). ADR-031 Phase B3 commit
-    /// 4c migrated from `WireFace` to the post-resolve [`Style`]. The `merge`
-    /// mode still operates on the legacy `WireFace` projection internally; that
-    /// retires when `StyleMerge` lands as part of the Cell hot-path
-    /// migration (Block D).
+    /// Inline style applied to the targeted cell(s). Stored as post-resolve
+    /// [`Style`]. The `merge` mode still operates on the legacy `WireFace`
+    /// projection internally; that retires when `StyleMerge` lands as part
+    /// of the Cell hot-path migration.
     pub style: crate::protocol::Style,
     pub merge: FaceMerge,
     pub priority: i16,

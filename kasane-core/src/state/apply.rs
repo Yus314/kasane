@@ -19,10 +19,10 @@ pub(crate) struct ConfigReactions {
     pub clear_fold_toggle: bool,
     /// New color context derived from default_face — theme should be updated.
     pub new_color_context: Option<ColorContext>,
-    /// ADR-042 Phase B: plugin-error events surfaced by the `info_show`
-    /// marker recogniser. Drained by `AppState::apply()` into
-    /// `AppState.pending_plugin_errors` for the event loop to dispatch
-    /// to the originating plugin's `on_command_error_effects`.
+    /// Plugin-error events surfaced by the `info_show` marker recogniser
+    /// (ADR-042). Drained by `AppState::apply()` into
+    /// `AppState.pending_plugin_errors` for the event loop to dispatch to
+    /// the originating plugin's `on_command_error_effects`.
     pub pending_plugin_errors: Vec<PluginErrorEvent>,
 }
 
@@ -56,8 +56,8 @@ pub(crate) fn apply_protocol(
             // so incremental cursor detection can use dirty flags)
             let observed_default_face = observed.default_style.to_face();
             let observed_padding_face = observed.padding_style.to_face();
-            // Bridge to WireFace for `compute_lines_dirty` and `detect_selections`
-            // until those functions migrate (Phase B3 follow-up).
+            // Bridge to WireFace for `compute_lines_dirty` and
+            // `detect_selections` until those functions migrate.
             let default_face = default_style.to_face();
             let padding_face = padding_style.to_face();
             inference.lines_dirty = derived::compute_lines_dirty(
@@ -242,10 +242,9 @@ pub(crate) fn apply_protocol(
             info_style,
             style,
         } => {
-            // ADR-042 Phase A+B: intercept plugin-error marker. Phase A
-            // logs and suppresses the UI popup; Phase B additionally
-            // queues the parsed event for plugin-side dispatch via
-            // `ConfigReactions::pending_plugin_errors`.
+            // Intercept the plugin-error marker (ADR-042): log + suppress
+            // the UI popup, and queue the parsed event for plugin-side
+            // dispatch via `ConfigReactions::pending_plugin_errors`.
             if crate::plugin::error_attribution::is_plugin_error_marker(&title) {
                 if let Some(ev) = crate::plugin::error_attribution::parse_plugin_error(&content) {
                     tracing::warn!(
@@ -334,8 +333,8 @@ impl AppState {
         if let Some(ctx) = reactions.new_color_context {
             self.config.theme.apply_color_context(&ctx);
         }
-        // ADR-042 Phase B: queue plugin-error events for the event
-        // loop to dispatch (see [`AppState::drain_pending_plugin_errors`]).
+        // Queue plugin-error events (ADR-042) for the event loop to
+        // dispatch (see [`AppState::drain_pending_plugin_errors`]).
         if !reactions.pending_plugin_errors.is_empty() {
             self.pending_plugin_errors
                 .extend(reactions.pending_plugin_errors);
@@ -375,7 +374,7 @@ impl AppState {
         flags
     }
 
-    /// Drain plugin-error events queued by [`Self::apply`] (ADR-042 Phase B).
+    /// Drain plugin-error events queued by [`Self::apply`] (ADR-042).
     ///
     /// Returns the pending events and clears the queue. The event loop
     /// calls this after `apply()` and routes each event to the originating

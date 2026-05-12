@@ -857,7 +857,7 @@ impl PluginBackend for PluginBridge {
         std::mem::take(&mut self.pending_diagnostics)
     }
 
-    // --- Pub/Sub (formerly impl PubSubMember for PluginBridge) ---
+    // --- Pub/Sub ---
 
     fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
         let plugin_id = self.id.clone();
@@ -879,7 +879,7 @@ impl PluginBackend for PluginBridge {
                 }
             }
         }
-        // ADR-044 Phase A-3e: per-topic batch handler registered through
+        // Per-topic batch handler registered through
         // `HandlerRegistry::on_subscription`. Mirrors the WIT
         // `on-subscription(topic, values) -> runtime-effects` shape and
         // forwards the handler's effects up so the dispatcher can route
@@ -906,7 +906,7 @@ impl PluginBackend for PluginBridge {
         merged
     }
 
-    // --- Extension points (formerly impl ExtensionParticipant for PluginBridge) ---
+    // --- Extension points ---
 
     fn extension_definitions(&self) -> &[ExtensionDefinition] {
         &self.table.extension_definitions
@@ -942,7 +942,7 @@ impl PluginBackend for PluginBridge {
         outputs
     }
 
-    // --- I/O (formerly impl Io for PluginBridge) ---
+    // --- I/O ---
 
     fn on_io_event_effects(&mut self, event: &IoEvent, app: &AppView<'_>) -> Effects {
         // Route process events through active task handles first.
@@ -956,9 +956,9 @@ impl PluginBackend for PluginBridge {
         dispatch_state_effect!(self, io_event_handler, event, app)
     }
 
-    /// ADR-044 Phase A-3e: dispatch through the HandlerRegistry-driven
-    /// `on_command_error` handler when registered. Plugins that did not
-    /// register one inherit the trait's empty-Effects default.
+    /// Dispatch through the HandlerRegistry-driven `on_command_error`
+    /// handler when registered. Plugins that did not register one inherit
+    /// the trait's empty-Effects default.
     fn on_command_error_effects(&mut self, error: &PluginErrorEvent, app: &AppView<'_>) -> Effects {
         dispatch_state_effect!(self, command_error_handler, error, app)
     }

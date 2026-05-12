@@ -140,10 +140,10 @@ pub struct AppState {
     /// the surface area.
     pub lens_registry: crate::lens::LensRegistry,
 
-    /// Plugin-error events surfaced by the `info_show` marker
-    /// recogniser (ADR-042 Phase B). Drained by the event loop after
-    /// `apply()` and dispatched to the originating plugin's
-    /// `on_command_error_effects`. Cleared by [`drain_pending_plugin_errors`].
+    /// Plugin-error events surfaced by the `info_show` marker recogniser
+    /// (ADR-042). Drained by the event loop after `apply()` and dispatched
+    /// to the originating plugin's `on_command_error_effects`. Cleared by
+    /// [`drain_pending_plugin_errors`].
     ///
     /// [`drain_pending_plugin_errors`]: AppState::drain_pending_plugin_errors
     pub pending_plugin_errors: Vec<crate::plugin::error_attribution::PluginErrorEvent>,

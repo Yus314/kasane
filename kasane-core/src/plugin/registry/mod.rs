@@ -82,7 +82,7 @@ pub struct PluginRuntime {
     /// Plugin IDs that were unloaded since the last drain. Used by the salsa
     /// sync path to clean up contribution caches.
     unloaded_ids: Vec<PluginId>,
-    /// ADR-044 Phase A-3e: pub/sub topic bus owned by the runtime so the
+    /// Pub/sub topic bus owned by the runtime so the
     /// `PluginEffects::evaluate_pubsub` trait impl can drive it without
     /// the caller having to thread one in. Persists frame-to-frame so
     /// `TopicBus::detect_oscillation` history stays valid.
@@ -424,10 +424,9 @@ impl PluginRuntime {
         }
 
         // Phase 2: Deliver to subscribers and collect on_subscription effects.
-        // ADR-044 Phase A-3e: per-topic batch handlers can return Effects
-        // that flow back through the same EffectsBatch shape as
-        // notify_state_changed, so commands and scroll plans land in the
-        // correct frame's UpdateResult.
+        // Per-topic batch handlers can return Effects that flow back through
+        // the same EffectsBatch shape as notify_state_changed, so commands
+        // and scroll plans land in the correct frame's UpdateResult.
         bus.begin_delivery();
         let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
@@ -780,9 +779,9 @@ impl PluginRuntime {
         EffectsBatch::default()
     }
 
-    /// ADR-042 Phase B: deliver a Kakoune-command-error event to the
-    /// plugin identified by `target` (the plugin-id parsed from the
-    /// `info_show` marker payload).
+    /// Deliver a Kakoune-command-error event (ADR-042) to the plugin
+    /// identified by `target` (the plugin-id parsed from the `info_show`
+    /// marker payload).
     pub fn deliver_command_error_batch(
         &mut self,
         target: &PluginId,

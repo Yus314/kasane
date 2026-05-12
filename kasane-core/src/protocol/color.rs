@@ -38,7 +38,7 @@ pub enum NamedColor {
 /// truecolour). New code should prefer [`Brush`](super::style::Brush), which
 /// adds an explicit `Default` zero-state and survives the post-resolve
 /// pipeline. `Color` is kept for the wire parser and a few legacy bridges
-/// (ADR-031 Phase B3 Block F).
+/// (ADR-031).
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Color {
@@ -207,8 +207,8 @@ fn parse_color(s: &str) -> Option<Color> {
 bitflags! {
     /// Kakoune wire-format attribute bitset for [`WireFace`].
     ///
-    /// Wire-format-only (ADR-031 Phase B3 Block F). New code uses the
-    /// structured equivalents on [`Style`](super::style::Style):
+    /// Wire-format-only (ADR-031). New code uses the structured
+    /// equivalents on [`Style`](super::style::Style):
     /// `font_weight` for `BOLD`, `font_slant` for `ITALIC`,
     /// `underline: Option<TextDecoration>` for the underline family,
     /// `strikethrough` for `STRIKETHROUGH`, and the `reverse` / `dim` /
@@ -328,9 +328,9 @@ impl Serialize for Attributes {
 
 /// Kakoune wire-format face record.
 ///
-/// **Wire-format-only type (ADR-031 Phase B3 Block F)**. This type matches the
-/// shape of Kakoune's `face` JSON-RPC record and exists to deserialise wire
-/// input into a structured value. Once parsed, atoms carry an
+/// **Wire-format-only type (ADR-031).** This type matches the shape of
+/// Kakoune's `face` JSON-RPC record and exists to deserialise wire input
+/// into a structured value. Once parsed, atoms carry an
 /// [`Arc<UnresolvedStyle>`](super::style::UnresolvedStyle) directly; downstream
 /// code (rendering, plugins, theme resolution) operates on
 /// [`Style`](super::style::Style) or `UnresolvedStyle`, never on `WireFace`.

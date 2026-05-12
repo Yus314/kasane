@@ -683,8 +683,8 @@ mod tests {
         assert!(table.state_changed_handler.is_some());
     }
 
-    /// Issue #102 / ADR-044 Phase A-3a: the tier-1 state-changed setter accepts
-    /// closures returning `KakouneSideEffects` and stores them through the same
+    /// The tier-1 state-changed setter (issue #102, ADR-044) accepts closures
+    /// returning `KakouneSideEffects` and stores them through the same
     /// state-changed handler slot as the legacy setter. The compile-time
     /// rejection of `Effects` returns is witnessed by the `compile_fail`
     /// doctest at the setter site — see `lifecycle.rs`.
@@ -706,8 +706,8 @@ mod tests {
         );
     }
 
-    /// Phase A-3b: tier-1 lifecycle setters route into the standard handler
-    /// slots so the dispatcher sees them indistinguishably from legacy
+    /// Tier-1 lifecycle setters route into the standard handler slots so
+    /// the dispatcher sees them indistinguishably from legacy
     /// `Effects`-typed handlers — the tier check is purely a registration
     /// constraint.
     #[test]
@@ -725,8 +725,8 @@ mod tests {
         );
     }
 
-    /// Phase A-3b: tier-2 setters accept ProcessCapableEffects (and narrower
-    /// tiers via the From lifts) but reject raw Effects.
+    /// Tier-2 setters accept `ProcessCapableEffects` (and narrower tiers
+    /// via the `From` lifts) but reject raw `Effects`.
     #[test]
     fn tier2_io_and_update_setters_store_handlers() {
         use super::super::{KakouneSideEffects, ProcessCapableEffects};
@@ -736,7 +736,7 @@ mod tests {
             (state.clone(), ProcessCapableEffects::none())
         });
         // Narrower tier (KakouneSideEffects) lifts into ProcessCapableEffects
-        // via the From impl added in A-3b.
+        // via `From`.
         registry.on_update_tier2(|state, _msg, _app| (state.clone(), KakouneSideEffects::none()));
         let table = registry.into_table();
         assert!(
@@ -749,9 +749,9 @@ mod tests {
         );
     }
 
-    /// Phase A-3c: process-task tier-2 setters store entries with
-    /// `transparent: false` (the ADR-030 transparency marker is independent
-    /// of ADR-044 tier; tier-typed handlers do not claim transparency).
+    /// Process-task tier-2 setters store entries with `transparent: false`
+    /// (the ADR-030 transparency marker is independent of ADR-044 tier;
+    /// tier-typed handlers do not claim transparency).
     #[test]
     fn tier2_process_task_setters_store_entries() {
         use super::super::ProcessCapableEffects;
@@ -776,10 +776,10 @@ mod tests {
         assert!(!table.process_tasks[1].transparent);
     }
 
-    /// Phase A-3d: tier-1 input setters store handlers and route through
-    /// the same erased dispatch slots as the legacy setters. The asymmetric
-    /// command projection (`KakouneSideCommand → Command`, no reverse)
-    /// prevents `SpawnProcess`-bearing closures from compiling against
+    /// Tier-1 input setters store handlers and route through the same
+    /// erased dispatch slots as the legacy setters. The asymmetric command
+    /// projection (`KakouneSideCommand → Command`, no reverse) prevents
+    /// `SpawnProcess`-bearing closures from compiling against
     /// `on_key_tier1` / `on_text_input_tier1` / `on_drop_tier1`.
     #[test]
     fn tier1_input_setters_store_handlers() {
@@ -807,9 +807,8 @@ mod tests {
         assert!(table.handle_drop_handler.is_some());
     }
 
-    /// Phase A-3d-mouse: tier-1 mouse fallback setter accepts
-    /// `Option<Vec<KakouneSideCommand>>` and stores into the same fallback
-    /// slot as the legacy setter.
+    /// Tier-1 mouse fallback setter accepts `Option<Vec<KakouneSideCommand>>`
+    /// and stores into the same fallback slot as the legacy setter.
     #[test]
     fn tier1_mouse_fallback_setter_stores_handler() {
         use super::super::KakouneSideCommand;

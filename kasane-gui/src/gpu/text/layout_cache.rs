@@ -322,9 +322,9 @@ mod tests {
     // axes from `font_variations`) the corresponding test must move with it.
 
     fn line_with_style(content: &str, style: &Style) -> StyledLine {
-        // Build via UnresolvedStyle so we exercise the same construction path
-        // the protocol layer uses (Phase A.4 split). `final_*` flags stay
-        // false; the LayoutCache key never reaches them.
+        // Build via UnresolvedStyle so we exercise the same construction
+        // path the protocol layer uses. `final_*` flags stay false; the
+        // LayoutCache key never reaches them.
         let unresolved = kasane_core::protocol::UnresolvedStyle {
             style: style.clone(),
             final_fg: false,

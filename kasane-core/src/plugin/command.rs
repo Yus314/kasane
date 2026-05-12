@@ -357,9 +357,9 @@ impl Command {
     /// dispatch reaches external I/O (spawn, HTTP, session/pane management,
     /// workspace mutation). Handlers that fire from re-entrance-prone
     /// contexts (`on_state_changed_effects` etc.) cannot emit them; the
-    /// type-level enforcement landing in the handler-signature migration
-    /// (Phase A-3) will make this structural. Until then this classifier is
-    /// used by tier-projection conversions in `effect_tiers.rs`.
+    /// type-level enforcement is structural through `KakouneSideCommand`,
+    /// and this classifier is used by tier-projection conversions in
+    /// `effect_tiers.rs` for the legacy path.
     pub const fn is_process_command(&self) -> bool {
         match self {
             Command::SpawnProcess { .. } => true,

@@ -299,7 +299,7 @@ fn compose_base_from_salsa(
         buffer_el
     };
 
-    // Segment buffer with content annotations (Phase D)
+    // Segment buffer with content annotations.
     let content_annotations = handles.content_annotations.annotations(db);
     let segmented_buffer = view::segment_buffer(
         buffer_with_bg,

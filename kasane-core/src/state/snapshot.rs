@@ -14,9 +14,7 @@ use super::menu::{ItemSplit, MenuColumns, MenuState};
 pub struct MenuSnapshot {
     pub items: Vec<Line>,
     pub anchor: Coord,
-    /// ADR-031 Phase A.3: Style.
     pub selected_item_face: crate::protocol::Style,
-    /// ADR-031 Phase A.3: Style.
     pub menu_face: crate::protocol::Style,
     pub style: MenuStyle,
     pub selected: Option<usize>,
@@ -111,7 +109,6 @@ pub struct InfoSnapshot {
     pub title: Line,
     pub content: Vec<Line>,
     pub anchor: Coord,
-    /// ADR-031 Phase A.3: Style.
     pub face: crate::protocol::Style,
     pub style: InfoStyle,
     pub identity: InfoIdentity,

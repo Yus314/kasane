@@ -269,14 +269,12 @@ mod tests {
     }
 
     // ----------------------------------------------------------------
-    // ADR-031 §動機 (1) — Parley/ICU4X regression pinning for the
-    // input *classes* that motivated retiring cosmic-text. The original
-    // commits cited in the ADR (`2f7c0ab9`, `4d48bbd9`) were
-    // GPU-pipeline cursor-rendering fixes; the tests below exercise the
-    // layout-layer sanity that ICU4X-based bidi + Parley shaping must
-    // provide for those pipelines to compose correctly. A failure here
-    // means Parley or the font fallback shifted in a way that would
-    // re-expose the 2026 Q1 class of cursor / cluster bugs.
+    // ADR-031 §動機 (1) — Parley/ICU4X regression pinning. The tests
+    // below exercise the layout-layer sanity that ICU4X-based bidi +
+    // Parley shaping must provide so cursor-rendering pipelines compose
+    // correctly. A failure here means Parley or the font fallback
+    // shifted in a way that would re-expose cursor / cluster bugs at
+    // bidi boundaries.
     // ----------------------------------------------------------------
 
     #[test]
@@ -285,8 +283,7 @@ mod tests {
         // resolution the Arabic cluster must report `is_rtl == true`
         // while the Latin clusters around it stay LTR. A regression
         // that flattens the entire line to one direction would break
-        // cursor placement at the boundary (the cosmic-text era class
-        // of bug).
+        // cursor placement at the boundary.
         let mut text = ParleyText::new(&FontConfig::default());
         let layout = text.shape(&line("abcسلامxyz"));
         // First Latin byte (0) is LTR.

@@ -613,12 +613,12 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
 
 #[cfg(test)]
 mod tier1_mouse_tests {
-    //! ADR-044 Phase A-3d-mouse + follow-ups: positive integration tests
-    //! for the tier-1 pre-dispatch / handle-mouse setters across mouse,
-    //! key, and text-input handlers. The compile-fail aspect (raw
-    //! `MousePreDispatchResult` / `KeyPreDispatchResult` /
-    //! `TextInputPreDispatchResult` rejected by their `_tier1` setters,
-    //! and raw `Command` rejected by `on_handle_mouse_tier1`) is enforced
+    //! Positive integration tests for the tier-1 pre-dispatch /
+    //! handle-mouse setters across mouse, key, and text-input handlers
+    //! (ADR-044). The compile-fail aspect (raw `MousePreDispatchResult` /
+    //! `KeyPreDispatchResult` / `TextInputPreDispatchResult` rejected by
+    //! their `_tier1` setters, and raw `Command` rejected by
+    //! `on_handle_mouse_tier1`) is enforced
     //! structurally by the `R: Into<KakouneSide*>` / `C: Into<KakouneSideCommand>`
     //! bound and the absence of reverse `From` impls — there is no way to
     //! construct a closure that satisfies the bound while returning the

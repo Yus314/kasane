@@ -1096,10 +1096,10 @@ fn test_pubsub_no_subscribers_is_noop() {
     assert!(runtime.any_plugin_state_changed());
 }
 
-/// ADR-044 Phase A-3e: per-topic batch handler returns Effects that
-/// flow back through `evaluate_pubsub`'s `EffectsBatch`. This subscriber
-/// pairs `r.subscribe` (per-value state mutation, drives the bus
-/// `changed` flag) with `r.on_subscription` (per-topic batch effects).
+/// Per-topic batch handler returns Effects that flow back through
+/// `evaluate_pubsub`'s `EffectsBatch`. This subscriber pairs
+/// `r.subscribe` (per-value state mutation, drives the bus `changed`
+/// flag) with `r.on_subscription` (per-topic batch effects).
 struct SubscriberWithOnSubscription;
 impl Plugin for SubscriberWithOnSubscription {
     type State = SubState;

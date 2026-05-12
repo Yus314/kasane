@@ -1,13 +1,11 @@
 // Originally derived from glyphon 0.10.0 (https://github.com/grovesNL/glyphon)
 // Original license: MIT OR Apache-2.0 OR Zlib
 //
-// Phase 11 trimmed the glyphon-derived module down to the wgpu primitives
-// the Parley renderer reuses: the shared [`Cache`](super::wgpu_cache::Cache)
+// Shared wgpu primitives the Parley renderer reuses: the [`Cache`](super::wgpu_cache::Cache)
 // (shader, bind layouts, pipeline cache) and the per-frame
-// [`Viewport`](super::viewport::Viewport) (resolution uniform). The cosmic
-// `TextAtlas` / `TextRenderer` / `TextArea` / `TextBounds` types retired
-// with cosmic-text. This file holds the shared shape types
-// (`Resolution`, `Params`, `GlyphToRender`) the cache + viewport reference.
+// [`Viewport`](super::viewport::Viewport) (resolution uniform). This file
+// holds the shape types (`Resolution`, `Params`, `GlyphToRender`) that
+// the cache and viewport reference.
 
 /// The screen resolution to use when rendering text.
 #[repr(C)]

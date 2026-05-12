@@ -88,10 +88,10 @@ struct WasmPluginShared {
     extensions_consumed: Vec<String>,
     extension_defs: Vec<kasane_core::plugin::extension_point::ExtensionDefinition>,
     has_unified_display_export: bool,
-    /// ADR-042 Phase B Step 3: when `true`, host wraps every plugin-
-    /// originated `Command::EvalCommand` with a Kakoune `try…catch`
-    /// pattern so failures surface as a marker `info_show` attributed
-    /// to this plugin. Derived from manifest `[handlers]
+    /// When `true`, host wraps every plugin-originated
+    /// `Command::EvalCommand` with a Kakoune `try…catch` pattern so
+    /// failures surface as a marker `info_show` attributed to this plugin
+    /// (ADR-042). Derived from manifest `[handlers]
     /// command_error_observability`. Defaults to `false`.
     command_error_observability: bool,
     /// Keeps the epoch ticker thread alive as long as this plugin is alive.
@@ -242,10 +242,10 @@ impl WasmPluginShared {
                     value,
                 }]
             }
-            // ADR-042 Phase B Step 3: when the plugin opted in via
-            // `[handlers] command_error_observability = true`, wrap the
-            // Kakoune command body with a `try…catch` that fires an
-            // attributed `info_show` on failure. The marker is parsed
+            // When the plugin opted in via
+            // `[handlers] command_error_observability = true` (ADR-042),
+            // wrap the Kakoune command body with a `try…catch` that fires
+            // an attributed `info_show` on failure. The marker is parsed
             // back by `state/apply.rs` and routed to the plugin's
             // `on-command-error-effects` export (Step 2).
             wit::Command::EvalCommand(cmd) if self.command_error_observability => {
@@ -1529,7 +1529,7 @@ impl PluginBackend for WasmPlugin {
         }
     }
 
-    // --- Pub/Sub (formerly impl PubSubMember for WasmPlugin) ---
+    // --- Pub/Sub ---
 
     fn collect_publications(&self, bus: &mut kasane_core::plugin::TopicBus, state: &AppView<'_>) {
         if self.shared.publish_topics.is_empty() {
@@ -1577,8 +1577,8 @@ impl PluginBackend for WasmPlugin {
                     let api = runtime.instance.kasane_plugin_plugin_api();
                     match api.call_on_subscription(&mut runtime.store, &wit_topic, &wit_values) {
                         Ok(effects) => {
-                            // ADR-044 Phase A-3e: forward the converted effects up
-                            // so the dispatcher can route commands and scroll plans.
+                            // Forward the converted effects up so the
+                            // dispatcher can route commands and scroll plans.
                             let converted = shared.convert_kakoune_side_effects(&effects);
                             if let Ok(h) = api.call_state_hash(&mut runtime.store) {
                                 shared.set_state_hash(h);
@@ -1600,7 +1600,7 @@ impl PluginBackend for WasmPlugin {
         merged
     }
 
-    // --- Extension points (formerly impl ExtensionParticipant for WasmPlugin) ---
+    // --- Extension points ---
 
     fn extension_definitions(
         &self,
@@ -1641,7 +1641,7 @@ impl PluginBackend for WasmPlugin {
         }
     }
 
-    // --- I/O (formerly impl Io for WasmPlugin) ---
+    // --- I/O ---
 
     fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppView<'_>) -> Effects {
         let shared = Arc::clone(&self.shared);
@@ -1655,11 +1655,11 @@ impl PluginBackend for WasmPlugin {
             })
     }
 
-    /// ADR-042 Phase B: dispatch a plugin-attributed Kakoune command
-    /// failure to the WASM guest's `on-command-error-effects` export.
-    /// ADR-044 narrows the return tier to `kakoune-side-effects` so
-    /// the error path cannot trigger process spawn (avoids
-    /// error → spawn → error cascades).
+    /// Dispatch a plugin-attributed Kakoune command failure (ADR-042) to
+    /// the WASM guest's `on-command-error-effects` export. ADR-044
+    /// narrows the return tier to `kakoune-side-effects` so the error
+    /// path cannot trigger process spawn (avoids error → spawn → error
+    /// cascades).
     fn on_command_error_effects(
         &mut self,
         error: &kasane_core::plugin::error_attribution::PluginErrorEvent,

@@ -82,10 +82,9 @@ pub enum KeyPreDispatchResult<Cmd = Command> {
     },
 }
 
-/// ADR-044 Phase A-3d-mouse follow-up: tier-1 alias of
-/// [`KeyPreDispatchResult`]. Same shape, but `commands` is
-/// `Vec<KakouneSideCommand>` so process spawn variants are rejected at
-/// compile time. `pending_buffer_edit` is preserved verbatim — the
+/// Tier-1 alias of [`KeyPreDispatchResult`]. Same shape, but `commands`
+/// is `Vec<KakouneSideCommand>` so process spawn variants are rejected
+/// at compile time. `pending_buffer_edit` is preserved verbatim — the
 /// algebraic shadow-cursor commit is orthogonal to the tier hierarchy
 /// (the dispatch loop later folds it into Kakoune-side commands via
 /// `state::shadow_cursor::edit_to_commands`).
@@ -138,11 +137,11 @@ pub enum MousePreDispatchResult<Cmd = Command> {
     },
 }
 
-/// ADR-044 Phase A-3d-mouse: tier-1 alias of [`MousePreDispatchResult`].
+/// Tier-1 alias of [`MousePreDispatchResult`].
 ///
 /// Pre-dispatch handlers fire on every mouse tick (move included), so
 /// the tier-1 narrowing is the natural enforcement against the
-/// silent-spawn class of bugs that motivated the ADR.
+/// silent-spawn class of bugs that motivated ADR-044.
 pub type KakouneSideMousePreDispatchResult = MousePreDispatchResult<super::KakouneSideCommand>;
 
 impl From<KakouneSideMousePreDispatchResult> for MousePreDispatchResult {
@@ -184,8 +183,7 @@ pub enum TextInputPreDispatchResult<Cmd = Command> {
     Pass,
 }
 
-/// ADR-044 Phase A-3d-mouse follow-up: tier-1 alias of
-/// [`TextInputPreDispatchResult`].
+/// Tier-1 alias of [`TextInputPreDispatchResult`].
 pub type KakouneSideTextInputPreDispatchResult =
     TextInputPreDispatchResult<super::KakouneSideCommand>;
 
@@ -267,9 +265,9 @@ pub trait PluginBackend: Any {
         Effects::default()
     }
 
-    /// ADR-042 Phase B: typed runtime effects for plugin-attributed
-    /// Kakoune command failures. The host calls this on the originating
-    /// plugin when an `info_show` with the reserved title
+    /// Typed runtime effects for plugin-attributed Kakoune command
+    /// failures (ADR-042). The host calls this on the originating plugin
+    /// when an `info_show` with the reserved title
     /// `__kasane_plugin_error__` is observed (see
     /// [`crate::plugin::error_attribution`]).
     ///
@@ -299,10 +297,7 @@ pub trait PluginBackend: Any {
     fn collect_publications(&self, _bus: &mut TopicBus, _state: &AppView<'_>) {}
 
     /// Deliver subscriptions to this plugin and return any effects the
-    /// per-topic batch handler emits. ADR-044 Phase A-3e widened the
-    /// shape from `-> bool` to `-> Effects` so `on_subscription`
-    /// effects can flow back through the runtime pipeline; the bool
-    /// `changed` flag was unused at every caller.
+    /// per-topic batch handler emits.
     fn deliver_subscriptions(&mut self, _bus: &TopicBus, _app: &AppView<'_>) -> Effects {
         Effects::default()
     }
@@ -568,7 +563,7 @@ pub trait PluginBackend: Any {
         &EMPTY
     }
 
-    // --- Surface system hooks (Phase S) ---
+    // --- Surface system hooks ---
 
     /// Return surfaces owned by this plugin.
     /// Called during bootstrap preflight before `on_init()`.

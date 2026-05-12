@@ -1,4 +1,4 @@
-//! I/O event types for plugin process execution (Phase P-2).
+//! I/O event types for plugin process execution.
 //!
 //! These types define the host-mediated I/O model where plugins request
 //! process operations via `Command` variants, and receive results via

@@ -15,7 +15,7 @@
 //!
 //! - [`TerminalStyle::from_face`] — bridge from the legacy [`WireFace`]
 //!   representation. Used while [`WireFace`] is still the upstream protocol
-//!   shape; retires when Phase B3 removes [`WireFace`] entirely.
+//!   shape; retires when [`WireFace`] is removed entirely.
 //! - [`TerminalStyle::from_style`] — direct projection from the post-resolve
 //!   [`Style`]. Used by call sites that already hold a [`Style`] (atom
 //!   conversion, plugin output).

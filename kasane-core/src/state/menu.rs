@@ -105,9 +105,7 @@ pub fn split_item_columns(items: &[Line]) -> Option<MenuColumns> {
 #[derive(Debug, Clone)]
 pub struct MenuParams {
     pub anchor: Coord,
-    /// ADR-031 Phase A.3: Style.
     pub selected_item_face: crate::protocol::Style,
-    /// ADR-031 Phase A.3: Style.
     pub menu_face: crate::protocol::Style,
     pub style: MenuStyle,
     pub screen_w: u16,
@@ -119,9 +117,7 @@ pub struct MenuParams {
 pub struct MenuState {
     pub items: Vec<Line>,
     pub anchor: Coord,
-    /// ADR-031 Phase A.3: Style.
     pub selected_item_face: crate::protocol::Style,
-    /// ADR-031 Phase A.3: Style.
     pub menu_face: crate::protocol::Style,
     pub style: MenuStyle,
     pub selected: Option<usize>,

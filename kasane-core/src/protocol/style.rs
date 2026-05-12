@@ -1095,7 +1095,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // default_unresolved_style sharing (ADR-031 Phase A — B-wide)
+    // default_unresolved_style sharing (ADR-031)
     // ---------------------------------------------------------------------
 
     #[test]

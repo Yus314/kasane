@@ -543,7 +543,7 @@ pub(crate) fn build_buffer_core_parts(
     } else {
         Element::buffer_ref(0..buffer_rows)
     };
-    // Segment buffer with content annotations (Phase D)
+    // Segment buffer with content annotations.
     let content_annotations = registry.collect_content_annotations(&app_view, &annotate_ctx);
     let segmented_buffer = segment_buffer(
         buffer_element,

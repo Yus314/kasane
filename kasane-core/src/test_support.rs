@@ -21,7 +21,7 @@ use crate::layout::Rect;
 use crate::layout::flex::place;
 use crate::plugin::{Command, PluginRuntime};
 use crate::protocol::{Atom, Color, Line, NamedColor, WireFace};
-// Phase A.2: tests construct atoms with default style via Atom::plain.
+// Tests construct atoms with default style via Atom::plain.
 use crate::render::pipeline::render_pipeline;
 use crate::render::view;
 use crate::render::{CellGrid, paint};
