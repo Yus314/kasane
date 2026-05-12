@@ -16,11 +16,11 @@ use super::super::surface::register_builtin_surfaces;
 fn sourced_surface_commands_preserve_plugin_for_spawn_process() {
     let plugin_id = PluginId("surface-owner".to_string());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin {
+    registry.register(TestPlugin {
         id: plugin_id.clone(),
         allow_spawn: true,
         authorities: PluginAuthorities::empty(),
-    }));
+    });
 
     let mut state = AppState::default();
     let mut surface_registry = SurfaceRegistry::new();
@@ -74,7 +74,7 @@ fn sourced_surface_commands_preserve_plugin_for_spawn_process() {
 fn plugin_message_runtime_effects_update_dirty_and_enqueue_scroll_plans() {
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(RuntimeMessagePlugin));
+    registry.register(RuntimeMessagePlugin);
     let mut surface_registry = SurfaceRegistry::new();
 
     let mut dirty = DirtyFlags::empty();
@@ -122,11 +122,11 @@ fn register_surface_requires_dynamic_surface_authority() {
     let plugin_id = PluginId("surface-owner".to_string());
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin {
+    registry.register(TestPlugin {
         id: plugin_id.clone(),
         allow_spawn: false,
         authorities: PluginAuthorities::empty(),
-    }));
+    });
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
 
@@ -177,11 +177,11 @@ fn register_surface_adds_plugin_owned_surface_to_workspace() {
     let plugin_id = PluginId("surface-owner".to_string());
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin {
+    registry.register(TestPlugin {
         id: plugin_id.clone(),
         allow_spawn: false,
         authorities: PluginAuthorities::DYNAMIC_SURFACE,
-    }));
+    });
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
 
@@ -237,11 +237,11 @@ fn register_surface_requested_resolves_keyed_placement() {
     let plugin_id = PluginId("surface-owner".to_string());
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin {
+    registry.register(TestPlugin {
         id: plugin_id.clone(),
         allow_spawn: false,
         authorities: PluginAuthorities::DYNAMIC_SURFACE,
-    }));
+    });
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
 
@@ -297,16 +297,16 @@ fn unregister_surface_rejects_non_owner_even_with_authority() {
     let other_id = PluginId("other-owner".to_string());
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin {
+    registry.register(TestPlugin {
         id: owner_id.clone(),
         allow_spawn: false,
         authorities: PluginAuthorities::DYNAMIC_SURFACE,
-    }));
-    registry.register_backend(Box::new(TestPlugin {
+    });
+    registry.register(TestPlugin {
         id: other_id.clone(),
         allow_spawn: false,
         authorities: PluginAuthorities::DYNAMIC_SURFACE,
-    }));
+    });
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
     surface_registry
@@ -377,11 +377,11 @@ fn unregister_surface_removes_owned_surface() {
     let plugin_id = PluginId("surface-owner".to_string());
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin {
+    registry.register(TestPlugin {
         id: plugin_id.clone(),
         allow_spawn: false,
         authorities: PluginAuthorities::DYNAMIC_SURFACE,
-    }));
+    });
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
     surface_registry
@@ -453,11 +453,11 @@ fn unregister_surface_key_removes_owned_surface() {
     let plugin_id = PluginId("surface-owner".to_string());
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin {
+    registry.register(TestPlugin {
         id: plugin_id.clone(),
         allow_spawn: false,
         authorities: PluginAuthorities::DYNAMIC_SURFACE,
-    }));
+    });
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
     surface_registry
@@ -529,11 +529,11 @@ fn pty_spawn_requires_pty_process_authority() {
     let plugin_id = PluginId("pty-plugin".to_string());
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin {
+    registry.register(TestPlugin {
         id: plugin_id.clone(),
         allow_spawn: true,
         authorities: PluginAuthorities::empty(), // no PTY_PROCESS authority
-    }));
+    });
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
 
@@ -581,11 +581,11 @@ fn pty_spawn_allowed_with_authority() {
     let plugin_id = PluginId("pty-plugin".to_string());
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin {
+    registry.register(TestPlugin {
         id: plugin_id.clone(),
         allow_spawn: true,
         authorities: PluginAuthorities::PTY_PROCESS,
-    }));
+    });
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
 
@@ -636,11 +636,11 @@ fn piped_spawn_does_not_require_pty_authority() {
     let plugin_id = PluginId("piped-plugin".to_string());
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin {
+    registry.register(TestPlugin {
         id: plugin_id.clone(),
         allow_spawn: true,
         authorities: PluginAuthorities::empty(), // no PTY_PROCESS authority
-    }));
+    });
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
 
@@ -736,7 +736,7 @@ fn inject_paste_dispatches_through_text_pipeline() {
 
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TextInputPlugin));
+    registry.register(TextInputPlugin);
     let mut surface_registry = SurfaceRegistry::new();
 
     let mut dirty = DirtyFlags::empty();
@@ -822,21 +822,32 @@ fn inject_input_respects_depth_limit() {
 /// PluginMessage to itself, creating an infinite cascade.
 struct CascadingMessagePlugin;
 
-impl PluginBackend for CascadingMessagePlugin {
+impl crate::plugin::Plugin for CascadingMessagePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("cascading".to_string())
     }
 
-    fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppView<'_>) -> Effects {
-        Effects {
-            redraw: DirtyFlags::empty(),
-            commands: vec![Command::PluginMessage {
-                target: PluginId("cascading".to_string()),
-                payload: Box::new(()),
-            }],
-            scroll_plans: vec![],
-            state_updates: Default::default(),
-        }
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        // The handler intentionally cascades to itself to exercise the
+        // depth limit; the framework cuts it off at
+        // MAX_COMMAND_CASCADE_DEPTH.
+        #[allow(deprecated)]
+        r.on_update(|_state, _msg, _app| {
+            (
+                (),
+                Effects {
+                    redraw: DirtyFlags::empty(),
+                    commands: vec![Command::PluginMessage {
+                        target: PluginId("cascading".to_string()),
+                        payload: Box::new(()),
+                    }],
+                    scroll_plans: vec![],
+                    state_updates: Default::default(),
+                },
+            )
+        });
     }
 }
 
@@ -844,7 +855,7 @@ impl PluginBackend for CascadingMessagePlugin {
 fn command_cascade_terminates_at_depth_limit() {
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(CascadingMessagePlugin));
+    registry.register(CascadingMessagePlugin);
     let mut surface_registry = SurfaceRegistry::new();
 
     let mut dirty = DirtyFlags::empty();
@@ -889,26 +900,25 @@ fn command_cascade_terminates_at_depth_limit() {
 /// an infinite injection cascade.
 struct CascadingInjectPlugin;
 
-impl PluginBackend for CascadingInjectPlugin {
+impl crate::plugin::Plugin for CascadingInjectPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("cascading-inject".to_string())
     }
 
-    fn capabilities(&self) -> crate::plugin::PluginCapabilities {
-        crate::plugin::PluginCapabilities::INPUT_HANDLER
-    }
-
-    fn handle_key(
-        &mut self,
-        _key: &crate::input::KeyEvent,
-        _state: &AppView<'_>,
-    ) -> Option<Vec<Command>> {
-        Some(vec![Command::InjectInput(crate::input::InputEvent::Key(
-            crate::input::KeyEvent {
-                key: crate::input::Key::Char('z'),
-                modifiers: crate::input::Modifiers::empty(),
-            },
-        ))])
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.on_key(|_state, _key, _app| {
+            Some((
+                (),
+                vec![Command::InjectInput(crate::input::InputEvent::Key(
+                    crate::input::KeyEvent {
+                        key: crate::input::Key::Char('z'),
+                        modifiers: crate::input::Modifiers::empty(),
+                    },
+                ))],
+            ))
+        });
     }
 }
 
@@ -916,7 +926,7 @@ impl PluginBackend for CascadingInjectPlugin {
 fn inject_cascade_terminates_at_depth_limit() {
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(CascadingInjectPlugin));
+    registry.register(CascadingInjectPlugin);
     let mut surface_registry = SurfaceRegistry::new();
 
     let mut dirty = DirtyFlags::empty();
@@ -964,13 +974,17 @@ struct SuppressPlugin {
     targets: std::collections::HashSet<crate::plugin::BuiltinTarget>,
 }
 
-impl PluginBackend for SuppressPlugin {
+impl crate::plugin::Plugin for SuppressPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("suppress-test".to_string())
     }
 
-    fn suppressed_builtins(&self) -> &std::collections::HashSet<crate::plugin::BuiltinTarget> {
-        &self.targets
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        for target in &self.targets {
+            r.suppress_builtin(*target);
+        }
     }
 }
 
@@ -984,7 +998,7 @@ fn sync_suppressed_builtins_copies_from_registry_to_state() {
     let mut targets = std::collections::HashSet::new();
     targets.insert(BuiltinTarget::StatusBar);
     targets.insert(BuiltinTarget::ShadowCursor);
-    registry.register_backend(Box::new(SuppressPlugin { targets }));
+    registry.register(SuppressPlugin { targets });
 
     // Before sync: state has no suppressions
     assert!(state.runtime.suppressed_builtins.is_empty());
@@ -1127,11 +1141,11 @@ fn state_changed_sourced_commands_reach_dispatcher_with_plugin_id() {
 
     let plugin_id = PluginId("state-changed-spawner".to_string());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin {
+    registry.register(TestPlugin {
         id: plugin_id.clone(),
         allow_spawn: true,
         authorities: PluginAuthorities::empty(),
-    }));
+    });
 
     let mut state = AppState::default();
     let mut surface_registry = SurfaceRegistry::new();

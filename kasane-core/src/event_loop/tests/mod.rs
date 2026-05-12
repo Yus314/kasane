@@ -25,60 +25,72 @@ pub(super) struct TestPlugin {
     pub authorities: PluginAuthorities,
 }
 
-impl PluginBackend for TestPlugin {
+impl crate::plugin::Plugin for TestPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         self.id.clone()
     }
 
-    fn authorities(&self) -> PluginAuthorities {
-        self.authorities
-    }
-
-    fn allows_process_spawn(&self) -> bool {
-        self.allow_spawn
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.declare_authorities(self.authorities);
+        if !self.allow_spawn {
+            r.deny_process_spawn();
+        }
     }
 }
 
 pub(super) struct RuntimeMessagePlugin;
 
-impl PluginBackend for RuntimeMessagePlugin {
+impl crate::plugin::Plugin for RuntimeMessagePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("runtime-message".to_string())
     }
 
-    fn update_effects(&mut self, msg: &mut dyn Any, _state: &AppView<'_>) -> Effects {
-        if msg.downcast_ref::<u32>() != Some(&11) {
-            return Effects::default();
-        }
-        Effects {
-            redraw: DirtyFlags::INFO,
-            commands: vec![Command::RequestRedraw(DirtyFlags::STATUS)],
-            scroll_plans: vec![ScrollPlan {
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.on_update_tier2(|_state, msg, _app| {
+            if msg.downcast_ref::<u32>() != Some(&11) {
+                return ((), crate::plugin::ProcessCapableEffects::none());
+            }
+            let mut effects = crate::plugin::ProcessCapableEffects::redraw(DirtyFlags::INFO);
+            effects
+                .base
+                .commands
+                .push(crate::plugin::KakouneSideCommand::request_redraw(
+                    DirtyFlags::STATUS,
+                ));
+            effects.base.base.scroll_plans.push(ScrollPlan {
                 total_amount: 2,
                 line: 3,
                 column: 5,
                 frame_interval_ms: 12,
                 curve: ScrollCurve::Linear,
                 accumulation: ScrollAccumulationMode::Add,
-            }],
-            state_updates: Default::default(),
-        }
+            });
+            ((), effects)
+        });
     }
 }
 
 pub(super) struct TextInputPlugin;
 
-impl PluginBackend for TextInputPlugin {
+impl crate::plugin::Plugin for TextInputPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("text-input-plugin".to_string())
     }
 
-    fn capabilities(&self) -> crate::plugin::PluginCapabilities {
-        crate::plugin::PluginCapabilities::INPUT_HANDLER
-    }
-
-    fn handle_text_input(&mut self, text: &str, _state: &AppView<'_>) -> Option<Vec<Command>> {
-        (text == "kana").then_some(vec![Command::RequestRedraw(DirtyFlags::INFO)])
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.on_text_input(|_state, text, _app| {
+            if text == "kana" {
+                Some(((), vec![Command::RequestRedraw(DirtyFlags::INFO)]))
+            } else {
+                None
+            }
+        });
     }
 }
 
