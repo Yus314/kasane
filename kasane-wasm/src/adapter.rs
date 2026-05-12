@@ -781,6 +781,12 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
 /// - **β-3.3b.6 — Annotations + ornaments** (3 handlers: monolithic
 ///   `on_annotate_line` for the unified `annotate-line` WIT export,
 ///   `on_render_ornaments`, `on_paint_inline_box`)
+/// - **β-3.3b.7 — Display + projections** (3 handlers + per-descriptor
+///   projections: `on_display`, conditionally `on_display_unified`
+///   when the WIT `display` export is present, and one
+///   `define_projection` per cached descriptor; the priority handler
+///   is declarative — the WIT-supplied `display_directive_priority`
+///   stayed pinned at 0)
 impl Plugin for WasmPlugin {
     type State = ();
 
@@ -1278,6 +1284,73 @@ impl Plugin for WasmPlugin {
                 Ok(handle.map(|h| rt.store.data_mut().take_root_element(h)))
             })
         });
+
+        // ---- β-3.3b.7 — Display + projections ----
+        // display_directives → on_display. Always registered; the WIT
+        // call falls back to an empty Vec via `call_synced` if the plugin
+        // doesn't implement the `display-directives` export.
+        let shared = Arc::clone(&self.shared);
+        r.on_display(move |_state, app| {
+            shared.call_synced(app, "display_directives", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_directives = api.call_display_directives(&mut rt.store)?;
+                let plugin_tag = rt.store.data().plugin_tag;
+                Ok(convert::wit_display_directives_to_directives_with_resolver(
+                    &wit_directives,
+                    plugin_tag,
+                    &mut |handle| rt.store.data_mut().take_element(handle),
+                ))
+            })
+        });
+
+        // unified_display → on_display_unified. Only registered when the
+        // WIT plugin exports the unified `display` function (probed at
+        // construction time and cached on `WasmPluginShared`). Skipping
+        // this when the export is absent matches the trait method's
+        // `has_unified_display = false` behavior so collection.rs takes
+        // the separate-display path instead.
+        if self.shared.has_unified_display_export {
+            let shared = Arc::clone(&self.shared);
+            r.on_display_unified(move |_state, app| {
+                shared.call_synced(app, "display", |rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    let wit_directives = api.call_display(&mut rt.store)?;
+                    let plugin_tag = rt.store.data().plugin_tag;
+                    Ok(convert::wit_display_directives_to_directives_with_resolver(
+                        &wit_directives,
+                        plugin_tag,
+                        &mut |handle| rt.store.data_mut().take_element(handle),
+                    ))
+                })
+            });
+        }
+
+        // projection_descriptors + projection_directives → one
+        // `define_projection` per cached descriptor. WasmPlugin caches
+        // the descriptor list at construction time (from the
+        // `declare-projections` WIT export), so the registry sees the
+        // same set the trait method's `projection_descriptors()` exposed.
+        for descriptor in &self.cached_projection_descriptors {
+            let shared = Arc::clone(&self.shared);
+            let id_str = descriptor.id.0.to_string();
+            r.define_projection(descriptor.clone(), move |_state, app| {
+                shared.call_synced(app, "projection_directives", |rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    let wit_directives = api.call_projection_directives(&mut rt.store, &id_str)?;
+                    let plugin_tag = rt.store.data().plugin_tag;
+                    Ok(convert::wit_display_directives_to_directives_with_resolver(
+                        &wit_directives,
+                        plugin_tag,
+                        &mut |handle| rt.store.data_mut().take_element(handle),
+                    ))
+                })
+            });
+        }
+
+        // display_directive_priority is always 0 in the trait impl
+        // (the WIT export does not exist yet); the registry's
+        // `display_priority` field defaults to 0, so no explicit
+        // `declare_display_priority` call is needed.
     }
 }
 
