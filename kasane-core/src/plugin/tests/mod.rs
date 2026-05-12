@@ -79,16 +79,14 @@ impl crate::plugin::Plugin for SurfacePlugin {
     }
 }
 
-struct StatefulPlugin {
-    hash: u64,
-}
+struct StatefulPlugin;
 
-impl PluginBackend for StatefulPlugin {
+impl crate::plugin::Plugin for StatefulPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("stateful".to_string())
     }
 
-    fn state_hash(&self) -> u64 {
-        self.hash
-    }
+    fn register(&self, _r: &mut crate::plugin::HandlerRegistry<()>) {}
 }

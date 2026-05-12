@@ -667,7 +667,7 @@ fn test_reload_plugin_batch_collects_bootstrap_effects() {
 #[test]
 fn test_any_plugin_state_changed_flag() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(StatefulPlugin { hash: 1 }));
+    registry.register(StatefulPlugin);
 
     // Initial prepare: hash differs from default 0 → changed
     registry.prepare_plugin_cache(DirtyFlags::ALL);
@@ -1182,7 +1182,7 @@ fn test_plugin_tag_zero_is_reserved_for_framework() {
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin);
     registry.register(SurfacePlugin);
-    registry.register_backend(Box::new(StatefulPlugin { hash: 1 }));
+    registry.register(StatefulPlugin);
 
     for (_id, tag) in registry.all_plugin_tags() {
         assert_ne!(
@@ -1215,7 +1215,7 @@ fn test_unloading_plugin_does_not_recycle_tag() {
     registry.remove_plugin(&PluginId("test".to_string()));
 
     // Register new plugin — should get tag 3, not 1
-    registry.register_backend(Box::new(StatefulPlugin { hash: 1 }));
+    registry.register(StatefulPlugin);
     let new_tag = registry
         .plugin_tag(&PluginId("stateful".to_string()))
         .unwrap();
