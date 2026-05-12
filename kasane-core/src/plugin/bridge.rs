@@ -681,17 +681,34 @@ impl PluginBackend for PluginBridge {
         }
     }
 
-    // `annotate_line_with_ctx` is intentionally NOT overridden. Bridges
-    // declare `has_decomposed_annotations() = true` below, which causes
-    // collection.rs to dispatch through `decorate_gutter` /
-    // `decorate_background` / `decorate_inline` / `annotate_virtual_text`
-    // directly. The unified `annotate_line_with_ctx` path is reserved for
-    // adapters whose underlying contract surfaces a single annotation
-    // call (`WasmPlugin` via the `annotate-line` WIT export, plus
-    // `#[kasane_plugin]`-macro plugins that supply `fn annotate_line`).
+    // `annotate_line_with_ctx` is overridden only when the registry has a
+    // monolithic [`HandlerRegistry::on_annotate_line`] entry; otherwise
+    // `has_decomposed_annotations` returns `true` and `collection.rs`
+    // dispatches through `decorate_gutter` / `decorate_background` /
+    // `decorate_inline` / `annotate_virtual_text` directly. The
+    // single-call path is reserved for adapters whose underlying
+    // contract surfaces all annotation parts together (`WasmPlugin`
+    // via the `annotate-line` WIT export).
 
     fn has_decomposed_annotations(&self) -> bool {
-        true
+        self.table.annotate_line_handler.is_none()
+    }
+
+    fn annotate_line_with_ctx(
+        &self,
+        line: usize,
+        app: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> Option<crate::plugin::LineAnnotation> {
+        let handler = self.table.annotate_line_handler.as_ref()?;
+        let mut ann = handler(&*self.state, line, app, ctx)?;
+        if let Some(ref mut el) = ann.left_gutter {
+            inject_owner(el, self.plugin_tag);
+        }
+        if let Some(ref mut el) = ann.right_gutter {
+            inject_owner(el, self.plugin_tag);
+        }
+        Some(ann)
     }
 
     fn decorate_gutter(
@@ -1574,6 +1591,7 @@ mod tests {
             "background",
             "inline",
             "virtual_text",
+            "annotate_line",
             "overlay",
             "display",
             "menu_transform",
@@ -1771,6 +1789,12 @@ mod tests {
                 });
 
                 let inv = self.invoked.clone();
+                r.on_annotate_line(move |_s, _line, _app, _ctx| {
+                    inv.lock().unwrap().insert("annotate_line");
+                    None
+                });
+
+                let inv = self.invoked.clone();
                 r.on_overlay(move |_s, _app, _ctx| {
                     inv.lock().unwrap().insert("overlay");
                     None
@@ -1933,6 +1957,7 @@ mod tests {
         bridge.decorate_background(0, &app, &annotate_ctx);
         bridge.decorate_inline(0, &app, &annotate_ctx);
         bridge.annotate_virtual_text(0, &app, &annotate_ctx);
+        bridge.annotate_line_with_ctx(0, &app, &annotate_ctx);
         bridge.contribute_overlay_with_ctx(&app, &overlay_ctx);
         bridge.display_directives(&app);
         bridge.transform_menu_item(&[crate::protocol::Atom::plain("item")], 0, false, &app);

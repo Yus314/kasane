@@ -5,8 +5,8 @@ use crate::render::InlineDecoration;
 
 use super::super::handler_table::{GutterHandlerEntry, GutterSide};
 use super::super::{
-    AnnotateContext, AppView, BackgroundLayer, DisplayDirective, OrnamentBatch, OverlayContext,
-    OverlayContribution, PluginState, RenderOrnamentContext, VirtualTextItem,
+    AnnotateContext, AppView, BackgroundLayer, DisplayDirective, LineAnnotation, OrnamentBatch,
+    OverlayContext, OverlayContribution, PluginState, RenderOrnamentContext, VirtualTextItem,
 };
 
 use super::HandlerRegistry;
@@ -72,6 +72,27 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         + 'static,
     ) {
         register_view!(self, virtual_text_handler, handler, line, app, ctx);
+    }
+
+    /// Register a monolithic line-annotation handler.
+    ///
+    /// Counterpart to the per-concern setters
+    /// ([`Self::on_decorate_gutter`] / [`Self::on_decorate_background`]
+    /// / [`Self::on_decorate_inline`] / [`Self::on_virtual_text`]) for
+    /// adapters whose underlying contract surfaces all annotation parts
+    /// in one call — primarily WASM plugins via the `annotate-line`
+    /// WIT export. Registering this opts the plugin out of the
+    /// decomposed dispatch path: `PluginBridge::has_decomposed_annotations`
+    /// reports `false` and `annotate_line_with_ctx` invokes this single
+    /// closure once per line.
+    pub fn on_annotate_line(
+        &mut self,
+        handler: impl Fn(&S, usize, &AppView<'_>, &AnnotateContext) -> Option<LineAnnotation>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        register_view!(self, annotate_line_handler, handler, line, app, ctx);
     }
 
     /// Register an overlay contribution handler.

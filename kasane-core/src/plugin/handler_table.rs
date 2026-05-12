@@ -249,6 +249,11 @@ pub(crate) type ErasedAnnotateBackgroundHandler = Box<
         + Send
         + Sync,
 >;
+pub(crate) type ErasedAnnotateLineHandler = Box<
+    dyn Fn(&dyn PluginState, usize, &AppView<'_>, &AnnotateContext) -> Option<super::LineAnnotation>
+        + Send
+        + Sync,
+>;
 pub(crate) type ErasedAnnotateInlineHandler = Box<
     dyn Fn(&dyn PluginState, usize, &AppView<'_>, &AnnotateContext) -> Option<InlineDecoration>
         + Send
@@ -550,6 +555,13 @@ pub(crate) struct HandlerTable {
     pub(crate) background_handler: Option<ErasedAnnotateBackgroundHandler>,
     pub(crate) inline_handler: Option<ErasedAnnotateInlineHandler>,
     pub(crate) virtual_text_handler: Option<ErasedVirtualTextHandler>,
+    /// Monolithic line-annotation handler. When set, the bridge dispatches
+    /// `annotate_line_with_ctx` through this single closure instead of the
+    /// per-concern decomposed setters. Used by adapters whose underlying
+    /// contract surfaces all annotation parts (gutter / background /
+    /// inline / virtual text) in one call — primarily WASM plugins via
+    /// the `annotate-line` WIT export.
+    pub(crate) annotate_line_handler: Option<ErasedAnnotateLineHandler>,
     pub(crate) overlay_handler: Option<ErasedOverlayHandler>,
     pub(crate) display_handler: Option<ErasedDisplayHandler>,
     pub(crate) projection_entries: Vec<ProjectionEntry>,
@@ -661,6 +673,7 @@ impl HandlerTable {
             gutter_handlers: Vec::new(),
             background_handler: None,
             inline_handler: None,
+            annotate_line_handler: None,
             virtual_text_handler: None,
             overlay_handler: None,
             display_handler: None,
@@ -791,6 +804,7 @@ impl HandlerTable {
             || self.background_handler.is_some()
             || self.inline_handler.is_some()
             || self.virtual_text_handler.is_some()
+            || self.annotate_line_handler.is_some()
     }
 
     /// Infer a [`CapabilityDescriptor`] from registered handlers.

@@ -778,6 +778,9 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
 ///   with WIT-supplied priority, `transform_menu_item`; the legacy
 ///   full-rewrite `transform` WIT export is auto-derived by
 ///   `PluginBridge::transform` from the registered patch)
+/// - **β-3.3b.6 — Annotations + ornaments** (3 handlers: monolithic
+///   `on_annotate_line` for the unified `annotate-line` WIT export,
+///   `on_render_ornaments`, `on_paint_inline_box`)
 impl Plugin for WasmPlugin {
     type State = ();
 
@@ -1203,6 +1206,76 @@ impl Plugin for WasmPlugin {
                 Ok(api
                     .call_transform_menu_item(&mut rt.store, &wit_item, index as u32, selected)
                     .map(|opt| opt.map(|t| convert::wit_atoms_to_atoms(&t)))?)
+            })
+        });
+
+        // ---- β-3.3b.6 — Annotations + ornaments ----
+        // annotate_line_with_ctx → on_annotate_line. The WIT
+        // `annotate-line` export produces all annotation parts in one
+        // call; using the monolithic registry path avoids the 5x WIT
+        // round-trips a decomposed migration would incur.
+        let shared = Arc::clone(&self.shared);
+        r.on_annotate_line(move |_state, line, app, ctx| {
+            shared.call_synced(app, "annotate_line", |rt| {
+                rt.store.data_mut().elements.clear();
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_ctx = convert::annotate_context_to_wit(ctx);
+                Ok(api
+                    .call_annotate_line(&mut rt.store, line as u32, wit_ctx)?
+                    .map(|wit_ann| {
+                        let left_gutter = wit_ann
+                            .left_gutter
+                            .map(|h| rt.store.data_mut().take_root_element(h));
+                        let right_gutter = wit_ann
+                            .right_gutter
+                            .map(|h| rt.store.data_mut().take_root_element(h));
+                        let background = wit_ann.background.as_ref().map(|bg| BackgroundLayer {
+                            style: convert::wit_style_to_style(&bg.style),
+                            z_order: bg.z_order,
+                            blend: BlendMode::Opaque,
+                        });
+                        let vt_items = wit_ann
+                            .virtual_text
+                            .into_iter()
+                            .map(|item| VirtualTextItem {
+                                atoms: item.atoms.iter().map(convert::wit_atom_to_atom).collect(),
+                                priority: item.priority,
+                            })
+                            .collect();
+                        LineAnnotation {
+                            left_gutter,
+                            right_gutter,
+                            background,
+                            priority: wit_ann.priority,
+                            inline: wit_ann.inline.map(|wit_inline| {
+                                convert::wit_inline_decoration_to_inline_decoration(&wit_inline)
+                            }),
+                            virtual_text: vt_items,
+                        }
+                    }))
+            })
+        });
+
+        // render_ornaments → on_render_ornaments
+        let shared = Arc::clone(&self.shared);
+        r.on_render_ornaments(move |_state, app, ctx| {
+            shared.call_synced(app, "render_ornaments", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_ctx = convert::render_ornament_context_to_wit(ctx);
+                Ok(convert::wit_ornament_batch_to_ornament_batch(
+                    &api.call_render_ornaments(&mut rt.store, wit_ctx)?,
+                ))
+            })
+        });
+
+        // paint_inline_box → on_paint_inline_box
+        let shared = Arc::clone(&self.shared);
+        r.on_paint_inline_box(move |_state, box_id, app| {
+            shared.call_synced(app, "paint_inline_box", |rt| -> anyhow::Result<_> {
+                rt.store.data_mut().elements.clear();
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let handle = api.call_paint_inline_box(&mut rt.store, box_id)?;
+                Ok(handle.map(|h| rt.store.data_mut().take_root_element(h)))
             })
         });
     }
