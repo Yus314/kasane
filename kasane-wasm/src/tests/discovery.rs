@@ -165,21 +165,6 @@ fn load_bundled_plugin_by_plugin_id_loads_requested_plugin() {
 }
 
 #[test]
-fn sdk_wit_matches_host_wit() {
-    let host_wit = include_str!("../../wit/plugin.wit");
-    let sdk_wit = include_str!("../../../kasane-plugin-sdk/wit/plugin.wit");
-    assert_eq!(
-        host_wit, sdk_wit,
-        "SDK WIT and host WIT are out of sync — update kasane-plugin-sdk/wit/plugin.wit"
-    );
-    let macros_wit = include_str!("../../../kasane-plugin-sdk-macros/wit/plugin.wit");
-    assert_eq!(
-        host_wit, macros_wit,
-        "Macros WIT and host WIT are out of sync — update kasane-plugin-sdk-macros/wit/plugin.wit"
-    );
-}
-
-#[test]
 fn sdk_slot_names_match_core() {
     use kasane_core::plugin::SlotId;
 

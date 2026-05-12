@@ -17,6 +17,7 @@ test-harness = ["dep:kasane-plugin-sdk-test"]
 wit-bindgen = "0.53"
 kasane-plugin-sdk-macros = { path = "../kasane-plugin-sdk-macros", version = "=0.7.0" }
 kasane-plugin-sdk-test = { path = "../kasane-plugin-sdk-test", version = "=0.7.0", optional = true }
+kasane-wit = { path = "../kasane-wit", version = "=0.7.0" }
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1", features = ["alloc"] }
 

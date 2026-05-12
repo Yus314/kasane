@@ -44,7 +44,7 @@ ok() {
 # =============================================================================
 check_abi_version() {
   echo "--- ABI version ---" >&2
-  local wit_file="$ROOT_DIR/kasane-wasm/wit/plugin.wit"
+  local wit_file="$ROOT_DIR/kasane-wit/wit/plugin.wit"
 
   if [[ ! -f "$wit_file" ]]; then
     error "plugin.wit not found at $wit_file"

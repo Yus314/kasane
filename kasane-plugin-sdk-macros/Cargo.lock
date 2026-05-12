@@ -28,12 +28,17 @@ dependencies = [
 name = "kasane-plugin-sdk-macros"
 version = "0.7.0"
 dependencies = [
+ "kasane-wit",
  "proc-macro2",
  "quote",
  "serde",
  "syn",
  "toml",
 ]
+
+[[package]]
+name = "kasane-wit"
+version = "0.7.0"
 
 [[package]]
 name = "proc-macro2"

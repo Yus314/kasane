@@ -1,0 +1,15 @@
+[package]
+name = "kasane-wit"
+version = "0.7.0"
+edition.workspace = true
+license.workspace = true
+description = "Canonical Kasane plugin WIT (kasane:plugin) consumed by the host, SDK, and SDK macros"
+repository = "https://github.com/Yus314/kasane"
+rust-version = "1.85"
+keywords = ["kakoune", "wasm", "wit", "component-model"]
+categories = ["development-tools"]
+
+[dependencies]
+
+[lib]
+path = "src/lib.rs"

@@ -75,12 +75,29 @@ jobs:
       - name: Compile benchmarks
         run: nix develop --command cargo bench --workspace --no-run
 
-      - name: WIT symlink check
+      # WIT canonical-location check. Post Phase γ-0.4 the kasane:plugin WIT
+      # lives in the dedicated kasane-wit crate. The host (kasane-wasm) and the
+      # two SDK crates (kasane-plugin-sdk, kasane-plugin-sdk-macros) consume it
+      # via Cargo dependency, so the previous symlink scheme is gone. This
+      # check guards against accidental reintroduction of stray WIT copies and
+      # against deletion of the canonical file.
+      - name: WIT content hash check
         run: |
-          test -L kasane-plugin-sdk/wit/plugin.wit
-          test -L kasane-plugin-sdk-macros/wit/plugin.wit
-          test "$(readlink kasane-plugin-sdk/wit/plugin.wit)" = "../../kasane-wasm/wit/plugin.wit"
-          test "$(readlink kasane-plugin-sdk-macros/wit/plugin.wit)" = "../../kasane-wasm/wit/plugin.wit"
+          test -f kasane-wit/wit/plugin.wit \
+            || { echo "FAIL: kasane-wit/wit/plugin.wit is missing"; exit 1; }
+          for stray in \
+              kasane-wasm/wit/plugin.wit \
+              kasane-plugin-sdk/wit/plugin.wit \
+              kasane-plugin-sdk-macros/wit/plugin.wit
+          do
+            if [ -e "$stray" ] || [ -L "$stray" ]; then
+              echo "FAIL: stray WIT copy at $stray — only kasane-wit/wit/plugin.wit should exist"
+              exit 1
+            fi
+          done
+          # Surface the canonical content hash so PR diffs that touch the WIT
+          # are visible in CI logs.
+          sha256sum kasane-wit/wit/plugin.wit
 
       - name: AUR SRCINFO consistency check
         run: |

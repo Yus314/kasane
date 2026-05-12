@@ -12,7 +12,7 @@ const SDK_DIRTY_ALL: u16 = 0x37F;
 /// functions (style/brush helpers, element builders, etc.).
 pub(crate) fn kasane_generate_impl(input: TokenStream) -> TokenStream {
     let wit_bindings = if input.is_empty() {
-        let wit_content = include_str!("../wit/plugin.wit");
+        let wit_content = kasane_wit::WIT;
         quote! {
             wit_bindgen::generate!({
                 world: "kasane-plugin",

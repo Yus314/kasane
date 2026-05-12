@@ -11,7 +11,7 @@ pub mod manifest;
 mod bindings {
     wasmtime::component::bindgen!({
         world: "kasane-plugin",
-        path: "wit",
+        path: "../kasane-wit/wit",
     });
 }
 

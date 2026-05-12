@@ -43,6 +43,7 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane-gui/` | GPU backend — winit + wgpu + Parley + swash (feature-gated via `--features gui`) |
 | `kasane-macros/` | Proc macros — `#[kasane::plugin]` and `#[kasane::component]` |
 | `kasane-wasm/` | WASM plugin runtime — wasmtime Component Model host, pre-built example plugins (`bundled/`) |
+| `kasane-wit/` | Canonical Kasane plugin WIT (`kasane:plugin`) — single owner of `wit/plugin.wit`; host + SDK + SDK-macros depend on it (γ-0.4) |
 | `kasane-plugin-package/` | Plugin package format — `.kpk` build/inspect/verify, manifest parsing, filesystem utilities |
 | `kasane-plugin-sdk/` | SDK for WASM guest plugins — WIT bindings, constants, helper macros (excluded from workspace, independent crate) |
 | `kasane-plugin-sdk-macros/` | Proc macros for WASM SDK — `define_plugin!` all-in-one macro (excluded from workspace, independent crate) |

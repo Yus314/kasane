@@ -2647,6 +2647,7 @@ dependencies = [
  "criterion",
  "kasane-core",
  "kasane-plugin-package",
+ "kasane-wit",
  "serde",
  "sha2 0.11.0",
  "tempfile",
@@ -2666,6 +2667,10 @@ dependencies = [
  "wasmtime",
  "wasmtime-wasi",
 ]
+
+[[package]]
+name = "kasane-wit"
+version = "0.7.0"
 
 [[package]]
 name = "kdl"

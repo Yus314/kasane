@@ -475,7 +475,11 @@ pub mod style_merge {
 }
 
 /// Bundled WIT interface definition (for reference/testing; not usable with proc macros).
-pub const WIT: &str = include_str!("../wit/plugin.wit");
+///
+/// Re-export of [`kasane_wit::WIT`]. The canonical WIT lives in the
+/// `kasane-wit` crate; this SDK pulls it in via a path dependency rather
+/// than carrying its own symlink (see Phase γ-0.4).
+pub const WIT: &str = kasane_wit::WIT;
 
 /// Generate Kasane plugin WIT bindings.
 ///

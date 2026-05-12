@@ -16,7 +16,7 @@
 //!   minor-version capability remains backward-compatible with plugins
 //!   built against earlier minors of the same major.
 
-/// Host's WIT package version. **Must match line 1 of `wit/plugin.wit`**
+/// Host's WIT package version. **Must match line 1 of `kasane-wit/wit/plugin.wit`**
 /// (`package kasane:plugin@X.Y.Z;`). The
 /// [`host_abi_version_matches_wit_package`](self::tests::host_abi_version_matches_wit_package)
 /// test enforces the link.
@@ -93,14 +93,14 @@ mod tests {
 
     #[test]
     fn host_abi_version_matches_wit_package() {
-        let wit = include_str!("../wit/plugin.wit");
+        let wit = kasane_wit::WIT;
         let line = wit.lines().next().expect("wit file is empty");
         let expected = format!("@{HOST_ABI_VERSION};");
         assert!(
             line.contains(&expected),
-            "HOST_ABI_VERSION ({HOST_ABI_VERSION}) does not match wit/plugin.wit \
+            "HOST_ABI_VERSION ({HOST_ABI_VERSION}) does not match kasane-wit/wit/plugin.wit \
              line 1: {line:?}. Update kasane-wasm/src/abi.rs::HOST_ABI_VERSION \
-             whenever wit/plugin.wit's package version changes."
+             whenever kasane-wit/wit/plugin.wit's package version changes."
         );
     }
 

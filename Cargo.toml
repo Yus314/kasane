@@ -1,5 +1,5 @@
 [workspace]
-members = ["kasane", "kasane-core", "kasane-plugin-package", "kasane-tui", "kasane-macros", "kasane-gui", "kasane-vello-spike", "kasane-wasm-bench", "kasane-wasm", "kasane-syntax"]
+members = ["kasane", "kasane-core", "kasane-plugin-package", "kasane-tui", "kasane-macros", "kasane-gui", "kasane-vello-spike", "kasane-wasm-bench", "kasane-wasm", "kasane-syntax", "kasane-wit"]
 exclude = ["examples/image-test", "examples/line-numbers", "examples/selection-algebra-native", "examples/virtual-text-demo", "examples/wasm/cursor-line", "examples/wasm/color-preview", "examples/wasm/sel-badge", "examples/wasm/fuzzy-finder", "examples/wasm/pane-manager", "examples/wasm/prompt-highlight", "examples/wasm/smooth-scroll", "tools/wasm-test", "kasane-plugin-sdk", "kasane-plugin-sdk-macros", "kasane-plugin-sdk-test", "kasane-wasm-bench/guests/string-echo", "kasane-wasm-bench/guests/element-builder", "kasane-wasm-bench/guests/state-reader", "kasane-wasm-bench/guests/component-plugin", "kasane-wasm/guests/surface-probe"]
 resolver = "3"
 
@@ -42,6 +42,7 @@ itoa = "1"
 resvg = { version = "0.47", default-features = false, features = ["text", "system-fonts"] }
 kasane-gui = { path = "kasane-gui" }
 kasane-wasm = { path = "kasane-wasm" }
+kasane-wit = { path = "kasane-wit" }
 winit = "0.30"
 wgpu = "29"
 # ADR-031 — Parley + swash are the production text stack.

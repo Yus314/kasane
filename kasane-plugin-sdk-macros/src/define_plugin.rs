@@ -167,7 +167,7 @@ pub(crate) fn define_plugin_impl(
     let def: PluginDef = syn::parse2(input)?;
 
     // 1. generate!()
-    let wit_content = include_str!("../wit/plugin.wit");
+    let wit_content = kasane_wit::WIT;
     let wit_bindings = quote! {
         wit_bindgen::generate!({
             world: "kasane-plugin",

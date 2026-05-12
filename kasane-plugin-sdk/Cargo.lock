@@ -142,6 +142,7 @@ version = "0.7.0"
 dependencies = [
  "kasane-plugin-sdk-macros",
  "kasane-plugin-sdk-test",
+ "kasane-wit",
  "postcard",
  "serde",
  "trybuild",
@@ -152,6 +153,7 @@ dependencies = [
 name = "kasane-plugin-sdk-macros"
 version = "0.7.0"
 dependencies = [
+ "kasane-wit",
  "proc-macro2",
  "quote",
  "serde",
@@ -161,6 +163,10 @@ dependencies = [
 
 [[package]]
 name = "kasane-plugin-sdk-test"
+version = "0.7.0"
+
+[[package]]
+name = "kasane-wit"
 version = "0.7.0"
 
 [[package]]
