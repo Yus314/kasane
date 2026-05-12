@@ -1,5 +1,4 @@
 use super::*;
-use crate::plugin::Effects;
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 
 // --- I/O event construction tests ---
@@ -66,72 +65,41 @@ fn test_io_event_process_spawn_failed_construction() {
 
 // --- deliver_io_event tests ---
 
-struct IoHandlerPlugin {
-    received_events: Vec<String>,
-}
+struct IoHandlerPlugin;
 
-impl IoHandlerPlugin {
-    fn new() -> Self {
-        IoHandlerPlugin {
-            received_events: Vec::new(),
-        }
-    }
-}
+impl crate::plugin::Plugin for IoHandlerPlugin {
+    type State = ();
 
-impl PluginBackend for IoHandlerPlugin {
     fn id(&self) -> PluginId {
         PluginId("io_handler".to_string())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::IO_HANDLER
-    }
-
-    fn on_io_event_effects(&mut self, event: &IoEvent, _state: &AppView<'_>) -> Effects {
-        match event {
-            IoEvent::Process(pe) => match pe {
-                ProcessEvent::Stdout { job_id, data } => {
-                    self.received_events
-                        .push(format!("stdout:{}:{}", job_id, data.len()));
-                    Effects {
-                        redraw: DirtyFlags::BUFFER,
-                        commands: vec![],
-                        scroll_plans: vec![ScrollPlan {
-                            total_amount: 1,
-                            line: 1,
-                            column: 1,
-                            frame_interval_ms: 16,
-                            curve: ScrollCurve::Linear,
-                            accumulation: ScrollAccumulationMode::Add,
-                        }],
-                        state_updates: Default::default(),
-                    }
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.on_io_event_tier2(|_state, event, _app| {
+            let effects = match event {
+                IoEvent::Process(ProcessEvent::Stdout { .. }) => {
+                    let mut e = crate::plugin::ProcessCapableEffects::redraw(DirtyFlags::BUFFER);
+                    e.base.base.scroll_plans.push(ScrollPlan {
+                        total_amount: 1,
+                        line: 1,
+                        column: 1,
+                        frame_interval_ms: 16,
+                        curve: ScrollCurve::Linear,
+                        accumulation: ScrollAccumulationMode::Add,
+                    });
+                    e
                 }
-                ProcessEvent::Stderr { job_id, data } => {
-                    self.received_events
-                        .push(format!("stderr:{}:{}", job_id, data.len()));
-                    Effects::default()
-                }
-                ProcessEvent::Exited { job_id, exit_code } => {
-                    self.received_events
-                        .push(format!("exited:{}:{}", job_id, exit_code));
-                    Effects::default()
-                }
-                ProcessEvent::SpawnFailed { job_id, error } => {
-                    self.received_events
-                        .push(format!("failed:{}:{}", job_id, error));
-                    Effects::default()
-                }
-            },
-            IoEvent::Http(_) => Effects::default(),
-        }
+                _ => crate::plugin::ProcessCapableEffects::none(),
+            };
+            ((), effects)
+        });
     }
 }
 
 #[test]
 fn test_deliver_io_event_dispatches_to_plugin() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(IoHandlerPlugin::new()));
+    registry.register(IoHandlerPlugin);
     let state = AppState::default();
 
     let event = IoEvent::Process(ProcessEvent::Stdout {
@@ -151,7 +119,7 @@ fn test_deliver_io_event_dispatches_to_plugin() {
 #[test]
 fn test_deliver_io_event_unknown_target() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(IoHandlerPlugin::new()));
+    registry.register(IoHandlerPlugin);
     let state = AppState::default();
 
     let event = IoEvent::Process(ProcessEvent::Stdout {
