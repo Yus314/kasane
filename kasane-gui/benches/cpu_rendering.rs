@@ -8,8 +8,12 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use kasane_core::config::ColorsConfig;
 use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{Atom, Brush, NamedColor, Style};
-use kasane_core::render::{CellGrid, render_pipeline};
-use kasane_core::state::AppState;
+use kasane_core::render::{CellGrid, RenderPipelineOptions, render_pipeline_cached};
+use kasane_core::salsa_db::KasaneDatabase;
+use kasane_core::salsa_sync::{
+    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
+};
+use kasane_core::state::{AppState, DirtyFlags};
 use kasane_gui::colors::ColorResolver;
 use kasane_gui::gpu::cell_renderer::{build_bg_instances, build_row_spans, compute_row_hash};
 
@@ -60,7 +64,20 @@ fn setup_grid() -> (CellGrid, ColorResolver) {
 
     let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    let _ = render_pipeline(&state, &registry.view(), &mut grid);
+    let mut db = KasaneDatabase::default();
+    let mut handles = SalsaInputHandles::new(&mut db);
+    sync_inputs_from_state(&mut db, &state, &handles);
+    sync_display_directives(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
+    let _ = render_pipeline_cached(
+        &db,
+        &handles,
+        &state,
+        &registry.view(),
+        &mut grid,
+        DirtyFlags::ALL,
+        RenderPipelineOptions::default(),
+    );
 
     let resolver = ColorResolver::from_config(&ColorsConfig::default());
     (grid, resolver)

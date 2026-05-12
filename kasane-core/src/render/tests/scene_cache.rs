@@ -2,8 +2,36 @@ use super::super::test_helpers::test_state_80x24;
 use super::super::*;
 use crate::plugin::PluginRuntime;
 use crate::protocol::{Coord, MenuStyle};
+use crate::salsa_db::KasaneDatabase;
+use crate::salsa_sync::{
+    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
+};
 use crate::state::DirtyFlags;
 use crate::test_utils::make_line;
+
+fn render_scene_full(
+    state: &crate::state::AppState,
+    registry: &PluginRuntime,
+    cs: scene::CellSize,
+) -> Vec<DrawCommand> {
+    let mut db = KasaneDatabase::default();
+    let mut handles = SalsaInputHandles::new(&mut db);
+    sync_inputs_from_state(&mut db, state, &handles);
+    sync_display_directives(&mut db, state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, state, &registry.view(), &mut handles);
+    let mut cache = SceneCache::new();
+    let (cmds, _, _) = scene_render_pipeline_cached(
+        &db,
+        &handles,
+        state,
+        &registry.view(),
+        cs,
+        DirtyFlags::ALL,
+        &mut cache,
+        SceneRenderOptions::default(),
+    );
+    cmds.to_vec()
+}
 
 #[test]
 fn test_scene_cache_invalidate_buffer_clears_base_only() {
@@ -154,8 +182,6 @@ fn test_scene_cache_status_only_preserves_buffer() {
 
 #[test]
 fn test_scene_render_pipeline_deterministic() {
-    use super::super::scene_render_pipeline;
-
     let mut state = test_state_80x24();
     state.observed.status_default_style = state.observed.default_style.clone();
     state.observed.lines = vec![make_line("hello"), make_line("world")].into();
@@ -167,19 +193,17 @@ fn test_scene_render_pipeline_deterministic() {
         height: 20.0,
     };
 
-    let (first, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
-    let (second, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
+    let first = render_scene_full(&state, &registry, cs);
+    let second = render_scene_full(&state, &registry, cs);
 
     assert_eq!(
         first, second,
-        "scene_render_pipeline must produce deterministic output for same state"
+        "scene_render_pipeline_cached must produce deterministic output for same state"
     );
 }
 
 #[test]
 fn test_scene_cache_overlay_ordering_with_menu_and_info() {
-    use super::super::scene_render_pipeline;
-
     let mut state = test_state_80x24();
     state.observed.status_default_style = state.observed.default_style.clone();
     state.observed.lines = vec![make_line("hello"), make_line("world")].into();
@@ -209,8 +233,8 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
         height: 20.0,
     };
 
-    let (first, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
-    let (second, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
+    let first = render_scene_full(&state, &registry, cs);
+    let second = render_scene_full(&state, &registry, cs);
 
     let overlay_count = first
         .iter()
@@ -224,6 +248,6 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
 
     assert_eq!(
         first, second,
-        "scene_render_pipeline must produce deterministic output with overlays"
+        "scene_render_pipeline_cached must produce deterministic output with overlays"
     );
 }

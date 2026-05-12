@@ -11,7 +11,11 @@ use crate::layout::line_display_width;
 use crate::plugin::PluginRuntime;
 use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, NamedColor, WireFace};
 use crate::render::cursor;
-use crate::state::AppState;
+use crate::salsa_db::KasaneDatabase;
+use crate::salsa_sync::{
+    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
+};
+use crate::state::{AppState, DirtyFlags};
 use crate::test_support::test_state_80x24;
 use crate::test_utils::make_line;
 
@@ -65,14 +69,27 @@ fn buffer_state(cols: u16, rows: u16) -> AppState {
     state
 }
 
-/// Run the full pipeline and return (grid, result, display_map).
+/// Run the full Salsa-backed pipeline and return (grid, result, display_map).
 fn render_full(state: &AppState) -> (CellGrid, RenderResult, DisplayMapRef) {
     let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     grid.clear(&crate::render::TerminalStyle::from_style(
         &state.observed.default_style,
     ));
-    let (result, dm) = pipeline::render_pipeline(state, &registry.view(), &mut grid);
+    let mut db = KasaneDatabase::default();
+    let mut handles = SalsaInputHandles::new(&mut db);
+    sync_inputs_from_state(&mut db, state, &handles);
+    sync_display_directives(&mut db, state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, state, &registry.view(), &mut handles);
+    let (result, dm) = render_pipeline_cached(
+        &db,
+        &handles,
+        state,
+        &registry.view(),
+        &mut grid,
+        DirtyFlags::ALL,
+        RenderPipelineOptions::default(),
+    );
     (grid, result, dm)
 }
 
@@ -357,8 +374,8 @@ fn extract_cursor_color_after_cjk() {
 // TUI / GPU cursor position consistency
 // ---------------------------------------------------------------------------
 
-/// Verify that the TUI path (render_cached_core via render_pipeline) and the
-/// GPU path (scene_render_pipeline) produce the same cursor coordinates.
+/// Verify that the TUI path (`render_pipeline_cached`) and the GPU path
+/// (`scene_render_pipeline_cached`) produce the same cursor coordinates.
 #[test]
 fn tui_gpu_cursor_position_consistent() {
     let mut state = buffer_state(40, 5);
@@ -369,16 +386,31 @@ fn tui_gpu_cursor_position_consistent() {
     ])
     .into();
 
-    // TUI path
+    // TUI path (sets up its own Salsa db inside render_full)
     let (_, tui_result, _) = render_full(&state);
 
-    // GPU path
+    // GPU path — set up Salsa fresh, then run the scene-cached pipeline.
     let registry = PluginRuntime::new();
+    let mut db = KasaneDatabase::default();
+    let mut handles = SalsaInputHandles::new(&mut db);
+    sync_inputs_from_state(&mut db, &state, &handles);
+    sync_display_directives(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
     let cell_size = scene::CellSize {
         width: 10.0,
         height: 20.0,
     };
-    let (_, gpu_result, _) = pipeline::scene_render_pipeline(&state, &registry.view(), cell_size);
+    let mut scene_cache = SceneCache::new();
+    let (_, gpu_result, _) = scene_render_pipeline_cached(
+        &db,
+        &handles,
+        &state,
+        &registry.view(),
+        cell_size,
+        DirtyFlags::ALL,
+        &mut scene_cache,
+        SceneRenderOptions::default(),
+    );
 
     assert_eq!(
         tui_result.cursor_x, gpu_result.cursor_x,

@@ -10,7 +10,6 @@ pub mod inline_decoration;
 pub mod markup;
 pub(crate) mod ornament;
 pub mod paint;
-pub mod pipeline;
 mod pipeline_salsa;
 pub mod scene;
 #[cfg(feature = "svg")]
@@ -34,7 +33,6 @@ pub use cursor::*;
 pub use grid::CellDiff;
 pub use grid::{Cell, CellGrid};
 pub use inline_decoration::{InlineDecoration, InlineOp};
-pub use pipeline::{render_pipeline, render_pipeline_direct, scene_render_pipeline};
 pub use pipeline_salsa::{
     RenderPipelineOptions, SceneRenderOptions, render_pipeline_cached, scene_render_pipeline_cached,
 };

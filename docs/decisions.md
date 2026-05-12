@@ -1010,7 +1010,13 @@ For current benchmark data, see [performance.md](./performance.md).
 
 ## ADR-016: Pipeline Equivalence Testing — Trace-Equivalence Axiom
 
-**Status:** Decided
+**Status:** Superseded by ADR-047 + Phase γ-1.1 (2026-05-12). The
+multi-variant equivalence model below was retired once the legacy
+direct path (`render_pipeline` / `render_pipeline_direct` / `scene_render_pipeline`)
+was deleted. Salsa is the only production path; T1 (determinism)
+remains, T3 (cached-vs-direct) is no longer expressible. The
+`trace_equivalence.rs` proptest harness was retained and reframed
+around Salsa-path determinism only.
 
 ### Background
 
@@ -6699,11 +6705,18 @@ plugin transforms through the Salsa path.
 
 Salsa remains the canonical render path. `pipeline_salsa.rs::render_pipeline_cached`
 is called from `kasane-tui/src/lib.rs:598` and
-`kasane-gui/src/app/render.rs:117` as the production entry. The
-`pipeline.rs::render_pipeline` / `render_pipeline_direct` paths are
-preserved for tests and `DirectViewSource` fallback only.
+`kasane-gui/src/app/render.rs:117` as the production entry.
 
-No infrastructure changes. No deletions. The cost (≈2600 LoC,
+**Phase γ-1.1 closure (2026-05-12)**: the `pipeline.rs::render_pipeline`
+/ `render_pipeline_direct` / `scene_render_pipeline` paths (and the
+`DirectViewSource` fallback) — preserved by this ADR for the legacy
+parity tests — were deleted along with `tests/salsa_pipeline_comparison.rs`.
+The shared core (`PreparedFrame`, `render_cached_core`,
+`scene_render_core`, `populate_inline_box_paint_commands`, private
+helpers) absorbed into `pipeline_salsa.rs`. The `ViewSource` trait
+disappeared with its only non-Salsa implementer.
+
+No infrastructure changes to Salsa itself. The cost (≈2600 LoC,
 salsa proc-macro build time) is amortised by the existing memoization
 hit rate.
 
@@ -6741,9 +6754,11 @@ hit rate.
 
 ### Alternatives considered
 
-1. **Retire Salsa entirely, fold into `pipeline.rs`.** Rejected.
-   Both production backends depend on `render_pipeline_cached`.
-   Forfeits memoization without measurable gain.
+1. **Retire Salsa entirely, fold the legacy direct path back into the
+   production entry.** Rejected. Both production backends depend on
+   `render_pipeline_cached`. Forfeits memoization without measurable
+   gain. (The mirror move — keeping Salsa and deleting the legacy
+   direct path — became Phase γ-1.1; see "Phase γ-1.1 closure" above.)
 
 2. **Extend Salsa to memoize Stage 3 transforms.** Deferred. Would
    require making plugin state Salsa-input-compatible

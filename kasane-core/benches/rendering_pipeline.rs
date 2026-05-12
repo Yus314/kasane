@@ -5,18 +5,72 @@ use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{Color, NamedColor, parse_request};
-use kasane_core::render::CellGrid;
-use kasane_core::render::paint;
-use kasane_core::render::render_pipeline_direct;
 use kasane_core::render::scene::CellSize;
-use kasane_core::render::scene_render_pipeline;
-use kasane_core::render::view;
-use kasane_core::state::DirtyFlags;
+use kasane_core::render::{
+    CellGrid, DrawCommand, RenderPipelineOptions, RenderResult, SceneCache, SceneRenderOptions,
+    paint, render_pipeline_cached, scene_render_pipeline_cached, view,
+};
+use kasane_core::salsa_db::KasaneDatabase;
+use kasane_core::salsa_sync::{
+    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
+};
+use kasane_core::state::{AppState, DirtyFlags};
 
 use fixtures::{
     draw_json, draw_request, draw_status_json, menu_show_json, realistic_state,
     registry_with_plugins, state_with_edit, state_with_menu, typical_state,
 };
+
+// Helpers replacing the legacy `render_pipeline_direct` / `scene_render_pipeline`
+// entry points retired in Phase γ-1.1. Each call sets up a fresh Salsa database;
+// benchmarks that need cache reuse across iterations are in the `salsa_benches`
+// module below and manage their own database lifecycle.
+
+fn render_pipeline_via_salsa(
+    state: &AppState,
+    registry: &PluginRuntime,
+    grid: &mut CellGrid,
+    dirty: DirtyFlags,
+) {
+    let mut db = KasaneDatabase::default();
+    let mut handles = SalsaInputHandles::new(&mut db);
+    sync_inputs_from_state(&mut db, state, &handles);
+    sync_display_directives(&mut db, state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, state, &registry.view(), &mut handles);
+    render_pipeline_cached(
+        &db,
+        &handles,
+        state,
+        &registry.view(),
+        grid,
+        dirty,
+        RenderPipelineOptions::default(),
+    );
+}
+
+fn scene_render_via_salsa(
+    state: &AppState,
+    registry: &PluginRuntime,
+    cell_size: CellSize,
+) -> (Vec<DrawCommand>, RenderResult) {
+    let mut db = KasaneDatabase::default();
+    let mut handles = SalsaInputHandles::new(&mut db);
+    sync_inputs_from_state(&mut db, state, &handles);
+    sync_display_directives(&mut db, state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, state, &registry.view(), &mut handles);
+    let mut scene_cache = SceneCache::new();
+    let (cmds, result, _) = scene_render_pipeline_cached(
+        &db,
+        &handles,
+        state,
+        &registry.view(),
+        cell_size,
+        DirtyFlags::ALL,
+        &mut scene_cache,
+        SceneRenderOptions::default(),
+    );
+    (cmds.to_vec(), result)
+}
 
 // ---------------------------------------------------------------------------
 // Micro-benchmarks
@@ -251,9 +305,9 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
 
     // Prepare warm grid (2 frames to get past swap fallback)
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
+    render_pipeline_via_salsa(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap_with_dirty();
-    render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
+    render_pipeline_via_salsa(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap_with_dirty();
 
     // Now simulate editing 1 line with BUFFER|STATUS dirty
@@ -271,16 +325,16 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
             || {
                 // Setup: create a warm grid each iteration
                 let mut g = CellGrid::new(state.runtime.cols, state.runtime.rows);
-                render_pipeline_direct(&state, &registry.view(), &mut g, DirtyFlags::ALL);
+                render_pipeline_via_salsa(&state, &registry, &mut g, DirtyFlags::ALL);
                 g.swap_with_dirty();
-                render_pipeline_direct(&state, &registry.view(), &mut g, DirtyFlags::ALL);
+                render_pipeline_via_salsa(&state, &registry, &mut g, DirtyFlags::ALL);
                 g.swap_with_dirty();
                 g
             },
             |mut g| {
-                render_pipeline_direct(
+                render_pipeline_via_salsa(
                     &edited,
-                    &registry.view(),
+                    &registry,
                     &mut g,
                     DirtyFlags::BUFFER | DirtyFlags::STATUS,
                 );
@@ -741,7 +795,7 @@ fn bench_scene_cache_cold(c: &mut Criterion) {
 
     c.bench_function("scene_cache_cold", |b| {
         b.iter(|| {
-            let (cmds, result, _) = scene_render_pipeline(&state, &registry.view(), cs);
+            let (cmds, result) = scene_render_via_salsa(&state, &registry, cs);
             std::hint::black_box((cmds.len(), result));
         });
     });
@@ -758,7 +812,7 @@ fn bench_scene_cache_warm(c: &mut Criterion) {
 
     c.bench_function("scene_cache_warm", |b| {
         b.iter(|| {
-            let (cmds, result, _) = scene_render_pipeline(&state, &registry.view(), cs);
+            let (cmds, result) = scene_render_via_salsa(&state, &registry, cs);
             std::hint::black_box((cmds.len(), result));
         });
     });
@@ -775,13 +829,13 @@ fn bench_scene_cache_menu_select(c: &mut Criterion) {
 
     c.bench_function("scene_cache_menu_select", |b| {
         b.iter(|| {
-            let (cmds, result, _) = scene_render_pipeline(&state, &registry.view(), cs);
+            let (cmds, result) = scene_render_via_salsa(&state, &registry, cs);
             std::hint::black_box((cmds.len(), result));
         });
     });
 }
 
-/// Bench: render_pipeline_direct with ALL vs specific dirty flags
+/// Bench: render_pipeline_via_salsa with ALL vs specific dirty flags
 fn bench_cached_pipeline_dirty_flags(c: &mut Criterion) {
     let mut group = c.benchmark_group("cached_pipeline_dirty_flags");
 
@@ -792,22 +846,17 @@ fn bench_cached_pipeline_dirty_flags(c: &mut Criterion) {
     group.bench_function("all_dirty", |b| {
         let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
         b.iter(|| {
-            render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
+            render_pipeline_via_salsa(&state, &registry, &mut grid, DirtyFlags::ALL);
         });
     });
 
     // MENU_SELECTION only
     group.bench_function("menu_select_only", |b| {
         let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-        render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
+        render_pipeline_via_salsa(&state, &registry, &mut grid, DirtyFlags::ALL);
         grid.swap_with_dirty();
         b.iter(|| {
-            render_pipeline_direct(
-                &state,
-                &registry.view(),
-                &mut grid,
-                DirtyFlags::MENU_SELECTION,
-            );
+            render_pipeline_via_salsa(&state, &registry, &mut grid, DirtyFlags::MENU_SELECTION);
         });
     });
 
@@ -825,11 +874,11 @@ fn bench_section_paint_status_only(c: &mut Criterion) {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Initial full render
-    render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
+    render_pipeline_via_salsa(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap();
 
     c.bench_function("section_paint_status_only", |b| {
-        b.iter(|| render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::STATUS));
+        b.iter(|| render_pipeline_via_salsa(&state, &registry, &mut grid, DirtyFlags::STATUS));
     });
 }
 
@@ -840,17 +889,12 @@ fn bench_section_paint_menu_select(c: &mut Criterion) {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Initial full render
-    render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
+    render_pipeline_via_salsa(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap();
 
     c.bench_function("section_paint_menu_select", |b| {
         b.iter(|| {
-            render_pipeline_direct(
-                &state,
-                &registry.view(),
-                &mut grid,
-                DirtyFlags::MENU_SELECTION,
-            )
+            render_pipeline_via_salsa(&state, &registry, &mut grid, DirtyFlags::MENU_SELECTION)
         });
     });
 }
@@ -866,7 +910,7 @@ fn bench_line_dirty_single_edit(c: &mut Criterion) {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Initial full render
-    render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
+    render_pipeline_via_salsa(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap();
 
     // "After" state: edit line 10
@@ -894,12 +938,7 @@ fn bench_line_dirty_single_edit(c: &mut Criterion) {
 
     c.bench_function("line_dirty_single_edit", |b| {
         b.iter(|| {
-            render_pipeline_direct(
-                &state_after,
-                &registry.view(),
-                &mut grid,
-                DirtyFlags::BUFFER,
-            );
+            render_pipeline_via_salsa(&state_after, &registry, &mut grid, DirtyFlags::BUFFER);
             let diffs = grid.diff();
             grid.swap_with_dirty();
             diffs.len()
@@ -914,7 +953,7 @@ fn bench_line_dirty_all_changed(c: &mut Criterion) {
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Initial full render
-    render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::ALL);
+    render_pipeline_via_salsa(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap();
 
     // All lines changed
@@ -924,12 +963,7 @@ fn bench_line_dirty_all_changed(c: &mut Criterion) {
 
     c.bench_function("line_dirty_all_changed", |b| {
         b.iter(|| {
-            render_pipeline_direct(
-                &state_after,
-                &registry.view(),
-                &mut grid,
-                DirtyFlags::BUFFER,
-            );
+            render_pipeline_via_salsa(&state_after, &registry, &mut grid, DirtyFlags::BUFFER);
             let diffs = grid.diff();
             grid.swap_with_dirty();
             diffs.len()
@@ -1162,9 +1196,11 @@ mod salsa_benches {
         group.finish();
     }
 
-    /// Bench: Salsa full pipeline vs legacy pipeline (direct comparison).
-    pub fn bench_salsa_vs_legacy(c: &mut Criterion) {
-        let mut group = c.benchmark_group("salsa_vs_legacy");
+    /// Bench: Salsa full pipeline (cold / warm-MENU / incremental). The
+    /// paired `*_legacy` variants retired in Phase γ-1.1 — `render_pipeline_direct`
+    /// no longer exists.
+    pub fn bench_salsa_full(c: &mut Criterion) {
+        let mut group = c.benchmark_group("salsa_full");
 
         // Full frame cold (ALL dirty)
         {
@@ -1187,21 +1223,6 @@ mod salsa_benches {
                             &mut grid,
                             DirtyFlags::ALL,
                             Default::default(),
-                        );
-                    },
-                    BatchSize::SmallInput,
-                );
-            });
-
-            group.bench_function("full_cold/legacy", |b| {
-                b.iter_batched(
-                    || CellGrid::new(state.runtime.cols, state.runtime.rows),
-                    |mut grid| {
-                        kasane_core::render::render_pipeline_direct(
-                            &state,
-                            &registry.view(),
-                            &mut grid,
-                            DirtyFlags::ALL,
                         );
                     },
                     BatchSize::SmallInput,
@@ -1240,26 +1261,6 @@ mod salsa_benches {
                     );
                 });
             });
-
-            group.bench_function("menu_select_warm/legacy", |b| {
-                let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-                kasane_core::render::render_pipeline_direct(
-                    &state,
-                    &registry.view(),
-                    &mut grid,
-                    DirtyFlags::ALL,
-                );
-                grid.swap_with_dirty();
-
-                b.iter(|| {
-                    kasane_core::render::render_pipeline_direct(
-                        &state,
-                        &registry.view(),
-                        &mut grid,
-                        DirtyFlags::MENU_SELECTION,
-                    );
-                });
-            });
         }
 
         // Incremental edit (BUFFER dirty, warm cache)
@@ -1295,31 +1296,6 @@ mod salsa_benches {
                             &mut grid,
                             DirtyFlags::BUFFER,
                             Default::default(),
-                        );
-                    },
-                    BatchSize::SmallInput,
-                );
-            });
-
-            group.bench_function("incremental_edit/legacy", |b| {
-                b.iter_batched(
-                    || {
-                        let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-                        kasane_core::render::render_pipeline_direct(
-                            &state,
-                            &registry.view(),
-                            &mut grid,
-                            DirtyFlags::ALL,
-                        );
-                        grid.swap_with_dirty();
-                        grid
-                    },
-                    |mut grid| {
-                        kasane_core::render::render_pipeline_direct(
-                            &edited,
-                            &registry.view(),
-                            &mut grid,
-                            DirtyFlags::BUFFER,
                         );
                     },
                     BatchSize::SmallInput,
@@ -1664,7 +1640,7 @@ fn bench_allocations(c: &mut Criterion) {
         let state = typical_state(23);
         let registry = PluginRuntime::new();
         alloc_counter::reset();
-        let (cmds, _result, _) = scene_render_pipeline(&state, &registry.view(), cs);
+        let (cmds, _result) = scene_render_via_salsa(&state, &registry, cs);
         let (sc, sb) = alloc_counter::snapshot();
         let cmd_count = cmds.len();
         std::hint::black_box(cmds);
@@ -1680,7 +1656,7 @@ fn bench_allocations(c: &mut Criterion) {
         let state = state_with_edit(&base, 12, 1);
         let registry = PluginRuntime::new();
         alloc_counter::reset();
-        let (cmds, _result, _) = scene_render_pipeline(&state, &registry.view(), cs);
+        let (cmds, _result) = scene_render_via_salsa(&state, &registry, cs);
         let (sc, sb) = alloc_counter::snapshot();
         let cmd_count = cmds.len();
         std::hint::black_box(cmds);
@@ -1695,7 +1671,7 @@ fn bench_allocations(c: &mut Criterion) {
         let state = state_with_menu(50);
         let registry = PluginRuntime::new();
         alloc_counter::reset();
-        let (cmds, _result, _) = scene_render_pipeline(&state, &registry.view(), cs);
+        let (cmds, _result) = scene_render_via_salsa(&state, &registry, cs);
         let (sc, sb) = alloc_counter::snapshot();
         let cmd_count = cmds.len();
         std::hint::black_box(cmds);
@@ -1714,7 +1690,7 @@ fn bench_allocations(c: &mut Criterion) {
         state.runtime.rows = 60;
         let registry = PluginRuntime::new();
         alloc_counter::reset();
-        let (cmds, _result, _) = scene_render_pipeline(&state, &registry.view(), cs);
+        let (cmds, _result) = scene_render_via_salsa(&state, &registry, cs);
         let (sc, sb) = alloc_counter::snapshot();
         let cmd_count = cmds.len();
         std::hint::black_box(cmds);
@@ -1786,7 +1762,7 @@ criterion_group!(salsa_sync, salsa_benches::bench_sync_inputs,);
 
 criterion_group!(
     salsa_pipeline,
-    salsa_benches::bench_salsa_vs_legacy,
+    salsa_benches::bench_salsa_full,
     salsa_benches::bench_salsa_scene,
     salsa_benches::bench_salsa_scaling,
 );

@@ -14,9 +14,14 @@ use kasane_core::protocol::{
 use kasane_core::render::paint;
 use kasane_core::render::view;
 use kasane_core::render::{
-    Cell, CellGrid, CursorStyle, RenderResult, TerminalStyle, render_pipeline,
+    Cell, CellGrid, CursorStyle, RenderPipelineOptions, RenderResult, TerminalStyle,
+    render_pipeline_cached,
 };
-use kasane_core::state::AppState;
+use kasane_core::salsa_db::KasaneDatabase;
+use kasane_core::salsa_sync::{
+    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
+};
+use kasane_core::state::{AppState, DirtyFlags};
 use kasane_tui::sgr::emit_sgr_diff_style;
 use serde::Serialize;
 
@@ -634,7 +639,20 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
                 |(mut buf, mut state)| {
                     let request = parse_request(&mut buf).unwrap();
                     state.apply(request);
-                    let (result, _) = render_pipeline(&state, &registry.view(), &mut grid);
+                    let mut db = KasaneDatabase::default();
+                    let mut handles = SalsaInputHandles::new(&mut db);
+                    sync_inputs_from_state(&mut db, &state, &handles);
+                    sync_display_directives(&mut db, &state, &registry.view(), &handles);
+                    sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
+                    let (result, _) = render_pipeline_cached(
+                        &db,
+                        &handles,
+                        &state,
+                        &registry.view(),
+                        &mut grid,
+                        DirtyFlags::ALL,
+                        RenderPipelineOptions::default(),
+                    );
                     backend.present(&mut grid, result);
                     let bytes = backend.bytes_generated();
                     backend.flush();
@@ -658,7 +676,20 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
                 |(mut buf, mut state)| {
                     let request = parse_request(&mut buf).unwrap();
                     state.apply(request);
-                    let (result, _) = render_pipeline(&state, &registry.view(), &mut grid);
+                    let mut db = KasaneDatabase::default();
+                    let mut handles = SalsaInputHandles::new(&mut db);
+                    sync_inputs_from_state(&mut db, &state, &handles);
+                    sync_display_directives(&mut db, &state, &registry.view(), &handles);
+                    sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
+                    let (result, _) = render_pipeline_cached(
+                        &db,
+                        &handles,
+                        &state,
+                        &registry.view(),
+                        &mut grid,
+                        DirtyFlags::ALL,
+                        RenderPipelineOptions::default(),
+                    );
                     backend.present(&mut grid, result);
                     let bytes = backend.bytes_generated();
                     backend.flush();

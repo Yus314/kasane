@@ -526,12 +526,30 @@ fn long_line_truncated_at_screen_width() {
 // Line-level dirty tracking
 // ===========================================================================
 
-/// Helper: render with line-dirty optimization using render_pipeline_direct.
+/// Helper: render with line-dirty optimization using the Salsa-backed pipeline.
 fn render_with_dirty(state: &AppState, dirty: DirtyFlags, grid: &mut CellGrid) {
-    use kasane_core::render::render_pipeline_direct;
+    use kasane_core::render::{RenderPipelineOptions, render_pipeline_cached};
+    use kasane_core::salsa_db::KasaneDatabase;
+    use kasane_core::salsa_sync::{
+        SalsaInputHandles, sync_display_directives, sync_inputs_from_state,
+        sync_plugin_contributions,
+    };
 
     let registry = registry_with_builtins();
-    render_pipeline_direct(state, &registry.view(), grid, dirty);
+    let mut db = KasaneDatabase::default();
+    let mut handles = SalsaInputHandles::new(&mut db);
+    sync_inputs_from_state(&mut db, state, &handles);
+    sync_display_directives(&mut db, state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, state, &registry.view(), &mut handles);
+    render_pipeline_cached(
+        &db,
+        &handles,
+        state,
+        &registry.view(),
+        grid,
+        dirty,
+        RenderPipelineOptions::default(),
+    );
 }
 
 #[test]
@@ -662,135 +680,4 @@ fn test_line_dirty_full_repaint_on_overlay() {
         !diffs.is_empty(),
         "full repaint after overlay hide should produce diffs"
     );
-}
-
-// ---------------------------------------------------------------------------
-// Surface model equivalence tests
-// ---------------------------------------------------------------------------
-
-/// Verify that the Salsa pipeline produces identical CellGrid output
-/// as the legacy view()-based pipeline.
-#[test]
-fn test_salsa_pipeline_equivalence_empty_state() {
-    use kasane_core::render::{render_pipeline, render_pipeline_cached};
-    use kasane_core::salsa_db::KasaneDatabase;
-    use kasane_core::salsa_sync::{
-        SalsaInputHandles, sync_display_directives, sync_inputs_from_state,
-        sync_plugin_contributions,
-    };
-    use kasane_core::state::DirtyFlags;
-
-    let state = setup_state(vec![make_line("hello world"), make_line("second line")]);
-    let registry = PluginRuntime::new();
-
-    // Legacy pipeline
-    let mut legacy_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    let (legacy_result, _) = render_pipeline(&state, &registry.view(), &mut legacy_grid);
-
-    // Salsa pipeline
-    let mut db = KasaneDatabase::default();
-    let mut handles = SalsaInputHandles::new(&mut db);
-    sync_inputs_from_state(&mut db, &state, &handles);
-
-    sync_display_directives(&mut db, &state, &registry.view(), &handles);
-    sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
-
-    let mut salsa_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    let (salsa_result, _) = render_pipeline_cached(
-        &db,
-        &handles,
-        &state,
-        &registry.view(),
-        &mut salsa_grid,
-        DirtyFlags::ALL,
-        Default::default(),
-    );
-
-    // Compare cursor positions
-    assert_eq!(
-        legacy_result.cursor_x, salsa_result.cursor_x,
-        "cursor_x mismatch"
-    );
-    assert_eq!(
-        legacy_result.cursor_y, salsa_result.cursor_y,
-        "cursor_y mismatch"
-    );
-
-    // Compare cell grids
-    for y in 0..state.runtime.rows {
-        for x in 0..state.runtime.cols {
-            let l = legacy_grid.get(x, y);
-            let s = salsa_grid.get(x, y);
-            if let (Some(l), Some(s)) = (l, s) {
-                assert_eq!(
-                    l.grapheme, s.grapheme,
-                    "grapheme mismatch at ({x}, {y}): legacy={:?} salsa={:?}",
-                    l.grapheme, s.grapheme
-                );
-                assert_eq!(l.style, s.style, "style mismatch at ({x}, {y})");
-            }
-        }
-    }
-}
-
-/// Verify Salsa pipeline equivalence with menu overlay.
-#[test]
-fn test_salsa_pipeline_equivalence_with_menu() {
-    use kasane_core::render::{render_pipeline, render_pipeline_cached};
-    use kasane_core::salsa_db::KasaneDatabase;
-    use kasane_core::salsa_sync::{
-        SalsaInputHandles, sync_display_directives, sync_inputs_from_state,
-        sync_plugin_contributions,
-    };
-    use kasane_core::state::DirtyFlags;
-
-    let mut state = setup_state(vec![make_line("hello"), make_line("world")]);
-    state.apply(KakouneRequest::MenuShow {
-        items: vec![make_line("item1"), make_line("item2"), make_line("item3")],
-        anchor: Coord { line: 1, column: 0 },
-        selected_item_style: kasane_core::protocol::default_unresolved_style(),
-        menu_style: kasane_core::protocol::default_unresolved_style(),
-        style: MenuStyle::Inline,
-    });
-
-    let registry = registry_with_builtins();
-
-    // Legacy pipeline
-    let mut legacy_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    let (_legacy_result, _) = render_pipeline(&state, &registry.view(), &mut legacy_grid);
-
-    // Salsa pipeline
-    let mut db = KasaneDatabase::default();
-    let mut handles = SalsaInputHandles::new(&mut db);
-    sync_inputs_from_state(&mut db, &state, &handles);
-
-    sync_display_directives(&mut db, &state, &registry.view(), &handles);
-    sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
-
-    let mut salsa_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    let (_salsa_result, _) = render_pipeline_cached(
-        &db,
-        &handles,
-        &state,
-        &registry.view(),
-        &mut salsa_grid,
-        DirtyFlags::ALL,
-        Default::default(),
-    );
-
-    // Compare cell grids
-    for y in 0..state.runtime.rows {
-        for x in 0..state.runtime.cols {
-            let l = legacy_grid.get(x, y);
-            let s = salsa_grid.get(x, y);
-            if let (Some(l), Some(s)) = (l, s) {
-                assert_eq!(
-                    l.grapheme, s.grapheme,
-                    "grapheme mismatch at ({x}, {y}): legacy={:?} salsa={:?}",
-                    l.grapheme, s.grapheme
-                );
-                assert_eq!(l.style, s.style, "style mismatch at ({x}, {y})");
-            }
-        }
-    }
 }

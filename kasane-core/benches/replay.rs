@@ -3,7 +3,12 @@ mod fixtures;
 use criterion::{Criterion, criterion_group, criterion_main};
 use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::parse_request;
-use kasane_core::render::{CellGrid, render_pipeline};
+use kasane_core::render::{CellGrid, RenderPipelineOptions, render_pipeline_cached};
+use kasane_core::salsa_db::KasaneDatabase;
+use kasane_core::salsa_sync::{
+    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
+};
+use kasane_core::state::DirtyFlags;
 
 use fixtures::{draw_json, draw_status_json, menu_show_json, typical_state};
 
@@ -81,12 +86,25 @@ fn replay_session(msgs: &[Vec<u8>]) {
     let mut state = typical_state(23);
     let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    let mut db = KasaneDatabase::default();
+    let mut handles = SalsaInputHandles::new(&mut db);
 
     for msg in msgs {
         let mut buf = msg.clone();
         let request = parse_request(&mut buf).unwrap();
         state.apply(request);
-        let _ = render_pipeline(&state, &registry.view(), &mut grid);
+        sync_inputs_from_state(&mut db, &state, &handles);
+        sync_display_directives(&mut db, &state, &registry.view(), &handles);
+        sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
+        let _ = render_pipeline_cached(
+            &db,
+            &handles,
+            &state,
+            &registry.view(),
+            &mut grid,
+            DirtyFlags::ALL,
+            RenderPipelineOptions::default(),
+        );
         let _ = grid.diff();
         grid.swap();
     }

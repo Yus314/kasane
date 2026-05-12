@@ -1,8 +1,10 @@
-//! Trace-equivalence property tests for rendering pipeline (ADR-016).
+//! Trace-equivalence property tests for the rendering pipeline (ADR-016).
 //!
-//! Verifies the invariant: for any valid AppState S,
-//! `render_pipeline(S)` produces deterministic output, and
-//! `render_pipeline_cached(S)` agrees with `render_pipeline(S)`.
+//! Verifies the invariant: for any valid `AppState` S, the Salsa-backed
+//! `render_pipeline_cached(S)` produces deterministic output across repeated
+//! calls. The legacy direct path retired in Phase γ-1.1, so determinism is
+//! now expressed on the canonical Salsa path alone — the prior
+//! "direct vs cached agreement" leg is no longer expressible.
 //!
 //! Uses proptest for mutation-based fuzzing from a rich base state.
 
@@ -255,7 +257,7 @@ fn multi_info_state() -> AppState {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(128))]
 
-    /// render_pipeline is deterministic: two calls with the same state produce identical grids.
+    /// The Salsa pipeline is deterministic: two calls with the same state produce identical grids.
     #[test]
     fn test_pipeline_deterministic(mutation in arb_mutation()) {
         let registry = PluginRuntime::new();
@@ -273,7 +275,7 @@ proptest! {
 // Deterministic tests: multiple base states
 // ---------------------------------------------------------------------------
 
-/// Test that render_pipeline produces consistent output across multiple state configurations.
+/// Test that the Salsa pipeline produces consistent output across multiple state configurations.
 #[test]
 fn test_multi_state_pipeline_consistency() {
     let registry = PluginRuntime::new();
@@ -287,7 +289,7 @@ fn test_multi_state_pipeline_consistency() {
     ];
 
     for (state_name, state) in &states {
-        // render_pipeline() is deterministic: same state → same grid
+        // The Salsa pipeline is deterministic: same state → same grid
         let grid1 = render_to_grid(state, &registry);
         let grid2 = render_to_grid(state, &registry);
         assert_grids_equal(&grid1, &grid2, &format!("determinism {state_name}"));

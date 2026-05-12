@@ -22,9 +22,12 @@ use crate::layout::flex::place;
 use crate::plugin::{Command, PluginRuntime};
 use crate::protocol::{Atom, Color, Line, NamedColor, WireFace};
 // Tests construct atoms with default style via Atom::plain.
-use crate::render::pipeline::render_pipeline;
 use crate::render::view;
-use crate::render::{CellGrid, paint};
+use crate::render::{CellGrid, RenderPipelineOptions, paint, render_pipeline_cached};
+use crate::salsa_db::KasaneDatabase;
+use crate::salsa_sync::{
+    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
+};
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::*;
 
@@ -93,17 +96,20 @@ pub fn render_with_registry(state: &AppState, registry: &PluginRuntime) -> CellG
     grid
 }
 
-/// Render to a fresh CellGrid using the non-cached pipeline.
+/// Render to a fresh CellGrid using the Salsa-backed pipeline.
+///
+/// Constructs an ephemeral `KasaneDatabase` + `SalsaInputHandles` per call,
+/// syncs inputs from `state`, and runs `render_pipeline_cached` with
+/// `DirtyFlags::ALL`. Tests that want to observe Salsa caching across frames
+/// should set up the database themselves.
 pub fn render_to_grid(state: &AppState, registry: &PluginRuntime) -> CellGrid {
-    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
-    grid.clear(&crate::render::TerminalStyle::from_style(
-        &state.observed.default_style,
-    ));
-    render_pipeline(state, &registry.view(), &mut grid);
+    let (grid, _) = render_to_grid_with_result(state, registry);
     grid
 }
 
-/// Render to a fresh CellGrid and return the RenderResult (cursor position, style, etc.).
+/// Render to a fresh CellGrid and return the `RenderResult` (cursor position,
+/// style, etc.) using the Salsa-backed pipeline. See [`render_to_grid`] for
+/// notes on the ephemeral Salsa setup.
 pub fn render_to_grid_with_result(
     state: &AppState,
     registry: &PluginRuntime,
@@ -112,7 +118,20 @@ pub fn render_to_grid_with_result(
     grid.clear(&crate::render::TerminalStyle::from_style(
         &state.observed.default_style,
     ));
-    let (result, _) = render_pipeline(state, &registry.view(), &mut grid);
+    let mut db = KasaneDatabase::default();
+    let mut handles = SalsaInputHandles::new(&mut db);
+    sync_inputs_from_state(&mut db, state, &handles);
+    sync_display_directives(&mut db, state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, state, &registry.view(), &mut handles);
+    let (result, _) = render_pipeline_cached(
+        &db,
+        &handles,
+        state,
+        &registry.view(),
+        &mut grid,
+        DirtyFlags::ALL,
+        RenderPipelineOptions::default(),
+    );
     (grid, result)
 }
 

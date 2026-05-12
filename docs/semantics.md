@@ -163,7 +163,7 @@ Element ≅ μX. P(X)
 
 The following axioms constrain the projection function and its implementation. Each axiom references the code or mechanism that enforces it.
 
-**A1 (Determinism)**: For identical World state, P produces identical Ω. Two calls to `render_pipeline(S)` with the same S yield byte-identical CellGrid output. Verified by `trace_equivalence.rs` property tests.
+**A1 (Determinism)**: For identical World state, P produces identical Ω. Two calls to `render_pipeline_cached(S)` with the same S yield byte-identical CellGrid output. Verified by `trace_equivalence.rs` property tests.
 
 **A2 (Truth Integrity)**: Observed state is stored exactly as received from Kakoune. No transformation, filtering, or policy is applied to `#[epistemic(observed)]` fields during `apply()`. Heuristic and derived fields are clearly separated by `#[epistemic]` compile-time annotations, and synthetic content (from display transformations) carries `SourceMapping::None` to prevent confusion with buffer content.
 
@@ -1050,7 +1050,7 @@ For identical World state, all implementation paths produce identical presentati
 ```text
 Theorem T1 (Presentation Equivalence):
   For all valid states S:
-    render_pipeline(S) produces deterministic output.
+    render_pipeline_cached(S) produces deterministic output.
     Two calls with identical S yield byte-identical CellGrid.
 ```
 
@@ -1072,23 +1072,32 @@ The backend's freedom is limited to "how to draw it" — rendering technology, n
 
 ### 12.3 T3: Incremental Equivalence
 
-The Salsa-cached production path must produce output identical to the reference full-pipeline path.
+The Salsa-cached production path produces deterministic output across
+identical-state calls — the cached-vs-direct equivalence formulation
+retired in Phase γ-1.1 along with the direct entry points.
 
 ```text
-Theorem T3 (Incremental Equivalence):
-  For all valid states S:
-    render_pipeline(S) ≡obs render_pipeline_cached(S)
+Theorem T3 (Incremental Determinism):
+  For all valid states S and dirty flag sequences D₁, D₂:
+    render_pipeline_cached(S, D₁) ≡obs render_pipeline_cached(S, D₂)
   where ≡obs denotes identity of the final CellGrid / DrawCommand
-  sequence as observable output.
+  sequence as observable output. The selective-clear / Salsa-memoization
+  optimisations under DirtyFlags must preserve the output of a full
+  `DirtyFlags::ALL` render.
 ```
 
-Pipeline variants:
+The sole production entry points are:
 
-- `render_pipeline` — DirectViewSource, `DirtyFlags::ALL` hardcoded. Reference path for correctness testing.
-- `render_pipeline_direct` — DirectViewSource with explicit `DirtyFlags` parameter. Used in incremental rendering benchmarks.
-- `render_pipeline_cached` — SalsaViewSource. Production path with Salsa memoization.
+- `render_pipeline_cached` — TUI grid path, `SalsaViewSource`.
+- `scene_render_pipeline_cached` — GPU scene path, `SalsaViewSource` +
+  `SceneCache` per-section invalidation.
 
-Salsa is an optimization, not a theoretical primitive. T3 guarantees that the optimization preserves semantics. Verified by `salsa_pipeline_comparison.rs` and `trace_equivalence.rs`.
+Salsa memoization is the canonical path (ADR-047); there is no
+separate reference path that bypasses it. T3 is verified by
+`trace_equivalence.rs` proptest mutations (each property holds the
+same state across repeated `render_to_grid` calls — the helper sets
+up a fresh Salsa db each time, so caching artefacts cannot mask a
+non-determinism in the rendering body).
 
 ### 12.4 T4: Composition Determinism
 
@@ -1161,7 +1170,7 @@ Theorem T8 (Kakoune Bisimulation):
 
 Under Extended Frontend Semantics, R may be weakened: plugin-driven Destructive Display Transformations (§10.2) without advertised recovery interaction permit Kasane's rendered output to diverge from Kakoune's ncurses rendering, breaking clause (ii). When this happens the user is responsible for the divergence through explicit plugin configuration.
 
-Empirical evidence for R's existence on the native rendering path is provided by `trace_equivalence.rs` property tests (proptest-generated state mutations) and `salsa_pipeline_comparison.rs` (Salsa vs direct path equivalence).
+Empirical evidence for R's existence on the native rendering path is provided by `trace_equivalence.rs` property tests (proptest-generated state mutations against the Salsa pipeline). The dedicated direct-vs-Salsa parity harness (`salsa_pipeline_comparison.rs`) retired in Phase γ-1.1 along with the legacy direct path.
 
 ### 12.9 T9: Delta Coherence
 
@@ -1263,7 +1272,7 @@ T12 records the algebraic structure already present in `plugin/command.rs`. Proo
 What tests primarily guarantee are the following properties.
 
 - Presentation equivalence (T1) via proptest in `trace_equivalence.rs`
-- Incremental equivalence (T3) via `salsa_pipeline_comparison.rs` and `trace_equivalence.rs`
+- Incremental determinism (T3) via `trace_equivalence.rs` (the direct-vs-Salsa parity harness retired with Phase γ-1.1)
 - Empirical evidence for weak bisimulation (T8) via the same property tests — any divergence in rendered output between identical input sequences indicates a violation of R
 - Plugin cache invalidation consistency (generation counter state hash)
 - Preservation of semantics shared across backends (T2)

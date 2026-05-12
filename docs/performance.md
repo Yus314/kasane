@@ -269,11 +269,15 @@ Measured with `--features bench-alloc` (debug profile, single frame at 80x24).
 
 ### Scene Encoding Allocations (ADR-032 W5 input)
 
-`scene_render_pipeline` is the boundary that any future GPU renderer (Vello
-or hand-rolled wgpu) consumes. The numbers below are the **baseline that a
-replacement backend must clear without per-frame regression**, satisfying
-ADR-032 §Spike Measurement Matrix's "Per-frame CPU heap allocations during
-Scene encode" row. Captured 2026-05-01 with `--features bench-alloc`.
+`scene_render_pipeline_cached` is the boundary that any future GPU renderer
+(Vello or hand-rolled wgpu) consumes. The numbers below are the **baseline
+that a replacement backend must clear without per-frame regression**,
+satisfying ADR-032 §Spike Measurement Matrix's "Per-frame CPU heap
+allocations during Scene encode" row. Captured 2026-05-01 with
+`--features bench-alloc`. The numbers were recorded against the
+`scene_render_pipeline` direct path that Phase γ-1.1 retired; the
+allocation counts apply to the Salsa-path equivalent since both call
+`scene_render_core` with identical body.
 
 | Scenario | Alloc Count | Bytes | DrawCommands |
 |---|---|---|---|
@@ -310,7 +314,7 @@ CompactString):
 |---|---|---|
 | `view::view` (Element tree) | 57 | per-phase breakdown above |
 | `flex::place` (layout) | 29 | per-phase breakdown above |
-| `scene_render_pipeline` total | 163 | scene-specific bench |
+| `scene_render_pipeline_cached` total | 163 | scene-specific bench |
 | **Scene walk + DrawCommand emit** (derived) | **77** | = 163 − 57 − 29 |
 
 Scene walk + emission now accounts for ~47 % (77 / 163) of allocations
