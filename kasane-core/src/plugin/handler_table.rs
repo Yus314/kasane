@@ -681,7 +681,9 @@ impl HandlerTable {
         if self.key_handler.is_some()
             || self.key_middleware_handler.is_some()
             || self.text_input_handler.is_some()
+            || self.observe_key_handler.is_some()
             || self.observe_text_input_handler.is_some()
+            || self.observe_mouse_handler.is_some()
             || self.handle_mouse_handler.is_some()
             || self.key_map.is_some()
         {

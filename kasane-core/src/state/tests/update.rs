@@ -5,8 +5,7 @@ use crate::element::InteractiveId;
 use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::{Rect, build_hit_map};
 use crate::plugin::{
-    AppView, Command, Effects, KeyHandleResult, NullEffects, PluginBackend, PluginId,
-    PluginRuntime, RecordingEffects,
+    Command, Effects, KeyHandleResult, NullEffects, PluginId, PluginRuntime, RecordingEffects,
 };
 use crate::protocol::{Coord, KakouneRequest, KasaneRequest};
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
@@ -125,24 +124,26 @@ fn test_update_focus_gained() {
 #[test]
 fn test_update_plugin_handles_key() {
     struct KeyPlugin;
-    impl PluginBackend for KeyPlugin {
+    impl crate::plugin::Plugin for KeyPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("key_plugin".into())
         }
-        fn handle_key(
-            &mut self,
-            _key: &crate::input::KeyEvent,
-            _state: &AppView<'_>,
-        ) -> Option<Vec<Command>> {
-            Some(vec![Command::SendToKakoune(
-                crate::protocol::KasaneRequest::Keys(vec!["<esc>".to_string()]),
-            )])
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.on_key(|_state, _key, _app| {
+                Some((
+                    (),
+                    vec![Command::SendToKakoune(
+                        crate::protocol::KasaneRequest::Keys(vec!["<esc>".to_string()]),
+                    )],
+                ))
+            });
         }
     }
 
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(KeyPlugin));
+    registry.register(KeyPlugin);
 
     let key = crate::input::KeyEvent {
         key: crate::input::Key::Char('a'),
@@ -167,30 +168,29 @@ fn test_update_plugin_handles_key() {
 #[test]
 fn test_update_key_forwards_transformed_key_to_kakoune() {
     struct TransformPlugin;
-    impl PluginBackend for TransformPlugin {
+    impl crate::plugin::Plugin for TransformPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("transform".into())
         }
-
-        fn handle_key_middleware(
-            &mut self,
-            key: &KeyEvent,
-            _state: &AppView<'_>,
-        ) -> KeyHandleResult {
-            if key.key == Key::Char('a') {
-                KeyHandleResult::Transformed(KeyEvent {
-                    key: Key::Char('b'),
-                    modifiers: Modifiers::SHIFT,
-                })
-            } else {
-                KeyHandleResult::Passthrough
-            }
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.on_key_middleware(|state, key, _app| {
+                let result = if key.key == Key::Char('a') {
+                    KeyHandleResult::Transformed(KeyEvent {
+                        key: Key::Char('b'),
+                        modifiers: Modifiers::SHIFT,
+                    })
+                } else {
+                    KeyHandleResult::Passthrough
+                };
+                (state.clone(), result)
+            });
         }
     }
 
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TransformPlugin));
+    registry.register(TransformPlugin);
 
     let result = update_in_place(
         &mut state,
@@ -216,52 +216,50 @@ fn test_update_key_forwards_transformed_key_to_kakoune() {
 #[test]
 fn test_update_key_transformed_then_consumed_by_next_plugin() {
     struct TransformPlugin;
-    impl PluginBackend for TransformPlugin {
+    impl crate::plugin::Plugin for TransformPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("transform".into())
         }
-
-        fn handle_key_middleware(
-            &mut self,
-            key: &KeyEvent,
-            _state: &AppView<'_>,
-        ) -> KeyHandleResult {
-            if key.key == Key::Char('a') {
-                KeyHandleResult::Transformed(KeyEvent {
-                    key: Key::Char('b'),
-                    modifiers: Modifiers::empty(),
-                })
-            } else {
-                KeyHandleResult::Passthrough
-            }
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.on_key_middleware(|state, key, _app| {
+                let result = if key.key == Key::Char('a') {
+                    KeyHandleResult::Transformed(KeyEvent {
+                        key: Key::Char('b'),
+                        modifiers: Modifiers::empty(),
+                    })
+                } else {
+                    KeyHandleResult::Passthrough
+                };
+                (state.clone(), result)
+            });
         }
     }
 
     struct ConsumePlugin;
-    impl PluginBackend for ConsumePlugin {
+    impl crate::plugin::Plugin for ConsumePlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("consume".into())
         }
-
-        fn handle_key_middleware(
-            &mut self,
-            key: &KeyEvent,
-            _state: &AppView<'_>,
-        ) -> KeyHandleResult {
-            if key.key == Key::Char('b') {
-                KeyHandleResult::Consumed(vec![Command::SendToKakoune(KasaneRequest::Keys(vec![
-                    "consumed".to_string(),
-                ]))])
-            } else {
-                KeyHandleResult::Passthrough
-            }
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.on_key_middleware(|state, key, _app| {
+                let result = if key.key == Key::Char('b') {
+                    KeyHandleResult::Consumed(vec![Command::SendToKakoune(KasaneRequest::Keys(
+                        vec!["consumed".to_string()],
+                    ))])
+                } else {
+                    KeyHandleResult::Passthrough
+                };
+                (state.clone(), result)
+            });
         }
     }
 
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TransformPlugin));
-    registry.register_backend(Box::new(ConsumePlugin));
+    registry.register(TransformPlugin);
+    registry.register(ConsumePlugin);
 
     let result = update_in_place(
         &mut state,
@@ -287,17 +285,15 @@ fn test_update_key_transformed_then_consumed_by_next_plugin() {
 #[test]
 fn test_update_mouse_routes_to_plugin() {
     struct MousePlugin;
-    impl PluginBackend for MousePlugin {
+    impl crate::plugin::Plugin for MousePlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("mouse_plugin".into())
         }
-        fn handle_mouse(
-            &mut self,
-            _event: &MouseEvent,
-            _id: InteractiveId,
-            _state: &AppView<'_>,
-        ) -> Option<Vec<Command>> {
-            Some(vec![Command::RequestRedraw(DirtyFlags::INFO)])
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.on_handle_mouse(|_state, _event, _id, _app| {
+                Some(((), vec![Command::RequestRedraw(DirtyFlags::INFO)]))
+            });
         }
     }
 
@@ -305,7 +301,7 @@ fn test_update_mouse_routes_to_plugin() {
     state.runtime.cols = 80;
     state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(MousePlugin));
+    registry.register(MousePlugin);
 
     // Build a HitMap with an interactive region at (5,3)-(12,3)
     let el = crate::element::Element::Interactive {
@@ -368,18 +364,22 @@ fn test_observe_key_called_for_all_plugins() {
     let observed = Arc::new(AtomicBool::new(false));
 
     struct ObserverPlugin(Arc<AtomicBool>);
-    impl PluginBackend for ObserverPlugin {
+    impl crate::plugin::Plugin for ObserverPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("observer".into())
         }
-        fn observe_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) {
-            self.0.store(true, Ordering::Relaxed);
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            let flag = self.0.clone();
+            r.on_observe_key(move |_state, _key, _app| {
+                flag.store(true, Ordering::Relaxed);
+            });
         }
     }
 
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ObserverPlugin(observed.clone())));
+    registry.register(ObserverPlugin(observed.clone()));
 
     let key = KeyEvent {
         key: Key::Char('x'),
@@ -395,29 +395,34 @@ fn test_observe_key_called_even_when_plugin_handles() {
     let observed = Arc::new(AtomicBool::new(false));
 
     struct ObserverPlugin(Arc<AtomicBool>);
-    impl PluginBackend for ObserverPlugin {
+    impl crate::plugin::Plugin for ObserverPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("observer".into())
         }
-        fn observe_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) {
-            self.0.store(true, Ordering::Relaxed);
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            let flag = self.0.clone();
+            r.on_observe_key(move |_state, _key, _app| {
+                flag.store(true, Ordering::Relaxed);
+            });
         }
     }
 
     struct HandlerPlugin;
-    impl PluginBackend for HandlerPlugin {
+    impl crate::plugin::Plugin for HandlerPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("handler".into())
         }
-        fn handle_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
-            Some(vec![])
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.on_key(|_state, _key, _app| Some(((), Vec::<Command>::new())));
         }
     }
 
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ObserverPlugin(observed.clone())));
-    registry.register_backend(Box::new(HandlerPlugin));
+    registry.register(ObserverPlugin(observed.clone()));
+    registry.register(HandlerPlugin);
 
     let key = KeyEvent {
         key: Key::Char('x'),
@@ -432,18 +437,22 @@ fn test_observe_text_input_called_for_all_plugins() {
     let observed = Arc::new(AtomicBool::new(false));
 
     struct ObserverPlugin(Arc<AtomicBool>);
-    impl PluginBackend for ObserverPlugin {
+    impl crate::plugin::Plugin for ObserverPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("observer".into())
         }
-        fn observe_text_input(&mut self, _text: &str, _state: &AppView<'_>) {
-            self.0.store(true, Ordering::Relaxed);
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            let flag = self.0.clone();
+            r.on_observe_text_input(move |_state, _text, _app| {
+                flag.store(true, Ordering::Relaxed);
+            });
         }
     }
 
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ObserverPlugin(observed.clone())));
+    registry.register(ObserverPlugin(observed.clone()));
 
     let _ = update_in_place(&mut state, Msg::TextInput("text".into()), &mut registry, 3);
     assert!(observed.load(Ordering::Relaxed));
@@ -452,18 +461,21 @@ fn test_observe_text_input_called_for_all_plugins() {
 #[test]
 fn test_plugin_can_handle_text_input() {
     struct TextPlugin;
-    impl PluginBackend for TextPlugin {
+    impl crate::plugin::Plugin for TextPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("text_plugin".into())
         }
-        fn handle_text_input(&mut self, text: &str, _state: &AppView<'_>) -> Option<Vec<Command>> {
-            Some(vec![Command::InsertText(text.to_uppercase())])
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.on_text_input(|_state, text, _app| {
+                Some(((), vec![Command::InsertText(text.to_uppercase())]))
+            });
         }
     }
 
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TextPlugin));
+    registry.register(TextPlugin);
 
     let result = update_in_place(&mut state, Msg::TextInput("abc".into()), &mut registry, 3);
 
@@ -479,24 +491,30 @@ fn test_plugin_can_handle_text_input() {
 #[test]
 fn test_plugin_can_override_pageup() {
     struct PageUpPlugin;
-    impl PluginBackend for PageUpPlugin {
+    impl crate::plugin::Plugin for PageUpPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("pageup_override".into())
         }
-        fn handle_key(&mut self, key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
-            if key.key == Key::PageUp {
-                Some(vec![Command::SendToKakoune(KasaneRequest::Keys(vec![
-                    "custom_pageup".to_string(),
-                ]))])
-            } else {
-                None
-            }
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.on_key(|_state, key, _app| {
+                if key.key == Key::PageUp {
+                    Some((
+                        (),
+                        vec![Command::SendToKakoune(KasaneRequest::Keys(vec![
+                            "custom_pageup".to_string(),
+                        ]))],
+                    ))
+                } else {
+                    None
+                }
+            });
         }
     }
 
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(PageUpPlugin));
+    registry.register(PageUpPlugin);
 
     let key = KeyEvent {
         key: Key::PageUp,
@@ -517,12 +535,16 @@ fn test_observe_mouse_called_without_hit_test() {
     let observed = Arc::new(AtomicBool::new(false));
 
     struct MouseObserver(Arc<AtomicBool>);
-    impl PluginBackend for MouseObserver {
+    impl crate::plugin::Plugin for MouseObserver {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("mouse_observer".into())
         }
-        fn observe_mouse(&mut self, _event: &MouseEvent, _state: &AppView<'_>) {
-            self.0.store(true, Ordering::Relaxed);
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            let flag = self.0.clone();
+            r.on_observe_mouse(move |_state, _event, _app| {
+                flag.store(true, Ordering::Relaxed);
+            });
         }
     }
 
@@ -530,7 +552,7 @@ fn test_observe_mouse_called_without_hit_test() {
     state.runtime.cols = 80;
     state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(MouseObserver(observed.clone())));
+    registry.register(MouseObserver(observed.clone()));
     // No interactive regions → hit_test returns None
 
     let mouse = MouseEvent {
@@ -548,21 +570,25 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
     let called = Arc::new(AtomicBool::new(false));
 
     struct StateWatcher(Arc<AtomicBool>);
-    impl PluginBackend for StateWatcher {
+    impl crate::plugin::Plugin for StateWatcher {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("watcher".into())
         }
-        fn on_state_changed_effects(&mut self, _state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
-            if dirty.contains(DirtyFlags::BUFFER) {
-                self.0.store(true, Ordering::Relaxed);
-            }
-            Effects::default()
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            let flag = self.0.clone();
+            r.on_state_changed_tier1(move |_state, _app, dirty| {
+                if dirty.contains(DirtyFlags::BUFFER) {
+                    flag.store(true, Ordering::Relaxed);
+                }
+                ((), crate::plugin::KakouneSideEffects::none())
+            });
         }
     }
 
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(StateWatcher(called.clone())));
+    registry.register(StateWatcher(called.clone()));
 
     let flags = update_in_place(
         &mut state,
@@ -585,34 +611,33 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
 fn test_on_state_changed_effects_return_scroll_plans() {
     struct StateWatcher;
 
-    impl PluginBackend for StateWatcher {
+    impl crate::plugin::Plugin for StateWatcher {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("watcher-effects".into())
         }
-
-        fn on_state_changed_effects(&mut self, _state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
-            if !dirty.contains(DirtyFlags::BUFFER) {
-                return Effects::default();
-            }
-            Effects {
-                redraw: DirtyFlags::STATUS,
-                commands: vec![],
-                scroll_plans: vec![ScrollPlan {
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            r.on_state_changed_tier1(|_state, _app, dirty| {
+                if !dirty.contains(DirtyFlags::BUFFER) {
+                    return ((), crate::plugin::KakouneSideEffects::none());
+                }
+                let mut effects = crate::plugin::KakouneSideEffects::redraw(DirtyFlags::STATUS);
+                effects.base.scroll_plans.push(ScrollPlan {
                     total_amount: 4,
                     line: 1,
                     column: 2,
                     frame_interval_ms: 16,
                     curve: ScrollCurve::Linear,
                     accumulation: ScrollAccumulationMode::Add,
-                }],
-                state_updates: Default::default(),
-            }
+                });
+                ((), effects)
+            });
         }
     }
 
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(StateWatcher));
+    registry.register(StateWatcher);
 
     let result = update_in_place(
         &mut state,
@@ -951,21 +976,34 @@ struct StateChangedSpawner {
     job_id: u64,
 }
 
-impl PluginBackend for StateChangedSpawner {
+impl crate::plugin::Plugin for StateChangedSpawner {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId(self.id.to_string())
     }
 
-    fn on_state_changed_effects(&mut self, _state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
-        if !dirty.contains(DirtyFlags::BUFFER) {
-            return Effects::default();
-        }
-        Effects::with(vec![Command::SpawnProcess {
-            job_id: self.job_id,
-            program: "fd".to_string(),
-            args: vec!["needle".to_string()],
-            stdin_mode: crate::plugin::StdinMode::Null,
-        }])
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        let job_id = self.job_id;
+        // Uses the deprecated Effects-returning variant because the
+        // SpawnProcess command lives outside KakouneSideCommand / Tier-1;
+        // the fixture intentionally exercises the legacy broad-Effects
+        // path that ADR-042 audits.
+        #[allow(deprecated)]
+        r.on_state_changed(move |_state, _app, dirty| {
+            if !dirty.contains(DirtyFlags::BUFFER) {
+                return ((), Effects::default());
+            }
+            (
+                (),
+                Effects::with(vec![Command::SpawnProcess {
+                    job_id,
+                    program: "fd".to_string(),
+                    args: vec!["needle".to_string()],
+                    stdin_mode: crate::plugin::StdinMode::Null,
+                }]),
+            )
+        });
     }
 }
 
@@ -973,10 +1011,10 @@ impl PluginBackend for StateChangedSpawner {
 fn state_changed_spawn_carries_source_plugin() {
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(StateChangedSpawner {
+    registry.register(StateChangedSpawner {
         id: "sprout-style",
         job_id: 7,
-    }));
+    });
 
     let result = update_in_place(
         &mut state,
@@ -1017,14 +1055,14 @@ fn state_changed_spawn_carries_source_plugin() {
 fn state_changed_spawn_preserves_attribution_for_each_plugin() {
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(StateChangedSpawner {
+    registry.register(StateChangedSpawner {
         id: "alpha",
         job_id: 11,
-    }));
-    registry.register_backend(Box::new(StateChangedSpawner {
+    });
+    registry.register(StateChangedSpawner {
         id: "beta",
         job_id: 22,
-    }));
+    });
 
     let result = update_in_place(
         &mut state,
