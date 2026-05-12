@@ -778,25 +778,28 @@ fn generate_v2_plugin(def: &PluginDefV2, module: &ItemMod) -> syn::Result<TokenS
         });
     }
 
-    // Lifecycle handlers
+    // Lifecycle handlers — emit tier-typed setters (ADR-044 W1-A).
+    // User fn return types must match the setter's bound:
+    // - on_init / on_session_ready / on_state_changed: (S, KakouneSideEffects)
+    // - on_io_event: (S, ProcessCapableEffects)
     if def.on_init {
         register_body.push(quote! {
-            r.on_init(|state, app| #mod_ident::on_init(state, app));
+            r.on_init_tier1(|state, app| #mod_ident::on_init(state, app));
         });
     }
     if def.on_session_ready {
         register_body.push(quote! {
-            r.on_session_ready(|state, app| #mod_ident::on_session_ready(state, app));
+            r.on_session_ready_tier1(|state, app| #mod_ident::on_session_ready(state, app));
         });
     }
     if def.on_state_changed {
         register_body.push(quote! {
-            r.on_state_changed(|state, app, dirty| #mod_ident::on_state_changed(state, app, dirty));
+            r.on_state_changed_tier1(|state, app, dirty| #mod_ident::on_state_changed(state, app, dirty));
         });
     }
     if def.on_io_event {
         register_body.push(quote! {
-            r.on_io_event(|state, event, app| #mod_ident::on_io_event(state, event, app));
+            r.on_io_event_tier2(|state, event, app| #mod_ident::on_io_event(state, event, app));
         });
     }
     if def.on_shutdown {
@@ -914,13 +917,9 @@ fn generate_v2_plugin(def: &PluginDefV2, module: &ItemMod) -> syn::Result<TokenS
                 kasane_core::plugin::PluginId(#id_str.to_string())
             }
 
-            // ADR-044 A-3g: the `#[kasane::plugin]` macro routes legacy
-            // attribute hooks (`#[on_state_changed]`, `#[on_init]`, etc.) to
-            // the broad `Effects`-typed setters. Until the macro learns to
-            // emit tier setters based on the user fn's return type, suppress
-            // the deprecation warning at the emission boundary so plugin
-            // authors are not blamed for an internal routing choice.
-            #[allow(deprecated)]
+            // Emits tier-typed setters (on_init_tier1, on_state_changed_tier1,
+            // on_io_event_tier2, etc.). User attribute fns must return the
+            // matching tier-typed effects (KakouneSideEffects / ProcessCapableEffects).
             fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<#state_type>) {
                 #(#register_body)*
             }
