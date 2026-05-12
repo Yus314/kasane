@@ -147,12 +147,13 @@ Decisions taken at program open:
 |---|---|---|
 | 0.1 — Bench baselines | 🟡 in flight | `cargo bench --bench rendering_pipeline -- --save-baseline phase0` for comparison after each subsequent PR |
 | 0.2 — Salsa path static analysis | ✅ 2026-05-12 | Static trace confirmed canonical; `MEMORY.md` index for extensibility-gap memo updated to reflect resolved state |
-| 0.3 — ADR-047 / ADR-048 drafts | ✅ 2026-05-12 | Both ADRs landed in `decisions.md` |
-| α-1 — Complete ADR-045 (delete `extension_point.rs` + WIT export + manifest fields) | pending | Subsumes ADR-046 F-1b. Touches `kasane-plugin-package` manifest schema and `kasane-plugin-sdk-macros::defaults`; all bundled / fixture WASM rebuild |
-| α-2 — Migrate `BuiltinDiagnosticsPlugin` to `Plugin` trait | pending | Last production `impl PluginBackend` outside `kasane-wasm` (`kasane/src/builtins/diagnostics.rs:21`) |
-| α-3 — Delete 7 deprecated lifecycle setters | pending | Subsumes ADR-046 W1-B |
-| α-4 — Delete legacy `#[kasane_plugin]` macro mode | pending | Subsumes ADR-046 W1-A reshape concern. SDK macros `defaults.rs` / `sdk_helpers.rs` cleanup follows |
-| α-5 — Extract `handler_registry/mod.rs` test block | pending | 999 LoC → ~200 LoC + dedicated tests/ subdir |
+| 0.3 — ADR-047 / ADR-048 drafts | ✅ 2026-05-12 (`abcac0f0`) | Both ADRs landed in `decisions.md` |
+| α-1 partial — Rust-side ADR-045 cleanup | ✅ 2026-05-12 (`3dee4e9a`) | 6 files, -86 / +5 LoC. `extension_point.rs` deleted; `CapabilityDescriptor.extensions_*` fields, `plugin_prelude::ExtensionPointId`, and `kasane-plugin-package` manifest schema cleaned. WIT `evaluate-extension` export + `kasane-plugin-sdk-macros::defaults::evaluate_extension` default impl deferred to Phase β-4 (WIT 6.0.0 bundle) |
+| α-2 — Migrate `BuiltinDiagnosticsPlugin` to `Plugin` trait | ✅ 2026-05-12 (`4eee0984`) | Last production `impl PluginBackend` outside `kasane-wasm` (`kasane/src/builtins/diagnostics.rs:21`); switched to `r.on_overlay` registration |
+| α-3 prep — internal fixtures + v2 macro migrated to tier-typed setters | ✅ 2026-05-12 (`38b3dfe6` + `581fcc70`) | `state.rs` test plugins, `handler_registry/tests.rs`, `tests/registry.rs PublisherPlugin`, and `plugin_v2_basic` trybuild fixture all switched to `_tier1`/`_tier2`. v2 macro emission now generates `on_init_tier1` / `on_session_ready_tier1` / `on_state_changed_tier1` / `on_io_event_tier2` |
+| α-3 deletion — delete 7 deprecated setters | pending | Blocker: `bridge.rs::AllHandlersPlugin` (exhaustive_handler_dispatch_coverage fixture) intentionally exercises every legacy setter; bundle with Phase β-3 when the fixture itself becomes obsolete |
+| α-4 — Delete legacy `#[kasane_plugin]` macro mode | pending | `kasane-macros/src/plugin.rs::expand_kasane_plugin` (~600 LoC) + 5 legacy-macro consumers (plugin_integration.rs, external_plugin.rs, 7 trybuild fixtures). Phase β-3 deletes PluginBackend so legacy macro becomes uncompilable then; bundle |
+| α-5 — Extract `handler_registry/mod.rs` test block | ✅ 2026-05-12 (`fa3aae3a`) | 999→382 LoC; `tests.rs` sibling (616 LoC). 41 tests verified |
 | β-prep — One-method dispatch spike + iai_pipeline measurement | pending | GO/NO-GO gate for Phase β commitment |
 | β-1 — Introduce `PluginEntry`, keep `PluginBackend` adapter | pending | `PluginRuntime::plugins: Vec<PluginEntry>`; bridge still wraps |
 | β-2 — Migrate ≈50 test fixtures to `impl Plugin` | pending | Mostly mechanical; state-bearing fixtures verified individually |
