@@ -21,9 +21,26 @@ pub struct TreeSitterProvider {
     language_name: String,
 }
 
-// SAFETY: tree_sitter::Parser and tree_sitter::Tree are not Send by default,
-// but we only access them from a single thread (SyntaxManager serializes access).
-// The AtomicU64 generation counter is the only field read concurrently.
+// SAFETY (Send): `tree_sitter::Parser` carries a raw `*mut TSParser` and is
+// therefore not auto-`Send`. We never share a `&Parser` across threads — the
+// only `&mut self` method on `TreeSitterProvider` is `update`, which the
+// `SyntaxManager` invokes only when it holds the unique `Arc::get_mut`
+// reference (refcount == 1, no other thread can observe the provider). All
+// other ownership transfers move the whole `TreeSitterProvider` value, so
+// the underlying `TSParser` only sees one thread at a time. `tree_sitter::Tree`
+// is already `Send` upstream, and the remaining fields (`Vec<u8>`,
+// `AtomicU64`, `Option<Query>`, `String`) are `Send` by composition.
+//
+// SAFETY (Sync): once a `TreeSitterProvider` is wrapped in `Arc` and published
+// to `state.runtime.syntax_provider`, only the `&self` `SyntaxProvider` trait
+// methods are reachable. They (a) read `self.tree` / `self.source` immutably,
+// (b) construct a fresh `tree_sitter::QueryCursor` on the stack per call
+// (cursors are non-`Sync` but never escape the call frame), and (c) touch
+// `generation: AtomicU64` only via atomic ops. `tree_sitter::Tree` is `Sync`
+// upstream (concurrent read-only traversal is the documented use case), so
+// concurrent invocation of these read-only methods is sound. Mutation paths
+// remain gated by the `&mut self` borrow above, which the `Arc::get_mut`
+// discipline excludes from concurrency.
 unsafe impl Send for TreeSitterProvider {}
 unsafe impl Sync for TreeSitterProvider {}
 
