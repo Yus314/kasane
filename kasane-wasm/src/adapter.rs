@@ -791,6 +791,10 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
 ///   conditionally `on_navigation_policy` and `on_navigation_action`
 ///   when the matching capability bit is set, `on_overlay`,
 ///   `on_buffer_edit_intercept`)
+/// - **β-3.3b.9 — Persistence + workspace** (3 handlers:
+///   `on_persist_state`, `on_restore_state`, `declare_surfaces`;
+///   `workspace_request` skipped — `WasmPlugin` does not override
+///   the trait default of `None`)
 impl Plugin for WasmPlugin {
     type State = ();
 
@@ -1466,6 +1470,87 @@ impl Plugin for WasmPlugin {
             );
             ((), verdict)
         });
+
+        // ---- β-3.3b.9 — Persistence + workspace ----
+        // persist_state → on_persist_state. Empty WIT response and
+        // trap return None, matching the trait method's `Ok(data) if
+        // !data.is_empty()` filter.
+        let shared = Arc::clone(&self.shared);
+        r.on_persist_state(move |_state| {
+            shared.with_runtime(|runtime| {
+                let api = runtime.instance.kasane_plugin_plugin_api();
+                match api.call_persist_state(&mut runtime.store) {
+                    Ok(data) if !data.is_empty() => Some(data),
+                    Ok(_) => None,
+                    Err(e) => {
+                        tracing::warn!(
+                            "WASM plugin {}.persist_state failed: {e}",
+                            shared.plugin_id.0
+                        );
+                        None
+                    }
+                }
+            })
+        });
+
+        // restore_state → on_restore_state.
+        let shared = Arc::clone(&self.shared);
+        r.on_restore_state(move |_state, data| {
+            shared.with_runtime(|runtime| {
+                let api = runtime.instance.kasane_plugin_plugin_api();
+                match api.call_restore_state(&mut runtime.store, data) {
+                    Ok(success) => success,
+                    Err(e) => {
+                        tracing::warn!(
+                            "WASM plugin {}.restore_state failed: {e}",
+                            shared.plugin_id.0
+                        );
+                        false
+                    }
+                }
+            })
+        });
+
+        // surfaces → declare_surfaces. The factory queries the WIT
+        // `surfaces` export each time (matching the trait method's
+        // per-call WIT round-trip); the host invokes the factory during
+        // bootstrap preflight, so the WIT call happens once during
+        // workspace materialization.
+        let shared = Arc::clone(&self.shared);
+        r.declare_surfaces(move |_state| {
+            let shared_for_surfaces = Arc::clone(&shared);
+            shared.with_runtime(|runtime| {
+                let api = runtime.instance.kasane_plugin_plugin_api();
+                match api.call_surfaces(&mut runtime.store) {
+                    Ok(descriptors) => descriptors
+                        .into_iter()
+                        .map(|descriptor| {
+                            let initial_placement = descriptor
+                                .initial_placement
+                                .as_ref()
+                                .map(convert::wit_surface_placement_to_request);
+                            shared_for_surfaces.hosted_surface(
+                                descriptor.surface_key,
+                                descriptor.size_hint,
+                                descriptor.declared_slots,
+                                initial_placement,
+                            )
+                        })
+                        .collect(),
+                    Err(e) => {
+                        tracing::error!(
+                            "WASM plugin {}.surfaces failed: {e}",
+                            shared_for_surfaces.plugin_id.0
+                        );
+                        vec![]
+                    }
+                }
+            })
+        });
+
+        // workspace_request: WasmPlugin does not override the trait
+        // default (`None`), so no `declare_workspace_request` call is
+        // needed. The cap remains `None` once the loader flips.
     }
 }
 

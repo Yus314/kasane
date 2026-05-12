@@ -466,6 +466,20 @@ impl PluginBackend for PluginBridge {
         dispatch_state_only!(self, workspace_restore_handler, data);
     }
 
+    fn persist_state(&self) -> Option<Vec<u8>> {
+        self.table
+            .persist_state_handler
+            .as_ref()
+            .and_then(|h| h(&*self.state))
+    }
+
+    fn restore_state(&mut self, data: &[u8]) -> bool {
+        self.table
+            .restore_state_handler
+            .as_ref()
+            .is_some_and(|h| h(&*self.state, data))
+    }
+
     // === Input ===
 
     fn observe_key(&mut self, key: &KeyEvent, app: &AppView<'_>) {

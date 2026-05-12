@@ -238,6 +238,47 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         }));
     }
 
+    /// Register an opaque-bytes hot-reload persistence handler.
+    ///
+    /// Counterpart to [`Self::on_workspace_save`] for plugins whose
+    /// underlying contract is bytes rather than structured JSON —
+    /// primarily WASM plugins via the `persist-state` WIT export. Called
+    /// during hot-reload save; return `Some(bytes)` to opt into
+    /// `restore-state` being invoked after the reload.
+    pub fn on_persist_state(
+        &mut self,
+        handler: impl Fn(&S) -> Option<Vec<u8>> + Send + Sync + 'static,
+    ) {
+        self.table.persist_state_handler = Some(Box::new(move |state| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s)
+        }));
+    }
+
+    /// Register an opaque-bytes hot-reload restore handler.
+    ///
+    /// Counterpart to [`Self::on_workspace_restore`] for plugins whose
+    /// underlying contract is bytes — primarily WASM plugins via the
+    /// `restore-state` WIT export. Called with the bytes returned by
+    /// the matching `persist-state` from the previous instance. Returns
+    /// `true` if the bytes were applied; `false` to signal a
+    /// schema/version mismatch (the host then drops them).
+    pub fn on_restore_state(
+        &mut self,
+        handler: impl Fn(&S, &[u8]) -> bool + Send + Sync + 'static,
+    ) {
+        self.table.restore_state_handler = Some(Box::new(move |state, data| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, data)
+        }));
+    }
+
     /// Register a shutdown handler.
     pub fn on_shutdown(&mut self, handler: impl Fn(&S) + Send + Sync + 'static) {
         register_void!(self, shutdown_handler, handler);

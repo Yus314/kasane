@@ -72,6 +72,14 @@ pub(crate) type ErasedWorkspaceSaveHandler =
     Box<dyn Fn(&dyn PluginState) -> Option<serde_json::Value> + Send + Sync>;
 pub(crate) type ErasedWorkspaceRestoreHandler =
     Box<dyn Fn(&dyn PluginState, &serde_json::Value) -> Box<dyn PluginState> + Send + Sync>;
+/// Opaque-bytes counterpart to [`ErasedWorkspaceSaveHandler`]. Used by
+/// adapters whose persistence contract is bytes (e.g. WASM plugins via
+/// `persist-state` / `restore-state` WIT exports) rather than structured
+/// JSON.
+pub(crate) type ErasedPersistStateHandler =
+    Box<dyn Fn(&dyn PluginState) -> Option<Vec<u8>> + Send + Sync>;
+pub(crate) type ErasedRestoreStateHandler =
+    Box<dyn Fn(&dyn PluginState, &[u8]) -> bool + Send + Sync>;
 pub(crate) type ErasedShutdownHandler = Box<dyn Fn(&dyn PluginState) + Send + Sync>;
 pub(crate) type ErasedSurfacesFactory =
     Box<dyn Fn(&dyn PluginState) -> Vec<Box<dyn crate::surface::Surface>> + Send + Sync>;
@@ -518,6 +526,8 @@ pub(crate) struct HandlerTable {
     pub(crate) workspace_changed_handler: Option<ErasedWorkspaceChangedHandler>,
     pub(crate) workspace_save_handler: Option<ErasedWorkspaceSaveHandler>,
     pub(crate) workspace_restore_handler: Option<ErasedWorkspaceRestoreHandler>,
+    pub(crate) persist_state_handler: Option<ErasedPersistStateHandler>,
+    pub(crate) restore_state_handler: Option<ErasedRestoreStateHandler>,
     pub(crate) shutdown_handler: Option<ErasedShutdownHandler>,
     pub(crate) update_handler: Option<ErasedUpdateHandler>,
 
@@ -645,6 +655,8 @@ impl HandlerTable {
             workspace_changed_handler: None,
             workspace_save_handler: None,
             workspace_restore_handler: None,
+            persist_state_handler: None,
+            restore_state_handler: None,
             shutdown_handler: None,
             update_handler: None,
             command_error_handler: None,
