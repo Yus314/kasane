@@ -415,14 +415,13 @@ mod tests {
         reconcile_plugin_surfaces, register_builtin_surfaces, setup_plugin_surfaces,
     };
     use kasane_core::layout::SplitDirection;
-    use kasane_core::plugin::{AppView, Effects, PluginBackend, PluginCapabilities};
     use kasane_core::plugin::{
-        PluginCollect, PluginDescriptor, PluginDiagnosticKind, PluginId, PluginManager,
+        AppView, PluginCollect, PluginDescriptor, PluginDiagnosticKind, PluginId, PluginManager,
         PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource,
         StaticPluginProvider, host_plugin, plugin_factory,
     };
     use kasane_core::state::{AppState, DirtyFlags};
-    use kasane_core::surface::{Surface, SurfaceId, SurfaceRegistrationError, SurfaceRegistry};
+    use kasane_core::surface::{SurfaceId, SurfaceRegistrationError, SurfaceRegistry};
     use kasane_core::test_support::TestSurfaceBuilder;
     use kasane_core::workspace::Placement;
     use kasane_plugin_package::manifest::PluginManifest;
@@ -542,10 +541,12 @@ mod tests {
 
     struct CursorLineOverridePlugin;
 
-    impl PluginBackend for CursorLineOverridePlugin {
+    impl kasane_core::plugin::Plugin for CursorLineOverridePlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("cursor_line".to_string())
         }
+        fn register(&self, _r: &mut kasane_core::plugin::HandlerRegistry<()>) {}
     }
 
     fn full_manager(dir: &TempPluginDir, provider: impl PluginProvider + 'static) -> PluginManager {
@@ -600,32 +601,30 @@ mod tests {
         variant: ReloadVariant,
     }
 
-    impl PluginBackend for ReloadChainPlugin {
+    impl kasane_core::plugin::Plugin for ReloadChainPlugin {
+        type State = ();
+
         fn id(&self) -> PluginId {
             PluginId("reload_owner".to_string())
         }
 
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::SURFACE_PROVIDER
-        }
-
-        fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
-            Effects::redraw(self.variant.bootstrap_redraw())
-        }
-
-        fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> Effects {
-            Effects::redraw(self.variant.ready_redraw())
-        }
-
-        fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
-            vec![TestSurfaceBuilder::new(SurfaceId(200)).build()]
-        }
-
-        fn workspace_request(&self) -> Option<Placement> {
-            Some(Placement::SplitFocused {
+        fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
+            let bootstrap = self.variant.bootstrap_redraw();
+            let ready = self.variant.ready_redraw();
+            r.on_init_tier1(move |_state, _app| {
+                (
+                    (),
+                    kasane_core::plugin::KakouneSideEffects::redraw(bootstrap),
+                )
+            });
+            r.on_session_ready_tier1(move |_state, _app| {
+                ((), kasane_core::plugin::KakouneSideEffects::redraw(ready))
+            });
+            r.declare_surfaces(|_state| vec![TestSurfaceBuilder::new(SurfaceId(200)).build()]);
+            r.declare_workspace_request(Placement::SplitFocused {
                 direction: SplitDirection::Vertical,
                 ratio: 0.4,
-            })
+            });
         }
     }
 
@@ -659,7 +658,9 @@ mod tests {
             };
             Ok(PluginCollect {
                 factories: vec![plugin_factory(descriptor, move || {
-                    Ok(Box::new(ReloadChainPlugin { variant }))
+                    Ok(Box::new(kasane_core::plugin::PluginBridge::new(
+                        ReloadChainPlugin { variant },
+                    )))
                 })],
                 diagnostics: vec![],
                 initial_settings: std::collections::HashMap::new(),
@@ -677,18 +678,23 @@ mod tests {
         variant: DiagnosticVariant,
     }
 
-    impl PluginBackend for DiagnosticSurfacePlugin {
+    impl kasane_core::plugin::Plugin for DiagnosticSurfacePlugin {
+        type State = ();
+
         fn id(&self) -> PluginId {
             PluginId("diagnostic_owner".to_string())
         }
 
-        fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
-            match self.variant {
-                DiagnosticVariant::Valid => vec![TestSurfaceBuilder::new(SurfaceId(201)).build()],
+        fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
+            let variant = self.variant;
+            r.declare_surfaces(move |_state| match variant {
+                DiagnosticVariant::Valid => {
+                    vec![TestSurfaceBuilder::new(SurfaceId(201)).build()]
+                }
                 DiagnosticVariant::Invalid => {
                     vec![TestSurfaceBuilder::new(SurfaceId::BUFFER).build()]
                 }
-            }
+            });
         }
     }
 
@@ -726,7 +732,9 @@ mod tests {
             };
             Ok(PluginCollect {
                 factories: vec![plugin_factory(descriptor, move || {
-                    Ok(Box::new(DiagnosticSurfacePlugin { variant }))
+                    Ok(Box::new(kasane_core::plugin::PluginBridge::new(
+                        DiagnosticSurfacePlugin { variant },
+                    )))
                 })],
                 diagnostics: vec![],
                 initial_settings: std::collections::HashMap::new(),
@@ -812,7 +820,9 @@ mod tests {
         let mut registry = PluginRuntime::new();
         let mut manager = full_manager(
             &dir,
-            StaticPluginProvider::new([host_plugin("cursor_line", || CursorLineOverridePlugin)]),
+            StaticPluginProvider::new([host_plugin("cursor_line", || {
+                kasane_core::plugin::PluginBridge::new(CursorLineOverridePlugin)
+            })]),
         );
         commit_initial_winners(&mut manager, &mut registry);
         assert!(matches!(
@@ -851,7 +861,9 @@ mod tests {
         let mut registry = PluginRuntime::new();
         let mut manager = full_manager(
             &dir,
-            StaticPluginProvider::new([host_plugin("cursor_line", || CursorLineOverridePlugin)]),
+            StaticPluginProvider::new([host_plugin("cursor_line", || {
+                kasane_core::plugin::PluginBridge::new(CursorLineOverridePlugin)
+            })]),
         );
         commit_initial_winners(&mut manager, &mut registry);
 

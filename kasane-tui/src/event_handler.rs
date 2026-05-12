@@ -973,10 +973,9 @@ mod tests {
     use kasane_core::event_loop::{register_builtin_surfaces, setup_plugin_surfaces};
     use kasane_core::layout::SplitDirection;
     use kasane_core::plugin::{
-        AppView, PluginBackend, PluginCapabilities, PluginDescriptor, PluginRank, PluginRevision,
-        PluginSource,
+        AppView, PluginDescriptor, PluginRank, PluginRevision, PluginSource,
     };
-    use kasane_core::surface::{Surface, SurfaceId};
+    use kasane_core::surface::SurfaceId;
     use kasane_core::test_support::TestSurfaceBuilder;
     use kasane_core::workspace::Placement;
 
@@ -984,24 +983,20 @@ mod tests {
         surface_id: SurfaceId,
     }
 
-    impl PluginBackend for ReloadResourcePlugin {
+    impl kasane_core::plugin::Plugin for ReloadResourcePlugin {
+        type State = ();
+
         fn id(&self) -> PluginId {
             PluginId("reload-owner".to_string())
         }
 
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::SURFACE_PROVIDER
-        }
-
-        fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
-            vec![TestSurfaceBuilder::new(self.surface_id).build()]
-        }
-
-        fn workspace_request(&self) -> Option<Placement> {
-            Some(Placement::SplitFocused {
+        fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
+            let surface_id = self.surface_id;
+            r.declare_surfaces(move |_state| vec![TestSurfaceBuilder::new(surface_id).build()]);
+            r.declare_workspace_request(Placement::SplitFocused {
                 direction: SplitDirection::Vertical,
                 ratio: 0.4,
-            })
+            });
         }
     }
 
@@ -1031,9 +1026,9 @@ mod tests {
     fn reconcile_reloaded_plugin_resources_replaces_owner_surfaces() {
         let state = AppState::default();
         let mut registry = PluginRuntime::new();
-        registry.register_backend(Box::new(ReloadResourcePlugin {
+        registry.register(ReloadResourcePlugin {
             surface_id: SurfaceId(200),
-        }));
+        });
 
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
@@ -1041,9 +1036,11 @@ mod tests {
         assert!(disabled.is_empty());
 
         let _ = registry.reload_plugin_batch(
-            Box::new(ReloadResourcePlugin {
-                surface_id: SurfaceId(200),
-            }),
+            Box::new(kasane_core::plugin::PluginBridge::new(
+                ReloadResourcePlugin {
+                    surface_id: SurfaceId(200),
+                },
+            )),
             &AppView::new(&state),
         );
 
@@ -1072,9 +1069,9 @@ mod tests {
     fn reconcile_reloaded_plugin_resources_removes_owner_surfaces() {
         let state = AppState::default();
         let mut registry = PluginRuntime::new();
-        registry.register_backend(Box::new(ReloadResourcePlugin {
+        registry.register(ReloadResourcePlugin {
             surface_id: SurfaceId(200),
-        }));
+        });
 
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
