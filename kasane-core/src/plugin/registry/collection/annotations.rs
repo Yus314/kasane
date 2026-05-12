@@ -2,7 +2,6 @@
 
 use crate::element::{Element, FlexChild};
 use crate::plugin::compose::{Composable, ContentAnnotationSet};
-use crate::plugin::traits::PluginBackend;
 use crate::plugin::{
     AnnotateContext, AnnotationResult, AppView, BackgroundLayer, GutterSide, PluginCapabilities,
     PluginId,

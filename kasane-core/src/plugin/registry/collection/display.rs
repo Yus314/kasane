@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use crate::display::{DirectiveSet, DisplayMap, DisplayMapRef};
 use crate::plugin::app_view::FrameworkAccess;
-use crate::plugin::traits::PluginBackend;
 use crate::plugin::{AppView, PluginCapabilities};
 
 use super::super::PluginView;

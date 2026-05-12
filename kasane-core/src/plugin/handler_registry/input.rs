@@ -628,7 +628,7 @@ mod tier1_mouse_tests {
     use crate::plugin::{
         AppView, HandlerRegistry, KakouneSideCommand, KakouneSideKeyPreDispatchResult,
         KakouneSideMousePreDispatchResult, KakouneSideTextInputPreDispatchResult, Plugin,
-        PluginBackend, PluginBridge, PluginId, StateUpdates,
+        PluginBridge, PluginId, StateUpdates,
     };
     use crate::state::{AppState, DirtyFlags};
 

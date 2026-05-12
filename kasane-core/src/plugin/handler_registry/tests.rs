@@ -1,7 +1,7 @@
 use super::*;
 use crate::plugin::PluginCapabilities;
 use crate::plugin::kakoune_transparent_command::KakouneTransparentCommand;
-use crate::plugin::traits::PluginBackend;
+
 use crate::state::DirtyFlags;
 
 #[derive(Clone, Debug, PartialEq, Hash, Default)]

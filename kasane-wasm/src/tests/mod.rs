@@ -3,7 +3,7 @@ use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, Mous
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
     AppView, Command, ContribSizeHint, ContributeContext, Contribution, DisplayDirective, IoEvent,
-    OverlayContext, PluginBackend, PluginId, PluginRuntime, ProcessEvent, SlotId,
+    OverlayContext, PluginId, PluginRuntime, ProcessEvent, SlotId,
 };
 use kasane_core::protocol::Color;
 use kasane_core::state::{AppState, DirtyFlags};

@@ -1,6 +1,6 @@
 use super::*;
 use kasane_core::input::{Key, KeyEvent, KeyResponse, Modifiers};
-use kasane_core::plugin::{Command, PluginBackend};
+use kasane_core::plugin::Command;
 use kasane_core::session::{SessionCommand, SessionDescriptor};
 
 fn apply_session_state_change(plugin: &mut crate::WasmPlugin, state: &AppState, dirty: DirtyFlags) {

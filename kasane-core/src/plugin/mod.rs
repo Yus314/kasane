@@ -109,7 +109,7 @@ pub use crate::input::KeyResponse;
 pub use traits::{
     KakouneSideKeyPreDispatchResult, KakouneSideMousePreDispatchResult,
     KakouneSideTextInputPreDispatchResult, KeyHandleResult, KeyPreDispatchResult,
-    MousePreDispatchResult, PluginBackend, TextInputPreDispatchResult,
+    MousePreDispatchResult, TextInputPreDispatchResult,
 };
 
 // Re-export projection status plugin (Phase 10)

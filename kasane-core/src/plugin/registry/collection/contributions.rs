@@ -1,7 +1,6 @@
 //! Contribution collection (slot-keyed contributions from CONTRIBUTOR plugins).
 
 use crate::plugin::compose::{Composable, ContributionSet};
-use crate::plugin::traits::PluginBackend;
 use crate::plugin::{
     AppView, ContributeContext, Contribution, PluginCapabilities, SlotId, SourcedContribution,
 };

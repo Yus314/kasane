@@ -530,9 +530,7 @@ fn compare_descriptors(lhs: &PluginDescriptor, rhs: &PluginDescriptor) -> Orderi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::{
-        PluginBackend, PluginCollect, PluginRank, PluginRevision, PluginSource, plugin_factory,
-    };
+    use crate::plugin::{PluginCollect, PluginRank, PluginRevision, PluginSource, plugin_factory};
     use crate::state::AppState;
     use crate::surface::SurfaceRegistrationError;
     use anyhow::anyhow;

@@ -25,9 +25,8 @@ use super::traits::{KeyPreDispatchResult, MousePreDispatchResult, TextInputPreDi
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, KeyHandleResult, OverlayContext,
-    OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities, PluginDiagnostic,
-    PluginId, SlotId, TransformContext, TransformDescriptor, TransformSubject, TransformTarget,
-    VirtualTextItem,
+    OverlayContribution, PluginAuthorities, PluginCapabilities, PluginDiagnostic, PluginId, SlotId,
+    TransformContext, TransformDescriptor, TransformSubject, TransformTarget, VirtualTextItem,
 };
 
 /// Adapts a [`Plugin`] to the internal [`PluginBackend`] trait via data-driven dispatch.
@@ -333,56 +332,52 @@ macro_rules! dispatch_inject_owner_contribution {
     };
 }
 
-impl PluginBackend for PluginBridge {
-    fn id(&self) -> PluginId {
+impl PluginBridge {
+    pub fn id(&self) -> PluginId {
         self.id.clone()
     }
 
-    fn is_bridge(&self) -> bool {
-        true
-    }
-
-    fn set_plugin_tag(&mut self, tag: PluginTag) {
+    pub fn set_plugin_tag(&mut self, tag: PluginTag) {
         self.plugin_tag = tag;
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
+    pub fn capabilities(&self) -> PluginCapabilities {
         self.table
             .capabilities_override
             .unwrap_or_else(|| self.table.capabilities())
     }
 
-    fn authorities(&self) -> PluginAuthorities {
+    pub fn authorities(&self) -> PluginAuthorities {
         self.table.authorities
     }
 
-    fn allows_process_spawn(&self) -> bool {
+    pub fn allows_process_spawn(&self) -> bool {
         self.table.allows_process_spawn
     }
 
-    fn suppressed_builtins(&self) -> &std::collections::HashSet<super::BuiltinTarget> {
+    pub fn suppressed_builtins(&self) -> &std::collections::HashSet<super::BuiltinTarget> {
         &self.table.suppressed_builtins
     }
 
-    fn state_hash(&self) -> u64 {
+    pub fn state_hash(&self) -> u64 {
         self.table
             .state_hash_handler
             .as_ref()
             .map_or(self.generation, |h| h())
     }
 
-    fn view_deps(&self) -> DirtyFlags {
+    pub fn view_deps(&self) -> DirtyFlags {
         self.table.interests()
     }
 
-    fn transform_priority(&self) -> i16 {
+    pub fn transform_priority(&self) -> i16 {
         self.table
             .transform_handler
             .as_ref()
             .map_or(0, |e| e.priority)
     }
 
-    fn transform_descriptor(&self) -> Option<TransformDescriptor> {
+    pub fn transform_descriptor(&self) -> Option<TransformDescriptor> {
         self.table.transform_handler.as_ref().and_then(|entry| {
             if entry.targets.is_empty() {
                 None
@@ -395,31 +390,31 @@ impl PluginBackend for PluginBridge {
         })
     }
 
-    fn display_directive_priority(&self) -> i16 {
+    pub fn display_directive_priority(&self) -> i16 {
         self.table.display_priority
     }
 
     // === Lifecycle ===
 
-    fn on_init_effects(&mut self, app: &AppView<'_>) -> Effects {
+    pub fn on_init_effects(&mut self, app: &AppView<'_>) -> Effects {
         dispatch_state_effect!(self, init_handler, app)
     }
 
-    fn on_active_session_ready_effects(&mut self, app: &AppView<'_>) -> Effects {
+    pub fn on_active_session_ready_effects(&mut self, app: &AppView<'_>) -> Effects {
         dispatch_state_effect!(self, session_ready_handler, app)
     }
 
-    fn on_shutdown(&mut self) {
+    pub fn on_shutdown(&mut self) {
         if let Some(handler) = &self.table.shutdown_handler {
             handler(&*self.state);
         }
     }
 
-    fn on_state_changed_effects(&mut self, app: &AppView<'_>, dirty: DirtyFlags) -> Effects {
+    pub fn on_state_changed_effects(&mut self, app: &AppView<'_>, dirty: DirtyFlags) -> Effects {
         dispatch_state_effect!(self, state_changed_handler, app, dirty)
     }
 
-    fn intercept_buffer_edit(
+    pub fn intercept_buffer_edit(
         &mut self,
         edit: &crate::state::shadow_cursor::BufferEdit,
         app: &AppView<'_>,
@@ -433,22 +428,22 @@ impl PluginBackend for PluginBridge {
         )
     }
 
-    fn on_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
+    pub fn on_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
         dispatch_state_only!(self, workspace_changed_handler, query);
     }
 
-    fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
+    pub fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
         match &self.table.surfaces_factory {
             Some(factory) => factory(&*self.state),
             None => Vec::new(),
         }
     }
 
-    fn workspace_request(&self) -> Option<crate::workspace::Placement> {
+    pub fn workspace_request(&self) -> Option<crate::workspace::Placement> {
         self.table.workspace_request.clone()
     }
 
-    fn register_lenses(&self, registry: &mut crate::lens::LensRegistry) -> usize {
+    pub fn register_lenses(&self, registry: &mut crate::lens::LensRegistry) -> usize {
         let Some(factory) = &self.table.lenses_factory else {
             return 0;
         };
@@ -460,25 +455,25 @@ impl PluginBackend for PluginBridge {
         count
     }
 
-    fn workspace_save(&self) -> Option<serde_json::Value> {
+    pub fn workspace_save(&self) -> Option<serde_json::Value> {
         self.table
             .workspace_save_handler
             .as_ref()
             .and_then(|h| h(&*self.state))
     }
 
-    fn workspace_restore(&mut self, data: &serde_json::Value) {
+    pub fn workspace_restore(&mut self, data: &serde_json::Value) {
         dispatch_state_only!(self, workspace_restore_handler, data);
     }
 
-    fn persist_state(&self) -> Option<Vec<u8>> {
+    pub fn persist_state(&self) -> Option<Vec<u8>> {
         self.table
             .persist_state_handler
             .as_ref()
             .and_then(|h| h(&*self.state))
     }
 
-    fn restore_state(&mut self, data: &[u8]) -> bool {
+    pub fn restore_state(&mut self, data: &[u8]) -> bool {
         self.table
             .restore_state_handler
             .as_ref()
@@ -487,31 +482,31 @@ impl PluginBackend for PluginBridge {
 
     // === Input ===
 
-    fn observe_key(&mut self, key: &KeyEvent, app: &AppView<'_>) {
+    pub fn observe_key(&mut self, key: &KeyEvent, app: &AppView<'_>) {
         dispatch_state_only!(self, observe_key_handler, key, app);
     }
 
-    fn observe_text_input(&mut self, text: &str, app: &AppView<'_>) {
+    pub fn observe_text_input(&mut self, text: &str, app: &AppView<'_>) {
         dispatch_state_only!(self, observe_text_input_handler, text, app);
     }
 
-    fn observe_mouse(&mut self, event: &MouseEvent, app: &AppView<'_>) {
+    pub fn observe_mouse(&mut self, event: &MouseEvent, app: &AppView<'_>) {
         dispatch_state_only!(self, observe_mouse_handler, event, app);
     }
 
-    fn observe_drop(&mut self, event: &DropEvent, app: &AppView<'_>) {
+    pub fn observe_drop(&mut self, event: &DropEvent, app: &AppView<'_>) {
         dispatch_state_only!(self, observe_drop_handler, event, app);
     }
 
-    fn handle_key(&mut self, key: &KeyEvent, app: &AppView<'_>) -> Option<Vec<Command>> {
+    pub fn handle_key(&mut self, key: &KeyEvent, app: &AppView<'_>) -> Option<Vec<Command>> {
         dispatch_optional_consume!(self, key_handler, key, app)
     }
 
-    fn handle_text_input(&mut self, text: &str, app: &AppView<'_>) -> Option<Vec<Command>> {
+    pub fn handle_text_input(&mut self, text: &str, app: &AppView<'_>) -> Option<Vec<Command>> {
         dispatch_optional_consume!(self, text_input_handler, text, app)
     }
 
-    fn handle_key_middleware(&mut self, key: &KeyEvent, app: &AppView<'_>) -> KeyHandleResult {
+    pub fn handle_key_middleware(&mut self, key: &KeyEvent, app: &AppView<'_>) -> KeyHandleResult {
         if self.table.key_middleware_handler.is_some() {
             dispatch_state_with_default!(
                 self,
@@ -531,7 +526,7 @@ impl PluginBackend for PluginBridge {
         }
     }
 
-    fn handle_key_pre_dispatch(
+    pub fn handle_key_pre_dispatch(
         &mut self,
         key: &KeyEvent,
         app: &AppView<'_>,
@@ -548,7 +543,7 @@ impl PluginBackend for PluginBridge {
         )
     }
 
-    fn handle_mouse_pre_dispatch(
+    pub fn handle_mouse_pre_dispatch(
         &mut self,
         event: &MouseEvent,
         app: &AppView<'_>,
@@ -565,7 +560,7 @@ impl PluginBackend for PluginBridge {
         )
     }
 
-    fn handle_text_input_pre_dispatch(
+    pub fn handle_text_input_pre_dispatch(
         &mut self,
         text: &str,
         app: &AppView<'_>,
@@ -579,7 +574,7 @@ impl PluginBackend for PluginBridge {
         )
     }
 
-    fn handle_mouse_fallback(
+    pub fn handle_mouse_fallback(
         &mut self,
         event: &MouseEvent,
         scroll_amount: i32,
@@ -595,7 +590,7 @@ impl PluginBackend for PluginBridge {
         )
     }
 
-    fn handle_mouse(
+    pub fn handle_mouse(
         &mut self,
         event: &MouseEvent,
         id: InteractiveId,
@@ -604,7 +599,7 @@ impl PluginBackend for PluginBridge {
         dispatch_optional_consume!(self, handle_mouse_handler, event, id, app)
     }
 
-    fn handle_drop(
+    pub fn handle_drop(
         &mut self,
         event: &DropEvent,
         id: InteractiveId,
@@ -613,7 +608,7 @@ impl PluginBackend for PluginBridge {
         dispatch_optional_consume!(self, handle_drop_handler, event, id, app)
     }
 
-    fn handle_default_scroll(
+    pub fn handle_default_scroll(
         &mut self,
         candidate: DefaultScrollCandidate,
         app: &AppView<'_>,
@@ -621,15 +616,20 @@ impl PluginBackend for PluginBridge {
         dispatch_optional_consume!(self, default_scroll_handler, candidate, app)
     }
 
-    fn compiled_key_map(&self) -> Option<&CompiledKeyMap> {
+    pub fn compiled_key_map(&self) -> Option<&CompiledKeyMap> {
         self.table.key_map.as_ref()
     }
 
-    fn invoke_action(&mut self, action_id: &str, key: &KeyEvent, app: &AppView<'_>) -> KeyResponse {
+    pub fn invoke_action(
+        &mut self,
+        action_id: &str,
+        key: &KeyEvent,
+        app: &AppView<'_>,
+    ) -> KeyResponse {
         dispatch_state_with_default!(self, action_handler, KeyResponse::Pass, action_id, key, app)
     }
 
-    fn refresh_key_groups(&mut self, app: &AppView<'_>) {
+    pub fn refresh_key_groups(&mut self, app: &AppView<'_>) {
         if let Some(handler) = &self.table.group_refresh_handler
             && let Some(map) = &mut self.table.key_map
         {
@@ -637,13 +637,13 @@ impl PluginBackend for PluginBridge {
         }
     }
 
-    fn update_effects(&mut self, msg: &mut dyn Any, app: &AppView<'_>) -> Effects {
+    pub fn update_effects(&mut self, msg: &mut dyn Any, app: &AppView<'_>) -> Effects {
         dispatch_state_effect!(self, update_handler, msg, app)
     }
 
     // === View contributions ===
 
-    fn contribute_to(
+    pub fn contribute_to(
         &self,
         region: &SlotId,
         app: &AppView<'_>,
@@ -673,7 +673,7 @@ impl PluginBackend for PluginBridge {
         None
     }
 
-    fn transform_patch(
+    pub fn transform_patch(
         &self,
         target: &TransformTarget,
         app: &AppView<'_>,
@@ -696,7 +696,7 @@ impl PluginBackend for PluginBridge {
         })
     }
 
-    fn transform(
+    pub fn transform(
         &self,
         target: &TransformTarget,
         subject: TransformSubject,
@@ -723,11 +723,11 @@ impl PluginBackend for PluginBridge {
     // contract surfaces all annotation parts together (`WasmPlugin`
     // via the `annotate-line` WIT export).
 
-    fn has_decomposed_annotations(&self) -> bool {
+    pub fn has_decomposed_annotations(&self) -> bool {
         self.table.annotate_line_handler.is_none()
     }
 
-    fn annotate_line_with_ctx(
+    pub fn annotate_line_with_ctx(
         &self,
         line: usize,
         app: &AppView<'_>,
@@ -744,7 +744,7 @@ impl PluginBackend for PluginBridge {
         Some(ann)
     }
 
-    fn decorate_gutter(
+    pub fn decorate_gutter(
         &self,
         side: GutterSide,
         line: usize,
@@ -766,7 +766,7 @@ impl PluginBackend for PluginBridge {
     // `dispatch_inject_owner_contribution!` nor a simpler macro
     // fits the tuple shape without obscuring the priority lookup.)
 
-    fn decorate_background(
+    pub fn decorate_background(
         &self,
         line: usize,
         app: &AppView<'_>,
@@ -775,7 +775,7 @@ impl PluginBackend for PluginBridge {
         dispatch_view_option!(self, background_handler, line, app, ctx)
     }
 
-    fn decorate_inline(
+    pub fn decorate_inline(
         &self,
         line: usize,
         app: &AppView<'_>,
@@ -784,7 +784,7 @@ impl PluginBackend for PluginBridge {
         dispatch_view_option!(self, inline_handler, line, app, ctx)
     }
 
-    fn annotate_virtual_text(
+    pub fn annotate_virtual_text(
         &self,
         line: usize,
         app: &AppView<'_>,
@@ -793,7 +793,7 @@ impl PluginBackend for PluginBridge {
         dispatch_view_or!(self, virtual_text_handler, vec![], line, app, ctx)
     }
 
-    fn compute_display_scroll_offset(
+    pub fn compute_display_scroll_offset(
         &self,
         cursor_display_y: usize,
         viewport_height: usize,
@@ -810,7 +810,7 @@ impl PluginBackend for PluginBridge {
         )
     }
 
-    fn render_menu_overlay(
+    pub fn render_menu_overlay(
         &self,
         state: &AppView<'_>,
         view: &super::PluginView<'_>,
@@ -819,7 +819,7 @@ impl PluginBackend for PluginBridge {
         handler(&*self.state, state, view)
     }
 
-    fn render_info_overlays(
+    pub fn render_info_overlays(
         &self,
         state: &AppView<'_>,
         avoid: &[crate::layout::Rect],
@@ -829,7 +829,7 @@ impl PluginBackend for PluginBridge {
         handler(&*self.state, state, avoid, view)
     }
 
-    fn contribute_overlay_with_ctx(
+    pub fn contribute_overlay_with_ctx(
         &self,
         app: &AppView<'_>,
         ctx: &OverlayContext,
@@ -838,7 +838,7 @@ impl PluginBackend for PluginBridge {
         dispatch_inject_owner_contribution!(self, handler, element, app, ctx)
     }
 
-    fn render_ornaments(
+    pub fn render_ornaments(
         &self,
         app: &AppView<'_>,
         ctx: &super::RenderOrnamentContext,
@@ -852,11 +852,11 @@ impl PluginBackend for PluginBridge {
         )
     }
 
-    fn paint_inline_box(&self, box_id: u64, app: &AppView<'_>) -> Option<Element> {
+    pub fn paint_inline_box(&self, box_id: u64, app: &AppView<'_>) -> Option<Element> {
         dispatch_view_or!(self, inline_box_paint_handler, None, box_id, app)
     }
 
-    fn transform_menu_item(
+    pub fn transform_menu_item(
         &self,
         item: &[crate::protocol::Atom],
         index: usize,
@@ -874,7 +874,7 @@ impl PluginBackend for PluginBridge {
         )
     }
 
-    fn content_annotations(
+    pub fn content_annotations(
         &self,
         state: &AppView<'_>,
         ctx: &AnnotateContext,
@@ -882,23 +882,23 @@ impl PluginBackend for PluginBridge {
         dispatch_view_or!(self, content_annotation_handler, vec![], state, ctx)
     }
 
-    fn display_directives(&self, app: &AppView<'_>) -> Vec<DisplayDirective> {
+    pub fn display_directives(&self, app: &AppView<'_>) -> Vec<DisplayDirective> {
         dispatch_view_or!(self, display_handler, vec![], app)
     }
 
-    fn has_unified_display(&self) -> bool {
+    pub fn has_unified_display(&self) -> bool {
         self.table.unified_display_handler.is_some()
     }
 
-    fn unified_display(&self, app: &AppView<'_>) -> Vec<DisplayDirective> {
+    pub fn unified_display(&self, app: &AppView<'_>) -> Vec<DisplayDirective> {
         dispatch_view_or!(self, unified_display_handler, vec![], app)
     }
 
-    fn projection_descriptors(&self) -> &[crate::display::ProjectionDescriptor] {
+    pub fn projection_descriptors(&self) -> &[crate::display::ProjectionDescriptor] {
         &self.cached_projection_descriptors
     }
 
-    fn projection_directives(
+    pub fn projection_directives(
         &self,
         id: &crate::display::ProjectionId,
         state: &AppView<'_>,
@@ -911,7 +911,7 @@ impl PluginBackend for PluginBridge {
         vec![]
     }
 
-    fn navigation_policy(
+    pub fn navigation_policy(
         &self,
         unit: &crate::display::unit::DisplayUnit,
     ) -> Option<crate::display::navigation::NavigationPolicy> {
@@ -921,7 +921,7 @@ impl PluginBackend for PluginBridge {
             .map(|h| h(&*self.state, unit))
     }
 
-    fn navigation_action(
+    pub fn navigation_action(
         &mut self,
         unit: &crate::display::unit::DisplayUnit,
         action: crate::display::navigation::NavigationAction,
@@ -939,7 +939,7 @@ impl PluginBackend for PluginBridge {
         }
     }
 
-    fn capability_descriptor(&self) -> Option<super::CapabilityDescriptor> {
+    pub fn capability_descriptor(&self) -> Option<super::CapabilityDescriptor> {
         Some(
             self.table
                 .capability_descriptor_override
@@ -948,13 +948,13 @@ impl PluginBackend for PluginBridge {
         )
     }
 
-    fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
+    pub fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
         std::mem::take(&mut self.pending_diagnostics)
     }
 
     // --- Pub/Sub ---
 
-    fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
+    pub fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
         let plugin_id = self.id.clone();
         for entry in &self.table.publishers {
             if let Some(value) = (entry.handler)(&*self.state, state) {
@@ -963,7 +963,7 @@ impl PluginBackend for PluginBridge {
         }
     }
 
-    fn deliver_subscriptions(&mut self, bus: &TopicBus, app: &AppView<'_>) -> Effects {
+    pub fn deliver_subscriptions(&mut self, bus: &TopicBus, app: &AppView<'_>) -> Effects {
         let mut changed = false;
         let mut merged = Effects::default();
         // Per-value subscribers (state mutation only).
@@ -1004,7 +1004,7 @@ impl PluginBackend for PluginBridge {
 
     // --- I/O ---
 
-    fn on_io_event_effects(&mut self, event: &IoEvent, app: &AppView<'_>) -> Effects {
+    pub fn on_io_event_effects(&mut self, event: &IoEvent, app: &AppView<'_>) -> Effects {
         // Route process events through active task handles first.
         if let IoEvent::Process(proc_event) = event
             && let Some(effects) = self.try_process_task_event(proc_event, app)
@@ -1019,11 +1019,15 @@ impl PluginBackend for PluginBridge {
     /// Dispatch through the HandlerRegistry-driven `on_command_error`
     /// handler when registered. Plugins that did not register one inherit
     /// the trait's empty-Effects default.
-    fn on_command_error_effects(&mut self, error: &PluginErrorEvent, app: &AppView<'_>) -> Effects {
+    pub fn on_command_error_effects(
+        &mut self,
+        error: &PluginErrorEvent,
+        app: &AppView<'_>,
+    ) -> Effects {
         dispatch_state_effect!(self, command_error_handler, error, app)
     }
 
-    fn start_process_task(&mut self, name: &str) -> Vec<Command> {
+    pub fn start_process_task(&mut self, name: &str) -> Vec<Command> {
         let Some(entry) = self.table.process_tasks.iter().find(|e| e.name == name) else {
             tracing::warn!(plugin = self.id.0.as_str(), name, "unknown process task");
             return vec![];

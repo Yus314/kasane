@@ -42,7 +42,7 @@ mod tests {
     use super::*;
     use crate::display::InteractionPolicy;
     use crate::display::unit::{DisplayUnit, DisplayUnitId, SemanticRole, UnitSource};
-    use crate::plugin::{PluginBackend, PluginBridge};
+    use crate::plugin::PluginBridge;
 
     fn make_fold_unit(range: std::ops::Range<usize>) -> DisplayUnit {
         let source = UnitSource::LineRange(range);

@@ -25,8 +25,8 @@ use super::inline_box::{InlineBoxStack, MAX_INLINE_BOX_DEPTH};
 use super::state::Plugin;
 use super::traits::MousePreDispatchResult;
 use super::{
-    Command, EffectsBatch, IoEvent, PluginAuthorities, PluginBackend, PluginCapabilities,
-    PluginDiagnostic, PluginId, SlotId, SourcedContribution,
+    Command, EffectsBatch, IoEvent, PluginAuthorities, PluginCapabilities, PluginDiagnostic,
+    PluginId, SlotId, SourcedContribution,
 };
 
 /// Pre-decomposed result of a single `collect_ornaments` pass.
@@ -303,15 +303,11 @@ impl PluginRuntime {
     }
 
     pub fn register_backend(&mut self, mut plugin: Box<PluginBridge>) {
-        let id = PluginBackend::id(&*plugin);
+        let id = plugin.id();
         let caps = plugin.capabilities();
         let authorities = plugin.authorities();
         let new_suppressions = plugin.suppressed_builtins().clone();
-        if let Some(pos) = self
-            .slots
-            .iter()
-            .position(|s| PluginBackend::id(&*s.backend) == id)
-        {
+        if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
             // Replace existing plugin with same ID (e.g. FS plugin overrides bundled)
             let tag = self.slots[pos].plugin_tag;
             plugin.set_plugin_tag(tag);
@@ -336,7 +332,7 @@ impl PluginRuntime {
                     {
                         tracing::warn!(
                             new_plugin = %id.0,
-                            existing_plugin = %PluginBackend::id(&*existing.backend).0,
+                            existing_plugin = %existing.backend.id().0,
                             "potential plugin interference detected"
                         );
                     }
@@ -609,7 +605,7 @@ impl PluginRuntime {
         plugin: Box<PluginBridge>,
         app: &AppView<'_>,
     ) -> EffectsBatch {
-        let id = PluginBackend::id(&*plugin);
+        let id = plugin.id();
         // Persist state from old plugin before shutdown
         let persisted = if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
             let state_data = self.slots[pos].backend.persist_state();
@@ -636,18 +632,16 @@ impl PluginRuntime {
         EffectsBatch::default()
     }
 
-    pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut dyn PluginBackend> {
-        self.slots
-            .iter_mut()
-            .map(|s| &mut *s.backend as &mut dyn PluginBackend)
+    pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut PluginBridge> {
+        self.slots.iter_mut().map(|s| &mut *s.backend)
     }
 
     /// Get a mutable reference to a plugin backend by its ID.
-    pub fn backend_mut_by_id(&mut self, id: &PluginId) -> Option<&mut dyn PluginBackend> {
+    pub fn backend_mut_by_id(&mut self, id: &PluginId) -> Option<&mut PluginBridge> {
         self.slots
             .iter_mut()
             .find(|s| s.backend.id() == *id)
-            .map(|s| &mut *s.backend as &mut dyn PluginBackend)
+            .map(|s| &mut *s.backend)
     }
 
     /// Refresh a slot's cached capabilities and descriptor after in-place mutation.

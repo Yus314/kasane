@@ -95,7 +95,6 @@ mod tests {
     use crate::plugin::PluginBridge;
     use crate::plugin::app_view::AppView;
     use crate::plugin::context::ContributeContext;
-    use crate::plugin::traits::PluginBackend;
 
     #[test]
     fn format_none_active() {

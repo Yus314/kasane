@@ -9,8 +9,8 @@ use crate::state::DirtyFlags;
 use crate::plugin::effects::{MouseHandleResult, StateUpdates, TextInputHandleResult};
 use crate::plugin::traits::MousePreDispatchResult;
 use crate::plugin::{
-    AppView, Command, KeyHandleResult, KeyPreDispatchResult, PluginBackend, PluginCapabilities,
-    PluginId, TextInputPreDispatchResult,
+    AppView, Command, KeyHandleResult, KeyPreDispatchResult, PluginCapabilities, PluginId,
+    TextInputPreDispatchResult,
 };
 
 use super::{KeyDispatchResult, PluginRuntime, PluginSlot};
@@ -233,11 +233,8 @@ impl PluginRuntime {
             && let Some(edit) = pending_buffer_edit.take()
         {
             use crate::state::shadow_cursor::edit_to_commands;
-            let mut backends: Vec<&mut dyn crate::plugin::PluginBackend> = self
-                .slots
-                .iter_mut()
-                .map(|s| &mut *s.backend as &mut dyn crate::plugin::PluginBackend)
-                .collect();
+            let mut backends: Vec<&mut crate::plugin::PluginBridge> =
+                self.slots.iter_mut().map(|s| &mut *s.backend).collect();
             if let Some(final_edit) = fold_intercept_chain(edit, &mut backends, app)
                 && !final_edit.is_hippocratic_noop()
             {
@@ -479,7 +476,7 @@ impl PluginRuntime {
 /// serialization; this function is purely the verdict fold.
 pub fn fold_intercept_chain(
     initial: crate::state::shadow_cursor::BufferEdit,
-    backends: &mut [&mut dyn crate::plugin::PluginBackend],
+    backends: &mut [&mut crate::plugin::PluginBridge],
     app: &AppView<'_>,
 ) -> Option<crate::state::shadow_cursor::BufferEdit> {
     use crate::state::shadow_cursor::BufferEditVerdict;
@@ -501,7 +498,7 @@ pub fn fold_intercept_chain(
 mod intercept_tests {
     use super::*;
     use crate::history::VersionId;
-    use crate::plugin::{PluginBackend, PluginId};
+    use crate::plugin::PluginId;
     use crate::state::AppState;
     use crate::state::selection::{BufferPos, Selection};
     use crate::state::shadow_cursor::{BufferEdit, BufferEditVerdict};
@@ -547,7 +544,7 @@ mod intercept_tests {
         let app_state = AppState::default();
         let app = AppView::new(&app_state);
         let initial = mk_edit("world");
-        let mut backends: Vec<&mut dyn PluginBackend> = vec![];
+        let mut backends: Vec<&mut crate::plugin::PluginBridge> = vec![];
         let out = fold_intercept_chain(initial.clone(), &mut backends, &app);
         assert_eq!(out, Some(initial));
     }
@@ -558,7 +555,7 @@ mod intercept_tests {
         let app = AppView::new(&app_state);
         let mut a = backend("a", BufferEditVerdict::PassThrough);
         let mut b = backend("b", BufferEditVerdict::PassThrough);
-        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a, &mut b];
+        let mut backends: Vec<&mut crate::plugin::PluginBridge> = vec![&mut a, &mut b];
         let out = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
         assert_eq!(out.as_ref().map(|e| e.replacement.as_str()), Some("world"));
     }
@@ -568,7 +565,7 @@ mod intercept_tests {
         let app_state = AppState::default();
         let app = AppView::new(&app_state);
         let mut a = backend("a", BufferEditVerdict::Replace(mk_edit("WORLD")));
-        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a];
+        let mut backends: Vec<&mut crate::plugin::PluginBridge> = vec![&mut a];
         let out = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
         assert_eq!(out.as_ref().map(|e| e.replacement.as_str()), Some("WORLD"));
     }
@@ -579,7 +576,7 @@ mod intercept_tests {
         let app = AppView::new(&app_state);
         let mut a = backend("a", BufferEditVerdict::Replace(mk_edit("first")));
         let mut b = backend("b", BufferEditVerdict::Replace(mk_edit("second")));
-        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a, &mut b];
+        let mut backends: Vec<&mut crate::plugin::PluginBridge> = vec![&mut a, &mut b];
         let out = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
         // b runs after a; b's Replace wins.
         assert_eq!(out.as_ref().map(|e| e.replacement.as_str()), Some("second"));
@@ -591,7 +588,7 @@ mod intercept_tests {
         let app = AppView::new(&app_state);
         let mut a = backend("a", BufferEditVerdict::Veto);
         let mut b = backend("b", BufferEditVerdict::Replace(mk_edit("WORLD")));
-        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a, &mut b];
+        let mut backends: Vec<&mut crate::plugin::PluginBridge> = vec![&mut a, &mut b];
         let out = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
         assert_eq!(out, None);
     }
@@ -602,7 +599,7 @@ mod intercept_tests {
         let app = AppView::new(&app_state);
         let mut a = backend("a", BufferEditVerdict::Replace(mk_edit("WORLD")));
         let mut b = backend("b", BufferEditVerdict::Veto);
-        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a, &mut b];
+        let mut backends: Vec<&mut crate::plugin::PluginBridge> = vec![&mut a, &mut b];
         let out = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
         assert_eq!(out, None);
     }
@@ -639,7 +636,7 @@ mod intercept_tests {
             invoked: counter.clone(),
             verdict: BufferEditVerdict::PassThrough,
         });
-        let mut backends: Vec<&mut dyn PluginBackend> = vec![&mut a, &mut b];
+        let mut backends: Vec<&mut crate::plugin::PluginBridge> = vec![&mut a, &mut b];
         let _ = fold_intercept_chain(mk_edit("world"), &mut backends, &app);
         assert_eq!(
             counter.load(std::sync::atomic::Ordering::SeqCst),

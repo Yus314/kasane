@@ -55,7 +55,7 @@ impl Plugin for BuiltinInputPlugin {
 mod tests {
     use super::*;
     use crate::input::{KeyEvent, Modifiers};
-    use crate::plugin::{AppView, Command, PluginBackend, PluginBridge};
+    use crate::plugin::{AppView, Command, PluginBridge};
     use crate::scroll::{DefaultScrollCandidate, resolve_default_scroll_policy};
     use crate::state::AppState;
 
