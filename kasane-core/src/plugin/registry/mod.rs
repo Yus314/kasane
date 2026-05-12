@@ -57,8 +57,91 @@ pub struct PluginSurfaceSet {
 /// are always collected on their first frame.
 const HASH_SENTINEL: u64 = u64::MAX;
 
+/// Dual-storage backend for a registered plugin (Phase β-1).
+///
+/// Native plugins (those wrapped by `PluginBridge`) are stored unboxed so
+/// future dispatch refactors can reach `bridge.table` / `bridge.state`
+/// without a vtable hop. External implementers (`WasmPlugin`, top-level
+/// crate builtins) remain boxed `dyn PluginBackend`. Architecture documented
+/// in ADR-048 and `project_phase_beta_design_2026_05_12.md`.
+pub(crate) enum SlotImpl {
+    Native(Box<PluginBridge>),
+    External(Box<dyn PluginBackend>),
+}
+
+/// Convert a freshly-registered `Box<dyn PluginBackend>` into the dual-storage
+/// `SlotImpl`. Tries to downcast to `Box<PluginBridge>`; if the plugin is a
+/// PluginBridge, store unboxed in the Native variant. Otherwise (WasmPlugin,
+/// builtin trait impls, test fixtures) keep the boxed dyn in External.
+pub(crate) fn box_to_slot_impl(plugin: Box<dyn PluginBackend>) -> SlotImpl {
+    // Check the discriminator method before doing the upcast — once we
+    // upcast to Box<dyn Any>, getting back to Box<dyn PluginBackend>
+    // requires the original vtable which is consumed by the coercion.
+    if plugin.is_bridge() {
+        // Rust 1.86+: implicit trait-object upcast Box<dyn PluginBackend> →
+        // Box<dyn Any> (PluginBackend: Any super-bound).
+        let any_box: Box<dyn Any> = plugin;
+        match any_box.downcast::<PluginBridge>() {
+            Ok(bridge) => SlotImpl::Native(bridge),
+            Err(_) => unreachable!(
+                "PluginBackend::is_bridge() returned true but value is not a PluginBridge"
+            ),
+        }
+    } else {
+        SlotImpl::External(plugin)
+    }
+}
+
+impl SlotImpl {
+    /// Trait-object view used by every PluginBackend dispatch site. Native
+    /// variant returns the bridge upcast; External returns the existing dyn.
+    pub(crate) fn as_backend(&self) -> &dyn PluginBackend {
+        match self {
+            SlotImpl::Native(b) => &**b,
+            SlotImpl::External(b) => &**b,
+        }
+    }
+
+    pub(crate) fn as_backend_mut(&mut self) -> &mut dyn PluginBackend {
+        match self {
+            SlotImpl::Native(b) => &mut **b,
+            SlotImpl::External(b) => &mut **b,
+        }
+    }
+
+    /// Fast-path access when the plugin is `PluginBridge`-backed. Returns
+    /// `Some` only for native plugins; WASM and external impls return None
+    /// and callers must fall back to `as_backend_mut()`.
+    #[allow(dead_code)] // Used by upcoming Phase β-1 fast-path dispatchers.
+    pub(crate) fn as_native_mut(&mut self) -> Option<&mut PluginBridge> {
+        match self {
+            SlotImpl::Native(b) => Some(&mut **b),
+            SlotImpl::External(_) => None,
+        }
+    }
+}
+
+// Deref to dyn PluginBackend so existing `slot.backend.method()` call
+// sites continue to compile unchanged. Method resolution goes through
+// the trait object (vtable) for both variants in this Phase β-1
+// preview — perf benefit accrues only when dispatchers explicitly
+// branch via `as_native_mut()`.
+impl std::ops::Deref for SlotImpl {
+    type Target = dyn PluginBackend;
+
+    fn deref(&self) -> &dyn PluginBackend {
+        self.as_backend()
+    }
+}
+
+impl std::ops::DerefMut for SlotImpl {
+    fn deref_mut(&mut self) -> &mut dyn PluginBackend {
+        self.as_backend_mut()
+    }
+}
+
 pub(crate) struct PluginSlot {
-    pub(crate) backend: Box<dyn PluginBackend>,
+    pub(crate) backend: SlotImpl,
     pub(crate) plugin_tag: PluginTag,
     pub(crate) capabilities: PluginCapabilities,
     pub(crate) authorities: PluginAuthorities,
@@ -224,13 +307,17 @@ impl PluginRuntime {
         let caps = plugin.capabilities();
         let authorities = plugin.authorities();
         let new_suppressions = plugin.suppressed_builtins().clone();
-        if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
+        if let Some(pos) = self
+            .slots
+            .iter()
+            .position(|s| s.backend.as_backend().id() == id)
+        {
             // Replace existing plugin with same ID (e.g. FS plugin overrides bundled)
             let tag = self.slots[pos].plugin_tag;
             plugin.set_plugin_tag(tag);
             let descriptor = plugin.capability_descriptor();
             let slot = &mut self.slots[pos];
-            slot.backend = plugin;
+            slot.backend = box_to_slot_impl(plugin);
             slot.capabilities = caps;
             slot.authorities = authorities;
             slot.last_state_hash = HASH_SENTINEL;
@@ -249,14 +336,14 @@ impl PluginRuntime {
                     {
                         tracing::warn!(
                             new_plugin = %id.0,
-                            existing_plugin = %existing.backend.id().0,
+                            existing_plugin = %existing.backend.as_backend().id().0,
                             "potential plugin interference detected"
                         );
                     }
                 }
             }
             self.slots.push(PluginSlot {
-                backend: plugin,
+                backend: box_to_slot_impl(plugin),
                 plugin_tag: tag,
                 capabilities: caps,
                 authorities,
@@ -537,16 +624,16 @@ impl PluginRuntime {
         EffectsBatch::default()
     }
 
-    pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut Box<dyn PluginBackend>> {
-        self.slots.iter_mut().map(|s| &mut s.backend)
+    pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut dyn PluginBackend> {
+        self.slots.iter_mut().map(|s| s.backend.as_backend_mut())
     }
 
     /// Get a mutable reference to a plugin backend by its ID.
-    pub fn backend_mut_by_id(&mut self, id: &PluginId) -> Option<&mut Box<dyn PluginBackend>> {
+    pub fn backend_mut_by_id(&mut self, id: &PluginId) -> Option<&mut dyn PluginBackend> {
         self.slots
             .iter_mut()
             .find(|s| s.backend.id() == *id)
-            .map(|s| &mut s.backend)
+            .map(|s| s.backend.as_backend_mut())
     }
 
     /// Refresh a slot's cached capabilities and descriptor after in-place mutation.

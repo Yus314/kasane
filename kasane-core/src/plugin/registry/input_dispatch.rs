@@ -233,8 +233,11 @@ impl PluginRuntime {
             && let Some(edit) = pending_buffer_edit.take()
         {
             use crate::state::shadow_cursor::edit_to_commands;
-            let mut backends: Vec<&mut dyn crate::plugin::PluginBackend> =
-                self.slots.iter_mut().map(|s| s.backend.as_mut()).collect();
+            let mut backends: Vec<&mut dyn crate::plugin::PluginBackend> = self
+                .slots
+                .iter_mut()
+                .map(|s| s.backend.as_backend_mut())
+                .collect();
             if let Some(final_edit) = fold_intercept_chain(edit, &mut backends, app)
                 && !final_edit.is_hippocratic_noop()
             {

@@ -228,6 +228,18 @@ impl From<KakouneSideTextInputPreDispatchResult> for TextInputPreDispatchResult 
 pub trait PluginBackend: Any {
     fn id(&self) -> PluginId;
 
+    /// Discriminator for the Phase β-1 dual-slot dispatch (registry::SlotImpl).
+    ///
+    /// Returns `true` only for [`PluginBridge`](super::bridge::PluginBridge),
+    /// which the registry stores unboxed in the `Native` slot variant so
+    /// dispatchers can reach `bridge.table` / `bridge.state` without a
+    /// vtable hop. All other implementers (WasmPlugin, top-level builtins,
+    /// test fixtures) return `false` and are stored in the `External` slot
+    /// behind the existing `Box<dyn PluginBackend>` vtable.
+    fn is_bridge(&self) -> bool {
+        false
+    }
+
     /// Inject the framework-assigned plugin tag for interactive ID ownership.
     fn set_plugin_tag(&mut self, _tag: PluginTag) {}
 

@@ -338,6 +338,10 @@ impl PluginBackend for PluginBridge {
         self.id.clone()
     }
 
+    fn is_bridge(&self) -> bool {
+        true
+    }
+
     fn set_plugin_tag(&mut self, tag: PluginTag) {
         self.plugin_tag = tag;
     }
