@@ -478,6 +478,11 @@ impl PluginRuntime {
     }
 
     /// Notify all plugins about a state change and collect typed runtime effects.
+    ///
+    /// Phase β-1.5: native (PluginBridge-backed) plugins dispatch via a
+    /// concrete method call on `&mut PluginBridge`, bypassing the vtable.
+    /// External implementers (WasmPlugin etc.) keep the existing
+    /// `Box<dyn PluginBackend>` vtable path.
     pub fn notify_state_changed_batch(
         &mut self,
         app: &AppView<'_>,
@@ -486,7 +491,12 @@ impl PluginRuntime {
         let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
             let id = slot.backend.id();
-            batch.push(id, slot.backend.on_state_changed_effects(app, dirty));
+            let effects = if let Some(bridge) = slot.backend.as_native_mut() {
+                bridge.on_state_changed_effects(app, dirty)
+            } else {
+                slot.backend.on_state_changed_effects(app, dirty)
+            };
+            batch.push(id, effects);
         }
         batch
     }
