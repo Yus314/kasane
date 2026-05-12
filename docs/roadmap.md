@@ -130,10 +130,46 @@ to:
 - Dead-code reaping: `kasane/src/builtins/{info,menu}.rs` (one-line re-export stubs), `MirrorBufferSurface` alias, `ShadowRenderInfo` + `EditableSynthetic.shadow_override` placeholder, `WorkspaceNode::any_child` + `find_in_children`, `WidgetBackend::{from_widgets,reload_from_widgets}`, `CoreSettingRegistry::keys`, unused `WireFace` bench imports.
 - Performance numbers consolidated to [performance.md](./performance.md); roadmap rows and the ADR-031 perf-tune table cite the single source instead of duplicating Phase-11-era figures.
 
+**Refactor program — Phase α (cleanup) + Phase β (PluginBackend extinction) — opened 2026-05-12.**
+After four deep refactor analysis passes, the next program targets the
+~3000 LoC structural redundancy between `PluginBackend` (846 LoC trait,
+77 methods) and `HandlerTable` (already-erased dispatch table).
+`PluginRuntime` already coordinates dispatch; `PluginBackend` is a
+second erasure layer that can be deleted entirely. Backward
+compatibility is intentionally lifted for this program.
+
+Decisions taken at program open:
+
+- [ADR-047](decisions.md#adr-047-salsa-render-path-strategy--salsa-remains-canonical) **Accepted (2026-05-12)**: Salsa render path is canonical (production reachability confirmed via static trace from `kasane-tui/src/lib.rs:598` and `kasane-gui/src/app/render.rs:117`). The "Salsa lacks plugin transforms" hypothesis from `project_plugin_extensibility_gaps.md` was stale — the gap was resolved 2026-03-27. No Salsa infrastructure changes.
+- [ADR-048](decisions.md#adr-048-plugin-backend-trait-extinction-phase-β) **Proposed (2026-05-12)**: Refines and extends ADR-046 W1-C. Rather than narrowing `PluginBackend` to `pub(crate)` (R2.x P6 closed at `#[doc(hidden)] pub` for cross-crate reasons), delete the trait entirely. `PluginRuntime` holds `Vec<PluginEntry>` directly. Net LoC −2900 (production −1900, test −1000).
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0.1 — Bench baselines | 🟡 in flight | `cargo bench --bench rendering_pipeline -- --save-baseline phase0` for comparison after each subsequent PR |
+| 0.2 — Salsa path static analysis | ✅ 2026-05-12 | Static trace confirmed canonical; `MEMORY.md` index for extensibility-gap memo updated to reflect resolved state |
+| 0.3 — ADR-047 / ADR-048 drafts | ✅ 2026-05-12 | Both ADRs landed in `decisions.md` |
+| α-1 — Complete ADR-045 (delete `extension_point.rs` + WIT export + manifest fields) | pending | Subsumes ADR-046 F-1b. Touches `kasane-plugin-package` manifest schema and `kasane-plugin-sdk-macros::defaults`; all bundled / fixture WASM rebuild |
+| α-2 — Migrate `BuiltinDiagnosticsPlugin` to `Plugin` trait | pending | Last production `impl PluginBackend` outside `kasane-wasm` (`kasane/src/builtins/diagnostics.rs:21`) |
+| α-3 — Delete 7 deprecated lifecycle setters | pending | Subsumes ADR-046 W1-B |
+| α-4 — Delete legacy `#[kasane_plugin]` macro mode | pending | Subsumes ADR-046 W1-A reshape concern. SDK macros `defaults.rs` / `sdk_helpers.rs` cleanup follows |
+| α-5 — Extract `handler_registry/mod.rs` test block | pending | 999 LoC → ~200 LoC + dedicated tests/ subdir |
+| β-prep — One-method dispatch spike + iai_pipeline measurement | pending | GO/NO-GO gate for Phase β commitment |
+| β-1 — Introduce `PluginEntry`, keep `PluginBackend` adapter | pending | `PluginRuntime::plugins: Vec<PluginEntry>`; bridge still wraps |
+| β-2 — Migrate ≈50 test fixtures to `impl Plugin` | pending | Mostly mechanical; state-bearing fixtures verified individually |
+| β-3 — Delete `PluginBackend` trait | pending | `bridge.rs` 964→200 prod, `traits.rs` 846→150, `exhaustive_handler_dispatch_coverage` test deleted (structurally eliminated failure mode) |
+| β-4 — WIT 6.0.0 + WasmPlugin into_entry() + bundled WASM rebuild | pending | Subsumes ADR-046 Wave 2 atomic PR |
+| β-5 — Documentation rewrite (`plugin-api.md`, `plugin-development.md`, `migration/0.7-to-0.8.md`) | pending | `.claude/rules/plugin-docs.md` sweep at ABI ship time |
+
+Phase α/β supersedes ADR-046 W1-A through W1-F as the implementation
+shape (ADR-046's wave structure is preserved; only the W1-C scope
+escalates from narrowing to deletion). Total wall-clock estimate:
+**17-23 days** (Salsa B retire eliminated from the original
+plan once ADR-047 closed; crate-split deferred to a future program).
+
 Deferred to a future ADR (each blocked on a design decision, an upstream Plugin-API change, or a baseline measurement that has to land in its own PR):
 
-- [ADR-045](decisions.md#adr-045-retire-the-extension-point-dispatch-path): Retire `extension-point` API — **partially landed** (commit `cbf17f4c`). Rust dispatch deleted (-575 LoC); the WIT `evaluate-extension` guest export still ships in `kasane:plugin@5.0.0` and is scheduled for removal at the next major ABI bump, batched per ADR-046.
-- [ADR-046](decisions.md#adr-046-wit-abi-600--batched-retirement): WIT ABI 6.0.0 — Batched Retirement — **proposed (draft)**. Batches the W1 (Tier-1 ABI completion) workstream's breaking changes with F-1b (ADR-045 tail) and the `PluginBackend` visibility narrowing into a single major bump, executed as a two-wave merge structure to localise code-review cost while keeping the wasm rebuild atomic.
+- [ADR-045](decisions.md#adr-045-retire-the-extension-point-dispatch-path): Retire `extension-point` API — **partially landed** (commit `cbf17f4c`). Rust dispatch deleted (-575 LoC); the WIT `evaluate-extension` guest export still ships in `kasane:plugin@5.0.0`. **Scheduled for Phase α-1 completion** (subsumes ADR-046 F-1b).
+- [ADR-046](decisions.md#adr-046-wit-abi-600--batched-retirement): WIT ABI 6.0.0 — Batched Retirement — **proposed (draft)**. **Superseded in shape by ADR-048** (Phase β escalates W1-C from narrowing to deletion). The two-wave batched-retirement structure is preserved; Wave 2 atomic PR is now Phase β-4.
 - Salsa-input annotation `Arc<Vec<…>>` interning (host-side `.clone()` → `Arc::clone()` requires changing `AnnotationResult` field types, which is the plugin-facing surface).
 - `#[deprecated]` lifecycle scaffolding (`on_init` / `on_session_ready` / `on_state_changed` / `on_io_event` / `on_process_task` / `on_process_task_streaming` / `on_update`) — sole live consumer is the `#[kasane::plugin]` proc-macro, which cannot emit tier-typed setters without compile-time return-type inference; needs a coordinated macro / handler-registry redesign.
 - `PluginBackend` proc-macro generation (the R2.x P8 "1900 → ~700 LoC bridge.rs" follow-up).
