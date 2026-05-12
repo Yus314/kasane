@@ -6,20 +6,18 @@
 
 use kasane_core::element::Element;
 use kasane_core::input::{Key, KeyEvent, Modifiers};
-use kasane_core::kasane_plugin;
 use kasane_core::plugin::{
-    AppView, Command, ContribSizeHint, Contribution, PluginId, PluginRuntime, SlotId,
+    AppView, Command, ContribSizeHint, Contribution, HandlerRegistry, Plugin, PluginId,
+    PluginRuntime, SlotId, TransformTarget,
 };
 use kasane_core::protocol::{Color, Coord, Line, MenuStyle, NamedColor, WireFace};
 use kasane_core::render::{CursorStyle, cursor_style_default};
 use kasane_core::state::{AppState, DirtyFlags, Msg, update_in_place};
 use kasane_core::test_support::{make_line, render_with_registry, row_text};
 
-// `KeyConsumerPluginPlugin`, `MsgReceiverPluginPlugin`,
-// `PrefixPluginPlugin`, and `BufferBannerPlugin` get their
-// migrated-capability default impls from the `#[kasane_plugin]`
-// macro itself (R1.4–R1.6 / ADR-038). Only the manually-defined
-// plugin structs below need the explicit invocation.
+// All plugin fixtures below are hand-written `impl Plugin`. The legacy
+// `#[kasane_plugin]` macro was deleted in Phase β-3.2; the v2 macro
+// shape is exercised by `kasane-macros/tests/pass/plugin_v2_*`.
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -38,29 +36,21 @@ fn setup_state(lines: Vec<Line>) -> AppState {
 // Test 1: handle_key first-wins
 // ===========================================================================
 
-#[kasane_plugin]
-mod key_consumer_plugin {
-    use kasane_core::input::KeyEvent;
-    use kasane_core::plugin::{AppView, Command};
-    use kasane_core::state::DirtyFlags;
+struct KeyConsumerPlugin;
 
-    #[state]
-    #[derive(Default)]
-    pub struct State;
-
-    pub fn handle_key(
-        _state: &mut State,
-        key: &KeyEvent,
-        _core: &AppView<'_>,
-    ) -> Option<Vec<Command>> {
-        // Consume Ctrl+S
-        if key.key == kasane_core::input::Key::Char('s')
-            && key.modifiers.contains(kasane_core::input::Modifiers::CTRL)
-        {
-            Some(vec![Command::RequestRedraw(DirtyFlags::ALL)])
-        } else {
-            None
-        }
+impl Plugin for KeyConsumerPlugin {
+    type State = ();
+    fn id(&self) -> PluginId {
+        PluginId("key_consumer_plugin".to_string())
+    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_key(|_state, key, _app| {
+            if key.key == Key::Char('s') && key.modifiers.contains(Modifiers::CTRL) {
+                Some(((), vec![Command::RequestRedraw(DirtyFlags::ALL)]))
+            } else {
+                None
+            }
+        });
     }
 }
 
@@ -68,7 +58,7 @@ mod key_consumer_plugin {
 fn handle_key_first_wins() {
     let mut state = Box::new(setup_state(vec![make_line("text")]));
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(KeyConsumerPluginPlugin::new()));
+    registry.register(KeyConsumerPlugin);
     let _ = registry.init_all_batch(&AppView::new(&state));
 
     // Case 1: Ctrl+S should be consumed by the plugin
@@ -110,41 +100,34 @@ fn handle_key_first_wins() {
 // Test 2: Plugin message delivery
 // ===========================================================================
 
-#[kasane_plugin]
-mod msg_receiver_plugin {
-    use kasane_core::plugin::{AppView, Effects};
-    use kasane_core::state::DirtyFlags;
+#[derive(Clone, Default, PartialEq, Debug, Hash)]
+struct MsgReceiverState {
+    value: u32,
+}
 
-    #[state]
-    #[derive(Default)]
-    pub struct State {
-        pub value: u32,
+enum MsgReceiverMsg {
+    SetValue(u32),
+}
+
+struct MsgReceiverPlugin;
+
+impl Plugin for MsgReceiverPlugin {
+    type State = MsgReceiverState;
+    fn id(&self) -> PluginId {
+        PluginId("msg_receiver_plugin".to_string())
     }
-
-    #[event]
-    pub enum Msg {
-        SetValue(u32),
-    }
-
-    pub fn update_effects(
-        state: &mut State,
-        msg: &mut dyn std::any::Any,
-        _core: &AppView<'_>,
-    ) -> Effects {
-        let msg = msg
-            .downcast_ref::<Msg>()
-            .expect("typed plugin integration test payload must match Msg");
-        match msg {
-            Msg::SetValue(v) => {
-                state.value = *v;
-                Effects {
-                    redraw: DirtyFlags::STATUS,
-                    commands: vec![],
-                    scroll_plans: vec![],
-                    state_updates: Default::default(),
-                }
+    fn register(&self, r: &mut HandlerRegistry<MsgReceiverState>) {
+        r.on_update_tier2(|_state, msg, _app| {
+            let msg = msg
+                .downcast_ref::<MsgReceiverMsg>()
+                .expect("typed plugin integration test payload must match Msg");
+            match msg {
+                MsgReceiverMsg::SetValue(v) => (
+                    MsgReceiverState { value: *v },
+                    kasane_core::plugin::ProcessCapableEffects::redraw(DirtyFlags::STATUS),
+                ),
             }
-        }
+        });
     }
 }
 
@@ -153,11 +136,11 @@ fn plugin_message_delivery() {
     let state = setup_state(vec![make_line("text")]);
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(MsgReceiverPluginPlugin::new()));
+    registry.register(MsgReceiverPlugin);
     let _ = registry.init_all_batch(&AppView::new(&state));
 
     let target_id = kasane_core::plugin::PluginId("msg_receiver_plugin".into());
-    let payload: Box<dyn std::any::Any> = Box::new(msg_receiver_plugin::Msg::SetValue(42));
+    let payload: Box<dyn std::any::Any> = Box::new(MsgReceiverMsg::SetValue(42));
     let batch = registry.deliver_message_batch(&target_id, payload, &AppView::new(&state));
 
     assert!(
@@ -175,25 +158,19 @@ fn plugin_message_delivery() {
 // Test 3: Menu transform adds prefix
 // ===========================================================================
 
-#[kasane_plugin]
-mod prefix_plugin {
-    use kasane_core::plugin::AppView;
-    use kasane_core::protocol::Atom;
+struct PrefixPlugin;
 
-    #[state]
-    #[derive(Default)]
-    pub struct State;
-
-    pub fn transform_menu_item(
-        _state: &State,
-        item: &[Atom],
-        _index: usize,
-        _selected: bool,
-        _core: &AppView<'_>,
-    ) -> Option<Vec<Atom>> {
-        let mut result = vec![Atom::plain(">> ")];
-        result.extend(item.iter().cloned());
-        Some(result)
+impl Plugin for PrefixPlugin {
+    type State = ();
+    fn id(&self) -> PluginId {
+        PluginId("prefix_plugin".to_string())
+    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_menu_transform(|_state, item, _index, _selected, _app| {
+            let mut result = vec![kasane_core::protocol::Atom::plain(">> ")];
+            result.extend(item.iter().cloned());
+            Some(result)
+        });
     }
 }
 
@@ -228,7 +205,7 @@ fn menu_transform_adds_prefix() {
 
     let mut registry = PluginRuntime::new();
     registry.register(kasane_core::render::view::menu::BuiltinMenuPlugin);
-    registry.register_backend(Box::new(PrefixPluginPlugin::new()));
+    registry.register(PrefixPlugin);
     let _ = registry.init_all_batch(&AppView::new(&state));
     registry.prepare_plugin_cache(DirtyFlags::ALL);
 
@@ -268,29 +245,32 @@ fn menu_transform_adds_prefix() {
 // Test 4: Buffer transform adds banner
 // ===========================================================================
 
-#[kasane_plugin]
-mod buffer_banner {
-    use kasane_core::element::{Element, FlexChild};
-    #[allow(unused_imports)]
-    use kasane_core::plugin::TransformTarget;
-    use kasane_core::plugin::{AppView, TransformSubject};
+struct BufferBannerPlugin;
 
-    #[state]
-    #[derive(Default)]
-    pub struct State;
-
-    #[transform(TransformTarget::BUFFER)]
-    pub fn wrap_buffer(
-        _state: &State,
-        subject: TransformSubject,
-        _core: &AppView<'_>,
-    ) -> TransformSubject {
-        subject.map_element(|element| {
-            Element::column(vec![
-                FlexChild::fixed(Element::plain_text("[buffer transformed]")),
-                FlexChild::flexible(element, 1.0),
-            ])
-        })
+impl Plugin for BufferBannerPlugin {
+    type State = ();
+    fn id(&self) -> PluginId {
+        PluginId("buffer_banner".to_string())
+    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        use kasane_core::plugin::ElementPatch;
+        use std::sync::Arc;
+        r.on_transform(0, |_state, target, _app, _ctx| {
+            if *target == TransformTarget::BUFFER {
+                ElementPatch::Custom(Arc::new(|subject| {
+                    subject.map_element(|element| {
+                        Element::column(vec![
+                            kasane_core::element::FlexChild::fixed(Element::plain_text(
+                                "[buffer transformed]",
+                            )),
+                            kasane_core::element::FlexChild::flexible(element, 1.0),
+                        ])
+                    })
+                }))
+            } else {
+                ElementPatch::Identity
+            }
+        });
     }
 }
 
@@ -299,7 +279,7 @@ fn buffer_transform_adds_banner() {
     let state = setup_state(vec![make_line("line 0"), make_line("line 1")]);
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(BufferBannerPlugin::new()));
+    registry.register(BufferBannerPlugin);
     let _ = registry.init_all_batch(&AppView::new(&state));
 
     let transformed = registry

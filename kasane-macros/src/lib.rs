@@ -5,43 +5,34 @@ mod variant_meta;
 
 use proc_macro::TokenStream;
 
-/// Derive a `Plugin` impl from a module definition.
+/// Derive a `Plugin` impl from a module definition (HandlerRegistry pattern).
 ///
-/// # Legacy mode (default)
-///
-/// Place `#[kasane_plugin]` on a `mod` block containing:
-/// - `#[state] struct State { ... }` — plugin state type
-/// - `#[event] enum Msg { ... }` — message type
-/// - `fn update(state: &mut State, msg: Msg, core: &AppState) -> Vec<Command>` — state update
-/// - `#[transform(TransformTarget::*, priority = N)] fn transform(...)` — element transformer
-/// - `fn annotate_line(state: &State, line: usize, core: &AppState, ctx: &AnnotateContext) -> Option<LineAnnotation>` — line annotation
-/// - `fn transform_menu_item(...)` — menu item transformer
-///
-/// Generates a `{PascalCase}Plugin` struct with a `PluginBackend` trait impl.
-///
-/// # Handler registry mode (`v2`)
-///
-/// Place `#[kasane_plugin(v2)]` on a `mod` block to generate a `Plugin` impl
-/// using the `HandlerRegistry` pattern:
+/// Place `#[kasane_plugin(v2)]` on a `mod` block to generate a `Plugin` impl:
 /// - `#[state] struct State { ... }` — `type State = State`
 /// - `#[contribute("slot.name")]` functions → `r.on_contribute(...)`
 /// - `#[decorate_background]` functions → `r.on_decorate_background(...)`
 /// - `#[decorate_gutter(Left, priority)]` functions → `r.on_decorate_gutter(...)`
 /// - `#[handle_key]` functions → `r.on_key(...)`
-/// - `fn on_state_changed(...)` → `r.on_state_changed(...)`
+/// - `fn on_state_changed(...)` → `r.on_state_changed_tier1(...)`
 /// - `#[dirty(FLAGS)]` on `#[state]` struct → `r.declare_interests(FLAGS)`
+///
+/// The legacy `#[kasane_plugin]` (no-argument) mode that emitted
+/// `impl PluginBackend` was removed in Phase β-3.2.
 #[proc_macro_attribute]
 pub fn kasane_plugin(attr: TokenStream, input: TokenStream) -> TokenStream {
     let attr_str = attr.to_string();
-    if attr_str.trim() == "v2" {
-        plugin::expand_kasane_plugin_v2(input.into())
-            .unwrap_or_else(|e| e.to_compile_error())
-            .into()
-    } else {
-        plugin::expand_kasane_plugin(input.into())
-            .unwrap_or_else(|e| e.to_compile_error())
-            .into()
+    if attr_str.trim() != "v2" {
+        return syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "#[kasane_plugin] without `(v2)` was removed in Phase β-3.2; \
+             use #[kasane_plugin(v2)] or write a manual `impl Plugin`",
+        )
+        .to_compile_error()
+        .into();
     }
+    plugin::expand_kasane_plugin_v2(input.into())
+        .unwrap_or_else(|e| e.to_compile_error())
+        .into()
 }
 
 /// Validate a pure component function.
