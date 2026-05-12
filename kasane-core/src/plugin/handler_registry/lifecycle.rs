@@ -474,6 +474,21 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         self.table.allows_process_spawn = false;
     }
 
+    /// Declare host-resolved authorities granted to this plugin.
+    ///
+    /// Replaces any previously declared set; default is empty.
+    /// `PluginRuntime::plugin_has_authority` consults this value.
+    pub fn declare_authorities(&mut self, authorities: super::super::PluginAuthorities) {
+        self.table.authorities = authorities;
+    }
+
+    /// Set the priority for this plugin's display directives.
+    ///
+    /// Higher priorities win during `DirectiveSet` resolution. Default 0.
+    pub fn declare_display_priority(&mut self, priority: i16) {
+        self.table.display_priority = priority;
+    }
+
     /// Register an update (message) handler.
     ///
     /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.

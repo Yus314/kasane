@@ -574,6 +574,15 @@ pub(crate) struct HandlerTable {
     /// allow; `false` opts the plugin out of process spawning entirely.
     pub(crate) allows_process_spawn: bool,
 
+    // --- Host-resolved authorities ---
+    /// Bitflags requested by the plugin at registration. Defaults to empty.
+    pub(crate) authorities: super::PluginAuthorities,
+
+    // --- Display directive priority ---
+    /// Priority used when this plugin's `on_display*` handler emits a
+    /// `DirectiveSet`. Default 0.
+    pub(crate) display_priority: i16,
+
     // --- Config ---
     pub(crate) interests: DirtyFlags,
 
@@ -648,6 +657,8 @@ impl HandlerTable {
             surfaces_factory: None,
             workspace_request: None,
             allows_process_spawn: true,
+            authorities: super::PluginAuthorities::empty(),
+            display_priority: 0,
             interests: DirtyFlags::ALL,
             transparency: TransparencyFlags::default(),
             recovery: RecoveryFlags::default(),

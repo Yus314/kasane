@@ -351,7 +351,7 @@ impl PluginBackend for PluginBridge {
     }
 
     fn authorities(&self) -> PluginAuthorities {
-        PluginAuthorities::empty()
+        self.table.authorities
     }
 
     fn allows_process_spawn(&self) -> bool {
@@ -391,7 +391,7 @@ impl PluginBackend for PluginBridge {
     }
 
     fn display_directive_priority(&self) -> i16 {
-        0
+        self.table.display_priority
     }
 
     // === Lifecycle ===

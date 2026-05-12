@@ -249,11 +249,11 @@ fn legacy_plugin_without_projections_still_works() {
     use super::registry::DisplayTransformPlugin;
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(DisplayTransformPlugin {
+    registry.register(DisplayTransformPlugin {
         id: "legacy",
         directives: vec![DisplayDirective::Hide { range: 1..2 }],
         priority: 0,
-    }));
+    });
 
     let state = state_with_lines(4);
 

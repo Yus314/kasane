@@ -12,72 +12,87 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct TypedLifecyclePlugin;
 
-impl PluginBackend for TypedLifecyclePlugin {
+impl crate::plugin::Plugin for TypedLifecyclePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("typed-lifecycle".to_string())
     }
 
-    fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
-        Effects::redraw(DirtyFlags::STATUS)
-    }
-
-    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> Effects {
-        Effects {
-            redraw: DirtyFlags::BUFFER,
-            commands: vec![Command::SendToKakoune(KasaneRequest::Scroll {
-                amount: 3,
-                line: 1,
-                column: 1,
-            })],
-            scroll_plans: vec![],
-            state_updates: Default::default(),
-        }
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.on_init_tier1(|_state, _app| {
+            (
+                (),
+                crate::plugin::KakouneSideEffects::redraw(DirtyFlags::STATUS),
+            )
+        });
+        r.on_session_ready_tier1(|_state, _app| {
+            let mut effects = crate::plugin::KakouneSideEffects::redraw(DirtyFlags::BUFFER);
+            effects
+                .commands
+                .push(crate::plugin::KakouneSideCommand::send_to_kakoune(
+                    KasaneRequest::Scroll {
+                        amount: 3,
+                        line: 1,
+                        column: 1,
+                    },
+                ));
+            ((), effects)
+        });
     }
 }
 
 struct TypedRuntimePlugin;
 
-impl PluginBackend for TypedRuntimePlugin {
+impl crate::plugin::Plugin for TypedRuntimePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("typed-runtime".to_string())
     }
 
-    fn on_state_changed_effects(&mut self, _state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
-        if !dirty.contains(DirtyFlags::BUFFER) {
-            return Effects::default();
-        }
-        Effects {
-            redraw: DirtyFlags::INFO,
-            commands: vec![Command::RequestRedraw(DirtyFlags::STATUS)],
-            scroll_plans: vec![ScrollPlan {
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.on_state_changed_tier1(|_state, _app, dirty| {
+            if !dirty.contains(DirtyFlags::BUFFER) {
+                return ((), crate::plugin::KakouneSideEffects::none());
+            }
+            let mut effects = crate::plugin::KakouneSideEffects::redraw(DirtyFlags::INFO);
+            effects
+                .commands
+                .push(crate::plugin::KakouneSideCommand::request_redraw(
+                    DirtyFlags::STATUS,
+                ));
+            effects.base.scroll_plans.push(ScrollPlan {
                 total_amount: 3,
                 line: 2,
                 column: 4,
                 frame_interval_ms: 8,
                 curve: ScrollCurve::Linear,
                 accumulation: ScrollAccumulationMode::Add,
-            }],
-            state_updates: Default::default(),
-        }
-    }
-
-    fn update_effects(&mut self, msg: &mut dyn std::any::Any, _state: &AppView<'_>) -> Effects {
-        if msg.downcast_ref::<u32>() != Some(&7) {
-            return Effects::default();
-        }
-        Effects {
-            redraw: DirtyFlags::BUFFER,
-            commands: vec![Command::RequestRedraw(DirtyFlags::STATUS)],
-            scroll_plans: vec![ScrollPlan {
+            });
+            ((), effects)
+        });
+        r.on_update_tier2(|_state, msg, _app| {
+            if msg.downcast_ref::<u32>() != Some(&7) {
+                return ((), crate::plugin::ProcessCapableEffects::none());
+            }
+            let mut effects = crate::plugin::ProcessCapableEffects::redraw(DirtyFlags::BUFFER);
+            effects
+                .base
+                .commands
+                .push(crate::plugin::KakouneSideCommand::request_redraw(
+                    DirtyFlags::STATUS,
+                ));
+            effects.base.base.scroll_plans.push(ScrollPlan {
                 total_amount: -2,
                 line: 1,
                 column: 1,
                 frame_interval_ms: 16,
                 curve: ScrollCurve::Linear,
                 accumulation: ScrollAccumulationMode::Add,
-            }],
-            state_updates: Default::default(),
-        }
+            });
+            ((), effects)
+        });
     }
 }
 
@@ -86,13 +101,18 @@ struct ShutdownProbePlugin {
     shutdowns: Arc<AtomicUsize>,
 }
 
-impl PluginBackend for ShutdownProbePlugin {
+impl crate::plugin::Plugin for ShutdownProbePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId(self.id.to_string())
     }
 
-    fn on_shutdown(&mut self) {
-        self.shutdowns.fetch_add(1, Ordering::SeqCst);
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        let shutdowns = self.shutdowns.clone();
+        r.on_shutdown(move |_state| {
+            shutdowns.fetch_add(1, Ordering::SeqCst);
+        });
     }
 }
 
@@ -107,21 +127,24 @@ pub(super) struct DisplayTransformPlugin {
     pub(super) priority: i16,
 }
 
-impl PluginBackend for DisplayTransformPlugin {
+impl crate::plugin::Plugin for DisplayTransformPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId(self.id.to_string())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::DISPLAY_TRANSFORM
-    }
-
-    fn display_directives(&self, _state: &AppView<'_>) -> Vec<DisplayDirective> {
-        self.directives.clone()
-    }
-
-    fn display_directive_priority(&self) -> i16 {
-        self.priority
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        let directives = self.directives.clone();
+        r.on_display_witnessed(
+            crate::plugin::RecoveryWitness {
+                mechanism: crate::plugin::RecoveryMechanism::Declared {
+                    description: "test display transform plugin",
+                },
+            },
+            move |_state, _app| directives.clone(),
+        );
+        r.declare_display_priority(self.priority);
     }
 }
 
@@ -130,17 +153,19 @@ struct WorkspaceObserverPlugin {
     hits: Arc<AtomicUsize>,
 }
 
-impl PluginBackend for WorkspaceObserverPlugin {
+impl crate::plugin::Plugin for WorkspaceObserverPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId(self.id.to_string())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::WORKSPACE_OBSERVER
-    }
-
-    fn on_workspace_changed(&mut self, _query: &crate::workspace::WorkspaceQuery<'_>) {
-        self.hits.fetch_add(1, Ordering::SeqCst);
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        let hits = self.hits.clone();
+        r.on_workspace_changed(move |state, _query| {
+            hits.fetch_add(1, Ordering::SeqCst);
+            state.clone()
+        });
     }
 }
 
@@ -156,32 +181,47 @@ struct KeyMiddlewarePlugin {
     behavior: MiddlewareBehavior,
 }
 
-impl PluginBackend for KeyMiddlewarePlugin {
+impl crate::plugin::Plugin for KeyMiddlewarePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId(self.id.to_string())
     }
 
-    fn handle_key_middleware(&mut self, key: &KeyEvent, _state: &AppView<'_>) -> KeyHandleResult {
-        self.seen.lock().unwrap().push(key.clone());
-        match &self.behavior {
-            MiddlewareBehavior::Passthrough => KeyHandleResult::Passthrough,
-            MiddlewareBehavior::Transform(next_key) => {
-                KeyHandleResult::Transformed(next_key.clone())
-            }
-            MiddlewareBehavior::Consume(keyspec) => KeyHandleResult::Consumed(vec![
-                Command::SendToKakoune(KasaneRequest::Keys(vec![keyspec.clone()])),
-            ]),
-        }
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        let seen = self.seen.clone();
+        let behavior = match &self.behavior {
+            MiddlewareBehavior::Passthrough => MiddlewareBehavior::Passthrough,
+            MiddlewareBehavior::Transform(k) => MiddlewareBehavior::Transform(k.clone()),
+            MiddlewareBehavior::Consume(s) => MiddlewareBehavior::Consume(s.clone()),
+        };
+        r.on_key_middleware(move |state, key, _app| {
+            seen.lock().unwrap().push(key.clone());
+            let result = match &behavior {
+                MiddlewareBehavior::Passthrough => KeyHandleResult::Passthrough,
+                MiddlewareBehavior::Transform(next_key) => {
+                    KeyHandleResult::Transformed(next_key.clone())
+                }
+                MiddlewareBehavior::Consume(keyspec) => {
+                    KeyHandleResult::Consumed(vec![Command::SendToKakoune(KasaneRequest::Keys(
+                        vec![keyspec.clone()],
+                    ))])
+                }
+            };
+            (state.clone(), result)
+        });
     }
 }
 
-impl PluginBackend for AuthorityPlugin {
+impl crate::plugin::Plugin for AuthorityPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId(self.id.to_string())
     }
 
-    fn authorities(&self) -> PluginAuthorities {
-        self.authorities
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.declare_authorities(self.authorities);
     }
 }
 
@@ -190,18 +230,18 @@ struct TargetedReadyPlugin {
     redraw: DirtyFlags,
 }
 
-impl PluginBackend for TargetedReadyPlugin {
+impl crate::plugin::Plugin for TargetedReadyPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId(self.id.to_string())
     }
 
-    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> Effects {
-        Effects {
-            redraw: self.redraw,
-            commands: vec![],
-            scroll_plans: vec![],
-            state_updates: Default::default(),
-        }
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        let redraw = self.redraw;
+        r.on_session_ready_tier1(move |_state, _app| {
+            ((), crate::plugin::KakouneSideEffects::redraw(redraw))
+        });
     }
 }
 
@@ -220,7 +260,7 @@ fn test_plugin_id() {
 #[test]
 fn test_init_all_batch_collects_bootstrap_effects() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TypedLifecyclePlugin));
+    registry.register(TypedLifecyclePlugin);
     let state = AppState::default();
 
     let batch = registry.init_all_batch(&AppView::new(&state));
@@ -230,7 +270,7 @@ fn test_init_all_batch_collects_bootstrap_effects() {
 #[test]
 fn test_notify_active_session_ready_batch_collects_effects() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TypedLifecyclePlugin));
+    registry.register(TypedLifecyclePlugin);
     let state = AppState::default();
 
     let batch = registry.notify_active_session_ready_batch(&AppView::new(&state));
@@ -246,14 +286,14 @@ fn test_notify_active_session_ready_batch_collects_effects() {
 #[test]
 fn test_notify_plugin_active_session_ready_batch_targets_only_requested_plugin() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TargetedReadyPlugin {
+    registry.register(TargetedReadyPlugin {
         id: "alpha",
         redraw: DirtyFlags::STATUS,
-    }));
-    registry.register_backend(Box::new(TargetedReadyPlugin {
+    });
+    registry.register(TargetedReadyPlugin {
         id: "beta",
         redraw: DirtyFlags::BUFFER,
-    }));
+    });
     let state = AppState::default();
 
     let batch = registry.notify_plugin_active_session_ready_batch(
@@ -267,7 +307,7 @@ fn test_notify_plugin_active_session_ready_batch_targets_only_requested_plugin()
 #[test]
 fn test_notify_state_changed_batch_collects_runtime_effects() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TypedRuntimePlugin));
+    registry.register(TypedRuntimePlugin);
     let state = AppState::default();
 
     let batch = registry.notify_state_changed_batch(&AppView::new(&state), DirtyFlags::BUFFER);
@@ -279,7 +319,7 @@ fn test_notify_state_changed_batch_collects_runtime_effects() {
 #[test]
 fn test_deliver_message_batch_collects_runtime_effects() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TypedRuntimePlugin));
+    registry.register(TypedRuntimePlugin);
     let state = AppState::default();
 
     let batch = registry.deliver_message_batch(
@@ -339,10 +379,10 @@ fn test_remove_plugin_removes_registered_plugin() {
 fn test_plugin_has_authority_uses_declared_authorities() {
     let mut registry = PluginRuntime::new();
     let plugin_id = PluginId("authority-probe".to_string());
-    registry.register_backend(Box::new(AuthorityPlugin {
+    registry.register(AuthorityPlugin {
         id: "authority-probe",
         authorities: PluginAuthorities::DYNAMIC_SURFACE,
-    }));
+    });
 
     assert!(registry.plugin_has_authority(&plugin_id, PluginAuthorities::DYNAMIC_SURFACE));
     assert!(!registry.plugin_has_authority(&plugin_id, PluginAuthorities::PTY_PROCESS));
@@ -352,14 +392,14 @@ fn test_plugin_has_authority_uses_declared_authorities() {
 fn test_register_backend_replacement_updates_authorities() {
     let mut registry = PluginRuntime::new();
     let plugin_id = PluginId("authority-probe".to_string());
-    registry.register_backend(Box::new(AuthorityPlugin {
+    registry.register(AuthorityPlugin {
         id: "authority-probe",
         authorities: PluginAuthorities::DYNAMIC_SURFACE,
-    }));
-    registry.register_backend(Box::new(AuthorityPlugin {
+    });
+    registry.register(AuthorityPlugin {
         id: "authority-probe",
         authorities: PluginAuthorities::PTY_PROCESS,
-    }));
+    });
 
     assert!(!registry.plugin_has_authority(&plugin_id, PluginAuthorities::DYNAMIC_SURFACE));
     assert!(registry.plugin_has_authority(&plugin_id, PluginAuthorities::PTY_PROCESS));
@@ -368,19 +408,19 @@ fn test_register_backend_replacement_updates_authorities() {
 #[test]
 fn test_collect_display_directives_composes_multi_plugin() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(DisplayTransformPlugin {
+    registry.register(DisplayTransformPlugin {
         id: "first",
         directives: vec![DisplayDirective::Hide { range: 1..3 }],
         priority: 0,
-    }));
-    registry.register_backend(Box::new(DisplayTransformPlugin {
+    });
+    registry.register(DisplayTransformPlugin {
         id: "second",
         directives: vec![DisplayDirective::Fold {
             range: 3..5,
             summary: vec![Atom::plain("folded")],
         }],
         priority: 0,
-    }));
+    });
 
     let mut state = AppState::default();
     state.observed.lines = (vec![vec![], vec![], vec![], vec![], vec![], vec![]]).into();
@@ -404,11 +444,11 @@ fn test_collect_display_directives_composes_multi_plugin() {
 #[test]
 fn test_collect_display_map_composes_multi_plugin() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(DisplayTransformPlugin {
+    registry.register(DisplayTransformPlugin {
         id: "first",
         directives: vec![DisplayDirective::Hide { range: 1..3 }],
         priority: 0,
-    }));
+    });
 
     let mut state = AppState::default();
     state.observed.lines = (vec![vec![], vec![], vec![], vec![]]).into();
@@ -437,22 +477,22 @@ fn test_collect_display_map_composes_multi_plugin() {
 #[test]
 fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(DisplayTransformPlugin {
+    registry.register(DisplayTransformPlugin {
         id: "low",
         directives: vec![DisplayDirective::Fold {
             range: 1..4,
             summary: vec![Atom::plain("low-fold")],
         }],
         priority: 0,
-    }));
-    registry.register_backend(Box::new(DisplayTransformPlugin {
+    });
+    registry.register(DisplayTransformPlugin {
         id: "high",
         directives: vec![DisplayDirective::Fold {
             range: 2..5,
             summary: vec![Atom::plain("high-fold")],
         }],
         priority: 10,
-    }));
+    });
 
     let mut state = AppState::default();
     state.observed.lines = (vec![vec![], vec![], vec![], vec![], vec![], vec![]]).into();
@@ -473,11 +513,11 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
 #[test]
 fn test_collect_display_directives_single_plugin_unchanged() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(DisplayTransformPlugin {
+    registry.register(DisplayTransformPlugin {
         id: "only",
         directives: vec![DisplayDirective::Hide { range: 1..3 }],
         priority: 0,
-    }));
+    });
 
     let mut state = AppState::default();
     state.observed.lines = (vec![vec![], vec![], vec![], vec![]]).into();
@@ -496,10 +536,10 @@ fn test_collect_display_directives_single_plugin_unchanged() {
 fn test_notify_workspace_changed_dispatches_only_to_observers() {
     let hits = Arc::new(AtomicUsize::new(0));
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(WorkspaceObserverPlugin {
+    registry.register(WorkspaceObserverPlugin {
         id: "observer",
         hits: hits.clone(),
-    }));
+    });
     registry.register(TestPlugin);
 
     let workspace = crate::workspace::Workspace::default();
@@ -519,19 +559,19 @@ fn test_dispatch_key_middleware_passes_transformed_key_to_next_plugin() {
     let first_seen = Arc::new(Mutex::new(Vec::new()));
     let second_seen = Arc::new(Mutex::new(Vec::new()));
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(KeyMiddlewarePlugin {
+    registry.register(KeyMiddlewarePlugin {
         id: "transformer",
         seen: first_seen.clone(),
         behavior: MiddlewareBehavior::Transform(KeyEvent {
             key: Key::Char('b'),
             modifiers: Modifiers::SHIFT,
         }),
-    }));
-    registry.register_backend(Box::new(KeyMiddlewarePlugin {
+    });
+    registry.register(KeyMiddlewarePlugin {
         id: "consumer",
         seen: second_seen.clone(),
         behavior: MiddlewareBehavior::Consume("<esc>".to_string()),
-    }));
+    });
 
     let state = AppState::default();
     let result = registry.dispatch_key_middleware(
@@ -568,19 +608,19 @@ fn test_dispatch_key_middleware_passes_transformed_key_to_next_plugin() {
 #[test]
 fn test_dispatch_key_middleware_returns_final_passthrough_key() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(KeyMiddlewarePlugin {
+    registry.register(KeyMiddlewarePlugin {
         id: "transformer",
         seen: Arc::new(Mutex::new(Vec::new())),
         behavior: MiddlewareBehavior::Transform(KeyEvent {
             key: Key::PageDown,
             modifiers: Modifiers::CTRL,
         }),
-    }));
-    registry.register_backend(Box::new(KeyMiddlewarePlugin {
+    });
+    registry.register(KeyMiddlewarePlugin {
         id: "passthrough",
         seen: Arc::new(Mutex::new(Vec::new())),
         behavior: MiddlewareBehavior::Passthrough,
-    }));
+    });
 
     let state = AppState::default();
     match registry.dispatch_key_middleware(
@@ -602,10 +642,10 @@ fn test_dispatch_key_middleware_returns_final_passthrough_key() {
 fn test_unload_plugin_calls_shutdown_and_removes_plugin() {
     let mut registry = PluginRuntime::new();
     let shutdowns = Arc::new(AtomicUsize::new(0));
-    registry.register_backend(Box::new(ShutdownProbePlugin {
+    registry.register(ShutdownProbePlugin {
         id: "shutdown-probe",
         shutdowns: shutdowns.clone(),
-    }));
+    });
 
     assert!(registry.contains_plugin(&PluginId("shutdown-probe".to_string())));
     assert!(registry.unload_plugin(&PluginId("shutdown-probe".to_string())));
@@ -657,10 +697,13 @@ fn test_init_all_batch_collects_lifecycle_bootstrap_effects() {
 #[test]
 fn test_reload_plugin_batch_collects_bootstrap_effects() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TypedLifecyclePlugin));
+    registry.register(TypedLifecyclePlugin);
     let state = AppState::default();
 
-    let batch = registry.reload_plugin_batch(Box::new(TypedLifecyclePlugin), &AppView::new(&state));
+    let batch = registry.reload_plugin_batch(
+        Box::new(crate::plugin::PluginBridge::new(TypedLifecyclePlugin)),
+        &AppView::new(&state),
+    );
     assert!(batch.redraw.contains(DirtyFlags::STATUS));
 }
 
@@ -697,65 +740,48 @@ fn test_deliver_message_unknown_target() {
 // --- Per-extension-point invalidation tests (Phase 5) ---
 
 /// A contributor-only plugin with controllable hash.
-struct ContributorPlugin {
-    hash: u64,
-}
+struct ContributorPlugin;
 
-impl PluginBackend for ContributorPlugin {
+impl crate::plugin::Plugin for ContributorPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("contributor".to_string())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CONTRIBUTOR
-    }
-
-    fn state_hash(&self) -> u64 {
-        self.hash
-    }
-
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        _state: &AppView<'_>,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        if *region == SlotId::STATUS_LEFT {
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.on_contribute(SlotId::STATUS_LEFT, |_state, _app, _ctx| {
             Some(Contribution {
                 element: crate::element::Element::plain_text("contrib"),
                 priority: 0,
                 size_hint: crate::plugin::ContribSizeHint::Auto,
             })
-        } else {
-            None
-        }
+        });
     }
 }
 
-/// An annotator-only plugin with controllable hash.
-struct AnnotatorPlugin {
-    hash: u64,
-}
+/// An annotator-only plugin (no handlers — ANNOTATOR capability is forced
+/// via a no-op virtual-text handler so the staleness path observes the
+/// plugin in the annotator group).
+struct AnnotatorPlugin;
 
-impl PluginBackend for AnnotatorPlugin {
+impl crate::plugin::Plugin for AnnotatorPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("annotator".to_string())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ANNOTATOR
-    }
-
-    fn state_hash(&self) -> u64 {
-        self.hash
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.on_virtual_text(|_state, _line, _app, _ctx| Vec::new());
     }
 }
 
 #[test]
 fn test_per_extension_point_stale_contributor_only() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ContributorPlugin { hash: 1 }));
-    registry.register_backend(Box::new(AnnotatorPlugin { hash: 1 }));
+    registry.register(ContributorPlugin);
+    registry.register(AnnotatorPlugin);
 
     // First prepare: both stale (hash changed from default 0)
     registry.prepare_plugin_cache(DirtyFlags::ALL);
@@ -774,8 +800,8 @@ fn test_per_extension_point_stale_contributor_only() {
 #[test]
 fn test_per_extension_point_stale_only_annotator_changes() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ContributorPlugin { hash: 1 }));
-    registry.register_backend(Box::new(AnnotatorPlugin { hash: 1 }));
+    registry.register(ContributorPlugin);
+    registry.register(AnnotatorPlugin);
 
     // First prepare: both become stale
     registry.prepare_plugin_cache(DirtyFlags::ALL);
@@ -787,7 +813,7 @@ fn test_per_extension_point_stale_only_annotator_changes() {
     assert!(!view.any_annotator_needs_recollect());
 
     // Now change only the annotator's hash — mutate via re-register
-    registry.register_backend(Box::new(AnnotatorPlugin { hash: 2 }));
+    registry.register(AnnotatorPlugin);
     registry.prepare_plugin_cache(DirtyFlags::empty());
     let view = registry.view();
 
@@ -801,7 +827,7 @@ fn test_contribution_cache_reuses_non_stale_plugin() {
     use crate::plugin::ContributionCache;
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(ContributorPlugin { hash: 1 }));
+    registry.register(ContributorPlugin);
 
     let state = AppState::default();
     let app = AppView::new(&state);
@@ -825,12 +851,12 @@ fn test_contribution_cache_reuses_non_stale_plugin() {
 #[test]
 fn test_display_transform_stale_independent_of_annotator() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(AnnotatorPlugin { hash: 1 }));
-    registry.register_backend(Box::new(DisplayTransformPlugin {
+    registry.register(AnnotatorPlugin);
+    registry.register(DisplayTransformPlugin {
         id: "display",
         directives: vec![],
         priority: 0,
-    }));
+    });
 
     // Both stale initially
     registry.prepare_plugin_cache(DirtyFlags::ALL);
@@ -842,7 +868,7 @@ fn test_display_transform_stale_independent_of_annotator() {
     registry.prepare_plugin_cache(DirtyFlags::empty());
 
     // Change only annotator
-    registry.register_backend(Box::new(AnnotatorPlugin { hash: 2 }));
+    registry.register(AnnotatorPlugin);
     registry.prepare_plugin_cache(DirtyFlags::empty());
     let view = registry.view();
     assert!(view.any_annotator_needs_recollect());
@@ -888,35 +914,27 @@ impl Plugin for DecomposedAnnotatorPlugin {
     }
 }
 
-/// A legacy PluginBackend that uses the monolithic annotate_line_with_ctx.
+/// A native ANNOTATOR plugin using the gutter handler.
+///
+/// (Originally a "legacy" fixture exercising the monolithic
+/// `annotate_line_with_ctx` decompose path; that path is preserved
+/// only for WASM plugins. Native plugins always use decomposed handlers.)
 struct LegacyAnnotatorPlugin;
 
-impl PluginBackend for LegacyAnnotatorPlugin {
+impl Plugin for LegacyAnnotatorPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("legacy-annotator".to_string())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ANNOTATOR
-    }
-
-    fn annotate_line_with_ctx(
-        &self,
-        line: usize,
-        _state: &AppView<'_>,
-        _ctx: &AnnotateContext,
-    ) -> Option<super::super::LineAnnotation> {
-        Some(super::super::LineAnnotation {
-            left_gutter: Some(crate::element::Element::text(
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_decorate_gutter(GutterSide::Left, 5, |_state, line, _app, _ctx| {
+            Some(crate::element::Element::text(
                 format!("L{}", line + 1),
                 crate::protocol::Style::default(),
-            )),
-            right_gutter: None,
-            background: None,
-            priority: 5,
-            inline: None,
-            virtual_text: vec![],
-        })
+            ))
+        });
     }
 }
 
@@ -955,7 +973,7 @@ fn test_decomposed_annotator_produces_gutter_and_background() {
 fn test_mixed_decomposed_and_legacy_annotators() {
     let mut registry = PluginRuntime::new();
     registry.register(DecomposedAnnotatorPlugin);
-    registry.register_backend(Box::new(LegacyAnnotatorPlugin));
+    registry.register(LegacyAnnotatorPlugin);
 
     let mut state = AppState::default();
     state.observed.lines = (vec![vec![], vec![]]).into();
@@ -980,26 +998,13 @@ fn test_mixed_decomposed_and_legacy_annotators() {
     assert!(result.line_backgrounds.is_some());
 }
 
-#[test]
-fn test_decomposed_annotator_has_decomposed_annotations_flag() {
-    let mut registry = PluginRuntime::new();
-    registry.register(DecomposedAnnotatorPlugin);
-    registry.register_backend(Box::new(LegacyAnnotatorPlugin));
-
-    // PluginBridge (from register()) should report has_decomposed_annotations = true
-    // LegacyAnnotatorPlugin should report has_decomposed_annotations = false
-    let mut decomposed_count = 0;
-    let mut legacy_count = 0;
-    for p in registry.plugins_mut() {
-        if p.has_decomposed_annotations() {
-            decomposed_count += 1;
-        } else {
-            legacy_count += 1;
-        }
-    }
-    assert_eq!(decomposed_count, 1);
-    assert_eq!(legacy_count, 1);
-}
+// (Removed) `test_decomposed_annotator_has_decomposed_annotations_flag`:
+// asserted that LegacyAnnotatorPlugin reports `has_decomposed_annotations()
+// == false` while DecomposedAnnotatorPlugin reports true. After the
+// legacy fixture migrated to `impl Plugin` with `on_decorate_gutter`, the
+// distinction is no longer meaningful at the test fixture level — every
+// native plugin reports decomposed = true. The WASM-side fallback is
+// exercised in kasane-wasm integration tests.
 
 // --- Pub/Sub tests (Phase 8a) ---
 
@@ -1226,48 +1231,46 @@ fn test_unloading_plugin_does_not_recycle_tag() {
 
 struct MousePlugin42;
 
-impl PluginBackend for MousePlugin42 {
+impl Plugin for MousePlugin42 {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("mouse42".to_string())
     }
 
-    fn handle_mouse(
-        &mut self,
-        _event: &crate::input::MouseEvent,
-        id: InteractiveId,
-        _state: &AppView<'_>,
-    ) -> Option<Vec<Command>> {
-        if id.local == 42 {
-            Some(vec![Command::RequestRedraw(DirtyFlags::BUFFER)])
-        } else {
-            None
-        }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_handle_mouse(|_state, _event, id, _app| {
+            if id.local == 42 {
+                Some(((), vec![Command::RequestRedraw(DirtyFlags::BUFFER)]))
+            } else {
+                None
+            }
+        });
     }
 }
 
 struct DecoyMousePlugin;
 
-impl PluginBackend for DecoyMousePlugin {
+impl Plugin for DecoyMousePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("decoy-mouse".to_string())
     }
 
-    fn handle_mouse(
-        &mut self,
-        _event: &crate::input::MouseEvent,
-        _id: InteractiveId,
-        _state: &AppView<'_>,
-    ) -> Option<Vec<Command>> {
-        // Should never be called for tagged IDs belonging to other plugins
-        panic!("decoy plugin should not be called for tagged IDs");
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_handle_mouse(|_state, _event, _id, _app| -> Option<((), Vec<Command>)> {
+            // Should never be called for tagged IDs belonging to other plugins
+            panic!("decoy plugin should not be called for tagged IDs");
+        });
     }
 }
 
 #[test]
 fn test_tagged_interactive_id_routes_to_correct_plugin() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(DecoyMousePlugin));
-    registry.register_backend(Box::new(MousePlugin42));
+    registry.register(DecoyMousePlugin);
+    registry.register(MousePlugin42);
 
     let mouse42_tag = registry
         .plugin_tag(&PluginId("mouse42".to_string()))
@@ -1297,7 +1300,7 @@ fn test_tagged_interactive_id_routes_to_correct_plugin() {
 #[test]
 fn test_framework_tagged_id_uses_legacy_fallback() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(MousePlugin42));
+    registry.register(MousePlugin42);
 
     let state = AppState::default();
     let id = InteractiveId::framework(42);
@@ -1319,7 +1322,7 @@ fn test_framework_tagged_id_uses_legacy_fallback() {
 #[test]
 fn test_nonexistent_tag_returns_not_handled() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(MousePlugin42));
+    registry.register(MousePlugin42);
 
     let state = AppState::default();
     let id = InteractiveId::new(42, PluginTag(999));
@@ -1358,12 +1361,16 @@ struct NavPolicyPlugin {
     policy: NavigationPolicy,
 }
 
-impl PluginBackend for NavPolicyPlugin {
+impl Plugin for NavPolicyPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId(self.name.to_string())
     }
-    fn navigation_policy(&self, _unit: &DisplayUnit) -> Option<NavigationPolicy> {
-        Some(self.policy.clone())
+
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        let policy = self.policy.clone();
+        r.on_navigation_policy(move |_state, _unit| policy.clone());
     }
 }
 
@@ -1372,16 +1379,16 @@ struct NavActionPlugin {
     result: ActionResult,
 }
 
-impl PluginBackend for NavActionPlugin {
+impl Plugin for NavActionPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId(self.name.to_string())
     }
-    fn navigation_action(
-        &mut self,
-        _unit: &DisplayUnit,
-        _action: NavigationAction,
-    ) -> Option<ActionResult> {
-        Some(self.result.clone())
+
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        let result = self.result.clone();
+        r.on_navigation_action(move |state, _unit, _action| (state.clone(), result.clone()));
     }
 }
 
@@ -1400,15 +1407,15 @@ fn resolve_navigation_policy_falls_back_to_default() {
 fn resolve_navigation_policy_first_wins() {
     let mut registry = PluginRuntime::new();
     // First plugin returns Normal (overriding the FoldSummary default of Boundary)
-    registry.register_backend(Box::new(NavPolicyPlugin {
+    registry.register(NavPolicyPlugin {
         name: "nav-policy-1",
         policy: NavigationPolicy::Normal,
-    }));
+    });
     // Second plugin returns Skip — should be ignored because first wins
-    registry.register_backend(Box::new(NavPolicyPlugin {
+    registry.register(NavPolicyPlugin {
         name: "nav-policy-2",
         policy: NavigationPolicy::Skip,
-    }));
+    });
 
     let unit = make_display_unit(SemanticRole::FoldSummary);
     let policy = registry.resolve_navigation_policy(&unit);
@@ -1426,14 +1433,14 @@ fn dispatch_navigation_action_returns_pass_when_no_plugins() {
 #[test]
 fn dispatch_navigation_action_first_wins() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(NavActionPlugin {
+    registry.register(NavActionPlugin {
         name: "nav-action-1",
         result: ActionResult::Handled,
-    }));
-    registry.register_backend(Box::new(NavActionPlugin {
+    });
+    registry.register(NavActionPlugin {
         name: "nav-action-2",
         result: ActionResult::SendKeys("j".to_string()),
-    }));
+    });
 
     let unit = make_display_unit(SemanticRole::FoldSummary);
     let result = registry.dispatch_navigation_action(&unit, NavigationAction::ToggleFold);
@@ -1635,7 +1642,7 @@ fn unified_and_legacy_annotators_coexist() {
     let mut registry = PluginRuntime::new();
     registry.register(UnifiedDisplayPlugin);
     registry.register(DecomposedAnnotatorPlugin);
-    registry.register_backend(Box::new(LegacyAnnotatorPlugin));
+    registry.register(LegacyAnnotatorPlugin);
 
     let mut state = AppState::default();
     state.observed.lines = (vec![vec![], vec![], vec![]]).into();
