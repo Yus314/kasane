@@ -126,4 +126,59 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             },
         ));
     }
+
+    /// Install a pre-built [`CompiledKeyMap`].
+    ///
+    /// Counterpart to [`Self::on_key_map`] for plugins whose key-map
+    /// origin is *not* the in-process [`KeyMapBuilder`] DSL — primarily
+    /// WASM plugins, which compile groups + bindings out-of-process via
+    /// the `declare-key-map` WIT export and hand the result to the host
+    /// already-built. Pair with [`Self::on_refresh_key_groups`] when the
+    /// map carries gated groups, and [`Self::on_invoke_action`] when its
+    /// bindings reference named actions.
+    pub fn declare_key_map(&mut self, map: CompiledKeyMap) {
+        self.table.key_map = Some(map);
+    }
+
+    /// Register a refresh handler invoked before each key dispatch to
+    /// recompute per-group `active` flags on the installed
+    /// [`CompiledKeyMap`].
+    ///
+    /// The native [`Self::on_key_map`] path wires this automatically
+    /// from the builder's group predicates; this lower-level setter is
+    /// for callers that installed the map via [`Self::declare_key_map`]
+    /// and need to drive group activation from arbitrary state.
+    pub fn on_refresh_key_groups(
+        &mut self,
+        handler: impl Fn(&S, &AppView<'_>, &mut CompiledKeyMap) + Send + Sync + 'static,
+    ) {
+        self.table.group_refresh_handler = Some(Box::new(move |state, app, map| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, app, map);
+        }));
+    }
+
+    /// Register an action handler invoked when a [`CompiledKeyMap`]
+    /// binding fires a named action.
+    ///
+    /// The native [`Self::on_key_map`] path wires per-action handlers
+    /// internally from the builder; this lower-level setter takes a
+    /// single dispatcher that receives the action id as a string and
+    /// chooses the response.
+    pub fn on_invoke_action(
+        &mut self,
+        handler: impl Fn(&S, &str, &KeyEvent, &AppView<'_>) -> (S, KeyResponse) + Send + Sync + 'static,
+    ) {
+        self.table.action_handler = Some(Box::new(move |state, action_id, key, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, response) = handler(s, action_id, key, app);
+            (Box::new(new_state) as Box<dyn PluginState>, response)
+        }));
+    }
 }

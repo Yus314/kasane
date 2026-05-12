@@ -771,6 +771,8 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
 /// - **β-3.3b.3 — Input handlers** (5 handlers: `handle-key`,
 ///   `handle-key-middleware`, `handle-mouse`, `handle-drop`,
 ///   `handle-default-scroll`; `handle-text-input` has no WIT export)
+/// - **β-3.3b.4 — Input dispatch helpers** (3 handlers: pre-built
+///   `CompiledKeyMap` install, group-refresh, named-action dispatch)
 impl Plugin for WasmPlugin {
     type State = ();
 
@@ -1059,6 +1061,63 @@ impl Plugin for WasmPlugin {
 
                 result.map(|res| ((), res))
             })
+        });
+
+        // ---- β-3.3b.4 — Input dispatch helpers ----
+        // declare_key_map: install the WIT-built CompiledKeyMap directly.
+        // The native plugin path uses the in-process KeyMapBuilder DSL;
+        // WASM plugins compile groups + bindings out-of-process via the
+        // `declare-key-map` WIT export, which `WasmPlugin::new*` already
+        // converted into `self.key_map` at load time.
+        if let Some(map) = self.key_map.clone() {
+            r.declare_key_map(map);
+        }
+
+        // refresh_key_groups → on_refresh_key_groups
+        let shared = Arc::clone(&self.shared);
+        r.on_refresh_key_groups(move |_state, app, map| {
+            for group in &mut map.groups {
+                let name = group.name.to_string();
+                let active = shared.call_synced(app, "is_group_active", |rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    Ok(api.call_is_group_active(&mut rt.store, &name)?)
+                });
+                group.active = active;
+            }
+        });
+
+        // invoke_action → on_invoke_action
+        let shared = Arc::clone(&self.shared);
+        r.on_invoke_action(move |_state, action_id, key, app| {
+            let shared_for_call = Arc::clone(&shared);
+            let response = shared.with_runtime(|runtime| {
+                host::sync_from_app_state(
+                    runtime.store.data_mut(),
+                    app.as_app_state(),
+                    shared_for_call.cached_view_deps,
+                );
+                runtime.store.data_mut().plugin_tag = shared_for_call.plugin_tag();
+                let api = runtime.instance.kasane_plugin_plugin_api();
+                let wit_key = convert::key_event_to_wit(key);
+                let result = match api.call_invoke_action(&mut runtime.store, action_id, wit_key) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::error!(
+                            "WASM plugin {}.invoke_action failed: {e}",
+                            shared_for_call.plugin_id.0
+                        );
+                        shared_for_call.record_diagnostic("invoke_action", &e.into());
+                        return KeyResponse::Pass;
+                    }
+                };
+                if let Ok(h) = api.call_state_hash(&mut runtime.store) {
+                    shared_for_call.set_state_hash(h);
+                }
+                convert::wit_key_response_to_key_response(&result, &|cmds| {
+                    shared_for_call.convert_commands(cmds)
+                })
+            });
+            ((), response)
         });
     }
 }
