@@ -787,6 +787,10 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
 ///   `define_projection` per cached descriptor; the priority handler
 ///   is declarative — the WIT-supplied `display_directive_priority`
 ///   stayed pinned at 0)
+/// - **β-3.3b.8 — Navigation + overlay + edit intercept** (4 handlers:
+///   conditionally `on_navigation_policy` and `on_navigation_action`
+///   when the matching capability bit is set, `on_overlay`,
+///   `on_buffer_edit_intercept`)
 impl Plugin for WasmPlugin {
     type State = ();
 
@@ -1351,6 +1355,117 @@ impl Plugin for WasmPlugin {
         // (the WIT export does not exist yet); the registry's
         // `display_priority` field defaults to 0, so no explicit
         // `declare_display_priority` call is needed.
+
+        // ---- β-3.3b.8 — Navigation + overlay + edit intercept ----
+
+        // navigation_policy → on_navigation_policy. Gated by the
+        // NAVIGATION_POLICY capability so plugins that don't implement
+        // the WIT export skip registration entirely; PluginBridge's
+        // `navigation_policy` returns None when the handler is absent,
+        // matching the trait method's early-return.
+        if self
+            .shared
+            .cached_capabilities
+            .contains(PluginCapabilities::NAVIGATION_POLICY)
+        {
+            let shared = Arc::clone(&self.shared);
+            r.on_navigation_policy(move |_state, unit| {
+                let wit_unit = convert::display_unit_to_wit(unit);
+                shared.with_runtime(|runtime| {
+                    let api = runtime.instance.kasane_plugin_plugin_api();
+                    match api.call_navigation_policy(&mut runtime.store, wit_unit) {
+                        Ok(kind) => convert::wit_navigation_policy_to_policy(kind),
+                        Err(e) => {
+                            tracing::error!(
+                                "WASM plugin {}.navigation_policy failed: {e}",
+                                shared.plugin_id.0
+                            );
+                            // Trait method returns None on error and the
+                            // bridge collapses absence to "no opinion";
+                            // emit `Normal` as the fallback policy so the
+                            // semantics line up (any registered handler
+                            // produces some answer, never None).
+                            kasane_core::display::navigation::NavigationPolicy::Normal
+                        }
+                    }
+                })
+            });
+        }
+
+        // navigation_action → on_navigation_action. Gated by the
+        // NAVIGATION_ACTION capability. The closure returns the raw
+        // ActionResult; PluginBridge::navigation_action collapses
+        // Pass to None, matching the trait method.
+        if self
+            .shared
+            .cached_capabilities
+            .contains(PluginCapabilities::NAVIGATION_ACTION)
+        {
+            let shared = Arc::clone(&self.shared);
+            r.on_navigation_action(move |_state, unit, action| {
+                let wit_unit = convert::display_unit_to_wit(unit);
+                let action_kind = convert::navigation_action_to_wit_kind(&action);
+                let result = shared.with_runtime(|runtime| {
+                    let api = runtime.instance.kasane_plugin_plugin_api();
+                    match api.call_on_navigation_action(&mut runtime.store, wit_unit, action_kind) {
+                        Ok(result) => convert::wit_action_result_to_action_result(result),
+                        Err(e) => {
+                            tracing::error!(
+                                "WASM plugin {}.on_navigation_action failed: {e}",
+                                shared.plugin_id.0
+                            );
+                            kasane_core::display::navigation::ActionResult::Pass
+                        }
+                    }
+                });
+                ((), result)
+            });
+        }
+
+        // contribute_overlay_with_ctx → on_overlay. The trait method
+        // built an OverlayContribution with `plugin_id: PluginId::EMPTY`
+        // because the bridge later fills in the owning plugin's id from
+        // the dispatch context; preserve that contract here.
+        let shared = Arc::clone(&self.shared);
+        r.on_overlay(move |_state, app, ctx| {
+            shared.call_synced(app, "contribute_overlay_v2", |rt| {
+                rt.store.data_mut().elements.clear();
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_ctx = convert::overlay_context_to_wit(ctx);
+                Ok(api
+                    .call_contribute_overlay_v2(&mut rt.store, &wit_ctx)?
+                    .map(|wit_oc| {
+                        let element = rt.store.data_mut().take_root_element(wit_oc.element);
+                        let anchor = convert::wit_overlay_anchor_to_overlay_anchor(&wit_oc.anchor);
+                        OverlayContribution {
+                            element,
+                            anchor,
+                            z_index: wit_oc.z_index,
+                            plugin_id: PluginId(String::new()),
+                        }
+                    }))
+            })
+        });
+
+        // intercept_buffer_edit → on_buffer_edit_intercept. The trait
+        // method's `call_synced` falls back to `BufferEditVerdict::default()`
+        // (= PassThrough) on trap or missing export; the closure mirrors
+        // that semantics.
+        let shared = Arc::clone(&self.shared);
+        r.on_buffer_edit_intercept(move |_state, edit, app| {
+            use kasane_core::state::shadow_cursor::BufferEditVerdict;
+            let wit_edit = convert::buffer_edit_to_wit(edit);
+            let verdict = shared.call_synced(
+                app,
+                "intercept_buffer_edit",
+                |rt| -> anyhow::Result<BufferEditVerdict> {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    let wit_verdict = api.call_intercept_buffer_edit(&mut rt.store, &wit_edit)?;
+                    Ok(convert::wit_shadow_edit_verdict_to_native(wit_verdict))
+                },
+            );
+            ((), verdict)
+        });
     }
 }
 
