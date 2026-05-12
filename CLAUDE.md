@@ -43,7 +43,6 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane-gui/` | GPU backend — winit + wgpu + Parley + swash (feature-gated via `--features gui`) |
 | `kasane-macros/` | Proc macros — `#[kasane::plugin]` and `#[kasane::component]` |
 | `kasane-wasm/` | WASM plugin runtime — wasmtime Component Model host, pre-built example plugins (`bundled/`) |
-| `kasane-plugin-model/` | Shared plugin model types — `PluginId`, `SettingValue`, serialization formats |
 | `kasane-plugin-package/` | Plugin package format — `.kpk` build/inspect/verify, manifest parsing, filesystem utilities |
 | `kasane-plugin-sdk/` | SDK for WASM guest plugins — WIT bindings, constants, helper macros (excluded from workspace, independent crate) |
 | `kasane-plugin-sdk-macros/` | Proc macros for WASM SDK — `define_plugin!` all-in-one macro (excluded from workspace, independent crate) |
@@ -84,7 +83,7 @@ Kakoune (kak -ui json)
 - **Display transform**: `kasane-core/src/display/mod.rs` (DisplayMap, DisplayDirective), `display/projection.rs` (ProjectionPolicyState), `display/resolve.rs` (multi-plugin directive resolution), `display/navigation.rs` (display coordinate navigation), `display/fold_state.rs` (fold state tracking), `display/segment_map.rs` (segment map), `display/unit.rs` (display units), `display/content_annotation.rs` (content annotations), `display/stability.rs` (stability guarantees)
 - **Semantic Zoom**: `kasane-core/src/plugin/semantic_zoom/` — `mod.rs` (ZoomLevel, SemanticZoomPlugin), `indent_strategy.rs` (indent fallback), `syntax_strategy.rs` (tree-sitter aware)
 - **Builtin input plugins**: `kasane-core/src/input/builtin.rs` (BuiltinInputPlugin, default key handling), `builtin_fold.rs` (BuiltinFoldPlugin, fold toggle), `builtin_drag.rs` (BuiltinDragPlugin, drag state tracking), `builtin_mouse.rs` (BuiltinMouseFallbackPlugin, mouse-to-Kakoune forwarding), `key_map.rs` (CompiledKeyMap, KeyBinding, ChordBinding, ChordState)
-- **Shadow cursor**: `kasane-core/src/state/shadow_cursor.rs` (ShadowCursor, EditableSpan, EditProjection — editable virtual text for BDT)
+- **Shadow cursor**: `kasane-core/src/state/shadow_cursor/` (ShadowCursor, EditableSpan, EditProjection — editable virtual text for BDT)
 - **Syntax**: `kasane-core/src/syntax/mod.rs` (SyntaxProvider trait, Declaration types), `kasane-syntax/src/` (TreeSitterProvider, GrammarRegistry, SyntaxManager)
 
 For architecture details, see `docs/index.md`. For plugin API reference, see `docs/plugin-api.md`. For plugin development guide, see `docs/plugin-development.md`.

@@ -4333,6 +4333,23 @@ A WIT 3.0 implementation lands as **one PR** that:
   follow-up ADR; the current `set-algebra-error::generation-mismatch`
   variant reserves the wire shape for it.
 
+## ADR-036: Cross-File Inlining (reserved)
+
+**Status**: Reserved slot.
+
+This ADR ID is reserved for a future Cross-File Inlining design.
+ADR-034 (Display Algebra) ships the type slot via
+`Content::Reference(SegmentRef)`; the resolver treats `Reference`
+as opaque and forwards it until the ADR-036 design lands.
+
+Live references to this reserved slot:
+
+- `docs/decisions.md` ADR-034 §Decisions (Cross-buffer composition).
+- `kasane-core/src/display_algebra/primitives.rs` — `Content::Reference`
+  doc comment and `SegmentRef` definition.
+- `kasane-core/src/display_algebra/bridge.rs` — preimage-mapping
+  fallthrough comments.
+
 ## ADR-037: Fold-in-Algebra — Retiring the Hybrid Bridge
 
 **Status**: Accepted (2026-05-03; proposed → accepted → fully implemented same-day. Phases 1–5 landed end-to-end: Phase 1 `Content::Fold`, Phase 2 `normalize` Pass B, Phase 3 hybrid bridge retirement (3a Hide+Fold + 3b EVT via Pass C), Phase 4 `display::resolve` deprecation, Phase 5 full deletion. One ⚠️ on the stricter +10 % bench gate, accepted because ADR-024 SLO compliance — the production gate — holds with 27× headroom. Net cleanup: −1,900 LOC.)
