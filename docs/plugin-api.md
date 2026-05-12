@@ -114,7 +114,7 @@ For mechanisms not covered by DisplayDirective (overlay composition, element-lev
 
 ### 1.2.2 Choosing a Plugin Model
 
-> **0.6.0 (ADR-038)**: `Plugin` + `HandlerRegistry` is the **sole** sanctioned authoring path for native plugins. `PluginBackend` is the internal dispatch ABI consumed by `PluginRuntime` / `WasmPlugin` and is no longer presented as an alternative authoring choice. The capability traits (`Lifecycle`, `Io`, `PubSubMember`, `ExtensionParticipant`, ...) are super-traits of `PluginBackend` after the R1.x migration; they are blanket-implemented for `Plugin` + `HandlerRegistry` users. New extension points are added via `HandlerRegistry::on_X(...)` registrations.
+> `Plugin` + `HandlerRegistry` is the only native plugin authoring path. The framework wraps each `Plugin` impl in a [`PluginBridge`](#) at registration time and dispatches every extension point through the bridge's inherent methods. New extension points are added via `HandlerRegistry::on_X(...)` registrations.
 
 Native plugins implement the `Plugin` trait:
 
@@ -127,7 +127,7 @@ Native plugins implement the `Plugin` trait:
 | Salsa compatibility | State transitions are pure functions; future Salsa integration path |
 | Use cases | All native plugin scenarios — UI decoration, surfaces, workspace observation, host integration. Surface and workspace observation are reachable via `HandlerRegistry::on_surfaces` / `on_workspace_*` handlers and via the `Lifecycle`-supertrait blanket impl |
 
-In unit tests, register via `PluginRuntime::register()`. In a host binary, wrap it with `PluginBridge::new(...)` and pass it to `kasane::run_with_factories(...)`. (`PluginBackend` is documented internally for framework contributors only — see [Appendix B of plugin-development.md](./plugin-development.md#appendix-b-pluginbackend-internal).)
+In unit tests, register via `PluginRuntime::register()`. In a host binary, wrap it with `PluginBridge::new(...)` and pass it to `kasane::run_with_factories(...)`.
 
 ```rust
 use kasane_core::plugin_prelude::*;
@@ -913,7 +913,7 @@ fn state_hash() -> u64 {
 }
 ```
 
-`PluginBackend` implementors provide `state_hash()` to signal state changes. `Plugin` (state-externalized) eliminates manual `state_hash()` — the framework tracks state changes automatically via `PartialEq` comparison on the externalized state, using a generation counter.
+`Plugin` authors do not implement `state_hash()` directly — the framework tracks state changes automatically via `PartialEq` comparison on the externalized state, using a generation counter on the wrapping `PluginBridge`.
 
 **`view_deps()`** — declares which `DirtyFlags` a plugin's view methods depend on:
 
@@ -1179,16 +1179,20 @@ theme {
 Plugins with the `SURFACE_PROVIDER` capability can provide their own surfaces. In Native, they return `Box<dyn Surface>`, while in WASM, they map to a hosted surface model returning static `surface-descriptor` groups, `render-surface(surface-key, ctx)`, `handle-surface-event(surface-key, event, ctx)`, and `handle-surface-state-changed(surface-key, dirty-flags)`.
 
 ```rust
-impl PluginBackend for MyPlugin {
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::SURFACE_PROVIDER
+impl Plugin for MyPlugin {
+    type State = ();
+
+    fn id(&self) -> PluginId {
+        PluginId("my-plugin".into())
     }
 
-    fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
-        vec![Box::new(MySidebar::new())]
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.declare_surfaces(|_state| vec![Box::new(MySidebar::new())]);
     }
 }
 ```
+
+`SURFACE_PROVIDER` is auto-inferred from the `declare_surfaces` registration; no explicit capability declaration is needed.
 
 | Method | Description |
 |---|---|

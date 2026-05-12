@@ -628,74 +628,13 @@ fn main() {
 }
 ```
 
-For a comparison of WASM vs Native plugin models, see [Appendix C](#appendix-c-wasm-vs-native-comparison) or [plugin-api.md §8](./plugin-api.md#8-wasm-plugin-constraints).
+For a comparison of WASM vs Native plugin models, see [Appendix B](#appendix-b-wasm-vs-native-comparison) or [plugin-api.md §8](./plugin-api.md#8-wasm-plugin-constraints).
 
-## Appendix B: PluginBackend (Internal) {#appendix-b-pluginbackend-internal}
+## Appendix B: WASM vs Native Comparison {#appendix-b-wasm-vs-native-comparison}
 
-> **Internal — do not implement in new plugins.** Per [ADR-038 (Plugin Authoring Path Consolidation, 0.6.0)](./decisions.md#adr-038-plugin-authoring-path-consolidation), `PluginBackend` is the internal dispatch ABI consumed by `PluginRuntime` and `WasmPlugin`. The sole sanctioned authoring path is `Plugin` + `HandlerRegistry` (Appendix A). New extension points are added via `HandlerRegistry::on_X(...)` registrations, not via new `PluginBackend` methods. The example below is preserved for archaeology and to illustrate the internal shape; for any new native plugin, use `Plugin` + `HandlerRegistry`.
+For the WASM vs Native feature gap table and runtime constraints, see [plugin-api.md §8](./plugin-api.md#8-wasm-plugin-constraints). For choosing between WASM and Native plugins, see [plugin-api.md §1.2.2](./plugin-api.md#122-choosing-a-plugin-model).
 
-`PluginBackend` is the internal mutable-state plugin model (`&mut self`). It provides access to all extension points including `Surface` and workspace observation. The capability traits (`Lifecycle`, `Io`, `PubSubMember`, `ExtensionParticipant`, ...) are super-traits of `PluginBackend` after the R1.x migration (0.6.0) and are blanket-implemented for `Plugin + HandlerRegistry` users automatically.
-
-```rust
-use kasane::kasane_core::plugin_prelude::*;
-
-struct LineNumbersPlugin;
-
-impl PluginBackend for LineNumbersPlugin {
-    fn id(&self) -> PluginId {
-        PluginId("line_numbers".into())
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CONTRIBUTOR
-    }
-
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        app: &AppView<'_>,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        if region != &SlotId::BUFFER_LEFT {
-            return None;
-        }
-
-        let total = app.line_count();
-        let width = total.to_string().len().max(2);
-
-        let children: Vec<_> = (0..total)
-            .map(|i| {
-                let num = format!("{:>w$} ", i + 1, w = width);
-                FlexChild::fixed(Element::text(
-                    num,
-                    Style {
-                        fg: Brush::Named(NamedColor::Cyan),
-                        ..Style::default()
-                    },
-                ))
-            })
-            .collect();
-
-        Some(Contribution {
-            element: Element::column(children),
-            priority: 0,
-            size_hint: ContribSizeHint::Auto,
-        })
-    }
-}
-
-fn main() {
-    kasane::run_with_factories([host_plugin("line_numbers", || LineNumbersPlugin)]);
-}
-```
-
-Register `PluginBackend` implementors via `host_plugin("id", || PluginType)` and `kasane::run_with_factories(...)`. See the `PluginBackend` trait in `kasane-core/src/plugin/traits.rs` for the full method list.
-
-## Appendix C: WASM vs Native Comparison {#appendix-c-wasm-vs-native-comparison}
-
-For the WASM vs Native feature gap table and runtime constraints, see [plugin-api.md §8](./plugin-api.md#8-wasm-plugin-constraints). For choosing a plugin model (WASM, Native `Plugin`, Native `PluginBackend`), see [plugin-api.md §1.2.2](./plugin-api.md#122-choosing-a-plugin-model).
-
-## Appendix D: Explicit WASM Pattern {#appendix-d-explicit-wasm-pattern}
+## Appendix C: Explicit WASM Pattern {#appendix-c-explicit-wasm-pattern}
 
 The `define_plugin!` macro is recommended for most WASM plugins. For full control over state management, you can use the explicit `generate!()` + `#[plugin]` + `export!()` pattern:
 
