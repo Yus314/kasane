@@ -385,12 +385,36 @@ pub(crate) struct ContributeAnyEntry {
 }
 
 /// A transform handler with priority metadata.
+///
+/// `handler` is the declarative patch handler (the modern path). The
+/// optional `full_handler` is the legacy full-rewrite path used by
+/// adapters whose underlying contract returns a transformed
+/// [`TransformSubject`] directly (e.g. WASM plugins via the
+/// `transform` WIT export when the plugin doesn't implement
+/// `transform-patch`). The bridge consults the patch first; if it
+/// resolves to [`ElementPatch::Identity`], the full handler runs as a
+/// fallback.
 #[allow(dead_code)] // consumed by PluginBridge
 pub(crate) struct TransformEntry {
     pub(crate) priority: i16,
     pub(crate) targets: Vec<TransformTarget>,
     pub(crate) handler: ErasedTransformHandler,
+    pub(crate) full_handler: Option<ErasedFullTransformHandler>,
 }
+
+/// Imperative full-rewrite transform handler. See
+/// [`TransformEntry::full_handler`].
+pub(crate) type ErasedFullTransformHandler = Box<
+    dyn Fn(
+            &dyn PluginState,
+            &TransformTarget,
+            super::TransformSubject,
+            &AppView<'_>,
+            &TransformContext,
+        ) -> super::TransformSubject
+        + Send
+        + Sync,
+>;
 
 /// A gutter annotation handler with side and priority metadata.
 #[allow(dead_code)] // consumed by PluginBridge
@@ -627,6 +651,14 @@ pub(crate) struct HandlerTable {
     /// external manifest — primarily WASM plugins.
     pub(crate) capability_descriptor_override: Option<super::CapabilityDescriptor>,
 
+    /// Optional override for `PluginBridge::state_hash()`. Used by
+    /// adapters whose authoritative change-detection signal is external
+    /// to the framework's `PluginState` — primarily WASM plugins, which
+    /// run their own state inside the wasmtime store and surface a
+    /// per-call hash via the `state-hash` WIT export. When set, takes
+    /// precedence over the bridge's per-mutation generation counter.
+    pub(crate) state_hash_handler: Option<Box<dyn Fn() -> u64 + Send + Sync>>,
+
     // --- Host-resolved authorities ---
     /// Bitflags requested by the plugin at registration. Defaults to empty.
     pub(crate) authorities: super::PluginAuthorities,
@@ -721,6 +753,7 @@ impl HandlerTable {
             allows_process_spawn: true,
             capabilities_override: None,
             capability_descriptor_override: None,
+            state_hash_handler: None,
             authorities: super::PluginAuthorities::empty(),
             display_priority: 0,
             lenses_factory: None,

@@ -236,21 +236,6 @@ flags = ["annotator"]
     );
 }
 
-/// Phase β-3.3b.1 — verifies `WasmPlugin` satisfies the `Plugin` trait
-/// well enough that `PluginBridge::new` accepts it. Until β-3.3b.12
-/// flips the loader, the bridge built here is a structural witness, not
-/// the live runtime path; this test catches Plugin-trait shape
-/// regressions early so handler-family migrations land in series.
-#[test]
-fn wasm_plugin_constructs_plugin_bridge() {
-    use kasane_core::plugin::{Plugin, PluginBridge};
-
-    let plugin = load_cursor_line_plugin();
-    let plugin_id = Plugin::id(&plugin);
-    let bridge = PluginBridge::new(plugin);
-    assert_eq!(PluginBackend::id(&bridge), plugin_id);
-}
-
 #[test]
 fn second_loader_hits_cache() {
     let tmp = tempfile::tempdir().unwrap();

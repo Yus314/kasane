@@ -349,6 +349,20 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         self.table.capability_descriptor_override = Some(descriptor);
     }
 
+    /// Override the bridge's per-mutation generation counter as the
+    /// source of `state_hash()`.
+    ///
+    /// Counterpart for adapters whose authoritative change-detection
+    /// signal lives outside the framework's typed `PluginState` — most
+    /// notably WASM plugins, which run their own state inside the
+    /// wasmtime store and surface a per-call hash via the `state-hash`
+    /// WIT export. When set, `PluginBridge::state_hash()` returns the
+    /// closure's value; when absent, the bridge falls back to its
+    /// generation counter.
+    pub fn declare_state_hash(&mut self, handler: impl Fn() -> u64 + Send + Sync + 'static) {
+        self.table.state_hash_handler = Some(Box::new(handler));
+    }
+
     /// Set the priority for this plugin's display directives.
     ///
     /// Higher priorities win during `DirectiveSet` resolution. Default 0.

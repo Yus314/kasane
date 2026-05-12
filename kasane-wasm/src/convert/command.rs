@@ -2,8 +2,10 @@ use std::time::Duration;
 
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::input::InputEvent;
+#[cfg(test)]
+use kasane_core::plugin::Effects;
 use kasane_core::plugin::{
-    BufferEdit, BufferPosition, Command, Effects, KakouneSideCommand, KakouneSideEffects,
+    BufferEdit, BufferPosition, Command, KakouneSideCommand, KakouneSideEffects,
     ObservationEffects, PluginId, ProcessCapableEffects, ProcessCommand, StateUpdates, StdinMode,
 };
 use kasane_core::protocol::KasaneRequest;
@@ -240,70 +242,6 @@ pub(crate) fn wit_process_command_to_wit_command(wc: &wit::ProcessCommand) -> wi
     }
 }
 
-/// Convert tier-2 process-capable wire effects (ADR-044) into the
-/// unified [`Effects`] struct via a caller-supplied command projector.
-/// `process-capable-effects.base` carries the tier-1 surface and
-/// `process-commands` carries the process-side surface; both are
-/// projected through the same `convert_command` closure so adapter-
-/// context rewrites (`set-setting`, `register-surface`,
-/// `command-error` wrap) apply uniformly.
-pub(crate) fn wit_process_capable_effects_to_effects_with(
-    effects: &wit::ProcessCapableEffects,
-    mut convert_command: impl FnMut(&wit::Command) -> Vec<Command>,
-) -> Effects {
-    let base = &effects.base;
-    let mut commands: Vec<Command> = base
-        .commands
-        .iter()
-        .flat_map(|c| convert_command(&wit_kakoune_side_command_to_wit_command(c)))
-        .collect();
-    commands.extend(
-        effects
-            .process_commands
-            .iter()
-            .flat_map(|c| convert_command(&wit_process_command_to_wit_command(c))),
-    );
-    Effects {
-        redraw: DirtyFlags::from_bits_truncate(base.redraw),
-        commands,
-        scroll_plans: base
-            .scroll_plans
-            .iter()
-            .map(wit_scroll_plan_to_scroll_plan)
-            .collect(),
-        state_updates: kasane_core::plugin::StateUpdates::default(),
-    }
-}
-
-/// Convert tier-1 wire effects (ADR-044) into the broader [`Effects`]
-/// struct via a caller-supplied command projector.
-pub(crate) fn wit_kakoune_side_effects_to_effects_with(
-    effects: &wit::KakouneSideEffects,
-    mut convert_command: impl FnMut(&wit::Command) -> Vec<Command>,
-) -> Effects {
-    Effects {
-        redraw: DirtyFlags::from_bits_truncate(effects.redraw),
-        commands: effects
-            .commands
-            .iter()
-            .flat_map(|c| convert_command(&wit_kakoune_side_command_to_wit_command(c)))
-            .collect(),
-        scroll_plans: effects
-            .scroll_plans
-            .iter()
-            .map(wit_scroll_plan_to_scroll_plan)
-            .collect(),
-        state_updates: kasane_core::plugin::StateUpdates::default(),
-    }
-}
-
-pub(crate) fn wit_bootstrap_effects_to_effects(effects: &wit::BootstrapEffects) -> Effects {
-    Effects {
-        redraw: DirtyFlags::from_bits_truncate(effects.redraw),
-        ..Effects::default()
-    }
-}
-
 /// Tier-1-typed projection of [`wit::BootstrapEffects`].
 ///
 /// Bootstrap carries no commands, so the projection is just the redraw
@@ -411,45 +349,39 @@ pub(crate) fn wit_session_ready_effects_to_kakoune_side_effects(
     typed
 }
 
-pub(crate) fn wit_session_ready_effects_to_effects(effects: &wit::SessionReadyEffects) -> Effects {
+// Test-only fallback projections from typed wire effects to the
+// erased `Effects` struct. Production code goes through the typed
+// `_to_*_effects` / `_to_*_effects_with` helpers above; these
+// untyped variants exist only so the conversion-round-trip tests in
+// `convert/tests.rs` can assert against the `Effects` fields directly.
+
+#[cfg(test)]
+pub(crate) fn wit_bootstrap_effects_to_effects(effects: &wit::BootstrapEffects) -> Effects {
     Effects {
         redraw: DirtyFlags::from_bits_truncate(effects.redraw),
-        commands: effects
-            .commands
-            .iter()
-            .map(|command| match command {
-                wit::SessionReadyCommand::SendKeys(keys) => {
-                    Command::SendToKakoune(KasaneRequest::Keys(keys.clone()))
-                }
-                wit::SessionReadyCommand::EvalCommand(cmd) => Command::kakoune_command(cmd),
-                wit::SessionReadyCommand::PasteClipboard => Command::PasteClipboard,
-                wit::SessionReadyCommand::PluginMessage(message) => Command::PluginMessage {
-                    target: PluginId(message.target_plugin.clone()),
-                    payload: Box::new(message.payload.clone()),
-                },
-            })
-            .collect(),
-        scroll_plans: effects
-            .scroll_plans
-            .iter()
-            .map(wit_scroll_plan_to_scroll_plan)
-            .collect(),
-        state_updates: kasane_core::plugin::StateUpdates::default(),
+        ..Effects::default()
     }
 }
 
 #[cfg(test)]
+pub(crate) fn wit_session_ready_effects_to_effects(effects: &wit::SessionReadyEffects) -> Effects {
+    wit_session_ready_effects_to_kakoune_side_effects(effects).into()
+}
+
+#[cfg(test)]
 pub(crate) fn wit_kakoune_side_effects_to_effects(effects: &wit::KakouneSideEffects) -> Effects {
-    wit_kakoune_side_effects_to_effects_with(effects, |command| {
+    wit_kakoune_side_effects_to_kakoune_side_effects_with(effects, |command| {
         vec![wit_command_to_command(command)]
     })
+    .into()
 }
 
 #[cfg(test)]
 pub(crate) fn wit_process_capable_effects_to_effects(
     effects: &wit::ProcessCapableEffects,
 ) -> Effects {
-    wit_process_capable_effects_to_effects_with(effects, |command| {
+    wit_process_capable_effects_to_process_capable_effects_with(effects, |command| {
         vec![wit_command_to_command(command)]
     })
+    .into()
 }

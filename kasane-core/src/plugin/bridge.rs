@@ -365,7 +365,10 @@ impl PluginBackend for PluginBridge {
     }
 
     fn state_hash(&self) -> u64 {
-        self.generation
+        self.table
+            .state_hash_handler
+            .as_ref()
+            .map_or(self.generation, |h| h())
     }
 
     fn view_deps(&self) -> DirtyFlags {
@@ -676,10 +679,20 @@ impl PluginBackend for PluginBridge {
         app: &AppView<'_>,
         ctx: &TransformContext,
     ) -> Option<ElementPatch> {
-        self.table.transform_handler.as_ref().map(|entry| {
+        self.table.transform_handler.as_ref().and_then(|entry| {
             let mut patch = (entry.handler)(&*self.state, target, app, ctx);
+            // An Identity patch is treated as "no opinion" so collection
+            // can flush accumulated patches and fall through to the
+            // full-rewrite path. This lets adapters (notably WASM
+            // plugins) register both `on_transform` and
+            // `on_transform_full` and let the bridge dispatch to the
+            // imperative WIT export when the declarative one returned
+            // nothing.
+            if matches!(patch, ElementPatch::Identity) {
+                return None;
+            }
             inject_owner_in_patch(&mut patch, self.plugin_tag);
-            patch
+            Some(patch)
         })
     }
 
@@ -691,10 +704,14 @@ impl PluginBackend for PluginBridge {
         ctx: &TransformContext,
     ) -> TransformSubject {
         if let Some(patch) = self.transform_patch(target, app, ctx) {
-            patch.apply(subject)
-        } else {
-            subject
+            return patch.apply(subject);
         }
+        if let Some(entry) = &self.table.transform_handler
+            && let Some(full) = &entry.full_handler
+        {
+            return full(&*self.state, target, subject, app, ctx);
+        }
+        subject
     }
 
     // `annotate_line_with_ctx` is overridden only when the registry has a

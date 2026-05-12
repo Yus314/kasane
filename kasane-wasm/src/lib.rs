@@ -15,9 +15,14 @@ mod bindings {
     });
 }
 
-pub use adapter::WasmPlugin;
 pub use capability::WasiCapabilityConfig;
 pub use error::WasmPluginError;
+/// Public name for a loaded WASM plugin. Re-exports
+/// [`kasane_core::plugin::PluginBridge`] (β-3.3b.12 loader-flip):
+/// `WasmPluginLoader::load` builds the internal adapter and returns a
+/// bridge directly. The internal adapter struct is `pub(crate)` and
+/// hidden inside [`adapter`].
+pub use kasane_core::plugin::PluginBridge as WasmPlugin;
 
 use kasane_core::plugin::ProviderArtifactStage;
 use kasane_plugin_package::package;
@@ -217,14 +222,15 @@ impl WasmPluginLoader {
             data.table = wasmtime::component::ResourceTable::new();
         }
 
-        Ok(WasmPlugin::new(
+        let plugin = adapter::WasmPlugin::new(
             store,
             instance,
             id,
             process_allowed,
             resolved_authorities,
             Arc::clone(&self.epoch_ticker),
-        ))
+        );
+        Ok(WasmPlugin::new(plugin))
     }
 
     /// Load a WASM plugin using manifest-provided metadata.
@@ -334,7 +340,7 @@ impl WasmPluginLoader {
         let subscribe_topics = manifest.handlers.subscribe_topics.clone();
         let command_error_observability = manifest.handlers.command_error_observability;
 
-        Ok(WasmPlugin::new_from_manifest(
+        let plugin = adapter::WasmPlugin::new_from_manifest(
             store,
             instance,
             plugin_id.clone(),
@@ -347,7 +353,8 @@ impl WasmPluginLoader {
             subscribe_topics,
             command_error_observability,
             Arc::clone(&self.epoch_ticker),
-        ))
+        );
+        Ok(WasmPlugin::new(plugin))
     }
 
     /// Load a WASM plugin from a file path.
