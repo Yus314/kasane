@@ -2,7 +2,6 @@ pub mod clipboard;
 pub mod config;
 pub mod display;
 #[doc(hidden)]
-pub mod display_algebra;
 pub mod element;
 pub mod event_loop;
 pub mod history;

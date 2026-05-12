@@ -5,6 +5,7 @@
 //! mapping between the two coordinate systems. Content insertion between
 //! buffer lines is handled by [`ContentAnnotation`] at the Element layer.
 
+pub mod algebra;
 pub mod content_annotation;
 pub mod fold_state;
 pub mod navigation;

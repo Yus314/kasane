@@ -253,7 +253,7 @@ fn setup_bridge_mixed_full() -> kasane_core::display::DirectiveSet {
 #[library_benchmark(config = regression_config())]
 #[bench::default(setup_bridge_mixed_full())]
 fn iai_bridge_resolve_mixed_full(set: kasane_core::display::DirectiveSet) {
-    let _out = kasane_core::display_algebra::bridge::resolve_via_algebra(&set, 24);
+    let _out = kasane_core::display::algebra::runtime_bridge::resolve_via_algebra(&set, 24);
 }
 
 // ---------------------------------------------------------------------------

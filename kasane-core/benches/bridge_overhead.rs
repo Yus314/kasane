@@ -1,6 +1,6 @@
 //! ADR-034 / ADR-037 bridge overhead bench.
 //!
-//! Measures `crate::display_algebra::bridge::resolve_via_algebra`
+//! Measures `crate::display::algebra::runtime_bridge::resolve_via_algebra`
 //! against representative directive workloads. Legacy
 //! `display::resolve` was deleted under ADR-037 Phase 5; the bench
 //! retains the same workload taxonomy but runs only the algebra
@@ -32,10 +32,10 @@ use compact_str::CompactString;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
+use kasane_core::display::algebra::runtime_bridge::resolve_via_algebra;
 use kasane_core::display::{
     DirectiveSet, DisplayDirective, GutterSide, InlineBoxAlignment, InlineInteraction,
 };
-use kasane_core::display_algebra::bridge::resolve_via_algebra;
 use kasane_core::element::Element;
 use kasane_core::plugin::PluginId;
 use kasane_core::protocol::Atom;

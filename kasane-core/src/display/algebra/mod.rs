@@ -26,12 +26,12 @@
 //! moves to `Accepted`.
 
 pub mod apply;
-pub mod bridge;
 pub mod derived;
 pub mod normalize;
 pub mod primitives;
 #[cfg(test)]
 mod proptests;
+pub mod runtime_bridge;
 #[cfg(test)]
 mod tests;
 

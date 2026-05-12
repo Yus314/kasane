@@ -1,4 +1,4 @@
-//! Bridge: legacy `display::DisplayDirective` ↔ new `display_algebra::Display`.
+//! Bridge: legacy `display::DisplayDirective` ↔ new `display::algebra::Display`.
 //!
 //! Existing plugin code, Salsa queries, and `DisplayMap::build` all
 //! still speak the legacy 12-variant enum. This module provides the
@@ -9,10 +9,10 @@
 //! plugins ──► DisplayDirective ──► [bridge::directive_to_display]
 //!                                          │
 //!                                          ▼
-//!                            display_algebra::Display
+//!                            display::algebra::Display
 //!                                          │
 //!                                          ▼
-//!                            display_algebra::normalize
+//!                            display::algebra::normalize
 //!                                          │
 //!                                          ▼
 //!                            [bridge::display_to_directive]
@@ -375,7 +375,7 @@ pub fn resolve_via_algebra(set: &LegacyDirectiveSet, line_count: usize) -> Vec<D
 
     // Step 2 + 3: normalize, then EVT filter (Pass C).
     let normalized = algebra_normalize(tagged);
-    let normalized = crate::display_algebra::pass_c_filter_evt(normalized, line_count);
+    let normalized = crate::display::algebra::pass_c_filter_evt(normalized, line_count);
 
     // Step 4: reverse translate + coalesce per-line decompositions
     // back into the multi-line legacy enum shape (still used by

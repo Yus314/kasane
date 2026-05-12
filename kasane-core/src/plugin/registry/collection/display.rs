@@ -37,7 +37,8 @@ impl<'a> PluginView<'a> {
         if set.is_empty() {
             return Arc::new(DisplayMap::identity(line_count));
         }
-        let mut directives = crate::display_algebra::bridge::resolve_via_algebra(&set, line_count);
+        let mut directives =
+            crate::display::algebra::runtime_bridge::resolve_via_algebra(&set, line_count);
         // Filter out fold ranges that have been toggled open by the user.
         // Per-projection fold state scoping: use the active structural projection's
         // fold state if one is active, otherwise fall back to the global fold state.
@@ -85,7 +86,7 @@ impl<'a> PluginView<'a> {
             return Vec::new();
         }
         let line_count = state.visible_line_range().len();
-        crate::display_algebra::bridge::resolve_via_algebra(&set, line_count)
+        crate::display::algebra::runtime_bridge::resolve_via_algebra(&set, line_count)
     }
 
     /// Collect tagged display directives from all display-transform plugins.

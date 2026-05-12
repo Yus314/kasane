@@ -7,8 +7,8 @@
 //! deprecated and removed under ADR-037 (Phases 1–4): `Hide`,
 //! `Fold`, `EditableVirtualText`, and the other nine directive
 //! variants now flow through the unified algebra in
-//! `crate::display_algebra` (entry point:
-//! `crate::display_algebra::bridge::resolve_via_algebra`).
+//! `crate::display::algebra` (entry point:
+//! `crate::display::algebra::runtime_bridge::resolve_via_algebra`).
 //!
 //! What remains here are the **input types** that plugins still
 //! emit (`TaggedDirective`, `DirectiveSet`) and the **category
@@ -40,7 +40,7 @@ impl TaggedDirective {
     ///
     /// Retained for compatibility with consumers that still group by
     /// the legacy sort key (e.g. external plugin-internal ordering);
-    /// the algebra path uses `display_algebra::TaggedDisplay::cmp_key`
+    /// the algebra path uses `display::algebra::TaggedDisplay::cmp_key`
     /// (a structurally analogous key without the variant_ordinal).
     pub fn sort_key(&self) -> (i16, &PluginId, u8, usize) {
         let (variant, anchor) = match &self.directive {
@@ -75,7 +75,7 @@ impl TaggedDirective {
 
 /// Accumulator for tagged directives from multiple plugins. The
 /// algebra resolver consumes this through
-/// `crate::display_algebra::bridge::resolve_via_algebra`.
+/// `crate::display::algebra::runtime_bridge::resolve_via_algebra`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DirectiveSet {
     pub directives: Vec<TaggedDirective>,

@@ -283,9 +283,9 @@ mod tests {
     #[test]
     fn ornaments_produce_virtual_lines_around_host() {
         let before =
-            crate::display_algebra::derived::insert_before(5, crate::element::Element::Empty);
+            crate::display::algebra::derived::insert_before(5, crate::element::Element::Empty);
         let after =
-            crate::display_algebra::derived::insert_after(5, crate::element::Element::Empty);
+            crate::display::algebra::derived::insert_after(5, crate::element::Element::Empty);
 
         let n = normalize(vec![t(before, 0, "p", 0), t(after, 0, "p", 1)]);
         let renders = apply(&n, &[0; 10]);

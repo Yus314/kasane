@@ -1,12 +1,12 @@
 // ADR-037 Phase 5: legacy `display::resolve` was deleted; these
 // tests now drive `DisplayMap::build` through
-// `display_algebra::bridge::resolve_via_algebra` instead.
+// `display::algebra::runtime_bridge::resolve_via_algebra` instead.
 
 use proptest::prelude::*;
 
 use super::*;
+use crate::display::algebra::runtime_bridge::resolve_via_algebra;
 use crate::display::{BufferLine, DisplayLine, InverseResult};
-use crate::display_algebra::bridge::resolve_via_algebra;
 use crate::plugin::PluginId;
 use crate::protocol::Atom;
 

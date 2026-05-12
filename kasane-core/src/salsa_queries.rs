@@ -108,12 +108,12 @@ pub fn display_directives_at_time(
     db: &dyn KasaneDb,
     history: HistoryInput,
     time: Time,
-) -> crate::display_algebra::NormalizedDisplay {
-    use crate::display_algebra::{TaggedDisplay, normalize as algebra_normalize, style_inline};
+) -> crate::display::algebra::NormalizedDisplay {
+    use crate::display::algebra::{TaggedDisplay, normalize as algebra_normalize, style_inline};
     use crate::plugin::PluginId;
 
     let Some(selection) = selection_at_time(db, history, time) else {
-        return crate::display_algebra::NormalizedDisplay::default();
+        return crate::display::algebra::NormalizedDisplay::default();
     };
 
     // Map each Selection to a single-line Decorate over its byte range.
@@ -426,7 +426,7 @@ mod time_query_tests {
         for leaf in &nd.leaves {
             assert!(matches!(
                 leaf.display,
-                crate::display_algebra::Display::Decorate { .. }
+                crate::display::algebra::Display::Decorate { .. }
             ));
         }
         assert!(nd.conflicts.is_empty(), "decorates never conflict (L5)");

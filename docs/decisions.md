@@ -4351,9 +4351,9 @@ as opaque and forwards it until the ADR-036 design lands.
 Live references to this reserved slot:
 
 - `docs/decisions.md` ADR-034 §Decisions (Cross-buffer composition).
-- `kasane-core/src/display_algebra/primitives.rs` — `Content::Reference`
+- `kasane-core/src/display/algebra/primitives.rs` — `Content::Reference`
   doc comment and `SegmentRef` definition.
-- `kasane-core/src/display_algebra/bridge.rs` — preimage-mapping
+- `kasane-core/src/display/algebra/runtime_bridge.rs` — preimage-mapping
   fallthrough comments.
 
 ## ADR-037: Fold-in-Algebra — Retiring the Hybrid Bridge

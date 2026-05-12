@@ -483,8 +483,8 @@ mod tests {
 
     use super::*;
     use crate::display::DirectiveSet;
+    use crate::display::algebra::runtime_bridge::resolve_via_algebra;
     use crate::display::{DisplayDirective, DisplayMap};
-    use crate::display_algebra::bridge::resolve_via_algebra;
     use crate::plugin::PluginId;
     use crate::protocol::Atom;
 
