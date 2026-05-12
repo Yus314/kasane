@@ -551,10 +551,12 @@ mod tests {
 
     struct DemoPlugin;
 
-    impl PluginBackend for DemoPlugin {
+    impl crate::plugin::Plugin for DemoPlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("demo".to_string())
         }
+        fn register(&self, _r: &mut crate::plugin::HandlerRegistry<()>) {}
     }
 
     struct FailingProvider;
@@ -602,7 +604,10 @@ mod tests {
             let descriptor = host_descriptor("demo", revision);
             Ok(PluginCollect {
                 factories: vec![plugin_factory(descriptor, move || match variant {
-                    FactoryVariant::Ok => Ok(Box::new(DemoPlugin)),
+                    FactoryVariant::Ok => {
+                        Ok(Box::new(crate::plugin::PluginBridge::new(DemoPlugin))
+                            as Box<dyn PluginBackend>)
+                    }
                     FactoryVariant::Err => Err(anyhow!("factory exploded")),
                 })],
                 diagnostics: vec![],

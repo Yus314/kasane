@@ -22,30 +22,22 @@ struct BenchPlugin {
     id: String,
 }
 
-impl PluginBackend for BenchPlugin {
+impl kasane_core::plugin::Plugin for BenchPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId(self.id.clone())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CONTRIBUTOR
-    }
-
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        _state: &AppView<'_>,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        if region == &SlotId::STATUS_RIGHT {
+    fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
+        let id = self.id.clone();
+        r.on_contribute(SlotId::STATUS_RIGHT, move |_state, _app, _ctx| {
             Some(Contribution {
-                element: Element::text(format!("[{}]", self.id), Style::default()),
+                element: Element::text(format!("[{}]", id), Style::default()),
                 priority: 0,
                 size_hint: ContribSizeHint::Auto,
             })
-        } else {
-            None
-        }
+        });
     }
 }
 
@@ -553,9 +545,9 @@ pub fn draw_request(line_count: usize) -> KakouneRequest {
 pub fn registry_with_plugins(n: usize) -> PluginRuntime {
     let mut registry = PluginRuntime::new();
     for i in 0..n {
-        registry.register_backend(Box::new(BenchPlugin {
+        registry.register(BenchPlugin {
             id: format!("bench_plugin_{i}"),
-        }));
+        });
     }
     registry
 }

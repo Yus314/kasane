@@ -186,7 +186,7 @@ fn routes_state_changes_to_guest_and_updates_hash() {
 fn integrates_with_surface_registry_and_resolver() {
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(load_surface_probe_plugin()));
-    registry.register_backend(Box::new(SurfaceProbeContributor));
+    registry.register(SurfaceProbeContributor);
 
     let mut surface_sets = registry.collect_plugin_surfaces();
     assert_eq!(surface_sets.len(), 1);

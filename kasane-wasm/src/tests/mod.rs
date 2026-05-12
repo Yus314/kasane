@@ -147,33 +147,31 @@ fn default_surface_rect() -> Rect {
 
 struct SurfaceProbeContributor;
 
-impl PluginBackend for SurfaceProbeContributor {
+impl kasane_core::plugin::Plugin for SurfaceProbeContributor {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("surface_probe_contributor".to_string())
     }
 
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        _state: &AppView<'_>,
-        ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        if region.as_str() != "surface_probe.sidebar.top" {
-            return None;
-        }
-
-        Some(Contribution {
-            element: Element::text(
-                format!(
-                    "slot-fill:{}x{}",
-                    ctx.min_width,
-                    ctx.max_width.unwrap_or_default()
-                ),
-                kasane_core::protocol::Style::default(),
-            ),
-            priority: 0,
-            size_hint: ContribSizeHint::Auto,
-        })
+    fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
+        r.on_contribute(
+            SlotId::new("surface_probe.sidebar.top"),
+            |_state, _app, ctx| {
+                Some(Contribution {
+                    element: Element::text(
+                        format!(
+                            "slot-fill:{}x{}",
+                            ctx.min_width,
+                            ctx.max_width.unwrap_or_default()
+                        ),
+                        kasane_core::protocol::Style::default(),
+                    ),
+                    priority: 0,
+                    size_hint: ContribSizeHint::Auto,
+                })
+            },
+        );
     }
 }
 
