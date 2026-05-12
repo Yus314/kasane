@@ -13,7 +13,6 @@ pub mod effect_tiers;
 pub mod effects;
 pub mod element_patch;
 pub mod error_attribution;
-pub mod extension_point;
 pub mod handler_registry;
 pub(crate) mod handler_table;
 pub(crate) mod inline_box;
@@ -143,7 +142,6 @@ pub use app_view::{AppView, FrameworkAccess};
 pub use bridge::{IsBridgedPlugin, PluginBridge};
 pub use channel::ChannelValue;
 pub use element_patch::ElementPatch;
-pub use extension_point::ExtensionPointId;
 pub use handler_registry::HandlerRegistry;
 pub use handler_table::GutterSide;
 pub use process_task::{ProcessTaskResult, ProcessTaskSpec};
@@ -293,8 +291,6 @@ pub struct CapabilityDescriptor {
     pub annotation_scopes: Vec<AnnotationScope>,
     pub publish_topics: Vec<TopicId>,
     pub subscribe_topics: Vec<TopicId>,
-    pub extensions_defined: Vec<extension_point::ExtensionPointId>,
-    pub extensions_consumed: Vec<extension_point::ExtensionPointId>,
 }
 
 impl CapabilityDescriptor {

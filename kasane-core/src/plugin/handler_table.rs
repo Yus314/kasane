@@ -779,13 +779,6 @@ impl HandlerTable {
         let subscribe_topics: Vec<super::pubsub::TopicId> =
             self.subscribers.iter().map(|e| e.topic.clone()).collect();
 
-        // Extension-point dispatch was retired per ADR-045; descriptors
-        // report no defined / consumed extension points from native
-        // plugins. WASM plugins still emit their manifest-declared
-        // metadata through `WasmPlugin::manifest_descriptor`.
-        let extensions_defined: Vec<super::extension_point::ExtensionPointId> = Vec::new();
-        let extensions_consumed: Vec<super::extension_point::ExtensionPointId> = Vec::new();
-
         CapabilityDescriptor {
             transform_targets: self
                 .transform_handler
@@ -796,8 +789,6 @@ impl HandlerTable {
             annotation_scopes,
             publish_topics,
             subscribe_topics,
-            extensions_defined,
-            extensions_consumed,
         }
     }
 }

@@ -166,8 +166,6 @@ impl RuntimeMetadata {
         handlers.transform_targets.sort();
         handlers.publish_topics.sort();
         handlers.subscribe_topics.sort();
-        handlers.extensions_defined.sort();
-        handlers.extensions_consumed.sort();
 
         let mut view = manifest.view.clone();
         view.deps.sort();

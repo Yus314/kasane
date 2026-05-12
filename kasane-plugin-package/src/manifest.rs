@@ -8,8 +8,8 @@ use std::collections::HashMap;
 
 use compact_str::CompactString;
 use kasane_core::plugin::{
-    CapabilityDescriptor, ExtensionPointId, PluginAuthorities, PluginCapabilities, SettingValue,
-    TopicId, TransformTarget,
+    CapabilityDescriptor, PluginAuthorities, PluginCapabilities, SettingValue, TopicId,
+    TransformTarget,
 };
 use kasane_core::state::DirtyFlags;
 use serde::{Deserialize, Serialize};
@@ -66,10 +66,6 @@ pub struct HandlersSection {
     pub publish_topics: Vec<String>,
     #[serde(default)]
     pub subscribe_topics: Vec<String>,
-    #[serde(default)]
-    pub extensions_defined: Vec<String>,
-    #[serde(default)]
-    pub extensions_consumed: Vec<String>,
     /// ADR-042 Phase B Step 3: when `true`, the host wraps every
     /// plugin-originated `Command::EvalCommand` with a Kakoune
     /// `try…catch` pattern that fires `info_show` on failure with a
@@ -238,14 +234,6 @@ impl PluginManifest {
         );
         check_duplicates!(&self.handlers.publish_topics, "handlers.publish_topics");
         check_duplicates!(&self.handlers.subscribe_topics, "handlers.subscribe_topics");
-        check_duplicates!(
-            &self.handlers.extensions_defined,
-            "handlers.extensions_defined"
-        );
-        check_duplicates!(
-            &self.handlers.extensions_consumed,
-            "handlers.extensions_consumed"
-        );
 
         for (key, schema) in &self.settings {
             if !matches!(
@@ -375,18 +363,6 @@ impl PluginManifest {
                 .subscribe_topics
                 .iter()
                 .map(|s| TopicId::new(s.clone()))
-                .collect(),
-            extensions_defined: self
-                .handlers
-                .extensions_defined
-                .iter()
-                .map(|s| ExtensionPointId::new(s.clone()))
-                .collect(),
-            extensions_consumed: self
-                .handlers
-                .extensions_consumed
-                .iter()
-                .map(|s| ExtensionPointId::new(s.clone()))
                 .collect(),
         }
     }
