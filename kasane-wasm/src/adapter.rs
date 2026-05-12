@@ -764,7 +764,10 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
 /// reviewable commit that compiles + ships through `cargo test
 /// -p kasane-wasm` on the existing dispatch.
 ///
-/// Sub-phase coverage so far: **β-3.3b.1 — Lifecycle (6 handlers)**.
+/// Sub-phase coverage so far:
+/// - **β-3.3b.1 — Lifecycle** (6 handlers)
+/// - **β-3.3b.2 — Input observers** (3 handlers; `observe-text-input`
+///   has no WIT export and is intentionally absent)
 impl Plugin for WasmPlugin {
     type State = ();
 
@@ -853,6 +856,64 @@ impl Plugin for WasmPlugin {
                 if let Err(e) = api.call_on_shutdown(&mut runtime.store) {
                     tracing::error!("WASM plugin {}.on_shutdown failed: {e}", shared.plugin_id.0);
                 }
+            });
+        });
+
+        // ---- β-3.3b.2 — Input observers ----
+        // WIT exports: observe-key / observe-mouse / observe-drop. There is
+        // no `observe-text-input` WIT export today, so the corresponding
+        // `on_observe_text_input` registry slot stays empty for WASM
+        // plugins.
+
+        // observe_key → on_observe_key (gated by INPUT_HANDLER capability)
+        let shared = Arc::clone(&self.shared);
+        r.on_observe_key(move |_state, key, app| {
+            if !shared
+                .cached_capabilities
+                .contains(PluginCapabilities::INPUT_HANDLER)
+            {
+                return;
+            }
+            shared.call_synced(app, "observe_key", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_key = convert::key_event_to_wit(key);
+                Ok(api.call_observe_key(&mut rt.store, wit_key).map(|_| ())?)
+            });
+        });
+
+        // observe_mouse → on_observe_mouse (gated by INPUT_HANDLER capability)
+        let shared = Arc::clone(&self.shared);
+        r.on_observe_mouse(move |_state, event, app| {
+            if !shared
+                .cached_capabilities
+                .contains(PluginCapabilities::INPUT_HANDLER)
+            {
+                return;
+            }
+            shared.call_synced(app, "observe_mouse", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_event = convert::mouse_event_to_wit(event);
+                Ok(api
+                    .call_observe_mouse(&mut rt.store, wit_event)
+                    .map(|_| ())?)
+            });
+        });
+
+        // observe_drop → on_observe_drop (gated by DROP_HANDLER capability)
+        let shared = Arc::clone(&self.shared);
+        r.on_observe_drop(move |_state, event, app| {
+            if !shared
+                .cached_capabilities
+                .contains(PluginCapabilities::DROP_HANDLER)
+            {
+                return;
+            }
+            shared.call_synced(app, "observe_drop", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_event = convert::drop_event_to_wit(event);
+                Ok(api
+                    .call_observe_drop(&mut rt.store, &wit_event)
+                    .map(|_| ())?)
             });
         });
     }
