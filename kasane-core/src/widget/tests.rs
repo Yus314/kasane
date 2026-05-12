@@ -4,10 +4,10 @@ use compact_str::CompactString;
 
 use crate::element::{Element, FlexChild};
 use crate::plugin::{
-    AnnotateContext, AnnotationScope, AppView, BackgroundLayer, CapabilityDescriptor,
-    ContribSizeHint, ContributeContext, Contribution, ElementPatch, GutterSide, PluginCapabilities,
-    PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticSeverity, PluginId, PluginRuntime,
-    SlotId, TransformContext, TransformTarget,
+    AnnotateContext, AnnotationScope, AppView, CapabilityDescriptor, ContribSizeHint,
+    ContributeContext, Contribution, GutterSide, PluginCapabilities, PluginDiagnostic,
+    PluginDiagnosticKind, PluginDiagnosticSeverity, PluginId, PluginRuntime, SlotId,
+    TransformContext,
 };
 use crate::state::AppState;
 
@@ -18,181 +18,112 @@ use super::types::Template;
 use super::variables::{AppViewResolver, VariableResolver, variable_dirty_flag};
 use crate::state::DirtyFlags;
 
-/// Test-only widget aggregator over a [`PluginRuntime`]. Each call
-/// translates into a runtime view query; production widget code uses
-/// [`WidgetPlugin`](super::plugin::WidgetPlugin) +
-/// [`register_all_widgets`](super::plugin::register_all_widgets)
-/// directly.
-struct WidgetBackend {
-    runtime: PluginRuntime,
-    /// Diagnostics emitted by the most recent parse (drained on access).
-    pending_diagnostics: Vec<PluginDiagnostic>,
-    /// Increments on every successful `from_source` / `reload_from_source`
-    /// so legacy `state_hash()` callers observe change.
-    generation: u64,
+// ---------------------------------------------------------------------------
+// Test helpers (γ-1.2: replaces the legacy `WidgetBackend` shim — tests
+// drive widgets through `PluginRuntime` + the `first_*_for_test` helpers
+// directly).
+// ---------------------------------------------------------------------------
+
+const WIDGETS_PLUGIN_ID: &str = "kasane.widgets";
+
+/// Build a [`PluginRuntime`] from a KDL widgets source. Returns the runtime
+/// and any drained parse-error diagnostics (empty Vec on success).
+fn widgets_runtime(source: &str) -> (PluginRuntime, Vec<PluginDiagnostic>) {
+    match parse_widgets(source) {
+        Ok((file, errors)) => {
+            let mut runtime = PluginRuntime::new();
+            let _plugin_ids = register_all_widgets(file, &errors, &mut runtime);
+            let diags = runtime.drain_all_diagnostics();
+            (runtime, diags)
+        }
+        Err(e) => (PluginRuntime::new(), vec![parse_failure_diagnostic(&e)]),
+    }
 }
 
-impl WidgetBackend {
-    fn empty() -> Self {
-        Self {
-            runtime: PluginRuntime::new(),
-            pending_diagnostics: Vec::new(),
-            generation: 0,
+/// Attempt a reload of `source`. On parse success, returns `Ok(new_runtime)` —
+/// the caller replaces the existing runtime. On parse failure, returns
+/// `Err(diagnostics)` — the caller keeps the previous runtime (matches the
+/// legacy reload-on-syntax-error semantics).
+fn widgets_reload(source: &str) -> Result<PluginRuntime, Vec<PluginDiagnostic>> {
+    match parse_widgets(source) {
+        Ok((file, errors)) => {
+            let mut runtime = PluginRuntime::new();
+            let _plugin_ids = register_all_widgets(file, &errors, &mut runtime);
+            Ok(runtime)
         }
+        Err(e) => Err(vec![parse_failure_diagnostic(&e)]),
     }
+}
 
-    fn from_source(source: &str) -> Self {
-        let mut rig = Self::empty();
-        rig.load_source(source, /*reset_on_error=*/ true);
-        rig
+fn parse_failure_diagnostic(e: &impl std::fmt::Display) -> PluginDiagnostic {
+    PluginDiagnostic {
+        target: crate::plugin::PluginDiagnosticTarget::Plugin(PluginId(
+            WIDGETS_PLUGIN_ID.to_string(),
+        )),
+        kind: PluginDiagnosticKind::RuntimeError {
+            method: "parse".to_string(),
+        },
+        message: e.to_string(),
+        previous: None,
+        attempted: None,
     }
+}
 
-    fn reload_from_source(&mut self, source: &str) -> bool {
-        self.load_source(source, /*reset_on_error=*/ false)
+/// Aggregate the capabilities of every registered plugin slot — the
+/// per-slot caps are produced by `WidgetPlugin::register`; tests query
+/// the combined surface to match the user-observable "what does this
+/// widget set enable" semantics.
+fn aggregate_capabilities(runtime: &PluginRuntime) -> PluginCapabilities {
+    let mut caps = PluginCapabilities::empty();
+    for slot_caps in runtime.all_slot_capabilities_for_test() {
+        caps |= slot_caps;
     }
+    caps
+}
 
-    /// Returns `true` when the new source was accepted, `false` when a
-    /// parse error left the previous widgets active (matches old reload
-    /// semantics). When `reset_on_error` is true (initial load) a parse
-    /// failure produces an empty runtime + a single diagnostic.
-    fn load_source(&mut self, source: &str, reset_on_error: bool) -> bool {
-        match parse_widgets(source) {
-            Ok((file, errors)) => {
-                let mut next = PluginRuntime::new();
-                let _plugin_ids = register_all_widgets(file, &errors, &mut next);
-                self.runtime = next;
-                // Parse-error diagnostics are attached to the first
-                // plugin by `register_all_widgets`; drain them through
-                // the runtime so the shim's `drain_diagnostics` surfaces
-                // them.
-                self.generation += 1;
-                true
-            }
-            Err(e) => {
-                let diagnostic = PluginDiagnostic {
-                    target: crate::plugin::PluginDiagnosticTarget::Plugin(PluginId(
-                        "kasane.widgets".into(),
-                    )),
-                    kind: PluginDiagnosticKind::RuntimeError {
-                        method: "parse".to_string(),
-                    },
-                    message: e.to_string(),
-                    previous: None,
-                    attempted: None,
-                };
-                if reset_on_error {
-                    self.runtime = PluginRuntime::new();
-                    self.pending_diagnostics = vec![diagnostic];
-                    self.generation += 1;
-                } else {
-                    // Reload rejected: keep previous widgets, surface diag.
-                    self.pending_diagnostics.push(diagnostic);
-                }
-                false
-            }
+fn aggregate_view_deps(runtime: &PluginRuntime) -> DirtyFlags {
+    let mut deps = DirtyFlags::empty();
+    for slot_deps in runtime.all_slot_view_deps_for_test() {
+        deps |= slot_deps;
+    }
+    deps
+}
+
+fn first_capability_descriptor(runtime: &PluginRuntime) -> Option<CapabilityDescriptor> {
+    runtime
+        .all_slot_descriptors_for_test()
+        .into_iter()
+        .find_map(|d| d)
+}
+
+/// Aggregate contributions for `slot` into a single Element. Empty → None;
+/// single → returned unchanged; multi → wrapped in `Element::row` with the
+/// minimum-priority value and the first contribution's `size_hint`. Mirrors
+/// the legacy `WidgetBackend::contribute_to` aggregation.
+fn contribute_aggregated(
+    runtime: &PluginRuntime,
+    slot: &SlotId,
+    state: &AppView<'_>,
+    ctx: &ContributeContext,
+) -> Option<Contribution> {
+    let view = runtime.view();
+    let contribs = view.collect_contributions(slot, state, ctx);
+    match contribs.len() {
+        0 => None,
+        1 => Some(contribs.into_iter().next().unwrap()),
+        _ => {
+            let min_priority = contribs.iter().map(|c| c.priority).min().unwrap_or(0);
+            let size_hint = contribs[0].size_hint;
+            let children: Vec<FlexChild> = contribs
+                .into_iter()
+                .map(|c| FlexChild::fixed(c.element))
+                .collect();
+            Some(Contribution {
+                element: Element::row(children),
+                priority: min_priority,
+                size_hint,
+            })
         }
-    }
-
-    fn id(&self) -> PluginId {
-        // Legacy WidgetBackend pretended to be one plugin called
-        // "kasane.widgets"; the new model has N WidgetPlugin instances
-        // ("kasane.widget.<name>"). Tests only ever compare this against
-        // the constant string.
-        PluginId("kasane.widgets".to_string())
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        let mut caps = PluginCapabilities::empty();
-        for slot_caps in self.runtime.all_slot_capabilities_for_test() {
-            caps |= slot_caps;
-        }
-        caps
-    }
-
-    fn capability_descriptor(&self) -> Option<CapabilityDescriptor> {
-        // The old WidgetBackend produced a single aggregated descriptor.
-        // Tests only check whether one exists when widgets are registered;
-        // return the first plugin's descriptor as a representative.
-        self.runtime
-            .all_slot_descriptors_for_test()
-            .into_iter()
-            .find_map(|d| d)
-    }
-
-    fn view_deps(&self) -> DirtyFlags {
-        let mut deps = DirtyFlags::empty();
-        for slot_deps in self.runtime.all_slot_view_deps_for_test() {
-            deps |= slot_deps;
-        }
-        deps
-    }
-
-    fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
-        let mut out = std::mem::take(&mut self.pending_diagnostics);
-        out.extend(self.runtime.drain_all_diagnostics());
-        out
-    }
-
-    fn state_hash(&self) -> u64 {
-        self.generation
-    }
-
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        state: &AppView<'_>,
-        ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        let view = self.runtime.view();
-        let contribs = view.collect_contributions(region, state, ctx);
-        match contribs.len() {
-            0 => None,
-            1 => Some(contribs.into_iter().next().unwrap()),
-            _ => {
-                let min_priority = contribs.iter().map(|c| c.priority).min().unwrap_or(0);
-                let size_hint = contribs[0].size_hint;
-                let children: Vec<FlexChild> = contribs
-                    .into_iter()
-                    .map(|c| FlexChild::fixed(c.element))
-                    .collect();
-                Some(Contribution {
-                    element: Element::row(children),
-                    priority: min_priority,
-                    size_hint,
-                })
-            }
-        }
-    }
-
-    fn decorate_background(
-        &self,
-        line: usize,
-        state: &AppView<'_>,
-        ctx: &AnnotateContext,
-    ) -> Option<BackgroundLayer> {
-        self.runtime
-            .first_decorate_background_for_test(line, state, ctx)
-    }
-
-    fn decorate_gutter(
-        &self,
-        side: GutterSide,
-        line: usize,
-        state: &AppView<'_>,
-        ctx: &AnnotateContext,
-    ) -> Option<(i16, Element)> {
-        self.runtime
-            .first_decorate_gutter_for_test(side, line, state, ctx)
-    }
-
-    fn transform_patch(
-        &self,
-        target: &TransformTarget,
-        state: &AppView<'_>,
-        ctx: &TransformContext,
-    ) -> Option<ElementPatch> {
-        self.runtime
-            .first_transform_patch_for_test(target, state, ctx)
     }
 }
 
@@ -646,67 +577,59 @@ fn parse_computed_deps() {
 
 #[test]
 fn backend_empty_has_no_capabilities() {
-    let backend = WidgetBackend::empty();
-    assert!(backend.capabilities().is_empty());
+    let runtime = PluginRuntime::new();
+    assert!(aggregate_capabilities(&runtime).is_empty());
 }
 
 #[test]
 fn backend_from_source_with_contribution() {
     let source = r#"pos slot="status-right" text=" {cursor_line} ""#;
-    let backend = WidgetBackend::from_source(source);
-    assert!(
-        backend
-            .capabilities()
-            .contains(crate::plugin::PluginCapabilities::CONTRIBUTOR)
-    );
+    let (runtime, _) = widgets_runtime(source);
+    assert!(aggregate_capabilities(&runtime).contains(PluginCapabilities::CONTRIBUTOR));
 }
 
 #[test]
 fn backend_contribute_to_matching_slot() {
     let source = r#"pos slot="status-right" text=" {cursor_line}:{cursor_col} ""#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let mut state = AppState::default();
     state.observed.cursor_pos = crate::protocol::Coord { line: 9, column: 4 };
     let view = AppView::new(&state);
     let ctx = ContributeContext::new(&view, None);
 
-    let result = backend.contribute_to(&SlotId::STATUS_RIGHT, &view, &ctx);
-    assert!(result.is_some());
+    assert!(contribute_aggregated(&runtime, &SlotId::STATUS_RIGHT, &view, &ctx).is_some());
 }
 
 #[test]
 fn backend_contribute_to_non_matching_slot() {
     let source = r#"pos slot="status-right" text="test""#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let state = AppState::default();
     let view = AppView::new(&state);
     let ctx = ContributeContext::new(&view, None);
 
-    let result = backend.contribute_to(&SlotId::STATUS_LEFT, &view, &ctx);
-    assert!(result.is_none());
+    assert!(contribute_aggregated(&runtime, &SlotId::STATUS_LEFT, &view, &ctx).is_none());
 }
 
 #[test]
 fn backend_contribute_with_when_condition() {
     let source = r#"pos slot="status-right" text=" multi " when="cursor_count > 1""#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     // cursor_count = 0 (default) → condition false
     let state = AppState::default();
     let view = AppView::new(&state);
     let ctx = ContributeContext::new(&view, None);
-    let result = backend.contribute_to(&SlotId::STATUS_RIGHT, &view, &ctx);
-    assert!(result.is_none());
+    assert!(contribute_aggregated(&runtime, &SlotId::STATUS_RIGHT, &view, &ctx).is_none());
 
     // cursor_count = 3 → condition true
     let mut state = AppState::default();
     state.inference.cursor_count = 3;
     let view = AppView::new(&state);
     let ctx = ContributeContext::new(&view, None);
-    let result = backend.contribute_to(&SlotId::STATUS_RIGHT, &view, &ctx);
-    assert!(result.is_some());
+    assert!(contribute_aggregated(&runtime, &SlotId::STATUS_RIGHT, &view, &ctx).is_some());
 }
 
 #[test]
@@ -715,20 +638,16 @@ fn backend_multiple_contributions_same_slot() {
 a slot="status-right" text="A"
 b slot="status-right" text="B"
 "#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let state = AppState::default();
     let view = AppView::new(&state);
     let ctx = ContributeContext::new(&view, None);
 
-    let result = backend.contribute_to(&SlotId::STATUS_RIGHT, &view, &ctx);
-    assert!(result.is_some());
-    // Should be an Element::row combining both
-    let contrib = result.unwrap();
+    let contrib = contribute_aggregated(&runtime, &SlotId::STATUS_RIGHT, &view, &ctx)
+        .expect("multi-widget slot should aggregate");
     match contrib.element {
-        crate::element::Element::Flex { ref children, .. } => {
-            assert_eq!(children.len(), 2);
-        }
+        Element::Flex { ref children, .. } => assert_eq!(children.len(), 2),
         _ => panic!("expected Flex element for multi-widget slot"),
     }
 }
@@ -736,12 +655,12 @@ b slot="status-right" text="B"
 #[test]
 fn backend_background_annotation() {
     let source = r#"hl kind="background" line="cursor" face="default,rgb:333333""#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let mut state = AppState::default();
     state.observed.cursor_pos = crate::protocol::Coord { line: 5, column: 0 };
     let view = AppView::new(&state);
-    let ctx = crate::plugin::AnnotateContext {
+    let ctx = AnnotateContext {
         line_width: 80,
         gutter_width: 0,
         display_map: None,
@@ -750,15 +669,23 @@ fn backend_background_annotation() {
     };
 
     // Line 5 should match cursor line
-    assert!(backend.decorate_background(5, &view, &ctx).is_some());
+    assert!(
+        runtime
+            .first_decorate_background_for_test(5, &view, &ctx)
+            .is_some()
+    );
     // Line 3 should not match
-    assert!(backend.decorate_background(3, &view, &ctx).is_none());
+    assert!(
+        runtime
+            .first_decorate_background_for_test(3, &view, &ctx)
+            .is_none()
+    );
 }
 
 #[test]
 fn backend_transform_patch() {
     let source = r#"ins kind="transform" target="status" face="default,blue" when="editor_mode == 'insert'""#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let mut state = AppState::default();
     state.inference.editor_mode = crate::state::derived::EditorMode::Insert;
@@ -771,27 +698,34 @@ fn backend_transform_patch() {
         target_line: None,
     };
 
-    let result = backend.transform_patch(&crate::plugin::TransformTarget::STATUS_BAR, &view, &ctx);
-    assert!(result.is_some());
+    assert!(
+        runtime
+            .first_transform_patch_for_test(
+                &crate::plugin::TransformTarget::STATUS_BAR,
+                &view,
+                &ctx
+            )
+            .is_some()
+    );
 
     // Normal mode → should not match
     let state = AppState::default(); // default is Normal
     let view = AppView::new(&state);
-    let result = backend.transform_patch(&crate::plugin::TransformTarget::STATUS_BAR, &view, &ctx);
-    assert!(result.is_none());
+    assert!(
+        runtime
+            .first_transform_patch_for_test(
+                &crate::plugin::TransformTarget::STATUS_BAR,
+                &view,
+                &ctx
+            )
+            .is_none()
+    );
 }
 
 #[test]
 fn backend_parse_error_produces_diagnostic() {
-    let mut backend = WidgetBackend::from_source("this is not { valid kdl }}}");
-    let diags = backend.drain_diagnostics();
+    let (_, diags) = widgets_runtime("this is not { valid kdl }}}");
     assert!(!diags.is_empty());
-}
-
-#[test]
-fn backend_id() {
-    let backend = WidgetBackend::empty();
-    assert_eq!(backend.id().0, "kasane.widgets");
 }
 
 #[test]
@@ -800,8 +734,8 @@ fn backend_view_deps_tracks_variables() {
 pos slot="status-right" text=" {cursor_line}:{cursor_col} "
 mode slot="status-left" text=" {editor_mode} "
 "#;
-    let backend = WidgetBackend::from_source(source);
-    let deps = backend.view_deps();
+    let (runtime, _) = widgets_runtime(source);
+    let deps = aggregate_view_deps(&runtime);
     assert!(deps.contains(DirtyFlags::BUFFER_CURSOR));
     assert!(deps.contains(DirtyFlags::STATUS));
 }
@@ -878,64 +812,40 @@ fn variable_dirty_flag_opt() {
 
 #[test]
 fn backend_reload_keeps_previous_on_syntax_error() {
-    let mut backend = WidgetBackend::from_source(r#"pos slot="status-right" text="ok""#);
-    assert!(
-        backend
-            .capabilities()
-            .contains(PluginCapabilities::CONTRIBUTOR)
-    );
-    let gen_before = backend.state_hash();
+    let (runtime, _) = widgets_runtime(r#"pos slot="status-right" text="ok""#);
+    assert!(aggregate_capabilities(&runtime).contains(PluginCapabilities::CONTRIBUTOR));
 
-    // Reload with broken syntax → should keep previous
-    let accepted = backend.reload_from_source("broken {{{ kdl");
-    assert!(!accepted);
-    assert!(
-        backend
-            .capabilities()
-            .contains(PluginCapabilities::CONTRIBUTOR)
-    );
-    // Generation should NOT have incremented
-    assert_eq!(backend.state_hash(), gen_before);
-    // Should have a diagnostic about the rejected reload
-    let diags = backend.drain_diagnostics();
+    // Reload with broken syntax → previous runtime kept, diagnostic surfaced
+    let reload = widgets_reload("broken {{{ kdl");
+    let Err(diags) = reload else {
+        panic!("parse failure expected");
+    };
     assert!(!diags.is_empty());
+    assert!(aggregate_capabilities(&runtime).contains(PluginCapabilities::CONTRIBUTOR));
 }
 
 #[test]
 fn backend_reload_replaces_on_valid_source() {
-    let mut backend = WidgetBackend::from_source(r#"pos slot="status-right" text="old""#);
-    let gen_before = backend.state_hash();
+    let (runtime, _) = widgets_runtime(r#"pos slot="status-right" text="old""#);
+    assert!(aggregate_capabilities(&runtime).contains(PluginCapabilities::CONTRIBUTOR));
 
-    let accepted =
-        backend.reload_from_source(r#"new kind="background" line="cursor" face="default,red""#);
-    assert!(accepted);
-    // Capabilities should have changed
-    assert!(
-        !backend
-            .capabilities()
-            .contains(PluginCapabilities::CONTRIBUTOR)
-    );
-    assert!(
-        backend
-            .capabilities()
-            .contains(PluginCapabilities::ANNOTATOR)
-    );
-    // Generation should have incremented
-    assert!(backend.state_hash() > gen_before);
+    // Successful reload produces a different runtime — capabilities flip from
+    // CONTRIBUTOR (pos widget) to ANNOTATOR (background widget).
+    let new_runtime = widgets_reload(r#"new kind="background" line="cursor" face="default,red""#)
+        .expect("valid source should reload");
+    assert!(!aggregate_capabilities(&new_runtime).contains(PluginCapabilities::CONTRIBUTOR));
+    assert!(aggregate_capabilities(&new_runtime).contains(PluginCapabilities::ANNOTATOR));
 }
 
 #[test]
-fn backend_reload_generation_increments_only_on_success() {
-    let mut backend = WidgetBackend::from_source(r#"a slot="status-left" text="x""#);
-    let gen1 = backend.state_hash();
+fn backend_reload_only_succeeds_on_valid_source() {
+    // Failed reload → Err, no runtime produced.
+    assert!(widgets_reload("invalid {{{ syntax").is_err());
 
-    // Failed reload → no increment
-    backend.reload_from_source("invalid {{{ syntax");
-    assert_eq!(backend.state_hash(), gen1);
-
-    // Successful reload → increment
-    backend.reload_from_source(r#"b slot="status-right" text="y""#);
-    assert!(backend.state_hash() > gen1);
+    // Successful reload → Ok with new runtime.
+    let runtime =
+        widgets_reload(r#"b slot="status-right" text="y""#).expect("valid source should reload");
+    assert!(aggregate_capabilities(&runtime).contains(PluginCapabilities::CONTRIBUTOR));
 }
 
 // =============================================================================
@@ -958,7 +868,7 @@ fn parse_selection_background() {
 #[test]
 fn backend_selection_background_annotation() {
     let source = r#"sel kind="background" line="selection" face="default,rgb:264f78""#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let mut state = AppState::default();
     // Add a selection spanning lines 3-5
@@ -971,7 +881,7 @@ fn backend_selection_background_annotation() {
         is_primary: true,
     }];
     let view = AppView::new(&state);
-    let ctx = crate::plugin::AnnotateContext {
+    let ctx = AnnotateContext {
         line_width: 80,
         gutter_width: 0,
         display_map: None,
@@ -980,22 +890,31 @@ fn backend_selection_background_annotation() {
     };
 
     // Lines within selection range should match
-    assert!(backend.decorate_background(3, &view, &ctx).is_some());
-    assert!(backend.decorate_background(4, &view, &ctx).is_some());
-    assert!(backend.decorate_background(5, &view, &ctx).is_some());
+    for line in 3..=5 {
+        assert!(
+            runtime
+                .first_decorate_background_for_test(line, &view, &ctx)
+                .is_some()
+        );
+    }
     // Lines outside should not match
-    assert!(backend.decorate_background(2, &view, &ctx).is_none());
-    assert!(backend.decorate_background(6, &view, &ctx).is_none());
+    for line in [2, 6] {
+        assert!(
+            runtime
+                .first_decorate_background_for_test(line, &view, &ctx)
+                .is_none()
+        );
+    }
 }
 
 #[test]
 fn backend_selection_empty_selections() {
     let source = r#"sel kind="background" line="selection" face="default,rgb:264f78""#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let state = AppState::default(); // no selections
     let view = AppView::new(&state);
-    let ctx = crate::plugin::AnnotateContext {
+    let ctx = AnnotateContext {
         line_width: 80,
         gutter_width: 0,
         display_map: None,
@@ -1003,7 +922,11 @@ fn backend_selection_empty_selections() {
         pane_focused: true,
     };
 
-    assert!(backend.decorate_background(0, &view, &ctx).is_none());
+    assert!(
+        runtime
+            .first_decorate_background_for_test(0, &view, &ctx)
+            .is_none()
+    );
 }
 
 #[test]
@@ -1078,15 +1001,15 @@ fn parse_size_hint_invalid() {
 #[test]
 fn backend_size_hint_used_in_contribution() {
     let source = r#"a slot="status-left" text="x" size="20col""#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let state = AppState::default();
     let view = AppView::new(&state);
     let ctx = ContributeContext::new(&view, None);
 
-    let result = backend.contribute_to(&SlotId::STATUS_LEFT, &view, &ctx);
-    assert!(result.is_some());
-    assert_eq!(result.unwrap().size_hint, ContribSizeHint::Fixed(20));
+    let contrib = contribute_aggregated(&runtime, &SlotId::STATUS_LEFT, &view, &ctx)
+        .expect("widget should contribute");
+    assert_eq!(contrib.size_hint, ContribSizeHint::Fixed(20));
 }
 
 // =============================================================================
@@ -1289,12 +1212,12 @@ fn parse_gutter_missing_text() {
 #[test]
 fn backend_gutter_annotation() {
     let source = r#"nums kind="gutter" side="left" text="{line_number:4} ""#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let mut state = AppState::default();
     state.observed.cursor_pos = crate::protocol::Coord { line: 5, column: 0 };
     let view = AppView::new(&state);
-    let ctx = crate::plugin::AnnotateContext {
+    let ctx = AnnotateContext {
         line_width: 80,
         gutter_width: 0,
         display_map: None,
@@ -1303,11 +1226,17 @@ fn backend_gutter_annotation() {
     };
 
     // Left gutter should return element
-    let result = backend.decorate_gutter(GutterSide::Left, 9, &view, &ctx);
-    assert!(result.is_some());
+    assert!(
+        runtime
+            .first_decorate_gutter_for_test(GutterSide::Left, 9, &view, &ctx)
+            .is_some()
+    );
     // Right gutter should not (widget is left)
-    let result = backend.decorate_gutter(GutterSide::Right, 9, &view, &ctx);
-    assert!(result.is_none());
+    assert!(
+        runtime
+            .first_decorate_gutter_for_test(GutterSide::Right, 9, &view, &ctx)
+            .is_none()
+    );
 }
 
 #[test]
@@ -1315,12 +1244,12 @@ fn backend_gutter_line_when_cursor_line() {
     let source = r#"
 abs kind="gutter" side="left" text="{line_number:3} " face="rgb:ffffff+b" line-when="is_cursor_line"
 "#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let mut state = AppState::default();
     state.observed.cursor_pos = crate::protocol::Coord { line: 5, column: 0 };
     let view = AppView::new(&state);
-    let ctx = crate::plugin::AnnotateContext {
+    let ctx = AnnotateContext {
         line_width: 80,
         gutter_width: 0,
         display_map: None,
@@ -1330,14 +1259,14 @@ abs kind="gutter" side="left" text="{line_number:3} " face="rgb:ffffff+b" line-w
 
     // Cursor line (5) should match
     assert!(
-        backend
-            .decorate_gutter(GutterSide::Left, 5, &view, &ctx)
+        runtime
+            .first_decorate_gutter_for_test(GutterSide::Left, 5, &view, &ctx)
             .is_some()
     );
     // Other lines should not
     assert!(
-        backend
-            .decorate_gutter(GutterSide::Left, 4, &view, &ctx)
+        runtime
+            .first_decorate_gutter_for_test(GutterSide::Left, 4, &view, &ctx)
             .is_none()
     );
 }
@@ -1345,13 +1274,9 @@ abs kind="gutter" side="left" text="{line_number:3} " face="rgb:ffffff+b" line-w
 #[test]
 fn backend_gutter_capabilities() {
     let source = r#"nums kind="gutter" side="left" text="{line_number}""#;
-    let backend = WidgetBackend::from_source(source);
-    assert!(
-        backend
-            .capabilities()
-            .contains(PluginCapabilities::ANNOTATOR)
-    );
-    let desc = backend.capability_descriptor().unwrap();
+    let (runtime, _) = widgets_runtime(source);
+    assert!(aggregate_capabilities(&runtime).contains(PluginCapabilities::ANNOTATOR));
+    let desc = first_capability_descriptor(&runtime).expect("widget should have descriptor");
     assert!(
         desc.annotation_scopes
             .contains(&AnnotationScope::LeftGutter)
@@ -1361,11 +1286,11 @@ fn backend_gutter_capabilities() {
 #[test]
 fn backend_gutter_global_when_disabled() {
     let source = r#"nums kind="gutter" side="left" text="{line_number}" when="cursor_count > 1""#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let state = AppState::default(); // cursor_count = 0
     let view = AppView::new(&state);
-    let ctx = crate::plugin::AnnotateContext {
+    let ctx = AnnotateContext {
         line_width: 80,
         gutter_width: 0,
         display_map: None,
@@ -1375,8 +1300,8 @@ fn backend_gutter_global_when_disabled() {
 
     // Global when disabled → None for all lines
     assert!(
-        backend
-            .decorate_gutter(GutterSide::Left, 0, &view, &ctx)
+        runtime
+            .first_decorate_gutter_for_test(GutterSide::Left, 0, &view, &ctx)
             .is_none()
     );
 }
@@ -1450,7 +1375,7 @@ fn parse_transform_wrap_container() {
 #[test]
 fn backend_wrap_container_patch() {
     let source = r#"wrap kind="transform" target="status" face="default,rgb:1a1a1a" patch="wrap""#;
-    let backend = WidgetBackend::from_source(source);
+    let (runtime, _) = widgets_runtime(source);
 
     let state = AppState::default();
     let view = AppView::new(&state);
@@ -1462,10 +1387,11 @@ fn backend_wrap_container_patch() {
         target_line: None,
     };
 
-    let result = backend.transform_patch(&crate::plugin::TransformTarget::STATUS_BAR, &view, &ctx);
-    assert!(result.is_some());
+    let patch = runtime
+        .first_transform_patch_for_test(&crate::plugin::TransformTarget::STATUS_BAR, &view, &ctx)
+        .expect("wrap transform should produce a patch");
     assert!(matches!(
-        result.unwrap(),
+        patch,
         crate::plugin::ElementPatch::WrapContainer { .. }
     ));
 }
