@@ -186,7 +186,114 @@ Phase α/β supersedes ADR-046 W1-A through W1-F as the implementation
 shape (ADR-046's wave structure is preserved; only the W1-C scope
 escalates from narrowing to deletion). Total wall-clock estimate:
 **17-23 days** (Salsa B retire eliminated from the original
-plan once ADR-047 closed; crate-split deferred to a future program).
+plan once ADR-047 closed; crate-split now scheduled as Phase ε
+below).
+
+**Refactor program — Phase γ + δ + ε (structural cascade) — opened 2026-05-12.**
+After Phase β-3.3 closed (`f98c2425`, β-3.3e) with `PluginBackend`
+extinct, residual structural debt was surveyed across five
+consideration rounds. Findings: dead architecture (legacy
+`render/pipeline.rs` + its 752-LoC parity test, both load-bearing
+for nothing post-ADR-047); `widget/tests.rs` shim (2348 LoC
+β-3.3a deferment); 3-layer handler-dispatch redundancy
+(HandlerRegistry 77 setters → HandlerTable 55 erased types →
+PluginBridge 42 dispatch sites, 4-place manual sync per new
+handler); hot-path `PluginId(String)` clones and `Vec<Vec<Atom>>`
+allocations; dual `display/` + `display_algebra/` top-level
+dirs; and `#[doc(hidden)] pub` as a workaround for cross-crate
+internal surface (30+ consumer files). Backward compatibility is
+intentionally lifted. Total estimated wall-clock: **40-60 days**
+across γ (structural cleanup), δ (design rethinking), ε
+(workspace reorganization).
+
+Decisions taken at program open (2026-05-12, via interactive dialogue):
+
+- **Scope**: full γ + δ + ε (workspace-level reorganization)
+- **Order**: strict sequential (γ-0 → γ-1 → γ-2 → γ-3 → γ-4 → δ → ε)
+- **WIT sharing** (γ-0.4): dedicated `kasane-wit` crate consumed
+  by `kasane-wasm` / `kasane-plugin-sdk` / `kasane-plugin-sdk-macros`,
+  replacing the current symlink scheme
+- **Legacy pipeline** (γ-1.1): full deletion of `render/pipeline.rs`
+  (878 LoC) and `tests/salsa_pipeline_comparison.rs` (752 LoC) —
+  ADR-047 Salsa canonical makes the parity test load-bearing for
+  nothing
+- **Widget shim** (γ-1.2): all 22 `backend_*` tests migrate to
+  `PluginRuntime` direct use; WidgetBackend shim deleted entirely
+- **`plugin/` grouping** (γ-2.2): 3-way (`algebra/` pure value
+  types, `host/` runtime context, `effect/` side effects) with
+  9 files remaining at top level
+- **`#[handler_table]` macro DSL** (γ-3.1): type-alias signature
+  style (`handler init: Lifecycle<Effects>;`) — drives
+  HandlerTable, dispatch methods, registry setters, and the
+  `EXPECTED_HANDLER_NAMES` table from a single 22-entry spec module
+- **Hot-path** (γ-4): all three items in scope —
+  `PluginId(String) → Arc<str>` (γ-4.1), `Vec<Vec<Atom>>` scratch
+  (γ-4.2), `dyn_clone` snapshot retired via δ-2 (γ-4.3 merged
+  into δ-2)
+- **Plugin trait** (δ-1): introduce `StatelessPlugin: Plugin<State = ()>`
+  blanket for WASM/adapter plugins, formalizing the current idiom
+- **PluginState ↔ Salsa input** (δ-2): generation counter +
+  `dyn_clone` snapshot retired; plugin state lives as a Salsa
+  input with revision-based invalidation
+- **Examples** (δ-3): in-tree examples curated to **2**
+  (`cursor-line`, `color-preview`); the remaining 9 examples
+  (including the docs-referenced `sel-badge` / `prompt-highlight` /
+  `smooth-scroll`) move to a future `kasane-plugin-gallery`
+  external repo, and `docs/plugin-development.md` /
+  `docs/plugin-cookbook.md` switch to external pointers
+- **Error handling** (δ-4): `thiserror` enum at library
+  boundaries, `anyhow` at binary boundary
+- **Cargo features** (δ-5): `syntax` / `wasm` / `std-os` flags
+  at `kasane-core` for slim builds
+- **`kasane-internal` crate** (ε-1): absorbs `salsa_queries`,
+  `salsa_views`, `display::algebra`, `WireFace`,
+  `RecoveryWitness`, `SafeDisplayDirective`; `#[doc(hidden)] pub`
+  retired
+- **`kasane-protocol` crate** (ε-2): Kakoune JSON-RPC moves out
+  of `kasane-core`
+- **`kasane-core-tests` crate** (ε-3): the 20754-LoC integration
+  test surface isolated, enabling fast `cargo test --lib`
+- **ADR per-file split** (ε-4): `docs/decisions.md` expands into
+  `docs/decisions/adr-NNN-*.md`
+
+Bench baseline `gamma` captured at program open
+(`cargo bench --bench rendering_pipeline -- --save-baseline gamma`);
+all subsequent commits compare against this baseline with a ±5%
+frame-time gate (G4) and a <1 % iai instruction-count gate (G5).
+
+| Phase | Status | Notes |
+|---|---|---|
+| γ-0 — Verification infrastructure | pending | 1.5 days; non-destructive (docs + CI script + new crate only) |
+| γ-0.1 — `tools/check-doc-consistency.sh` expansion | pending | Add `check_claude_md_workspace` + `check_claude_md_modules` + `check_roadmap_pending_unique` + `check_decisions_adr_refs` |
+| γ-0.2 — CLAUDE.md / roadmap drift fix | pending | Remove ghost `kasane-plugin-model` entry, deduplicate β-3.3b.12 pending row at L180–181, prune α-3-deleted lifecycle scaffolding from "Deferred" list at L196, update L197 to note `PluginBackend` proc-macro generation now lands in γ-3 |
+| γ-0.3 — tree-sitter `unsafe impl` SAFETY annotation | pending | `kasane-syntax/src/provider.rs:27-28` — document why `TreeSitterProvider` is `Send + Sync` despite the underlying `Parser` being `!Send` |
+| γ-0.4 — `kasane-wit` crate extraction | pending | New workspace member; deletes 2 WIT symlinks; updates CI from `WIT symlink check` to `WIT content hash check` |
+| γ-1 — Dead architecture purge | pending | Target: −3160 LoC, 3-4 days |
+| γ-1.1 — `render/pipeline.rs` + `salsa_pipeline_comparison.rs` deletion | pending | −1630 LoC (878 + 752) plus the legacy hookup in `kasane-core/src/test_support.rs` |
+| γ-1.2 — `widget/tests.rs` shim deconstruction | pending | −1500 LoC; 22 `backend_*` tests migrate to `PluginRuntime` direct use, `first_*_for_test` helpers retained |
+| γ-1.3 — Vestigial single-line absorbs | pending | −30 LoC; `kasane-wasm/src/manifest.rs` (1-line re-export) and `kasane-core/src/perf.rs` (13-line macro stub) removed |
+| γ-1.4 — Deferred-list cleanup | pending | Remove the items at L195–197 that γ now subsumes; revisit the L198 verification log |
+| γ-2 — Structural reorganization | pending | LoC-neutral, cognitive-load reduction; 3-4 days |
+| γ-2.1 — `display_algebra/` → `display/algebra/` absorption | pending | Eliminates dual top-level dir; internal `bridge.rs` (505 LoC) renamed to `runtime_bridge.rs` to free the `bridge.rs` name |
+| γ-2.2 — `plugin/` subdir reorganization | pending | `algebra/` (`element_patch` + `compose` + `safe_directive` + `recovery_witness` + `predicate`), `host/` (`app_view` + `context` + `variable_store` + `setting`), `effect/` (`effects` + `effect_tiers` + `error_attribution` + `kakoune_transparent_*` + `command`); 24 flat files → 5 subdirs + 9 top-level |
+| γ-2.3 — `plugin/bridge.rs` → `plugin/plugin_bridge.rs` | pending | Resolves the cross-module `bridge.rs` naming clash with `display::algebra::runtime_bridge` |
+| γ-3 — proc-macro auto-generation | pending | Target: −1500 LoC + 4-place-sync rule retirement; 5-7 days |
+| γ-3.1 — `#[handler_table]` DSL spec | pending | Type-alias signature style; 22 entries in one spec module; 4 dispatch shapes (`Lifecycle` / `Observer` / `Dispatcher` / `PerSlot`-`Prioritized`-`Unified`) |
+| γ-3.2 — `kasane-macros::handler_table` implementation | pending | +400 LoC macro infrastructure; trybuild fail-tests for malformed DSL entries |
+| γ-3.3 — Replace existing manual code | pending | `handler_table.rs` 990 → ~50 LoC spec module; `bridge.rs` 42 dispatch sites generated; `handler_registry/*.rs` setters generated; `exhaustive_handler_dispatch_coverage` test retired (macro guarantees completeness); `.claude/rules/plugin-handlers.md` 4-place-sync rule removed |
+| γ-4 — Hot-path optimization | pending | 4-5 days |
+| γ-4.1 — `PluginId(String)` → `PluginId(Arc<str>)` | pending | 15+ production clone sites; frame-time −1〜5 µs target; WIT boundary in `kasane-wasm/convert/` updated |
+| γ-4.2 — `Vec<Vec<Atom>>` scratch pattern | pending | Reusable `AtomScratch` threaded through `render/walk*`, `paint.rs`, `walk_grid.rs`; per-frame alloc −30 % target measured via `alloc_budget` bin |
+| γ-4.3 — `dyn_clone` snapshot reduction | merged into δ-2 | Subsumed by Salsa input unification |
+| δ-1 — `Plugin` / `StatelessPlugin` trait split | pending | 3-4 days; `StatelessPlugin: Plugin<State = ()>` blanket; WasmPlugin migrates from explicit `type State = ()` |
+| δ-2 — `PluginState` ↔ Salsa input unification | pending | 5-7 days; retires generation counter + `dyn_clone` snapshot; subsumes γ-4.3; profile-gated against per-frame mutation cost |
+| δ-3 — Example fleet curation | pending | 1-2 days; in-tree set shrinks to `cursor-line` + `color-preview`; 9 examples (including the docs-referenced `sel-badge` / `prompt-highlight` / `smooth-scroll`) move to a future `kasane-plugin-gallery` repo; docs/plugin-* links retarget to external |
+| δ-4 — Error handling unification | pending | 5-7 days; per-module `thiserror::Error` enum, `anyhow::Result` at binary boundary; `kasane-core/src/error/mod.rs` aggregate type |
+| δ-5 — Cargo features expansion | pending | 2 days; `syntax` / `wasm` / `std-os` flags at `kasane-core` level; documents the slim-build matrix in `docs/getting-started.md` |
+| ε-1 — `kasane-internal` crate | pending | 3-5 days; absorbs the `#[doc(hidden)] pub` surface (`salsa_queries`, `salsa_views`, `display::algebra`, `WireFace`, `RecoveryWitness`, `SafeDisplayDirective`); `kasane-tui` / `kasane-gui` / `kasane-wasm` depend directly on it; `kasane-core`'s public API contracts to the prelude |
+| ε-2 — `kasane-protocol` crate split | pending | 5-7 days; `kasane-core/src/protocol/` moves out; Kakoune JSON-RPC isolated for potential future reuse |
+| ε-3 — `kasane-core-tests` crate split | pending | 2-3 days; 20754-LoC integration test surface moves out of `kasane-core/tests/`; `cargo test --lib` becomes the fast inner loop |
+| ε-4 — ADR per-file split | pending | 1 day; `docs/decisions.md` expands into `docs/decisions/adr-NNN-*.md`; `tools/check-doc-consistency.sh` `check_decisions_adr_refs` updated to cross-link the new layout |
 
 Deferred to a future ADR (each blocked on a design decision, an upstream Plugin-API change, or a baseline measurement that has to land in its own PR):
 
