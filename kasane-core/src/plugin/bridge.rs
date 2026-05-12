@@ -443,6 +443,18 @@ impl PluginBackend for PluginBridge {
         self.table.workspace_request.clone()
     }
 
+    fn register_lenses(&self, registry: &mut crate::lens::LensRegistry) -> usize {
+        let Some(factory) = &self.table.lenses_factory else {
+            return 0;
+        };
+        let lenses = factory();
+        let count = lenses.len();
+        for lens in lenses {
+            registry.register(lens);
+        }
+        count
+    }
+
     fn workspace_save(&self) -> Option<serde_json::Value> {
         self.table
             .workspace_save_handler

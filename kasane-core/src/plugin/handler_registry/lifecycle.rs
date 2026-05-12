@@ -489,6 +489,17 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         self.table.display_priority = priority;
     }
 
+    /// Declare lenses owned by this plugin.
+    ///
+    /// The factory is invoked once per `PluginRuntime::sync_lenses` call.
+    /// Each returned lens is passed to `LensRegistry::register`.
+    pub fn declare_lenses(
+        &mut self,
+        factory: impl Fn() -> Vec<std::sync::Arc<dyn crate::lens::Lens>> + Send + Sync + 'static,
+    ) {
+        self.table.lenses_factory = Some(Box::new(factory));
+    }
+
     /// Register an update (message) handler.
     ///
     /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.

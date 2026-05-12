@@ -75,6 +75,8 @@ pub(crate) type ErasedWorkspaceRestoreHandler =
 pub(crate) type ErasedShutdownHandler = Box<dyn Fn(&dyn PluginState) + Send + Sync>;
 pub(crate) type ErasedSurfacesFactory =
     Box<dyn Fn(&dyn PluginState) -> Vec<Box<dyn crate::surface::Surface>> + Send + Sync>;
+pub(crate) type ErasedLensFactory =
+    Box<dyn Fn() -> Vec<std::sync::Arc<dyn crate::lens::Lens>> + Send + Sync>;
 pub(crate) type ErasedUpdateHandler = Box<
     dyn Fn(&dyn PluginState, &mut dyn Any, &AppView<'_>) -> (Box<dyn PluginState>, Effects)
         + Send
@@ -583,6 +585,11 @@ pub(crate) struct HandlerTable {
     /// `DirectiveSet`. Default 0.
     pub(crate) display_priority: i16,
 
+    // --- Lens declarations ---
+    /// Factory invoked from `PluginBridge::register_lenses` during
+    /// `PluginRuntime::sync_lenses`. Default: no lenses declared.
+    pub(crate) lenses_factory: Option<ErasedLensFactory>,
+
     // --- Config ---
     pub(crate) interests: DirtyFlags,
 
@@ -659,6 +666,7 @@ impl HandlerTable {
             allows_process_spawn: true,
             authorities: super::PluginAuthorities::empty(),
             display_priority: 0,
+            lenses_factory: None,
             interests: DirtyFlags::ALL,
             transparency: TransparencyFlags::default(),
             recovery: RecoveryFlags::default(),
