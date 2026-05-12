@@ -2,6 +2,7 @@
 
 use crate::element::{Element, FlexChild};
 use crate::plugin::compose::{Composable, ContentAnnotationSet};
+use crate::plugin::traits::PluginBackend;
 use crate::plugin::{
     AnnotateContext, AnnotationResult, AppView, BackgroundLayer, GutterSide, PluginCapabilities,
     PluginId,
@@ -237,27 +238,52 @@ impl<'a> PluginView<'a> {
 
             for (_slot_idx, slot) in &legacy_annotator_slots {
                 let pid = slot.backend.id();
+                // Bind once per slot per line so per-method dispatch goes
+                // through &PluginBridge (no vtable) for native plugins.
+                let bridge = slot.backend.as_native();
 
-                if slot.backend.has_decomposed_annotations() {
+                let has_decomposed = if let Some(b) = bridge {
+                    b.has_decomposed_annotations()
+                } else {
+                    slot.backend.has_decomposed_annotations()
+                };
+
+                if has_decomposed {
                     // Native (HandlerTable) path: call per-concern methods directly
-                    if let Some((prio, el)) =
+                    let left = if let Some(b) = bridge {
+                        b.decorate_gutter(GutterSide::Left, line, state, ctx)
+                    } else {
                         slot.backend
                             .decorate_gutter(GutterSide::Left, line, state, ctx)
-                    {
+                    };
+                    if let Some((prio, el)) = left {
                         left_parts.push((prio, pid.clone(), el));
                         has_left = true;
                     }
-                    if let Some((prio, el)) =
+                    let right = if let Some(b) = bridge {
+                        b.decorate_gutter(GutterSide::Right, line, state, ctx)
+                    } else {
                         slot.backend
                             .decorate_gutter(GutterSide::Right, line, state, ctx)
-                    {
+                    };
+                    if let Some((prio, el)) = right {
                         right_parts.push((prio, pid.clone(), el));
                         has_right = true;
                     }
-                    if let Some(bg) = slot.backend.decorate_background(line, state, ctx) {
+                    let bg = if let Some(b) = bridge {
+                        b.decorate_background(line, state, ctx)
+                    } else {
+                        slot.backend.decorate_background(line, state, ctx)
+                    };
+                    if let Some(bg) = bg {
                         bg_layers.push((bg, pid.clone()));
                     }
-                    if let Some(inline) = slot.backend.decorate_inline(line, state, ctx) {
+                    let inline = if let Some(b) = bridge {
+                        b.decorate_inline(line, state, ctx)
+                    } else {
+                        slot.backend.decorate_inline(line, state, ctx)
+                    };
+                    if let Some(inline) = inline {
                         if inline_decorations[line].is_some() {
                             tracing::warn!(
                                 line,
@@ -268,14 +294,24 @@ impl<'a> PluginView<'a> {
                             has_inline = true;
                         }
                     }
-                    for vt in slot.backend.annotate_virtual_text(line, state, ctx) {
+                    let virtual_text = if let Some(b) = bridge {
+                        b.annotate_virtual_text(line, state, ctx)
+                    } else {
+                        slot.backend.annotate_virtual_text(line, state, ctx)
+                    };
+                    for vt in virtual_text {
                         if !vt.atoms.is_empty() {
                             vt_parts.push((vt.priority, pid.clone(), vt.atoms));
                         }
                     }
                 } else {
                     // Legacy (WASM) path: call monolithic method and decompose
-                    if let Some(ann) = slot.backend.annotate_line_with_ctx(line, state, ctx) {
+                    let ann = if let Some(b) = bridge {
+                        b.annotate_line_with_ctx(line, state, ctx)
+                    } else {
+                        slot.backend.annotate_line_with_ctx(line, state, ctx)
+                    };
+                    if let Some(ann) = ann {
                         let prio = ann.priority;
                         if let Some(el) = ann.left_gutter {
                             left_parts.push((prio, pid.clone(), el));
@@ -451,7 +487,11 @@ impl<'a> PluginView<'a> {
             }
 
             // Legacy path
-            let annotations = slot.backend.content_annotations(state, ctx);
+            let annotations = if let Some(bridge) = slot.backend.as_native() {
+                bridge.content_annotations(state, ctx)
+            } else {
+                slot.backend.content_annotations(state, ctx)
+            };
             if !annotations.is_empty() {
                 result = result.compose(ContentAnnotationSet::from_vec(annotations));
             }

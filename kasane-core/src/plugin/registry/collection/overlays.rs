@@ -1,6 +1,7 @@
 //! Overlay collection and menu/info overlay resolution (OVERLAY plugins).
 
 use crate::plugin::compose::{Composable, OverlaySet};
+use crate::plugin::traits::PluginBackend;
 use crate::plugin::{AppView, OverlayContext, OverlayContribution, PluginCapabilities};
 
 use super::super::PluginView;
@@ -20,10 +21,13 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            if let Some(mut oc) = slot
-                .backend
-                .contribute_overlay_with_ctx(state, &running_ctx)
-            {
+            let result_opt = if let Some(bridge) = slot.backend.as_native() {
+                bridge.contribute_overlay_with_ctx(state, &running_ctx)
+            } else {
+                slot.backend
+                    .contribute_overlay_with_ctx(state, &running_ctx)
+            };
+            if let Some(mut oc) = result_opt {
                 oc.plugin_id = slot.backend.id();
                 // Record this overlay's rect for subsequent plugins' avoidance.
                 if let Some(rect) = overlay_anchor_rect(&oc.anchor) {
@@ -47,7 +51,12 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            if let Some(overlay) = slot.backend.render_menu_overlay(state, self) {
+            let overlay = if let Some(bridge) = slot.backend.as_native() {
+                bridge.render_menu_overlay(state, self)
+            } else {
+                slot.backend.render_menu_overlay(state, self)
+            };
+            if let Some(overlay) = overlay {
                 return Some(overlay);
             }
         }
@@ -70,7 +79,12 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            if let Some(overlays) = slot.backend.render_info_overlays(state, avoid, self) {
+            let overlays = if let Some(bridge) = slot.backend.as_native() {
+                bridge.render_info_overlays(state, avoid, self)
+            } else {
+                slot.backend.render_info_overlays(state, avoid, self)
+            };
+            if let Some(overlays) = overlays {
                 return Some(overlays);
             }
         }

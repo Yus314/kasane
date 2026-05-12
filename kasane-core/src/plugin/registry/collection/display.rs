@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::display::{DirectiveSet, DisplayMap, DisplayMapRef};
 use crate::plugin::app_view::FrameworkAccess;
+use crate::plugin::traits::PluginBackend;
 use crate::plugin::{AppView, PluginCapabilities};
 
 use super::super::PluginView;
@@ -19,7 +20,11 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            result.extend_from_slice(slot.backend.projection_descriptors());
+            if let Some(bridge) = slot.backend.as_native() {
+                result.extend_from_slice(bridge.projection_descriptors());
+            } else {
+                result.extend_from_slice(slot.backend.projection_descriptors());
+            }
         }
         result
     }
@@ -132,16 +137,32 @@ impl<'a> PluginView<'a> {
                 continue;
             }
 
-            // Legacy path
-            let has_projections = !slot.backend.projection_descriptors().is_empty();
+            // Legacy path — bind once per slot so the inner methods skip
+            // the vtable for PluginBridge-backed plugins.
+            let bridge = slot.backend.as_native();
+
+            let projections: &[crate::display::ProjectionDescriptor] = if let Some(b) = bridge {
+                b.projection_descriptors()
+            } else {
+                slot.backend.projection_descriptors()
+            };
+            let has_projections = !projections.is_empty();
 
             // Legacy display handlers: only if plugin does NOT define projections
             if !has_projections {
-                let directives = slot.backend.display_directives(state);
+                let directives = if let Some(b) = bridge {
+                    b.display_directives(state)
+                } else {
+                    slot.backend.display_directives(state)
+                };
                 if directives.is_empty() {
                     continue;
                 }
-                let priority = slot.backend.display_directive_priority();
+                let priority = if let Some(b) = bridge {
+                    b.display_directive_priority()
+                } else {
+                    slot.backend.display_directive_priority()
+                };
                 let plugin_id = slot.backend.id();
                 for d in directives {
                     set.push(d, priority, plugin_id.clone());
@@ -149,11 +170,15 @@ impl<'a> PluginView<'a> {
             }
 
             // Projection handlers: only call active projections
-            for desc in slot.backend.projection_descriptors() {
+            for desc in projections {
                 if !projection_policy.is_active(&desc.id) {
                     continue;
                 }
-                let directives = slot.backend.projection_directives(&desc.id, state);
+                let directives = if let Some(b) = bridge {
+                    b.projection_directives(&desc.id, state)
+                } else {
+                    slot.backend.projection_directives(&desc.id, state)
+                };
                 if directives.is_empty() {
                     continue;
                 }
@@ -186,12 +211,22 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            if let Some(offset) = slot.backend.compute_display_scroll_offset(
-                cursor_display_y,
-                viewport_height,
-                default_offset,
-                state,
-            ) {
+            let offset = if let Some(bridge) = slot.backend.as_native() {
+                bridge.compute_display_scroll_offset(
+                    cursor_display_y,
+                    viewport_height,
+                    default_offset,
+                    state,
+                )
+            } else {
+                slot.backend.compute_display_scroll_offset(
+                    cursor_display_y,
+                    viewport_height,
+                    default_offset,
+                    state,
+                )
+            };
+            if let Some(offset) = offset {
                 return offset;
             }
         }
