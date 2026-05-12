@@ -1,6 +1,7 @@
 //! Contribution collection (slot-keyed contributions from CONTRIBUTOR plugins).
 
 use crate::plugin::compose::{Composable, ContributionSet};
+use crate::plugin::traits::PluginBackend;
 use crate::plugin::{
     AppView, ContributeContext, Contribution, PluginCapabilities, SlotId, SourcedContribution,
 };
@@ -33,7 +34,11 @@ impl<'a> PluginView<'a> {
                 if !slot.capabilities.contains(PluginCapabilities::CONTRIBUTOR) {
                     return None;
                 }
-                let result = slot.backend.contribute_to(region, state, ctx);
+                let result = if let Some(bridge) = slot.backend.as_native() {
+                    bridge.contribute_to(region, state, ctx)
+                } else {
+                    slot.backend.contribute_to(region, state, ctx)
+                };
                 result.map(|contribution| SourcedContribution {
                     contributor: slot.backend.id(),
                     contribution,
@@ -81,13 +86,15 @@ impl<'a> PluginView<'a> {
                 let cache_key = (plugin_id.clone(), region.clone());
 
                 if slot.needs_recollect {
-                    let result =
-                        slot.backend
-                            .contribute_to(region, state, ctx)
-                            .map(|contribution| SourcedContribution {
-                                contributor: plugin_id,
-                                contribution,
-                            });
+                    let contribution_opt = if let Some(bridge) = slot.backend.as_native() {
+                        bridge.contribute_to(region, state, ctx)
+                    } else {
+                        slot.backend.contribute_to(region, state, ctx)
+                    };
+                    let result = contribution_opt.map(|contribution| SourcedContribution {
+                        contributor: plugin_id,
+                        contribution,
+                    });
                     cache.contributions.insert(cache_key, result.clone());
                     result
                 } else {

@@ -1,5 +1,6 @@
 //! Render-ornament collection (RENDER_ORNAMENT plugins).
 
+use crate::plugin::traits::PluginBackend;
 use crate::plugin::{AppView, PluginCapabilities, RenderOrnamentContext};
 
 use super::super::{CollectedOrnaments, PluginView};
@@ -23,7 +24,11 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            let batch = slot.backend.render_ornaments(state, ctx);
+            let batch = if let Some(bridge) = slot.backend.as_native() {
+                bridge.render_ornaments(state, ctx)
+            } else {
+                slot.backend.render_ornaments(state, ctx)
+            };
             if batch.is_empty() {
                 continue;
             }

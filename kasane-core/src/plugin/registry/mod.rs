@@ -112,10 +112,19 @@ impl SlotImpl {
     /// Fast-path access when the plugin is `PluginBridge`-backed. Returns
     /// `Some` only for native plugins; WASM and external impls return None
     /// and callers must fall back to `as_backend_mut()`.
-    #[allow(dead_code)] // Used by upcoming Phase β-1 fast-path dispatchers.
     pub(crate) fn as_native_mut(&mut self) -> Option<&mut PluginBridge> {
         match self {
             SlotImpl::Native(b) => Some(&mut **b),
+            SlotImpl::External(_) => None,
+        }
+    }
+
+    /// Shared-borrow counterpart to `as_native_mut()`. Used by dispatchers
+    /// that only need `&PluginBridge` (e.g. `state_hash`, `view_deps`,
+    /// `collect_publications`, `workspace_save`).
+    pub(crate) fn as_native(&self) -> Option<&PluginBridge> {
+        match self {
+            SlotImpl::Native(b) => Some(&**b),
             SlotImpl::External(_) => None,
         }
     }
@@ -252,7 +261,11 @@ impl PluginRuntime {
         }
         let mut registered = 0usize;
         for slot in &self.slots {
-            registered += slot.backend.register_lenses(lens_registry);
+            registered += if let Some(bridge) = slot.backend.as_native() {
+                bridge.register_lenses(lens_registry)
+            } else {
+                slot.backend.register_lenses(lens_registry)
+            };
         }
         registered
     }
@@ -271,7 +284,13 @@ impl PluginRuntime {
     pub fn drain_all_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
         self.slots
             .iter_mut()
-            .flat_map(|slot| slot.backend.drain_diagnostics())
+            .flat_map(|slot| {
+                if let Some(bridge) = slot.backend.as_native_mut() {
+                    bridge.drain_diagnostics()
+                } else {
+                    slot.backend.drain_diagnostics()
+                }
+            })
             .collect()
     }
 
@@ -419,16 +438,24 @@ impl PluginRuntime {
     /// Check whether any plugin's internal state changed since the last call,
     /// and compute per-plugin `needs_recollect` based on state hash changes
     /// and the intersection of `dirty` flags with each plugin's `view_deps()`.
+    ///
+    /// Native (PluginBridge-backed) plugins read `state_hash` and `view_deps`
+    /// via direct field access; External implementers fall through the
+    /// vtable. Called every frame in the salsa sync path.
     pub fn prepare_plugin_cache(&mut self, dirty: DirtyFlags) {
         self.any_plugin_state_changed = false;
         for slot in &mut self.slots {
-            let current_hash = slot.backend.state_hash();
+            let (current_hash, view_deps) = if let Some(bridge) = slot.backend.as_native() {
+                (bridge.state_hash(), bridge.view_deps())
+            } else {
+                (slot.backend.state_hash(), slot.backend.view_deps())
+            };
             let hash_changed = current_hash != slot.last_state_hash;
             if hash_changed {
                 slot.last_state_hash = current_hash;
                 self.any_plugin_state_changed = true;
             }
-            slot.needs_recollect = hash_changed || dirty.intersects(slot.backend.view_deps());
+            slot.needs_recollect = hash_changed || dirty.intersects(view_deps);
         }
     }
 
@@ -442,7 +469,12 @@ impl PluginRuntime {
         let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
             let id = slot.backend.id();
-            batch.push(id, slot.backend.on_init_effects(app));
+            let effects = if let Some(bridge) = slot.backend.as_native_mut() {
+                bridge.on_init_effects(app)
+            } else {
+                slot.backend.on_init_effects(app)
+            };
+            batch.push(id, effects);
         }
         batch
     }
@@ -457,7 +489,12 @@ impl PluginRuntime {
         let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
             let id = slot.backend.id();
-            batch.push(id, slot.backend.on_active_session_ready_effects(app));
+            let effects = if let Some(bridge) = slot.backend.as_native_mut() {
+                bridge.on_active_session_ready_effects(app)
+            } else {
+                slot.backend.on_active_session_ready_effects(app)
+            };
+            batch.push(id, effects);
         }
         batch
     }
@@ -470,7 +507,11 @@ impl PluginRuntime {
     ) -> EffectsBatch {
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
-                let effects = slot.backend.on_active_session_ready_effects(app);
+                let effects = if let Some(bridge) = slot.backend.as_native_mut() {
+                    bridge.on_active_session_ready_effects(app)
+                } else {
+                    slot.backend.on_active_session_ready_effects(app)
+                };
                 return EffectsBatch::single(target.clone(), effects);
             }
         }
@@ -517,7 +558,11 @@ impl PluginRuntime {
 
         // Phase 1: Collect publications from all plugins.
         for slot in &self.slots {
-            slot.backend.collect_publications(bus, app);
+            if let Some(bridge) = slot.backend.as_native() {
+                bridge.collect_publications(bus, app);
+            } else {
+                slot.backend.collect_publications(bus, app);
+            }
         }
 
         // Phase 2: Deliver to subscribers and collect on_subscription effects.
@@ -528,7 +573,11 @@ impl PluginRuntime {
         let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
             let plugin_id = slot.backend.id();
-            let effects = slot.backend.deliver_subscriptions(bus, app);
+            let effects = if let Some(bridge) = slot.backend.as_native_mut() {
+                bridge.deliver_subscriptions(bus, app)
+            } else {
+                slot.backend.deliver_subscriptions(bus, app)
+            };
             batch.push(plugin_id, effects);
         }
         bus.end_delivery();
@@ -556,7 +605,11 @@ impl PluginRuntime {
             {
                 continue;
             }
-            slot.backend.on_workspace_changed(query);
+            if let Some(bridge) = slot.backend.as_native_mut() {
+                bridge.on_workspace_changed(query);
+            } else {
+                slot.backend.on_workspace_changed(query);
+            }
         }
     }
 
@@ -594,7 +647,11 @@ impl PluginRuntime {
     /// Shut down all plugins. Call before application exit.
     pub fn shutdown_all(&mut self) {
         for slot in &mut self.slots {
-            slot.backend.on_shutdown();
+            if let Some(bridge) = slot.backend.as_native_mut() {
+                bridge.on_shutdown();
+            } else {
+                slot.backend.on_shutdown();
+            }
         }
     }
 
@@ -791,7 +848,11 @@ impl PluginRuntime {
                 if !slot.capabilities.contains(PluginCapabilities::IO_HANDLER) {
                     return EffectsBatch::default();
                 }
-                let effects = slot.backend.on_io_event_effects(event, app);
+                let effects = if let Some(bridge) = slot.backend.as_native_mut() {
+                    bridge.on_io_event_effects(event, app)
+                } else {
+                    slot.backend.on_io_event_effects(event, app)
+                };
                 return EffectsBatch::single(target.clone(), effects);
             }
         }
@@ -810,7 +871,11 @@ impl PluginRuntime {
         crate::perf::perf_span!("deliver_command_error");
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
-                let effects = slot.backend.on_command_error_effects(error, app);
+                let effects = if let Some(bridge) = slot.backend.as_native_mut() {
+                    bridge.on_command_error_effects(error, app)
+                } else {
+                    slot.backend.on_command_error_effects(error, app)
+                };
                 return EffectsBatch::single(target.clone(), effects);
             }
         }
@@ -827,7 +892,11 @@ impl PluginRuntime {
         let mut payload = payload;
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
-                let effects = slot.backend.update_effects(payload.as_mut(), app);
+                let effects = if let Some(bridge) = slot.backend.as_native_mut() {
+                    bridge.update_effects(payload.as_mut(), app)
+                } else {
+                    slot.backend.update_effects(payload.as_mut(), app)
+                };
                 return EffectsBatch::single(target.clone(), effects);
             }
         }
@@ -842,7 +911,11 @@ impl PluginRuntime {
     pub fn start_process_task(&mut self, target: &PluginId, name: &str) -> Vec<Command> {
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
-                return slot.backend.start_process_task(name);
+                return if let Some(bridge) = slot.backend.as_native_mut() {
+                    bridge.start_process_task(name)
+                } else {
+                    slot.backend.start_process_task(name)
+                };
             }
         }
         vec![]

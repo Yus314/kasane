@@ -1,6 +1,7 @@
 //! Transform chain dispatch (TRANSFORMER plugins) and menu-item transforms.
 
 use crate::plugin::element_patch::ElementPatch;
+use crate::plugin::traits::PluginBackend;
 use crate::plugin::{
     AppView, PaneContext, PluginCapabilities, PluginId, TransformContext, TransformSubject,
     TransformTarget,
@@ -25,7 +26,11 @@ impl<'a> PluginView<'a> {
         let mut chain: Vec<(usize, i16, PluginId)> = Vec::new();
         for (i, slot) in self.slots.iter().enumerate() {
             if slot.capabilities.contains(PluginCapabilities::TRANSFORMER) {
-                let prio = slot.backend.transform_priority();
+                let prio = if let Some(bridge) = slot.backend.as_native() {
+                    bridge.transform_priority()
+                } else {
+                    slot.backend.transform_priority()
+                };
                 chain.push((i, prio, slot.backend.id()));
             }
         }
@@ -45,7 +50,13 @@ impl<'a> PluginView<'a> {
                 pane_focused: pane_context.focused,
                 target_line: target.as_buffer_line(),
             };
-            match self.slots[*i].backend.transform_patch(&target, state, &ctx) {
+            let slot = &self.slots[*i];
+            let patch_opt = if let Some(bridge) = slot.backend.as_native() {
+                bridge.transform_patch(&target, state, &ctx)
+            } else {
+                slot.backend.transform_patch(&target, state, &ctx)
+            };
+            match patch_opt {
                 Some(p) if p.is_pure() => patches.push(p),
                 Some(_) | None => return None, // impure or legacy → fall back to imperative
             }
@@ -79,7 +90,11 @@ impl<'a> PluginView<'a> {
         let mut chain: Vec<(usize, i16, PluginId)> = Vec::new();
         for (i, slot) in self.slots.iter().enumerate() {
             if slot.capabilities.contains(PluginCapabilities::TRANSFORMER) {
-                let prio = slot.backend.transform_priority();
+                let prio = if let Some(bridge) = slot.backend.as_native() {
+                    bridge.transform_priority()
+                } else {
+                    slot.backend.transform_priority()
+                };
                 chain.push((i, prio, slot.backend.id()));
             }
         }
@@ -101,8 +116,13 @@ impl<'a> PluginView<'a> {
                     pane_focused: pane_context.focused,
                     target_line: target.as_buffer_line(),
                 };
-                let patch = self.slots[*i].backend.transform_patch(&target, state, &ctx);
-                (*i, self.slots[*i].backend.id(), patch)
+                let slot = &self.slots[*i];
+                let patch = if let Some(bridge) = slot.backend.as_native() {
+                    bridge.transform_patch(&target, state, &ctx)
+                } else {
+                    slot.backend.transform_patch(&target, state, &ctx)
+                };
+                (*i, slot.backend.id(), patch)
             })
             .collect();
 
@@ -137,9 +157,12 @@ impl<'a> PluginView<'a> {
                         pane_focused: pane_context.focused,
                         target_line: target.as_buffer_line(),
                     };
-                    result = self.slots[slot_idx]
-                        .backend
-                        .transform(&target, result, state, &ctx);
+                    let slot = &self.slots[slot_idx];
+                    result = if let Some(bridge) = slot.backend.as_native() {
+                        bridge.transform(&target, result, state, &ctx)
+                    } else {
+                        slot.backend.transform(&target, result, state, &ctx)
+                    };
                 }
             }
         }
@@ -209,10 +232,13 @@ impl<'a> PluginView<'a> {
                 continue;
             }
             let input = current.as_deref().unwrap_or(item);
-            if let Some(transformed) = slot
-                .backend
-                .transform_menu_item(input, index, selected, state)
-            {
+            let transformed = if let Some(bridge) = slot.backend.as_native() {
+                bridge.transform_menu_item(input, index, selected, state)
+            } else {
+                slot.backend
+                    .transform_menu_item(input, index, selected, state)
+            };
+            if let Some(transformed) = transformed {
                 current = Some(transformed);
             }
         }
