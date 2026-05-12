@@ -174,51 +174,57 @@ impl crate::plugin::ProcessDispatcher for RecordingDispatcher {
 
 pub(super) struct SurfacePlugin;
 
-impl PluginBackend for SurfacePlugin {
+impl crate::plugin::Plugin for SurfacePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("surface-plugin".to_string())
     }
 
-    fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
-        vec![TestSurfaceBuilder::new(crate::surface::SurfaceId(200)).build()]
-    }
-
-    fn workspace_request(&self) -> Option<crate::workspace::Placement> {
-        Some(crate::workspace::Placement::SplitFocused {
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.declare_surfaces(|_state| {
+            vec![TestSurfaceBuilder::new(crate::surface::SurfaceId(200)).build()]
+        });
+        r.declare_workspace_request(crate::workspace::Placement::SplitFocused {
             direction: SplitDirection::Vertical,
             ratio: 0.5,
-        })
+        });
     }
 }
 
 pub(super) struct ReplacementSurfacePlugin;
 
-impl PluginBackend for ReplacementSurfacePlugin {
+impl crate::plugin::Plugin for ReplacementSurfacePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("surface-plugin".to_string())
     }
 
-    fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
-        vec![TestSurfaceBuilder::new(crate::surface::SurfaceId(200)).build()]
-    }
-
-    fn workspace_request(&self) -> Option<crate::workspace::Placement> {
-        Some(crate::workspace::Placement::SplitFocused {
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.declare_surfaces(|_state| {
+            vec![TestSurfaceBuilder::new(crate::surface::SurfaceId(200)).build()]
+        });
+        r.declare_workspace_request(crate::workspace::Placement::SplitFocused {
             direction: SplitDirection::Horizontal,
             ratio: 0.4,
-        })
+        });
     }
 }
 
 pub(super) struct InvalidSurfacePlugin;
 
-impl PluginBackend for InvalidSurfacePlugin {
+impl crate::plugin::Plugin for InvalidSurfacePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("invalid-surface-plugin".to_string())
     }
 
-    fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
-        vec![TestSurfaceBuilder::new(crate::surface::SurfaceId::BUFFER).build()]
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.declare_surfaces(|_state| {
+            vec![TestSurfaceBuilder::new(crate::surface::SurfaceId::BUFFER).build()]
+        });
     }
 }
 

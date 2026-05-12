@@ -16,7 +16,7 @@ use super::super::surface::{
 fn rebuild_plugin_surface_registry_removes_stale_plugin_surfaces() {
     let state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(SurfacePlugin));
+    registry.register(SurfacePlugin);
 
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
@@ -50,7 +50,7 @@ fn rebuild_plugin_surface_registry_removes_stale_plugin_surfaces() {
 fn reconcile_plugin_surfaces_removes_stale_plugin_surfaces() {
     let state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(SurfacePlugin));
+    registry.register(SurfacePlugin);
 
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
@@ -89,7 +89,7 @@ fn reconcile_plugin_surfaces_removes_stale_plugin_surfaces() {
 fn reconcile_plugin_surfaces_preserves_same_id_workspace_placement() {
     let state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(SurfacePlugin));
+    registry.register(SurfacePlugin);
 
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
@@ -106,7 +106,10 @@ fn reconcile_plugin_surfaces_preserves_same_id_workspace_placement() {
         1
     );
 
-    let _ = registry.reload_plugin_batch(Box::new(ReplacementSurfacePlugin), &AppView::new(&state));
+    let _ = registry.reload_plugin_batch(
+        Box::new(crate::plugin::PluginBridge::new(ReplacementSurfacePlugin)),
+        &AppView::new(&state),
+    );
     let disabled_plugins = reconcile_plugin_surfaces(
         &mut registry,
         &mut surface_registry,
@@ -132,7 +135,7 @@ fn reconcile_plugin_surfaces_preserves_same_id_workspace_placement() {
 fn setup_plugin_surfaces_returns_diagnostic_for_invalid_surface_contract() {
     let state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(InvalidSurfacePlugin));
+    registry.register(InvalidSurfacePlugin);
 
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
@@ -156,14 +159,17 @@ fn setup_plugin_surfaces_returns_diagnostic_for_invalid_surface_contract() {
 fn reconcile_plugin_surfaces_returns_diagnostic_for_invalid_replacement() {
     let state = AppState::default();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(SurfacePlugin));
+    registry.register(SurfacePlugin);
 
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
     let diagnostics = setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
     assert!(diagnostics.is_empty());
 
-    let _ = registry.reload_plugin_batch(Box::new(InvalidSurfacePlugin), &AppView::new(&state));
+    let _ = registry.reload_plugin_batch(
+        Box::new(crate::plugin::PluginBridge::new(InvalidSurfacePlugin)),
+        &AppView::new(&state),
+    );
     let diagnostics = reconcile_plugin_surfaces(
         &mut registry,
         &mut surface_registry,
