@@ -2,18 +2,203 @@
 
 use compact_str::CompactString;
 
+use crate::element::{Element, FlexChild};
 use crate::plugin::{
-    AnnotationScope, AppView, ContribSizeHint, ContributeContext, GutterSide, PluginBackend,
-    PluginCapabilities, PluginDiagnosticKind, PluginDiagnosticSeverity, SlotId, TransformContext,
+    AnnotateContext, AnnotationScope, AppView, BackgroundLayer, CapabilityDescriptor,
+    ContribSizeHint, ContributeContext, Contribution, ElementPatch, GutterSide, PluginCapabilities,
+    PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticSeverity, PluginId, PluginRuntime,
+    SlotId, TransformContext, TransformTarget,
 };
 use crate::state::AppState;
 
-use super::backend::WidgetBackend;
 use super::condition::parse_condition;
 use super::parse::parse_widgets;
+use super::plugin::register_all_widgets;
 use super::types::Template;
 use super::variables::{AppViewResolver, VariableResolver, variable_dirty_flag};
 use crate::state::DirtyFlags;
+
+/// Test-only adapter that preserves the legacy `WidgetBackend` surface
+/// over a [`PluginRuntime`]. Phase β-3.3a removed the production
+/// `WidgetBackend` (`impl PluginBackend` directly); these tests still
+/// drive widgets through the same method shapes — the shim translates
+/// each call into a runtime view query.
+///
+/// New widget code should use [`WidgetPlugin`](super::plugin::WidgetPlugin)
+/// + [`register_all_widgets`](super::plugin::register_all_widgets); this
+/// rig only exists to keep the pre-β-3.3 test bodies stable.
+struct WidgetBackend {
+    runtime: PluginRuntime,
+    /// Diagnostics emitted by the most recent parse (drained on access).
+    pending_diagnostics: Vec<PluginDiagnostic>,
+    /// Increments on every successful `from_source` / `reload_from_source`
+    /// so legacy `state_hash()` callers observe change.
+    generation: u64,
+}
+
+impl WidgetBackend {
+    fn empty() -> Self {
+        Self {
+            runtime: PluginRuntime::new(),
+            pending_diagnostics: Vec::new(),
+            generation: 0,
+        }
+    }
+
+    fn from_source(source: &str) -> Self {
+        let mut rig = Self::empty();
+        rig.load_source(source, /*reset_on_error=*/ true);
+        rig
+    }
+
+    fn reload_from_source(&mut self, source: &str) -> bool {
+        self.load_source(source, /*reset_on_error=*/ false)
+    }
+
+    /// Returns `true` when the new source was accepted, `false` when a
+    /// parse error left the previous widgets active (matches old reload
+    /// semantics). When `reset_on_error` is true (initial load) a parse
+    /// failure produces an empty runtime + a single diagnostic.
+    fn load_source(&mut self, source: &str, reset_on_error: bool) -> bool {
+        match parse_widgets(source) {
+            Ok((file, errors)) => {
+                let mut next = PluginRuntime::new();
+                let _plugin_ids = register_all_widgets(file, &errors, &mut next);
+                self.runtime = next;
+                // Parse-error diagnostics are attached to the first
+                // plugin by `register_all_widgets`; drain them through
+                // the runtime so the shim's `drain_diagnostics` surfaces
+                // them.
+                self.generation += 1;
+                true
+            }
+            Err(e) => {
+                let diagnostic = PluginDiagnostic {
+                    target: crate::plugin::PluginDiagnosticTarget::Plugin(PluginId(
+                        "kasane.widgets".into(),
+                    )),
+                    kind: PluginDiagnosticKind::RuntimeError {
+                        method: "parse".to_string(),
+                    },
+                    message: e.to_string(),
+                    previous: None,
+                    attempted: None,
+                };
+                if reset_on_error {
+                    self.runtime = PluginRuntime::new();
+                    self.pending_diagnostics = vec![diagnostic];
+                    self.generation += 1;
+                } else {
+                    // Reload rejected: keep previous widgets, surface diag.
+                    self.pending_diagnostics.push(diagnostic);
+                }
+                false
+            }
+        }
+    }
+
+    fn id(&self) -> PluginId {
+        // Legacy WidgetBackend pretended to be one plugin called
+        // "kasane.widgets"; the new model has N WidgetPlugin instances
+        // ("kasane.widget.<name>"). Tests only ever compare this against
+        // the constant string.
+        PluginId("kasane.widgets".to_string())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        let mut caps = PluginCapabilities::empty();
+        for slot_caps in self.runtime.all_slot_capabilities_for_test() {
+            caps |= slot_caps;
+        }
+        caps
+    }
+
+    fn capability_descriptor(&self) -> Option<CapabilityDescriptor> {
+        // The old WidgetBackend produced a single aggregated descriptor.
+        // Tests only check whether one exists when widgets are registered;
+        // return the first plugin's descriptor as a representative.
+        self.runtime
+            .all_slot_descriptors_for_test()
+            .into_iter()
+            .find_map(|d| d)
+    }
+
+    fn view_deps(&self) -> DirtyFlags {
+        let mut deps = DirtyFlags::empty();
+        for slot_deps in self.runtime.all_slot_view_deps_for_test() {
+            deps |= slot_deps;
+        }
+        deps
+    }
+
+    fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
+        let mut out = std::mem::take(&mut self.pending_diagnostics);
+        out.extend(self.runtime.drain_all_diagnostics());
+        out
+    }
+
+    fn state_hash(&self) -> u64 {
+        self.generation
+    }
+
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        state: &AppView<'_>,
+        ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        let view = self.runtime.view();
+        let contribs = view.collect_contributions(region, state, ctx);
+        match contribs.len() {
+            0 => None,
+            1 => Some(contribs.into_iter().next().unwrap()),
+            _ => {
+                let min_priority = contribs.iter().map(|c| c.priority).min().unwrap_or(0);
+                let size_hint = contribs[0].size_hint;
+                let children: Vec<FlexChild> = contribs
+                    .into_iter()
+                    .map(|c| FlexChild::fixed(c.element))
+                    .collect();
+                Some(Contribution {
+                    element: Element::row(children),
+                    priority: min_priority,
+                    size_hint,
+                })
+            }
+        }
+    }
+
+    fn decorate_background(
+        &self,
+        line: usize,
+        state: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> Option<BackgroundLayer> {
+        self.runtime
+            .first_decorate_background_for_test(line, state, ctx)
+    }
+
+    fn decorate_gutter(
+        &self,
+        side: GutterSide,
+        line: usize,
+        state: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> Option<(i16, Element)> {
+        self.runtime
+            .first_decorate_gutter_for_test(side, line, state, ctx)
+    }
+
+    fn transform_patch(
+        &self,
+        target: &TransformTarget,
+        state: &AppView<'_>,
+        ctx: &TransformContext,
+    ) -> Option<ElementPatch> {
+        self.runtime
+            .first_transform_patch_for_test(target, state, ctx)
+    }
+}
 
 // =============================================================================
 // Template tests

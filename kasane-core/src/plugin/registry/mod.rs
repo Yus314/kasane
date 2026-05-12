@@ -226,6 +226,107 @@ impl PluginRuntime {
         self.slots.len()
     }
 
+    /// Test-only: capabilities of each registered plugin slot.
+    ///
+    /// Introduced for the widget test shim (Phase β-3.3a) which aggregates
+    /// per-slot caps the way the legacy `WidgetBackend` did internally.
+    #[doc(hidden)]
+    pub fn all_slot_capabilities_for_test(&self) -> Vec<PluginCapabilities> {
+        self.slots.iter().map(|s| s.capabilities).collect()
+    }
+
+    /// Test-only: capability descriptors per slot.
+    #[doc(hidden)]
+    pub fn all_slot_descriptors_for_test(&self) -> Vec<Option<super::CapabilityDescriptor>> {
+        self.slots.iter().map(|s| s.descriptor.clone()).collect()
+    }
+
+    /// Test-only: view-deps per slot.
+    #[doc(hidden)]
+    pub fn all_slot_view_deps_for_test(&self) -> Vec<DirtyFlags> {
+        self.slots
+            .iter()
+            .map(|slot| {
+                if let Some(bridge) = slot.backend.as_native() {
+                    bridge.view_deps()
+                } else {
+                    slot.backend.view_deps()
+                }
+            })
+            .collect()
+    }
+
+    /// Test-only: first plugin that produces a `BackgroundLayer` for `line`.
+    ///
+    /// Mirrors the legacy `WidgetBackend::decorate_background` shape (single
+    /// `Option`, first-wins) for the widget test shim.
+    #[doc(hidden)]
+    pub fn first_decorate_background_for_test(
+        &self,
+        line: usize,
+        state: &AppView<'_>,
+        ctx: &super::AnnotateContext,
+    ) -> Option<super::BackgroundLayer> {
+        for slot in &self.slots {
+            let result = if let Some(bridge) = slot.backend.as_native() {
+                bridge.decorate_background(line, state, ctx)
+            } else {
+                slot.backend.decorate_background(line, state, ctx)
+            };
+            if result.is_some() {
+                return result;
+            }
+        }
+        None
+    }
+
+    /// Test-only: first plugin that produces a gutter `(priority, Element)` for
+    /// `(side, line)`.
+    #[doc(hidden)]
+    pub fn first_decorate_gutter_for_test(
+        &self,
+        side: crate::plugin::GutterSide,
+        line: usize,
+        state: &AppView<'_>,
+        ctx: &super::AnnotateContext,
+    ) -> Option<(i16, crate::element::Element)> {
+        for slot in &self.slots {
+            let result = if let Some(bridge) = slot.backend.as_native() {
+                bridge.decorate_gutter(side, line, state, ctx)
+            } else {
+                slot.backend.decorate_gutter(side, line, state, ctx)
+            };
+            if result.is_some() {
+                return result;
+            }
+        }
+        None
+    }
+
+    /// Test-only: first plugin that produces a non-`Identity` `ElementPatch`
+    /// for `target`.
+    #[doc(hidden)]
+    pub fn first_transform_patch_for_test(
+        &self,
+        target: &super::TransformTarget,
+        state: &AppView<'_>,
+        ctx: &super::TransformContext,
+    ) -> Option<super::ElementPatch> {
+        for slot in &self.slots {
+            let patch = if let Some(bridge) = slot.backend.as_native() {
+                bridge.transform_patch(target, state, ctx)
+            } else {
+                slot.backend.transform_patch(target, state, ctx)
+            };
+            if let Some(p) = patch
+                && !matches!(p, super::ElementPatch::Identity)
+            {
+                return Some(p);
+            }
+        }
+        None
+    }
+
     /// Sync lens registrations from this runtime to `lens_registry`
     /// (Composable Lenses auto-wired lifecycle).
     ///
