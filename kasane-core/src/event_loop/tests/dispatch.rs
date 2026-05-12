@@ -1,7 +1,5 @@
 use super::*;
 
-use std::any::Any;
-
 use crate::plugin::PluginRuntime;
 use crate::surface::{SourcedSurfaceCommands, SurfaceId, SurfaceRegistry};
 use crate::workspace::Placement;

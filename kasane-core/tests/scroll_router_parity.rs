@@ -3,7 +3,7 @@ mod support;
 use kasane_core::element::InteractiveId;
 use kasane_core::input::BuiltinInputPlugin;
 use kasane_core::layout::Rect;
-use kasane_core::plugin::{Command, PluginBackend, PluginId};
+use kasane_core::plugin::{Command, PluginId};
 use kasane_core::scroll::ScrollOwner;
 use kasane_core::state::DirtyFlags;
 use support::scroll_fixtures::{
@@ -109,18 +109,15 @@ fn parity_info_popup_scroll_trace() {
 #[test]
 fn parity_plugin_hit_then_miss_trace() {
     struct MousePlugin;
-    impl PluginBackend for MousePlugin {
+    impl kasane_core::plugin::Plugin for MousePlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("mouse_plugin".into())
         }
-
-        fn handle_mouse(
-            &mut self,
-            _event: &kasane_core::input::MouseEvent,
-            _id: InteractiveId,
-            _state: &kasane_core::plugin::AppView<'_>,
-        ) -> Option<Vec<Command>> {
-            Some(vec![Command::RequestRedraw(DirtyFlags::INFO)])
+        fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
+            r.on_handle_mouse(|_state, _event, _id, _app| {
+                Some(((), vec![Command::RequestRedraw(DirtyFlags::INFO)]))
+            });
         }
     }
 
@@ -130,7 +127,7 @@ fn parity_plugin_hit_then_miss_trace() {
     ];
     let mut state = state_80x24();
     let mut legacy_registry = registry_empty();
-    legacy_registry.register_backend(Box::new(MousePlugin));
+    legacy_registry.register(MousePlugin);
     install_hit_region(
         &mut state,
         InteractiveId::framework(42),
@@ -143,7 +140,7 @@ fn parity_plugin_hit_then_miss_trace() {
     );
     let mut new_state = state.clone();
     let mut new_registry = registry_empty();
-    new_registry.register_backend(Box::new(MousePlugin));
+    new_registry.register(MousePlugin);
     install_hit_region(
         &mut new_state,
         InteractiveId::framework(42),

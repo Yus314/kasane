@@ -6,9 +6,8 @@
 
 use kasane_core::element::Element;
 use kasane_core::plugin::{
-    AnnotateContext, AppView, BackgroundLayer, BlendMode, ContribSizeHint, ContributeContext,
-    Contribution, LineAnnotation, PluginBackend, PluginCapabilities, PluginId, PluginRuntime,
-    SlotId, TransformContext, TransformTarget,
+    AppView, BackgroundLayer, BlendMode, ContribSizeHint, Contribution, GutterSide,
+    HandlerRegistry, Plugin, PluginId, PluginRuntime, SlotId, TransformTarget,
 };
 use kasane_core::protocol::{
     Atom, Color, Coord, CursorMode, InfoStyle, MenuStyle, NamedColor, WireFace,
@@ -294,30 +293,19 @@ fn compare_memoization_consistency() {
 /// Plugin that contributes a fixed-width element to BUFFER_LEFT (e.g., line numbers).
 struct BufferLeftPlugin;
 
-impl PluginBackend for BufferLeftPlugin {
+impl Plugin for BufferLeftPlugin {
+    type State = ();
     fn id(&self) -> PluginId {
         PluginId("test_buffer_left".into())
     }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CONTRIBUTOR
-    }
-
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        _state: &kasane_core::plugin::AppView<'_>,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        if region == &SlotId::BUFFER_LEFT {
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_contribute(SlotId::BUFFER_LEFT, |_state, _app, _ctx| {
             Some(Contribution {
                 element: Element::plain_text("LN"),
                 priority: 0,
                 size_hint: ContribSizeHint::Auto,
             })
-        } else {
-            None
-        }
+        });
     }
 }
 
@@ -326,165 +314,115 @@ struct StatusLeftPlugin {
     text: &'static str,
 }
 
-impl PluginBackend for StatusLeftPlugin {
+impl Plugin for StatusLeftPlugin {
+    type State = ();
     fn id(&self) -> PluginId {
         PluginId("test_status_left".into())
     }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CONTRIBUTOR
-    }
-
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        _state: &kasane_core::plugin::AppView<'_>,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        if region == &SlotId::STATUS_LEFT {
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        let text = self.text;
+        r.on_contribute(SlotId::STATUS_LEFT, move |_state, _app, _ctx| {
             Some(Contribution {
-                element: Element::plain_text(self.text),
+                element: Element::plain_text(text),
                 priority: 0,
                 size_hint: ContribSizeHint::Auto,
             })
-        } else {
-            None
-        }
+        });
     }
 }
 
 /// Plugin that contributes to STATUS_RIGHT.
 struct StatusRightPlugin;
 
-impl PluginBackend for StatusRightPlugin {
+impl Plugin for StatusRightPlugin {
+    type State = ();
     fn id(&self) -> PluginId {
         PluginId("test_status_right".into())
     }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CONTRIBUTOR
-    }
-
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        _state: &kasane_core::plugin::AppView<'_>,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        if region == &SlotId::STATUS_RIGHT {
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_contribute(SlotId::STATUS_RIGHT, |_state, _app, _ctx| {
             Some(Contribution {
                 element: Element::plain_text("[RS]"),
                 priority: 0,
                 size_hint: ContribSizeHint::Auto,
             })
-        } else {
-            None
-        }
+        });
     }
 }
 
 /// Plugin that wraps the buffer element with a banner line.
 struct BufferTransformPlugin;
 
-impl PluginBackend for BufferTransformPlugin {
+impl Plugin for BufferTransformPlugin {
+    type State = ();
     fn id(&self) -> PluginId {
         PluginId("test_buffer_transform".into())
     }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::TRANSFORMER
-    }
-
-    fn transform(
-        &self,
-        target: &kasane_core::plugin::TransformTarget,
-        subject: kasane_core::plugin::TransformSubject,
-        _state: &kasane_core::plugin::AppView<'_>,
-        _ctx: &TransformContext,
-    ) -> kasane_core::plugin::TransformSubject {
-        if *target == TransformTarget::BUFFER {
-            subject.map_element(|element| {
-                Element::column(vec![
-                    kasane_core::element::FlexChild::fixed(Element::text(
-                        "~banner~",
-                        kasane_core::protocol::Style::default(),
-                    )),
-                    kasane_core::element::FlexChild::flexible(element, 1.0),
-                ])
-            })
-        } else {
-            subject
-        }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        use kasane_core::plugin::ElementPatch;
+        use std::sync::Arc;
+        // Custom because the wrap uses FlexChild::flexible for the
+        // existing element; ElementPatch::Prepend produces a fixed
+        // wrapping instead, which would shrink-fit the buffer.
+        r.on_transform(0, |_state, target, _app, _ctx| {
+            if *target == TransformTarget::BUFFER {
+                ElementPatch::Custom(Arc::new(|subject| {
+                    subject.map_element(|element| {
+                        Element::column(vec![
+                            kasane_core::element::FlexChild::fixed(Element::text(
+                                "~banner~",
+                                kasane_core::protocol::Style::default(),
+                            )),
+                            kasane_core::element::FlexChild::flexible(element, 1.0),
+                        ])
+                    })
+                }))
+            } else {
+                ElementPatch::Identity
+            }
+        });
     }
 }
 
 /// Plugin that adds a line background highlight to line 0.
 struct LineHighlightPlugin;
 
-impl PluginBackend for LineHighlightPlugin {
+impl Plugin for LineHighlightPlugin {
+    type State = ();
     fn id(&self) -> PluginId {
         PluginId("test_line_highlight".into())
     }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ANNOTATOR
-    }
-
-    fn annotate_line_with_ctx(
-        &self,
-        line: usize,
-        _state: &kasane_core::plugin::AppView<'_>,
-        _ctx: &AnnotateContext,
-    ) -> Option<LineAnnotation> {
-        if line == 0 {
-            Some(LineAnnotation {
-                left_gutter: None,
-                right_gutter: None,
-                background: Some(BackgroundLayer {
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_decorate_background(|_state, line, _app, _ctx| {
+            if line == 0 {
+                Some(BackgroundLayer {
                     style: kasane_core::protocol::Style::from_face(&WireFace {
                         bg: Color::Named(NamedColor::Blue),
                         ..WireFace::default()
                     }),
                     z_order: 0,
                     blend: BlendMode::Opaque,
-                }),
-                priority: 0,
-                inline: None,
-                virtual_text: vec![],
-            })
-        } else {
-            None
-        }
+                })
+            } else {
+                None
+            }
+        });
     }
 }
 
 /// Plugin that contributes a left gutter element per line.
 struct GutterPlugin;
 
-impl PluginBackend for GutterPlugin {
+impl Plugin for GutterPlugin {
+    type State = ();
     fn id(&self) -> PluginId {
         PluginId("test_gutter".into())
     }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ANNOTATOR
-    }
-
-    fn annotate_line_with_ctx(
-        &self,
-        line: usize,
-        _state: &kasane_core::plugin::AppView<'_>,
-        _ctx: &AnnotateContext,
-    ) -> Option<LineAnnotation> {
-        let num = format!("{:>3}", line + 1);
-        Some(LineAnnotation {
-            left_gutter: Some(Element::plain_text(&num)),
-            right_gutter: None,
-            background: None,
-            priority: 0,
-            inline: None,
-            virtual_text: vec![],
-        })
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_decorate_gutter(GutterSide::Left, 0, |_state, line, _app, _ctx| {
+            let num = format!("{:>3}", line + 1);
+            Some(Element::plain_text(&num))
+        });
     }
 }
 
@@ -497,7 +435,7 @@ fn compare_with_buffer_left_plugin() {
     let mut state = test_state_80x24();
     state.observed.lines = (vec![vec![make_atom("hello world")]]).into();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(BufferLeftPlugin));
+    registry.register(BufferLeftPlugin);
     registry.init_all(&AppView::new(&state));
     registry.prepare_plugin_cache(DirtyFlags::ALL);
     let (db, handles) = setup_salsa_with_plugins(&state, &registry);
@@ -530,7 +468,7 @@ fn salsa_prompt_cursor_offset_by_status_left_widget() {
     let widget_w = WIDGET.chars().count() as u16;
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(StatusLeftPlugin { text: WIDGET }));
+    registry.register(StatusLeftPlugin { text: WIDGET });
     registry.init_all(&AppView::new(&state));
     registry.prepare_plugin_cache(DirtyFlags::ALL);
     let (db, handles) = setup_salsa_with_plugins(&state, &registry);
@@ -563,7 +501,7 @@ fn compare_with_status_right_plugin() {
     state.inference.status_line = vec![make_atom("main.rs")];
     state.observed.status_mode_line = vec![make_atom("normal")];
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(StatusRightPlugin));
+    registry.register(StatusRightPlugin);
     registry.init_all(&AppView::new(&state));
     registry.prepare_plugin_cache(DirtyFlags::ALL);
     let (db, handles) = setup_salsa_with_plugins(&state, &registry);
@@ -579,7 +517,7 @@ fn compare_with_buffer_transform_plugin() {
     let mut state = test_state_80x24();
     state.observed.lines = (vec![vec![make_atom("line 0")], vec![make_atom("line 1")]]).into();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(BufferTransformPlugin));
+    registry.register(BufferTransformPlugin);
     registry.init_all(&AppView::new(&state));
     registry.prepare_plugin_cache(DirtyFlags::ALL);
     let (db, handles) = setup_salsa_with_plugins(&state, &registry);
@@ -599,7 +537,7 @@ fn compare_with_line_highlight_plugin() {
     ])
     .into();
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(LineHighlightPlugin));
+    registry.register(LineHighlightPlugin);
     registry.init_all(&AppView::new(&state));
     registry.prepare_plugin_cache(DirtyFlags::ALL);
     let (db, handles) = setup_salsa_with_plugins(&state, &registry);
@@ -619,7 +557,7 @@ fn compare_with_gutter_plugin() {
         vec![make_atom("}")],
     ]);
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(GutterPlugin));
+    registry.register(GutterPlugin);
     registry.init_all(&AppView::new(&state));
     registry.prepare_plugin_cache(DirtyFlags::ALL);
     let (db, handles) = setup_salsa_with_plugins(&state, &registry);
@@ -641,10 +579,10 @@ fn compare_with_multiple_plugins() {
     state.inference.status_line = vec![make_atom("main.rs")];
     state.observed.status_mode_line = vec![make_atom("normal")];
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(GutterPlugin));
-    registry.register_backend(Box::new(BufferLeftPlugin));
-    registry.register_backend(Box::new(StatusRightPlugin));
-    registry.register_backend(Box::new(LineHighlightPlugin));
+    registry.register(GutterPlugin);
+    registry.register(BufferLeftPlugin);
+    registry.register(StatusRightPlugin);
+    registry.register(LineHighlightPlugin);
     registry.init_all(&AppView::new(&state));
     registry.prepare_plugin_cache(DirtyFlags::ALL);
     let (db, handles) = setup_salsa_with_plugins(&state, &registry);
@@ -672,8 +610,8 @@ fn compare_with_plugins_and_menu() {
         },
     ));
     let mut registry = registry_with_builtins();
-    registry.register_backend(Box::new(GutterPlugin));
-    registry.register_backend(Box::new(StatusRightPlugin));
+    registry.register(GutterPlugin);
+    registry.register(StatusRightPlugin);
     registry.init_all(&AppView::new(&state));
     registry.prepare_plugin_cache(DirtyFlags::ALL);
     let (db, handles) = setup_salsa_with_plugins(&state, &registry);

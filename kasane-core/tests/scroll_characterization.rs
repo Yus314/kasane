@@ -3,7 +3,7 @@ mod support;
 use kasane_core::element::InteractiveId;
 use kasane_core::input::BuiltinInputPlugin;
 use kasane_core::layout::Rect;
-use kasane_core::plugin::{Command, PluginBackend, PluginId};
+use kasane_core::plugin::{Command, PluginId};
 use kasane_core::protocol::{Coord, KasaneRequest};
 use kasane_core::state::{DirtyFlags, DragState};
 
@@ -117,24 +117,21 @@ fn info_popup_scroll_consumes_event_without_kakoune_scroll() {
 #[test]
 fn plugin_hit_mouse_press_consumes_before_default_mouse_forwarding() {
     struct MousePlugin;
-    impl PluginBackend for MousePlugin {
+    impl kasane_core::plugin::Plugin for MousePlugin {
+        type State = ();
         fn id(&self) -> PluginId {
             PluginId("mouse_plugin".into())
         }
-
-        fn handle_mouse(
-            &mut self,
-            _event: &kasane_core::input::MouseEvent,
-            _id: InteractiveId,
-            _state: &kasane_core::plugin::AppView<'_>,
-        ) -> Option<Vec<Command>> {
-            Some(vec![Command::RequestRedraw(DirtyFlags::INFO)])
+        fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
+            r.on_handle_mouse(|_state, _event, _id, _app| {
+                Some(((), vec![Command::RequestRedraw(DirtyFlags::INFO)]))
+            });
         }
     }
 
     let mut state = state_80x24();
     let mut registry = registry_empty();
-    registry.register_backend(Box::new(MousePlugin));
+    registry.register(MousePlugin);
     install_hit_region(
         &mut state,
         InteractiveId::framework(42),

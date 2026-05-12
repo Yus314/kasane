@@ -334,34 +334,28 @@ fn buffer_transform_adds_banner() {
 
 struct VerticalBandsPlugin;
 
-impl PluginBackend for VerticalBandsPlugin {
+impl kasane_core::plugin::Plugin for VerticalBandsPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("vertical_bands".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CONTRIBUTOR
-    }
-
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        _state: &AppView<'_>,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        let label = if region == &SlotId::ABOVE_BUFFER {
-            "ABOVE-BUFFER"
-        } else if region == &SlotId::BELOW_BUFFER {
-            "BELOW-BUFFER"
-        } else {
-            return None;
-        };
-
-        Some(Contribution {
-            element: Element::plain_text(label),
-            priority: 0,
-            size_hint: ContribSizeHint::Auto,
-        })
+    fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
+        r.on_contribute(SlotId::ABOVE_BUFFER, |_state, _app, _ctx| {
+            Some(Contribution {
+                element: Element::plain_text("ABOVE-BUFFER"),
+                priority: 0,
+                size_hint: ContribSizeHint::Auto,
+            })
+        });
+        r.on_contribute(SlotId::BELOW_BUFFER, |_state, _app, _ctx| {
+            Some(Contribution {
+                element: Element::plain_text("BELOW-BUFFER"),
+                priority: 0,
+                size_hint: ContribSizeHint::Auto,
+            })
+        });
     }
 }
 
@@ -370,7 +364,7 @@ fn above_and_below_buffer_slots_render() {
     let state = setup_state(vec![make_line("line 0"), make_line("line 1")]);
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(VerticalBandsPlugin));
+    registry.register(VerticalBandsPlugin);
     let _ = registry.init_all_batch(&AppView::new(&state));
 
     let grid = render_with_registry(&state, &registry);
@@ -394,28 +388,22 @@ fn above_and_below_buffer_slots_render() {
 
 struct UnderlineCursorPlugin;
 
-impl PluginBackend for UnderlineCursorPlugin {
+impl kasane_core::plugin::Plugin for UnderlineCursorPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("underline_cursor".into())
     }
 
-    fn capabilities(&self) -> kasane_core::plugin::PluginCapabilities {
-        kasane_core::plugin::PluginCapabilities::RENDER_ORNAMENT
-    }
-
-    fn render_ornaments(
-        &self,
-        _state: &AppView<'_>,
-        _ctx: &kasane_core::plugin::RenderOrnamentContext,
-    ) -> kasane_core::plugin::OrnamentBatch {
-        kasane_core::plugin::OrnamentBatch {
+    fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
+        r.on_render_ornaments(|_state, _app, _ctx| kasane_core::plugin::OrnamentBatch {
             cursor_style: Some(kasane_core::plugin::CursorStyleOrn {
                 hint: CursorStyle::Underline.into(),
                 priority: 10,
                 modality: kasane_core::plugin::OrnamentModality::Must,
             }),
             ..kasane_core::plugin::OrnamentBatch::default()
-        }
+        });
     }
 }
 
@@ -427,7 +415,7 @@ fn render_ornament_cursor_style_wins_over_default_logic() {
     assert_eq!(cursor_style_default(&state), CursorStyle::Outline);
 
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(UnderlineCursorPlugin));
+    registry.register(UnderlineCursorPlugin);
     let _ = registry.init_all_batch(&AppView::new(&state));
 
     let ctx = kasane_core::plugin::RenderOrnamentContext::default();
