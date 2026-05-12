@@ -304,7 +304,7 @@ fn test_shutdown_all_calls_all_plugins() {
 #[test]
 fn test_collect_plugin_surfaces_returns_owner_group() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(SurfacePlugin));
+    registry.register(SurfacePlugin);
 
     let surface_sets = registry.collect_plugin_surfaces();
     assert_eq!(surface_sets.len(), 1);
@@ -328,7 +328,7 @@ fn test_collect_plugin_surfaces_returns_owner_group() {
 fn test_remove_plugin_removes_registered_plugin() {
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin);
-    registry.register_backend(Box::new(SurfacePlugin));
+    registry.register(SurfacePlugin);
 
     assert!(registry.remove_plugin(&PluginId("surface-plugin".to_string())));
     assert_eq!(registry.plugin_count(), 1);
@@ -1170,7 +1170,7 @@ use crate::input::{MouseButton, MouseEventKind};
 fn test_plugin_tags_are_monotonically_assigned_starting_from_1() {
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin);
-    registry.register_backend(Box::new(SurfacePlugin));
+    registry.register(SurfacePlugin);
 
     let tags: Vec<(PluginId, PluginTag)> = registry.all_plugin_tags();
     assert_eq!(tags[0].1, PluginTag(1));
@@ -1181,7 +1181,7 @@ fn test_plugin_tags_are_monotonically_assigned_starting_from_1() {
 fn test_plugin_tag_zero_is_reserved_for_framework() {
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin);
-    registry.register_backend(Box::new(SurfacePlugin));
+    registry.register(SurfacePlugin);
     registry.register_backend(Box::new(StatefulPlugin { hash: 1 }));
 
     for (_id, tag) in registry.all_plugin_tags() {
@@ -1209,7 +1209,7 @@ fn test_replacing_plugin_reuses_its_tag() {
 fn test_unloading_plugin_does_not_recycle_tag() {
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin);
-    registry.register_backend(Box::new(SurfacePlugin));
+    registry.register(SurfacePlugin);
 
     // Remove first plugin
     registry.remove_plugin(&PluginId("test".to_string()));

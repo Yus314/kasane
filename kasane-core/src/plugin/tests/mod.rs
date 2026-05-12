@@ -58,23 +58,24 @@ impl crate::plugin::Plugin for LifecyclePlugin {
 
 struct SurfacePlugin;
 
-impl PluginBackend for SurfacePlugin {
+impl crate::plugin::Plugin for SurfacePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("surface-plugin".to_string())
     }
 
-    fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
-        vec![
-            TestSurfaceBuilder::new(SurfaceId(200)).build(),
-            TestSurfaceBuilder::new(SurfaceId(201)).build(),
-        ]
-    }
-
-    fn workspace_request(&self) -> Option<Placement> {
-        Some(Placement::SplitFocused {
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.declare_surfaces(|_state| {
+            vec![
+                TestSurfaceBuilder::new(SurfaceId(200)).build(),
+                TestSurfaceBuilder::new(SurfaceId(201)).build(),
+            ]
+        });
+        r.declare_workspace_request(Placement::SplitFocused {
             direction: SplitDirection::Vertical,
             ratio: 0.5,
-        })
+        });
     }
 }
 

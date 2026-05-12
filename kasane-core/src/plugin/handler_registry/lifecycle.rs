@@ -440,6 +440,32 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         register_void!(self, shutdown_handler, handler);
     }
 
+    /// Declare static surfaces owned by this plugin.
+    ///
+    /// The factory is called during bootstrap preflight (before `on_init`)
+    /// to materialise the plugin's surfaces. Use `declare_workspace_request`
+    /// to attach a plugin-wide initial placement to those surfaces.
+    pub fn declare_surfaces(
+        &mut self,
+        factory: impl Fn(&S) -> Vec<Box<dyn crate::surface::Surface>> + Send + Sync + 'static,
+    ) {
+        let erased: super::super::handler_table::ErasedSurfacesFactory = Box::new(move |state| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            factory(s)
+        });
+        self.table.surfaces_factory = Some(erased);
+    }
+
+    /// Declare a plugin-wide initial workspace placement.
+    ///
+    /// Evaluated during bootstrap preflight alongside `declare_surfaces`.
+    pub fn declare_workspace_request(&mut self, placement: crate::workspace::Placement) {
+        self.table.workspace_request = Some(placement);
+    }
+
     /// Register an update (message) handler.
     ///
     /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.

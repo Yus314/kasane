@@ -73,6 +73,8 @@ pub(crate) type ErasedWorkspaceSaveHandler =
 pub(crate) type ErasedWorkspaceRestoreHandler =
     Box<dyn Fn(&dyn PluginState, &serde_json::Value) -> Box<dyn PluginState> + Send + Sync>;
 pub(crate) type ErasedShutdownHandler = Box<dyn Fn(&dyn PluginState) + Send + Sync>;
+pub(crate) type ErasedSurfacesFactory =
+    Box<dyn Fn(&dyn PluginState) -> Vec<Box<dyn crate::surface::Surface>> + Send + Sync>;
 pub(crate) type ErasedUpdateHandler = Box<
     dyn Fn(&dyn PluginState, &mut dyn Any, &AppView<'_>) -> (Box<dyn PluginState>, Effects)
         + Send
@@ -563,6 +565,10 @@ pub(crate) struct HandlerTable {
     // --- Process Tasks ---
     pub(crate) process_tasks: Vec<ProcessTaskEntry>,
 
+    // --- Surface declarations ---
+    pub(crate) surfaces_factory: Option<ErasedSurfacesFactory>,
+    pub(crate) workspace_request: Option<crate::workspace::Placement>,
+
     // --- Config ---
     pub(crate) interests: DirtyFlags,
 
@@ -634,6 +640,8 @@ impl HandlerTable {
             publishers: Vec::new(),
             subscribers: Vec::new(),
             process_tasks: Vec::new(),
+            surfaces_factory: None,
+            workspace_request: None,
             interests: DirtyFlags::ALL,
             transparency: TransparencyFlags::default(),
             recovery: RecoveryFlags::default(),

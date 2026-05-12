@@ -428,6 +428,17 @@ impl PluginBackend for PluginBridge {
         dispatch_state_only!(self, workspace_changed_handler, query);
     }
 
+    fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
+        match &self.table.surfaces_factory {
+            Some(factory) => factory(&*self.state),
+            None => Vec::new(),
+        }
+    }
+
+    fn workspace_request(&self) -> Option<crate::workspace::Placement> {
+        self.table.workspace_request.clone()
+    }
+
     fn workspace_save(&self) -> Option<serde_json::Value> {
         self.table
             .workspace_save_handler
