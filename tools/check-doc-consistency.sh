@@ -378,6 +378,191 @@ check_readme_code_examples() {
 }
 
 # =============================================================================
+# Check 7: CLAUDE.md "Workspace Structure" paths exist on disk
+# =============================================================================
+check_claude_md_workspace() {
+  echo "--- CLAUDE.md Workspace Structure ---" >&2
+  local claude_md="$ROOT_DIR/CLAUDE.md"
+
+  if [[ ! -f "$claude_md" ]]; then
+    warn "CLAUDE.md not found"
+    return
+  fi
+
+  local in_section=0
+  local missing=0
+  local checked=0
+  while IFS= read -r line; do
+    if [[ "$line" == "## Workspace Structure" ]]; then
+      in_section=1
+      continue
+    fi
+    [[ $in_section -eq 0 ]] && continue
+    # Stop at the next top-level heading
+    if [[ "$line" =~ ^##\  ]]; then
+      break
+    fi
+
+    # Table data rows: `| `<path>` | description |`
+    if [[ "$line" =~ ^\|[[:space:]]+\`([^\`]+)\`[[:space:]]+\| ]]; then
+      local path="${BASH_REMATCH[1]}"
+      checked=$((checked + 1))
+      local stripped="${path%/}"
+      if [[ ! -d "$ROOT_DIR/$stripped" ]]; then
+        error "CLAUDE.md Workspace Structure: directory does not exist: $path"
+        missing=$((missing + 1))
+      fi
+    fi
+  done < "$claude_md"
+
+  if [[ $missing -eq 0 ]] && [[ $checked -gt 0 ]]; then
+    ok "CLAUDE.md Workspace Structure: $checked paths exist"
+  fi
+}
+
+# =============================================================================
+# Check 8: CLAUDE.md "Key Module Locations" paths exist on disk
+# =============================================================================
+check_claude_md_modules() {
+  echo "--- CLAUDE.md Key Module Locations ---" >&2
+  local claude_md="$ROOT_DIR/CLAUDE.md"
+
+  if [[ ! -f "$claude_md" ]]; then
+    return
+  fi
+
+  local in_section=0
+  local missing=0
+  local checked=0
+  while IFS= read -r line; do
+    if [[ "$line" == "### Key Module Locations" ]]; then
+      in_section=1
+      continue
+    fi
+    [[ $in_section -eq 0 ]] && continue
+    # Stop at the next heading of any level
+    if [[ "$line" =~ ^#{1,3}\  ]]; then
+      break
+    fi
+    # Only bullet lines
+    [[ "$line" =~ ^- ]] || continue
+
+    # Iterate backticked tokens on this line
+    while IFS= read -r token; do
+      [[ -z "$token" ]] && continue
+      # Token must look like a path (contain "/" and end in .rs or /)
+      [[ "$token" =~ / ]] || continue
+      if [[ ! "$token" =~ \.rs$ ]] && [[ ! "$token" =~ /$ ]]; then
+        continue
+      fi
+      # Only validate paths rooted at a recognized top-level dir.
+      # Relative paths inside a bullet (e.g. `state/update.rs` after a
+      # `kasane-core/src/state/mod.rs` anchor) are skipped — their base
+      # directory is ambiguous and varies per bullet.
+      if [[ ! "$token" =~ ^(kasane|examples/|tools/|docs/) ]]; then
+        continue
+      fi
+      checked=$((checked + 1))
+      local stripped="${token%/}"
+      if [[ ! -e "$ROOT_DIR/$stripped" ]]; then
+        error "CLAUDE.md Key Module Locations: path does not exist: $token"
+        missing=$((missing + 1))
+      fi
+    done < <(grep -oE '`[^`]+`' <<< "$line" | sed 's/^`//;s/`$//')
+  done < "$claude_md"
+
+  if [[ $missing -eq 0 ]] && [[ $checked -gt 0 ]]; then
+    ok "CLAUDE.md Key Module Locations: $checked rooted paths exist"
+  fi
+}
+
+# =============================================================================
+# Check 9: Roadmap pending phase rows have unique first-cell descriptors
+# =============================================================================
+check_roadmap_pending_unique() {
+  echo "--- Roadmap phase uniqueness ---" >&2
+  local roadmap="$ROOT_DIR/docs/roadmap.md"
+
+  if [[ ! -f "$roadmap" ]]; then
+    warn "roadmap.md not found"
+    return
+  fi
+
+  # Extract the first cell of every roadmap table data row.
+  # Skip the header (`| Phase | Status | Notes |`) and separator (`|---|...`).
+  local first_cells
+  first_cells=$(awk -F'|' '
+    /^\|[[:space:]]*Phase[[:space:]]*\|/ { next }
+    /^\|---/ { next }
+    /^\|[[:space:]]/ {
+      cell = $2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", cell)
+      if (cell != "") print cell
+    }
+  ' "$roadmap")
+
+  local duplicates
+  duplicates=$(echo "$first_cells" | sort | uniq -d || true)
+
+  if [[ -n "$duplicates" ]]; then
+    while IFS= read -r dup; do
+      [[ -z "$dup" ]] && continue
+      error "docs/roadmap.md: duplicate phase row: $dup"
+    done <<< "$duplicates"
+  else
+    ok "roadmap phase rows are unique"
+  fi
+}
+
+# =============================================================================
+# Check 10: ADR references in docs resolve to a heading in decisions.md
+# =============================================================================
+check_decisions_adr_refs() {
+  echo "--- ADR references ---" >&2
+  local decisions="$ROOT_DIR/docs/decisions.md"
+
+  if [[ ! -f "$decisions" ]]; then
+    warn "decisions.md not found"
+    return
+  fi
+
+  # ADR IDs defined as section headings: `## ADR-NNN[A-Z]?:`
+  local defined_adrs
+  defined_adrs=$(grep -oE '^## ADR-[0-9]+[A-Z]*' "$decisions" \
+    | sed 's/^## ADR-//' \
+    | sort -u)
+
+  if [[ -z "$defined_adrs" ]]; then
+    warn "decisions.md: no ADR headings found"
+    return
+  fi
+
+  # Scan all referenced ADR IDs across documentation surfaces.
+  local refs
+  refs=$(grep -rhoE 'ADR-[0-9]+[A-Z]*' \
+            "$ROOT_DIR/docs" \
+            "$ROOT_DIR/CLAUDE.md" \
+            "$ROOT_DIR/README.md" 2>/dev/null \
+    | sed 's/^ADR-//' \
+    | sort -u || true)
+
+  local missing=0
+  local checked=0
+  while IFS= read -r ref; do
+    [[ -z "$ref" ]] && continue
+    checked=$((checked + 1))
+    if ! grep -qxF "$ref" <<< "$defined_adrs"; then
+      error "ADR-${ref} referenced but not defined in docs/decisions.md"
+      missing=$((missing + 1))
+    fi
+  done <<< "$refs"
+
+  if [[ $missing -eq 0 ]] && [[ $checked -gt 0 ]]; then
+    ok "all ADR references resolve ($checked unique IDs)"
+  fi
+}
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -391,6 +576,10 @@ if [[ "$MODE" == "full" ]]; then
   check_capability_names
   check_doc_links
   check_readme_code_examples
+  check_claude_md_workspace
+  check_claude_md_modules
+  check_roadmap_pending_unique
+  check_decisions_adr_refs
 fi
 
 echo "===" >&2
