@@ -3,7 +3,7 @@
 use crate::protocol::Atom;
 
 use super::super::element_patch::ElementPatch;
-use super::super::handler_table::{ContributeEntry, TransformEntry};
+use super::super::handler_table::{ContributeAnyEntry, ContributeEntry, TransformEntry};
 use super::super::{
     AppView, ContributeContext, Contribution, PluginState, SlotId, TransformContext,
     TransformTarget,
@@ -36,6 +36,37 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             slot,
             handler: erased,
         });
+    }
+
+    /// Register a slot-agnostic contribute handler.
+    ///
+    /// Counterpart to [`Self::on_contribute`] for adapters whose
+    /// underlying contract dispatches contribution requests for arbitrary
+    /// slots — primarily WASM plugins, which delegate slot routing to the
+    /// `contribute-to(region, …)` WIT export. The bridge consults
+    /// [`Self::on_contribute`] entries first; the any-handler is the
+    /// fallback when no slot-specific handler matches.
+    pub fn on_contribute_any(
+        &mut self,
+        handler: impl Fn(&S, &SlotId, &AppView<'_>, &ContributeContext) -> Option<Contribution>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        let erased = Box::new(
+            move |state: &dyn PluginState,
+                  slot: &SlotId,
+                  app: &AppView<'_>,
+                  ctx: &ContributeContext|
+                  -> Option<Contribution> {
+                let s = state
+                    .as_any()
+                    .downcast_ref::<S>()
+                    .expect("state type mismatch");
+                handler(s, slot, app, ctx)
+            },
+        );
+        self.table.contribute_any_handler = Some(ContributeAnyEntry { handler: erased });
     }
 
     /// Register a transform handler with priority.

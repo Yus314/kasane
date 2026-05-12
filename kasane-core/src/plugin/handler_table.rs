@@ -224,6 +224,11 @@ pub(crate) type ErasedGroupRefreshHandler =
     Box<dyn Fn(&dyn PluginState, &AppView<'_>, &mut CompiledKeyMap) + Send + Sync>;
 
 // View handlers (immutable state)
+pub(crate) type ErasedContributeAnyHandler = Box<
+    dyn Fn(&dyn PluginState, &SlotId, &AppView<'_>, &ContributeContext) -> Option<Contribution>
+        + Send
+        + Sync,
+>;
 pub(crate) type ErasedContributeHandler = Box<
     dyn Fn(&dyn PluginState, &AppView<'_>, &ContributeContext) -> Option<Contribution>
         + Send
@@ -352,6 +357,18 @@ pub(crate) type ErasedInlineBoxPaintHandler =
 pub(crate) struct ContributeEntry {
     pub(crate) slot: SlotId,
     pub(crate) handler: ErasedContributeHandler,
+}
+
+/// A slot-agnostic contribute handler.
+///
+/// Used by adapters whose underlying contract dispatches contribution
+/// requests for arbitrary slots (e.g. WASM plugins via the
+/// `contribute-to(region, …)` WIT export). Looked up after slot-bound
+/// handlers in the dispatch order, so an `on_contribute` registration
+/// for a specific slot wins over the fallback.
+#[allow(dead_code)] // consumed by PluginBridge
+pub(crate) struct ContributeAnyEntry {
+    pub(crate) handler: ErasedContributeAnyHandler,
 }
 
 /// A transform handler with priority metadata.
@@ -527,6 +544,7 @@ pub(crate) struct HandlerTable {
 
     // --- View ---
     pub(crate) contribute_handlers: Vec<ContributeEntry>,
+    pub(crate) contribute_any_handler: Option<ContributeAnyEntry>,
     pub(crate) transform_handler: Option<TransformEntry>,
     pub(crate) gutter_handlers: Vec<GutterHandlerEntry>,
     pub(crate) background_handler: Option<ErasedAnnotateBackgroundHandler>,
@@ -638,6 +656,7 @@ impl HandlerTable {
             action_handler: None,
             group_refresh_handler: None,
             contribute_handlers: Vec::new(),
+            contribute_any_handler: None,
             transform_handler: None,
             gutter_handlers: Vec::new(),
             background_handler: None,
@@ -712,7 +731,7 @@ impl HandlerTable {
         if self.info_renderer_handler.is_some() {
             caps |= PluginCapabilities::INFO_RENDERER;
         }
-        if !self.contribute_handlers.is_empty() {
+        if !self.contribute_handlers.is_empty() || self.contribute_any_handler.is_some() {
             caps |= PluginCapabilities::CONTRIBUTOR;
         }
         if self.transform_handler.is_some() {

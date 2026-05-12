@@ -641,6 +641,16 @@ impl PluginBackend for PluginBridge {
                 );
             }
         }
+        if let Some(entry) = &self.table.contribute_any_handler {
+            return dispatch_inject_owner_contribution!(
+                self,
+                &entry.handler,
+                element,
+                region,
+                app,
+                ctx
+            );
+        }
         None
     }
 
@@ -1558,6 +1568,7 @@ mod tests {
             "mouse_fallback",
             "default_scroll",
             "contribute",
+            "contribute_any",
             "transform",
             "gutter",
             "background",
@@ -1720,6 +1731,12 @@ mod tests {
                 let inv = self.invoked.clone();
                 r.on_contribute(SlotId::STATUS_LEFT, move |_s, _app, _ctx| {
                     inv.lock().unwrap().insert("contribute");
+                    None
+                });
+
+                let inv = self.invoked.clone();
+                r.on_contribute_any(move |_s, _slot, _app, _ctx| {
+                    inv.lock().unwrap().insert("contribute_any");
                     None
                 });
 
@@ -1908,6 +1925,9 @@ mod tests {
 
         // View
         bridge.contribute_to(&SlotId::STATUS_LEFT, &app, &contribute_ctx);
+        // Use a slot the slot-specific handler does not match so the
+        // any-handler fallback in PluginBridge::contribute_to fires.
+        bridge.contribute_to(&SlotId::new("test.unmatched-slot"), &app, &contribute_ctx);
         bridge.transform_patch(&TransformTarget::BUFFER, &app, &transform_ctx);
         bridge.decorate_gutter(GutterSide::Left, 0, &app, &annotate_ctx);
         bridge.decorate_background(0, &app, &annotate_ctx);

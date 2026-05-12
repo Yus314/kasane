@@ -773,6 +773,11 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
 ///   `handle-default-scroll`; `handle-text-input` has no WIT export)
 /// - **β-3.3b.4 — Input dispatch helpers** (3 handlers: pre-built
 ///   `CompiledKeyMap` install, group-refresh, named-action dispatch)
+/// - **β-3.3b.5 — View / contribute / transform** (3 handlers:
+///   slot-agnostic `contribute_to`, declarative `transform_patch`
+///   with WIT-supplied priority, `transform_menu_item`; the legacy
+///   full-rewrite `transform` WIT export is auto-derived by
+///   `PluginBridge::transform` from the registered patch)
 impl Plugin for WasmPlugin {
     type State = ();
 
@@ -1118,6 +1123,87 @@ impl Plugin for WasmPlugin {
                 })
             });
             ((), response)
+        });
+
+        // ---- β-3.3b.5 — View / contribute / transform ----
+        // contribute_to → on_contribute_any. WASM plugins delegate slot
+        // routing to the `contribute-to(region, …)` WIT export, so the
+        // host registers a single any-slot handler instead of one entry
+        // per slot.
+        let shared = Arc::clone(&self.shared);
+        r.on_contribute_any(move |_state, region, app, ctx| {
+            let wit_region = convert::slot_id_to_wit(region);
+            shared.call_synced(app, "contribute_to", |rt| {
+                rt.store.data_mut().elements.clear();
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_ctx = convert::contribute_context_to_wit(ctx);
+                Ok(api
+                    .call_contribute_to(&mut rt.store, &wit_region, wit_ctx)?
+                    .map(|wit_contrib| {
+                        let element = rt.store.data_mut().take_root_element(wit_contrib.element);
+                        Contribution {
+                            element,
+                            priority: wit_contrib.priority,
+                            size_hint: convert::wit_size_hint_to_size_hint(&wit_contrib.size_hint),
+                        }
+                    }))
+            })
+        });
+
+        // transform_patch → on_transform(priority, …). The transform
+        // priority is queried from WIT once at register() time and baked
+        // into the TransformEntry; the WIT plugin's `transform-priority`
+        // export is treated as static metadata, matching the native
+        // PluginBridge path. The full-rewrite `transform` WIT export is
+        // intentionally not migrated here — PluginBridge auto-derives
+        // `transform()` by applying the registered patch to the subject,
+        // so plugins implementing `transform-patch` get the same
+        // observable behavior. WIT-only `transform` (without
+        // `transform-patch`) loses this path on the eventual loader-flip;
+        // no production plugin relies on that today.
+        let priority = self.shared.with_runtime(|runtime| {
+            let api = runtime.instance.kasane_plugin_plugin_api();
+            api.call_transform_priority(&mut runtime.store).unwrap_or(0)
+        });
+        let shared = Arc::clone(&self.shared);
+        r.on_transform(priority, move |_state, target, app, ctx| {
+            shared.with_runtime(|runtime| {
+                host::sync_from_app_state(
+                    runtime.store.data_mut(),
+                    app.as_app_state(),
+                    shared.cached_view_deps,
+                );
+                runtime.store.data_mut().elements.clear();
+
+                let api = runtime.instance.kasane_plugin_plugin_api();
+                let wit_target = convert::transform_target_to_wit(target);
+                let wit_ctx = convert::transform_context_to_wit(ctx);
+                match api.call_transform_patch(&mut runtime.store, &wit_target, wit_ctx) {
+                    Ok(ops) if ops.is_empty() => ElementPatch::Identity,
+                    Ok(ops) => convert::wit_element_patch_ops_to_patch(&ops, &mut |handle| {
+                        runtime.store.data_mut().take_root_element(handle)
+                    }),
+                    Err(e) => {
+                        tracing::error!(
+                            "WASM plugin {}.transform_patch failed: {e}",
+                            shared.plugin_id.0
+                        );
+                        ElementPatch::Identity
+                    }
+                }
+            })
+        });
+
+        // transform_menu_item → on_menu_transform
+        let shared = Arc::clone(&self.shared);
+        r.on_menu_transform(move |_state, item, index, selected, app| {
+            shared.call_synced(app, "transform_menu_item", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_item = convert::atoms_to_wit(item);
+                Ok(api
+                    .call_transform_menu_item(&mut rt.store, &wit_item, index as u32, selected)
+                    .map(|opt| opt.map(|t| convert::wit_atoms_to_atoms(&t)))?)
+            })
         });
     }
 }
