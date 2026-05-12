@@ -1,6 +1,7 @@
 use std::ops::Range;
 
-pub use kasane_plugin_model::TransformTarget;
+use compact_str::CompactString;
+use serde::{Deserialize, Serialize};
 
 use crate::display::DisplayMapRef;
 use crate::element::{Element, Overlay, OverlayAnchor};
@@ -11,6 +12,72 @@ use crate::render::InlineDecoration;
 use crate::surface::SurfaceId;
 
 use super::{AppView, PluginId};
+
+/// Stable identifier for the subject a plugin transform is targeting.
+///
+/// Built-in identifiers cover Kakoune's well-known overlay/subject classes
+/// (buffer, menu, info, status bar). Plugin authors can mint custom
+/// identifiers via [`TransformTarget::new`] for plugin-defined surfaces.
+/// Identifiers form a `parent.child` hierarchy and refinement chains can
+/// be enumerated via [`TransformTarget::refinement_chain`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TransformTarget(CompactString);
+
+impl TransformTarget {
+    pub const BUFFER: Self = Self(CompactString::const_new("kasane.buffer"));
+    pub const BUFFER_LINE: Self = Self(CompactString::const_new("kasane.buffer.line"));
+    pub const STATUS_BAR: Self = Self(CompactString::const_new("kasane.status-bar"));
+    pub const MENU: Self = Self(CompactString::const_new("kasane.menu"));
+    pub const MENU_PROMPT: Self = Self(CompactString::const_new("kasane.menu.prompt"));
+    pub const MENU_INLINE: Self = Self(CompactString::const_new("kasane.menu.inline"));
+    pub const MENU_SEARCH: Self = Self(CompactString::const_new("kasane.menu.search"));
+    pub const INFO: Self = Self(CompactString::const_new("kasane.info"));
+    pub const INFO_PROMPT: Self = Self(CompactString::const_new("kasane.info.prompt"));
+    pub const INFO_MODAL: Self = Self(CompactString::const_new("kasane.info.modal"));
+
+    pub fn buffer_line(line: usize) -> Self {
+        Self(CompactString::from(format!("kasane.buffer.line.{line}")))
+    }
+
+    pub fn as_buffer_line(&self) -> Option<usize> {
+        self.0
+            .strip_prefix("kasane.buffer.line.")
+            .and_then(|s| s.parse().ok())
+    }
+
+    pub fn parent(&self) -> Option<Self> {
+        let s = if self.as_buffer_line().is_some() {
+            "kasane.buffer.line"
+        } else {
+            self.0.as_str()
+        };
+        if s.matches('.').count() <= 1 {
+            return None;
+        }
+        s.rsplit_once('.')
+            .map(|(parent, _)| Self(CompactString::from(parent)))
+    }
+
+    pub fn refinement_chain(&self) -> Vec<TransformTarget> {
+        match self.parent() {
+            Some(parent) => vec![parent, self.clone()],
+            None => vec![self.clone()],
+        }
+    }
+
+    pub fn is_refinement(&self) -> bool {
+        self.parent().is_some()
+    }
+
+    pub fn new(name: impl Into<CompactString>) -> Self {
+        Self(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 /// Sum type for transform chain subjects — either a bare Element or an Overlay
 /// (Element + OverlayAnchor).

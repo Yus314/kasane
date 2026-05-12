@@ -21,8 +21,24 @@
 //! );
 //! ```
 
-pub use kasane_plugin_model::ExtensionPointId;
+use compact_str::CompactString;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+
+/// Stable identifier for a plugin-defined extension point.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ExtensionPointId(pub CompactString);
+
+impl ExtensionPointId {
+    pub fn new(name: impl Into<CompactString>) -> Self {
+        Self(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 // =============================================================================
 // Well-known extension point IDs

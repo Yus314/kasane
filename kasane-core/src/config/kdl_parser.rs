@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::plugin::SettingValue;
 use compact_str::CompactString;
-use kasane_plugin_model::SettingValue;
 
 use super::{
     BorderStyleConfig, ClipboardConfig, ColorsConfig, Config, CursorLineHighlightMode,

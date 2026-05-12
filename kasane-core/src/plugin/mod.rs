@@ -41,6 +41,13 @@ mod tests;
 pub use crate::session::SessionCommand;
 use bitflags::bitflags;
 use compact_str::CompactString;
+use serde::{Deserialize, Serialize};
+
+/// Stable, unique identifier for a plugin. Used as the attribution key
+/// for effect routing, error reporting, and inter-plugin pub/sub.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PluginId(pub String);
 
 // Re-export command module
 pub use command::{
@@ -59,13 +66,13 @@ pub use effects::{
     Effects, EffectsBatch, LifecyclePhase, MouseHandleResult, NullEffects, PluginEffects,
     RecordingEffects, SourcedCommands, StateUpdates, TextInputHandleResult,
 };
-pub use kasane_plugin_model::{PluginId, SettingValue};
 pub use manager::{AppliedWinnerDelta, PluginApplyResult, PluginManager, ResolvedPluginSnapshot};
 pub use provider::{
     CompositePluginProvider, PluginCollect, PluginDescriptor, PluginFactory, PluginProvider,
     PluginRank, PluginRevision, PluginSource, ProviderConfigUpdate, StaticPluginProvider,
     builtin_plugin, host_plugin, host_plugin_with_provider, plugin_factory,
 };
+pub use setting::SettingValue;
 
 // Re-export io module types
 pub use io::{

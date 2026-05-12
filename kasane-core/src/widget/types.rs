@@ -7,7 +7,7 @@ use crate::plugin::{ContribSizeHint, GutterSide, SlotId};
 use crate::protocol::WireFace;
 use crate::state::DirtyFlags;
 
-use kasane_plugin_model::TransformTarget;
+use crate::plugin::TransformTarget;
 
 use super::predicate::Predicate;
 

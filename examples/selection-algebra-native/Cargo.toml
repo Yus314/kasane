@@ -6,4 +6,3 @@ publish = false
 
 [dependencies]
 kasane-core = { path = "../../kasane-core" }
-kasane-plugin-model = { path = "../../kasane-plugin-model" }

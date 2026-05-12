@@ -19,7 +19,7 @@ use crate::plugin::SlotId;
 use crate::render::theme::parse_face_spec;
 use crate::state::DirtyFlags;
 
-use kasane_plugin_model::TransformTarget;
+use crate::plugin::TransformTarget;
 
 use super::condition::parse_condition;
 use crate::plugin::{ContribSizeHint, GutterSide};

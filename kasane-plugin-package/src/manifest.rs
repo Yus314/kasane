@@ -7,9 +7,11 @@
 use std::collections::HashMap;
 
 use compact_str::CompactString;
-use kasane_core::plugin::{CapabilityDescriptor, PluginAuthorities, PluginCapabilities};
+use kasane_core::plugin::{
+    CapabilityDescriptor, ExtensionPointId, PluginAuthorities, PluginCapabilities, SettingValue,
+    TopicId, TransformTarget,
+};
 use kasane_core::state::DirtyFlags;
-use kasane_plugin_model::{ExtensionPointId, SettingValue, TopicId, TransformTarget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

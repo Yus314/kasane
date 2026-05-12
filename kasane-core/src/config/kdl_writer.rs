@@ -430,7 +430,7 @@ fn selection_to_kdl(id: &str, sel: &PluginSelection) -> kdl::KdlNode {
 }
 
 fn settings_to_kdl(
-    settings: &HashMap<String, HashMap<String, kasane_plugin_model::SettingValue>>,
+    settings: &HashMap<String, HashMap<String, crate::plugin::SettingValue>>,
 ) -> kdl::KdlNode {
     let mut plugin_children: Vec<kdl::KdlNode> = settings
         .iter()
@@ -447,19 +447,19 @@ fn settings_to_kdl(
     section_with_children("settings", plugin_children)
 }
 
-fn setting_value_to_kdl(key: &str, sv: &kasane_plugin_model::SettingValue) -> kdl::KdlNode {
+fn setting_value_to_kdl(key: &str, sv: &crate::plugin::SettingValue) -> kdl::KdlNode {
     let mut n = make_node(key);
     match sv {
-        kasane_plugin_model::SettingValue::Bool(b) => {
+        crate::plugin::SettingValue::Bool(b) => {
             n.push(kdl::KdlEntry::new(kdl::KdlValue::Bool(*b)));
         }
-        kasane_plugin_model::SettingValue::Integer(i) => {
+        crate::plugin::SettingValue::Integer(i) => {
             n.push(kdl::KdlEntry::new(kdl::KdlValue::Integer(*i as i128)));
         }
-        kasane_plugin_model::SettingValue::Float(f) => {
+        crate::plugin::SettingValue::Float(f) => {
             n.push(kdl::KdlEntry::new(kdl::KdlValue::Float(*f)));
         }
-        kasane_plugin_model::SettingValue::Str(s) => {
+        crate::plugin::SettingValue::Str(s) => {
             n.push(kdl::KdlEntry::new(s.as_str()));
         }
     }

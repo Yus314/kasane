@@ -15,10 +15,25 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use compact_str::CompactString;
-pub use kasane_plugin_model::TopicId;
+use serde::{Deserialize, Serialize};
 
 use super::channel::ChannelValue;
 use super::{AppView, PluginId, PluginState};
+
+/// Stable identifier for a pub/sub topic.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TopicId(pub CompactString);
+
+impl TopicId {
+    pub fn new(name: impl Into<CompactString>) -> Self {
+        Self(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 /// Phantom-typed topic handle for compile-time pub/sub type safety.
 ///

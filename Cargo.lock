@@ -2528,7 +2528,6 @@ dependencies = [
  "image",
  "itoa",
  "kasane-macros",
- "kasane-plugin-model",
  "kdl",
  "postcard",
  "proptest",
@@ -2581,21 +2580,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "kasane-plugin-model"
-version = "0.1.0"
-dependencies = [
- "compact_str",
- "serde",
-]
-
-[[package]]
 name = "kasane-plugin-package"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "compact_str",
  "kasane-core",
- "kasane-plugin-model",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -2656,7 +2646,6 @@ dependencies = [
  "compact_str",
  "criterion",
  "kasane-core",
- "kasane-plugin-model",
  "kasane-plugin-package",
  "serde",
  "sha2 0.11.0",

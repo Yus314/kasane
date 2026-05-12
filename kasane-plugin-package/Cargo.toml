@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 kasane-core = { workspace = true }
-kasane-plugin-model = { workspace = true }
 anyhow = { workspace = true }
 compact_str = { workspace = true }
 serde = { workspace = true }

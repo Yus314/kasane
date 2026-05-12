@@ -13,7 +13,7 @@ use std::sync::Arc;
 use kasane_core::history::{HistoryBackend, InMemoryRing, Time, VersionId};
 use kasane_core::state::selection::{BufferId, BufferPos, BufferVersion, Selection};
 use kasane_core::state::selection_set::SelectionSet;
-use kasane_plugin_model::PluginId;
+use kasane_core::plugin::PluginId;
 
 fn buf() -> BufferId {
     BufferId::new("dogfood-buffer")

@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::plugin::SettingValue;
 use anyhow::{Context, Result};
-use kasane_plugin_model::SettingValue;
 
 pub mod colors;
 pub mod effects;

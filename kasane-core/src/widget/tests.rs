@@ -590,21 +590,13 @@ fn backend_transform_patch() {
         target_line: None,
     };
 
-    let result = backend.transform_patch(
-        &kasane_plugin_model::TransformTarget::STATUS_BAR,
-        &view,
-        &ctx,
-    );
+    let result = backend.transform_patch(&crate::plugin::TransformTarget::STATUS_BAR, &view, &ctx);
     assert!(result.is_some());
 
     // Normal mode → should not match
     let state = AppState::default(); // default is Normal
     let view = AppView::new(&state);
-    let result = backend.transform_patch(
-        &kasane_plugin_model::TransformTarget::STATUS_BAR,
-        &view,
-        &ctx,
-    );
+    let result = backend.transform_patch(&crate::plugin::TransformTarget::STATUS_BAR, &view, &ctx);
     assert!(result.is_none());
 }
 
@@ -1289,11 +1281,7 @@ fn backend_wrap_container_patch() {
         target_line: None,
     };
 
-    let result = backend.transform_patch(
-        &kasane_plugin_model::TransformTarget::STATUS_BAR,
-        &view,
-        &ctx,
-    );
+    let result = backend.transform_patch(&crate::plugin::TransformTarget::STATUS_BAR, &view, &ctx);
     assert!(result.is_some());
     assert!(matches!(
         result.unwrap(),
@@ -1311,7 +1299,7 @@ fn parse_transform_target_menu_prompt() {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
     if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
-        assert_eq!(t.target, kasane_plugin_model::TransformTarget::MENU_PROMPT);
+        assert_eq!(t.target, crate::plugin::TransformTarget::MENU_PROMPT);
     } else {
         panic!("expected transform");
     }
@@ -1323,7 +1311,7 @@ fn parse_transform_target_menu_inline() {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
     if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
-        assert_eq!(t.target, kasane_plugin_model::TransformTarget::MENU_INLINE);
+        assert_eq!(t.target, crate::plugin::TransformTarget::MENU_INLINE);
     } else {
         panic!("expected transform");
     }
@@ -1335,7 +1323,7 @@ fn parse_transform_target_menu_search() {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
     if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
-        assert_eq!(t.target, kasane_plugin_model::TransformTarget::MENU_SEARCH);
+        assert_eq!(t.target, crate::plugin::TransformTarget::MENU_SEARCH);
     } else {
         panic!("expected transform");
     }
@@ -1347,7 +1335,7 @@ fn parse_transform_target_info_prompt() {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
     if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
-        assert_eq!(t.target, kasane_plugin_model::TransformTarget::INFO_PROMPT);
+        assert_eq!(t.target, crate::plugin::TransformTarget::INFO_PROMPT);
     } else {
         panic!("expected transform");
     }
@@ -1359,7 +1347,7 @@ fn parse_transform_target_info_modal() {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
     if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
-        assert_eq!(t.target, kasane_plugin_model::TransformTarget::INFO_MODAL);
+        assert_eq!(t.target, crate::plugin::TransformTarget::INFO_MODAL);
     } else {
         panic!("expected transform");
     }
