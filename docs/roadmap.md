@@ -190,19 +190,23 @@ below).
 **Refactor program — Phase γ + δ + ε (structural cascade) — opened 2026-05-12.**
 After Phase β-3.3 closed (`f98c2425`, β-3.3e) with `PluginBackend`
 extinct, residual structural debt was surveyed across five
-consideration rounds. Findings: dead architecture (legacy
-`render/pipeline.rs` + its 752-LoC parity test, both load-bearing
-for nothing post-ADR-047); `widget/tests.rs` shim (2348 LoC
-β-3.3a deferment); 3-layer handler-dispatch redundancy
-(HandlerRegistry 77 setters → HandlerTable 55 erased types →
-PluginBridge 42 dispatch sites, 4-place manual sync per new
-handler); hot-path `PluginId(String)` clones and `Vec<Vec<Atom>>`
-allocations; dual `display/` + `display_algebra/` top-level
-dirs; and `#[doc(hidden)] pub` as a workaround for cross-crate
-internal surface (30+ consumer files). Backward compatibility is
+consideration rounds. **Remaining γ-1 findings** (post γ-1.1 / γ-1.2 /
+γ-1.3 closure): 3-layer handler-dispatch redundancy (HandlerRegistry
+77 setters → HandlerTable 55 erased types → PluginBridge 42 dispatch
+sites, 4-place manual sync per new handler — scheduled for γ-3);
+hot-path `PluginId(String)` clones and `Vec<Vec<Atom>>` allocations
+(γ-4); dual `display/` + `display_algebra/` top-level dirs (γ-2.1);
+and `#[doc(hidden)] pub` as a workaround for cross-crate internal
+surface, 30+ consumer files (ε-1). Backward compatibility is
 intentionally lifted. Total estimated wall-clock: **40-60 days**
 across γ (structural cleanup), δ (design rethinking), ε
 (workspace reorganization).
+
+The original "dead architecture" finding (`render/pipeline.rs` +
+its 752-LoC parity test) landed as Phase γ-1.1 (`6da05fa2`); the
+`widget/tests.rs` shim deconstruction landed as Phase γ-1.2
+(`96e67c9f`); the vestigial single-line absorbs (`manifest.rs`,
+`perf.rs`) landed as Phase γ-1.3 (`0822ec94`).
 
 Decisions taken at program open (2026-05-12, via interactive dialogue):
 
@@ -270,7 +274,7 @@ frame-time gate (G4) and a <1 % iai instruction-count gate (G5).
 | γ-1.1 — `render/pipeline.rs` + `salsa_pipeline_comparison.rs` deletion | ✅ 2026-05-12 | Deleted `kasane-core/src/render/pipeline.rs` (-878 LoC), `kasane-core/src/render/tests/pipeline.rs` (-449 LoC), `kasane-core/tests/salsa_pipeline_comparison.rs` (-752 LoC). Shared core (`PreparedFrame`, `prepare_frame`, `render_cached_core`, `scene_render_core`, `populate_inline_box_paint_commands`, private helpers, `inline_box_dispatch_tests`) absorbed into `pipeline_salsa.rs`; `ViewSource` trait + `DirectViewSource` deleted (single-impl trait collapsed to direct `SalsaViewSource` calls). Eight consumers migrated to `render_pipeline_cached` / `scene_render_pipeline_cached`: `test_support.rs` (`render_to_grid`, `render_to_grid_with_result`), `src/render/tests/{scene_cache,cursor_position}.rs`, `tests/{trace_equivalence,rendering_pipeline}.rs`, `benches/{replay,rendering_pipeline}.rs`, `kasane-tui/benches/backend.rs`, `kasane-gui/benches/cpu_rendering.rs`. The salsa-vs-legacy paired benches in `bench_salsa_vs_legacy` (renamed `bench_salsa_full`) lost their `*_legacy` halves. Doc sweep: `decisions.md` ADR-016 marked Superseded, ADR-047 §Decision rewritten with γ-1.1 closure note; `semantics.md` A1/T1/T3 rewritten for Salsa-only canonical path; `performance.md` `scene_render_pipeline` → `scene_render_pipeline_cached`. |
 | γ-1.2 — `widget/tests.rs` shim deconstruction | ✅ 2026-05-12 | −74 LoC net (file 2348 → 2274). The 172-LoC `WidgetBackend` struct + its 11 impl methods deleted; replaced with 6 thin free functions (`widgets_runtime`, `widgets_reload`, `parse_failure_diagnostic`, `aggregate_capabilities`, `aggregate_view_deps`, `first_capability_descriptor`, `contribute_aggregated`) totalling ~100 LoC. All 22 `backend_*` tests rewritten against `PluginRuntime` + the existing `first_decorate_background_for_test` / `first_decorate_gutter_for_test` / `first_transform_patch_for_test` / `all_slot_*_for_test` helpers. The legacy `state_hash`/`drain_diagnostics`/`id` test-shim concepts retired: `backend_id` deleted (the legacy single-plugin id "kasane.widgets" no longer fits the multi-WidgetPlugin runtime); the three reload-generation tests collapse to two reload-only tests since the `state_hash` shim's monotonic counter is no longer modeled. The roadmap's -1500 LoC estimate was an overestimate — `widget/tests.rs` is dominated by test bodies that survive the migration, not the shim. |
 | γ-1.3 — Vestigial single-line absorbs | ✅ 2026-05-12 | −52 LoC net. `kasane-wasm/src/manifest.rs` deleted; the `pub use kasane_plugin_package::manifest;` re-export moves into `kasane-wasm/src/lib.rs` (one line) so `crate::manifest::PluginManifest` access path stays intact for the four `tests/` consumers. `kasane-core/src/perf.rs` deleted (the cfg-gated `perf_span!` macro stub) together with the `mod perf;` line in `kasane-core/src/lib.rs`, the `perf-tracing` feature in `kasane-core/Cargo.toml`, ten `crate::perf::perf_span!(…)` call sites across `render/{view/mod,grid,paint,pipeline_salsa}.rs` + `layout/flex.rs` + `plugin/registry/mod.rs`, and the `## Runtime Tracing with perf-tracing` section in `docs/profiling.md`. Span instrumentation was only ever wired through this macro — the feature is replaceable with ad-hoc `tracing::info_span!` insertions if needed. |
-| γ-1.4 — Deferred-list cleanup | pending | Remove the items at L195–197 that γ now subsumes; revisit the L198 verification log |
+| γ-1.4 — Deferred-list cleanup | ✅ 2026-05-12 | The "Findings:" paragraph at the program-open header rewritten to list only **remaining** γ scope (γ-2.1 / γ-3 / γ-4 / ε-1 items) — the legacy `render/pipeline.rs` + parity test, the `widget/tests.rs` shim, and the vestigial single-line absorbs items moved to a brief "landed as" closure note pointing at `6da05fa2` / `96e67c9f` / `0822ec94`. The orphan "verification log" bullet at the bottom of the Deferred-ADR list (a historical 9-candidate analysis from program open) deleted — the verify-before-cut discipline is now operational discipline embodied in γ-1.x execution, not a load-bearing list entry. |
 | γ-2 — Structural reorganization | pending | LoC-neutral, cognitive-load reduction; 3-4 days |
 | γ-2.1 — `display_algebra/` → `display/algebra/` absorption | pending | Eliminates dual top-level dir; internal `bridge.rs` (505 LoC) renamed to `runtime_bridge.rs` to free the `bridge.rs` name |
 | γ-2.2 — `plugin/` subdir reorganization | pending | `algebra/` (`element_patch` + `compose` + `safe_directive` + `recovery_witness` + `predicate`), `host/` (`app_view` + `context` + `variable_store` + `setting`), `effect/` (`effects` + `effect_tiers` + `error_attribution` + `kakoune_transparent_*` + `command`); 24 flat files → 5 subdirs + 9 top-level |
@@ -299,7 +303,6 @@ Deferred to a future ADR (each blocked on a design decision, an upstream Plugin-
 - [ADR-046](decisions.md#adr-046-wit-abi-600--batched-retirement): WIT ABI 6.0.0 — Batched Retirement — **proposed (draft)**. **Superseded in shape by ADR-048** (Phase β escalates W1-C from narrowing to deletion). The two-wave batched-retirement structure is preserved; Wave 2 atomic PR is now Phase β-4.
 - Salsa-input annotation `Arc<Vec<…>>` interning (host-side `.clone()` → `Arc::clone()` requires changing `AnnotationResult` field types, which is the plugin-facing surface).
 - `PluginBackend` proc-macro generation — superseded: `PluginBackend` is extinct after Phase β-3.3d. The remaining handler-dispatch boilerplate (HandlerRegistry setters / HandlerTable erased types / `PluginBridge` dispatch sites — the 4-place manual sync rule) is now scheduled as Phase γ-3 (`#[handler_table]` DSL).
-- The verification log itself is the ground truth: of 9 LLM-shortlisted candidates, 3 were correct (EffectFootprint, ResolvedSlot, PreDispatchResult), 6 were rejected after grep (RecoveryWitness, depth_stencil scope, migration §8.3 gap, Extension Points "dead code", transform-parser duplication, plugin-model absorption) — the verify-before-cut rule is the load-bearing discipline.
 
 ### 2.2 Backlog
 
