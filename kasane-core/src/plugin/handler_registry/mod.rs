@@ -62,10 +62,6 @@ use super::channel::ChannelValue;
 #[allow(unused_imports)]
 use super::element_patch::ElementPatch;
 #[allow(unused_imports)]
-use super::extension_point::{
-    CompositionRule, ExtensionContribution, ExtensionDefinition, ExtensionPointId,
-};
-#[allow(unused_imports)]
 use super::handler_table::{
     ContributeEntry, GutterHandlerEntry, GutterSide, HandlerTable, TransformEntry,
 };

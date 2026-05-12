@@ -1,4 +1,5 @@
-//! Navigation, virtual-edit, buffer-edit intercept, paint-inline-box, and extension-point handlers.
+//! Navigation, virtual-edit, buffer-edit intercept, paint-inline-box,
+//! and pub/sub handlers.
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -7,9 +8,6 @@ use crate::display::unit::DisplayUnit;
 use crate::element::Element;
 
 use super::super::channel::ChannelValue;
-use super::super::extension_point::{
-    CompositionRule, ExtensionContribution, ExtensionDefinition, ExtensionPointId,
-};
 use super::super::pubsub::{PublishEntry, SubscribeEntry, Topic, TopicId};
 use super::super::{AppView, Command, PluginState};
 
@@ -214,99 +212,5 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         handler: impl Fn(&S, &T) -> S + Send + Sync + 'static,
     ) {
         self.subscribe::<T>(topic.id().clone(), handler);
-    }
-
-    // =========================================================================
-    // Extension Point handlers
-    // =========================================================================
-
-    /// Define a custom extension point that other plugins can contribute to.
-    ///
-    /// The `rule` determines how multiple contributions are composed.
-    ///
-    /// ```ignore
-    /// r.define_extension::<(), Vec<StatusItem>>(
-    ///     ExtensionPointId::new("myplugin.status-items"),
-    ///     CompositionRule::Merge,
-    /// );
-    /// ```
-    pub fn define_extension<I: Send + 'static, O: Send + 'static>(
-        &mut self,
-        id: ExtensionPointId,
-        rule: CompositionRule,
-    ) {
-        self.table.extension_definitions.push(ExtensionDefinition {
-            id,
-            rule,
-            handler: None,
-        });
-    }
-
-    /// Define a custom extension point and also contribute a handler for it.
-    pub fn define_extension_with_handler<
-        I: DeserializeOwned + Send + 'static,
-        O: Serialize + Send + 'static,
-    >(
-        &mut self,
-        id: ExtensionPointId,
-        rule: CompositionRule,
-        handler: impl Fn(&S, &I, &AppView<'_>) -> O + Send + Sync + 'static,
-    ) {
-        self.table.extension_definitions.push(ExtensionDefinition {
-            id,
-            rule,
-            handler: Some(Box::new(
-                move |state: &dyn PluginState,
-                      input: &ChannelValue,
-                      app: &AppView<'_>|
-                      -> ChannelValue {
-                    let s = state
-                        .as_any()
-                        .downcast_ref::<S>()
-                        .expect("state type mismatch");
-                    let i: I = input
-                        .deserialize()
-                        .expect("extension input deserialization failed");
-                    let output = handler(s, &i, app);
-                    ChannelValue::new(&output).expect("extension output serialization failed")
-                },
-            )),
-        });
-    }
-
-    /// Contribute to an extension point defined by another plugin.
-    ///
-    /// ```ignore
-    /// r.on_extension::<(), Vec<StatusItem>>(
-    ///     ExtensionPointId::new("myplugin.status-items"),
-    ///     |_state, _input, _app| vec![StatusItem { text: "hello" }],
-    /// );
-    /// ```
-    pub fn on_extension<I: DeserializeOwned + Send + 'static, O: Serialize + Send + 'static>(
-        &mut self,
-        id: ExtensionPointId,
-        handler: impl Fn(&S, &I, &AppView<'_>) -> O + Send + Sync + 'static,
-    ) {
-        self.table
-            .extension_contributions
-            .push(ExtensionContribution {
-                id,
-                handler: Box::new(
-                    move |state: &dyn PluginState,
-                          input: &ChannelValue,
-                          app: &AppView<'_>|
-                          -> ChannelValue {
-                        let s = state
-                            .as_any()
-                            .downcast_ref::<S>()
-                            .expect("state type mismatch");
-                        let i: I = input
-                            .deserialize()
-                            .expect("extension input deserialization failed");
-                        let output = handler(s, &i, app);
-                        ChannelValue::new(&output).expect("extension output serialization failed")
-                    },
-                ),
-            });
     }
 }

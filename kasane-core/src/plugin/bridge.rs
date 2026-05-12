@@ -13,7 +13,6 @@ use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
 
 use super::error_attribution::PluginErrorEvent;
-use super::extension_point::{ExtensionDefinition, ExtensionOutput, ExtensionPointId};
 use super::handler_registry::HandlerRegistry;
 use super::handler_table::HandlerTable;
 use super::io::ProcessEvent;
@@ -904,42 +903,6 @@ impl PluginBackend for PluginBridge {
             self.check_state_change();
         }
         merged
-    }
-
-    // --- Extension points ---
-
-    fn extension_definitions(&self) -> &[ExtensionDefinition] {
-        &self.table.extension_definitions
-    }
-
-    fn evaluate_extension(
-        &self,
-        id: &ExtensionPointId,
-        input: &super::channel::ChannelValue,
-        state: &AppView<'_>,
-    ) -> Vec<ExtensionOutput> {
-        let mut outputs = Vec::new();
-        // Check definition handlers (definer's own contribution).
-        for def in &self.table.extension_definitions {
-            if def.id == *id
-                && let Some(handler) = &def.handler
-            {
-                outputs.push(ExtensionOutput {
-                    plugin_id: self.id.clone(),
-                    value: handler(&*self.state, input, state),
-                });
-            }
-        }
-        // Check contribution handlers (other plugins contributing).
-        for contrib in &self.table.extension_contributions {
-            if contrib.id == *id {
-                outputs.push(ExtensionOutput {
-                    plugin_id: self.id.clone(),
-                    value: (contrib.handler)(&*self.state, input, state),
-                });
-            }
-        }
-        outputs
     }
 
     // --- I/O ---

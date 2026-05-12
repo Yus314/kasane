@@ -85,8 +85,6 @@ struct WasmPluginShared {
     manifest_descriptor: Option<kasane_core::plugin::CapabilityDescriptor>,
     publish_topics: Vec<String>,
     subscribe_topics: Vec<String>,
-    extensions_consumed: Vec<String>,
-    extension_defs: Vec<kasane_core::plugin::extension_point::ExtensionDefinition>,
     has_unified_display_export: bool,
     /// When `true`, host wraps every plugin-originated
     /// `Command::EvalCommand` with a Kakoune `try…catch` pattern so
@@ -454,8 +452,6 @@ impl WasmPlugin {
         manifest_descriptor: Option<kasane_core::plugin::CapabilityDescriptor>,
         publish_topics: Vec<String>,
         subscribe_topics: Vec<String>,
-        extensions_consumed: Vec<String>,
-        extension_defs: Vec<kasane_core::plugin::extension_point::ExtensionDefinition>,
         command_error_observability: bool,
         epoch_ticker: Arc<crate::EpochTicker>,
     ) -> Self {
@@ -502,8 +498,6 @@ impl WasmPlugin {
                 manifest_descriptor,
                 publish_topics,
                 subscribe_topics,
-                extensions_consumed,
-                extension_defs,
                 has_unified_display_export,
                 command_error_observability,
                 _epoch_ticker: epoch_ticker,
@@ -579,8 +573,6 @@ impl WasmPlugin {
                 manifest_descriptor: None,
                 publish_topics: Vec::new(),
                 subscribe_topics: Vec::new(),
-                extensions_consumed: Vec::new(),
-                extension_defs: Vec::new(),
                 has_unified_display_export,
                 command_error_observability: false,
                 _epoch_ticker: epoch_ticker,
@@ -1598,47 +1590,6 @@ impl PluginBackend for WasmPlugin {
             }
         }
         merged
-    }
-
-    // --- Extension points ---
-
-    fn extension_definitions(
-        &self,
-    ) -> &[kasane_core::plugin::extension_point::ExtensionDefinition] {
-        &self.shared.extension_defs
-    }
-
-    fn evaluate_extension(
-        &self,
-        id: &kasane_core::plugin::extension_point::ExtensionPointId,
-        input: &kasane_core::plugin::channel::ChannelValue,
-        state: &AppView<'_>,
-    ) -> Vec<kasane_core::plugin::extension_point::ExtensionOutput> {
-        let consumes = self
-            .shared
-            .extensions_consumed
-            .iter()
-            .any(|s| s == id.as_str());
-        if !consumes {
-            return vec![];
-        }
-        let plugin_id = self.shared.plugin_id.clone();
-        let wit_input = convert::channel_value_to_wit(input);
-        let id_str = id.as_str().to_string();
-        let result: Option<kasane_core::plugin::channel::ChannelValue> =
-            self.shared.call_synced(state, "evaluate_extension", |rt| {
-                let api = rt.instance.kasane_plugin_plugin_api();
-                Ok(api
-                    .call_evaluate_extension(&mut rt.store, &id_str, &wit_input)?
-                    .map(|wv| convert::wit_channel_value_to_core(&wv)))
-            });
-        match result {
-            Some(cv) => vec![kasane_core::plugin::extension_point::ExtensionOutput {
-                plugin_id,
-                value: cv,
-            }],
-            None => vec![],
-        }
     }
 
     // --- I/O ---

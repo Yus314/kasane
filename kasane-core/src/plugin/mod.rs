@@ -143,7 +143,7 @@ pub use app_view::{AppView, FrameworkAccess};
 pub use bridge::{IsBridgedPlugin, PluginBridge};
 pub use channel::ChannelValue;
 pub use element_patch::ElementPatch;
-pub use extension_point::{CompositionRule, ExtensionPointId, ExtensionResults};
+pub use extension_point::ExtensionPointId;
 pub use handler_registry::HandlerRegistry;
 pub use handler_table::GutterSide;
 pub use process_task::{ProcessTaskResult, ProcessTaskSpec};

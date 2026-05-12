@@ -2031,10 +2031,17 @@ interface plugin-api {
     /// state-changed and is rejected at the type level.
     on-subscription: func(topic: string, values: list<channel-value>) -> kakoune-side-effects;
 
-    // --- v0.24.0: Extension point bridge ---
+    // --- v0.24.0: Extension point bridge (retired per ADR-045) ---
 
     /// Evaluate an extension point contribution.
-    /// Returns None if this plugin has no contribution for this extension point.
+    ///
+    /// The host no longer invokes this export — the in-tree dispatch was
+    /// retired per ADR-045 once the producer count reached zero. Guests
+    /// generated against `kasane:plugin@5.0.0` still expose the symbol so
+    /// the binding tables match; the actual entry is unreachable. The
+    /// declaration itself is scheduled for removal at the next major
+    /// ABI bump (`6.0.0`), where it can be batched with other breaking
+    /// surface changes per `docs/abi-versioning.md`.
     evaluate-extension: func(id: string, input: channel-value) -> option<channel-value>;
 
     // --- v0.23.0: handler declaration ---

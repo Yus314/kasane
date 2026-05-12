@@ -332,19 +332,7 @@ impl WasmPluginLoader {
         let manifest_descriptor = Some(manifest.capability_descriptor());
         let publish_topics = manifest.handlers.publish_topics.clone();
         let subscribe_topics = manifest.handlers.subscribe_topics.clone();
-        let extensions_consumed = manifest.handlers.extensions_consumed.clone();
         let command_error_observability = manifest.handlers.command_error_observability;
-        let extension_defs = manifest
-            .handlers
-            .extensions_defined
-            .iter()
-            .map(|name| {
-                kasane_core::plugin::extension_point::ExtensionDefinition::metadata_only(
-                    kasane_core::plugin::extension_point::ExtensionPointId::new(name.clone()),
-                    kasane_core::plugin::extension_point::CompositionRule::Merge,
-                )
-            })
-            .collect();
 
         Ok(WasmPlugin::new_from_manifest(
             store,
@@ -357,8 +345,6 @@ impl WasmPluginLoader {
             manifest_descriptor,
             publish_topics,
             subscribe_topics,
-            extensions_consumed,
-            extension_defs,
             command_error_observability,
             Arc::clone(&self.epoch_ticker),
         ))

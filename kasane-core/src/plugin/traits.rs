@@ -5,9 +5,7 @@ use crate::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent}
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{self, DirtyFlags};
 
-use super::channel::ChannelValue;
 use super::effects::StateUpdates;
-use super::extension_point::{ExtensionDefinition, ExtensionOutput, ExtensionPointId};
 use super::io::IoEvent;
 use super::pubsub::TopicBus;
 use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
@@ -300,21 +298,6 @@ pub trait PluginBackend: Any {
     /// per-topic batch handler emits.
     fn deliver_subscriptions(&mut self, _bus: &TopicBus, _app: &AppView<'_>) -> Effects {
         Effects::default()
-    }
-
-    // --- Extension-point hooks ---
-
-    fn extension_definitions(&self) -> &[ExtensionDefinition] {
-        &[]
-    }
-
-    fn evaluate_extension(
-        &self,
-        _id: &ExtensionPointId,
-        _input: &ChannelValue,
-        _state: &AppView<'_>,
-    ) -> Vec<ExtensionOutput> {
-        Vec::new()
     }
 
     /// Intercept a shadow-cursor buffer-edit commit before

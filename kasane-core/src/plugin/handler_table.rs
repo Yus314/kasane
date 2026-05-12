@@ -24,7 +24,6 @@ use crate::display::unit::DisplayUnit;
 use crate::display::projection::ProjectionDescriptor;
 
 use super::element_patch::ElementPatch;
-use super::extension_point::{ExtensionContribution, ExtensionDefinition};
 use super::process_task::ProcessTaskEntry;
 use super::pubsub::{PublishEntry, SubscribeEntry};
 use super::traits::{
@@ -561,10 +560,6 @@ pub(crate) struct HandlerTable {
     pub(crate) publishers: Vec<PublishEntry>,
     pub(crate) subscribers: Vec<SubscribeEntry>,
 
-    // --- Extension Points ---
-    pub(crate) extension_definitions: Vec<ExtensionDefinition>,
-    pub(crate) extension_contributions: Vec<ExtensionContribution>,
-
     // --- Process Tasks ---
     pub(crate) process_tasks: Vec<ProcessTaskEntry>,
 
@@ -638,8 +633,6 @@ impl HandlerTable {
             inline_box_paint_handler: None,
             publishers: Vec::new(),
             subscribers: Vec::new(),
-            extension_definitions: Vec::new(),
-            extension_contributions: Vec::new(),
             process_tasks: Vec::new(),
             interests: DirtyFlags::ALL,
             transparency: TransparencyFlags::default(),
@@ -786,16 +779,12 @@ impl HandlerTable {
         let subscribe_topics: Vec<super::pubsub::TopicId> =
             self.subscribers.iter().map(|e| e.topic.clone()).collect();
 
-        let extensions_defined: Vec<super::extension_point::ExtensionPointId> = self
-            .extension_definitions
-            .iter()
-            .map(|e| e.id.clone())
-            .collect();
-        let extensions_consumed: Vec<super::extension_point::ExtensionPointId> = self
-            .extension_contributions
-            .iter()
-            .map(|e| e.id.clone())
-            .collect();
+        // Extension-point dispatch was retired per ADR-045; descriptors
+        // report no defined / consumed extension points from native
+        // plugins. WASM plugins still emit their manifest-declared
+        // metadata through `WasmPlugin::manifest_descriptor`.
+        let extensions_defined: Vec<super::extension_point::ExtensionPointId> = Vec::new();
+        let extensions_consumed: Vec<super::extension_point::ExtensionPointId> = Vec::new();
 
         CapabilityDescriptor {
             transform_targets: self
