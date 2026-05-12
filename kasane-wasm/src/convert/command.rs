@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::input::InputEvent;
-use kasane_core::plugin::{BufferEdit, BufferPosition, Command, Effects, PluginId, StdinMode};
+use kasane_core::plugin::{
+    BufferEdit, BufferPosition, Command, Effects, KakouneSideCommand, KakouneSideEffects,
+    ObservationEffects, PluginId, ProcessCapableEffects, ProcessCommand, StateUpdates, StdinMode,
+};
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::session::SessionCommand as CoreSessionCommand;
 use kasane_core::state::DirtyFlags;
@@ -299,6 +302,113 @@ pub(crate) fn wit_bootstrap_effects_to_effects(effects: &wit::BootstrapEffects) 
         redraw: DirtyFlags::from_bits_truncate(effects.redraw),
         ..Effects::default()
     }
+}
+
+/// Tier-1-typed projection of [`wit::BootstrapEffects`].
+///
+/// Bootstrap carries no commands, so the projection is just the redraw
+/// bits lifted into [`KakouneSideEffects`]. Used by the
+/// `Plugin::register` path on `WasmPlugin` where the typed setter
+/// `on_init_tier1` requires `Into<KakouneSideEffects>`.
+pub(crate) fn wit_bootstrap_effects_to_kakoune_side_effects(
+    effects: &wit::BootstrapEffects,
+) -> KakouneSideEffects {
+    KakouneSideEffects::from(ObservationEffects {
+        redraw: DirtyFlags::from_bits_truncate(effects.redraw),
+        scroll_plans: Vec::new(),
+        state_updates: StateUpdates::default(),
+    })
+}
+
+/// Tier-1-typed counterpart of [`wit_kakoune_side_effects_to_effects_with`].
+///
+/// Re-tags the projector's [`Vec<Command>`] output as
+/// [`Vec<KakouneSideCommand>`] via
+/// [`KakouneSideCommand::from_command_unchecked`]. The wire-side
+/// `wit::KakouneSideEffects` already enforces Tier-1 narrowness, so the
+/// "unchecked" wrap is sound at this boundary. Used by the
+/// `Plugin::register` path on `WasmPlugin`.
+pub(crate) fn wit_kakoune_side_effects_to_kakoune_side_effects_with(
+    effects: &wit::KakouneSideEffects,
+    mut convert_command: impl FnMut(&wit::Command) -> Vec<Command>,
+) -> KakouneSideEffects {
+    let commands: Vec<KakouneSideCommand> = effects
+        .commands
+        .iter()
+        .flat_map(|c| convert_command(&wit_kakoune_side_command_to_wit_command(c)))
+        .map(KakouneSideCommand::from_command_unchecked)
+        .collect();
+    let mut typed = KakouneSideEffects::from(ObservationEffects {
+        redraw: DirtyFlags::from_bits_truncate(effects.redraw),
+        scroll_plans: effects
+            .scroll_plans
+            .iter()
+            .map(wit_scroll_plan_to_scroll_plan)
+            .collect(),
+        state_updates: StateUpdates::default(),
+    });
+    for cmd in commands {
+        typed.push(cmd);
+    }
+    typed
+}
+
+/// Tier-2-typed counterpart of [`wit_process_capable_effects_to_effects_with`].
+///
+/// The Tier-1 base is wrapped through
+/// [`KakouneSideCommand::from_command_unchecked`] and the Tier-2
+/// `process-commands` slice through
+/// [`ProcessCommand::from_command_unchecked`]. Both wrappers are sound
+/// because the wire variants are Tier-narrow by construction.
+pub(crate) fn wit_process_capable_effects_to_process_capable_effects_with(
+    effects: &wit::ProcessCapableEffects,
+    mut convert_command: impl FnMut(&wit::Command) -> Vec<Command>,
+) -> ProcessCapableEffects {
+    let base = wit_kakoune_side_effects_to_kakoune_side_effects_with(&effects.base, |c| {
+        convert_command(c)
+    });
+    let process_commands: Vec<ProcessCommand> = effects
+        .process_commands
+        .iter()
+        .flat_map(|c| convert_command(&wit_process_command_to_wit_command(c)))
+        .map(ProcessCommand::from_command_unchecked)
+        .collect();
+    ProcessCapableEffects {
+        base,
+        process_commands,
+    }
+}
+
+/// Tier-1-typed projection of [`wit::SessionReadyEffects`].
+pub(crate) fn wit_session_ready_effects_to_kakoune_side_effects(
+    effects: &wit::SessionReadyEffects,
+) -> KakouneSideEffects {
+    let mut typed = KakouneSideEffects::from(ObservationEffects {
+        redraw: DirtyFlags::from_bits_truncate(effects.redraw),
+        scroll_plans: effects
+            .scroll_plans
+            .iter()
+            .map(wit_scroll_plan_to_scroll_plan)
+            .collect(),
+        state_updates: StateUpdates::default(),
+    });
+    for command in &effects.commands {
+        let cmd = match command {
+            wit::SessionReadyCommand::SendKeys(keys) => {
+                KakouneSideCommand::send_to_kakoune(KasaneRequest::Keys(keys.clone()))
+            }
+            wit::SessionReadyCommand::EvalCommand(cmd) => {
+                KakouneSideCommand::from_command_unchecked(Command::kakoune_command(cmd))
+            }
+            wit::SessionReadyCommand::PasteClipboard => KakouneSideCommand::paste_clipboard(),
+            wit::SessionReadyCommand::PluginMessage(message) => KakouneSideCommand::plugin_message(
+                PluginId(message.target_plugin.clone()),
+                Box::new(message.payload.clone()),
+            ),
+        };
+        typed.push(cmd);
+    }
+    typed
 }
 
 pub(crate) fn wit_session_ready_effects_to_effects(effects: &wit::SessionReadyEffects) -> Effects {

@@ -227,6 +227,19 @@ impl KakouneSideCommand {
     pub fn as_command(&self) -> &Command {
         &self.0
     }
+
+    /// Wrap a [`Command`] without verifying it is Tier-1-admissible.
+    ///
+    /// Reserved for the WIT bridge, which receives effects through
+    /// already-narrowed wire types (`wit::KakouneSideEffects` /
+    /// `wit::SessionReadyEffects` / `wit::BootstrapEffects`). The wire
+    /// layer guarantees the command is Tier-1; this constructor lets the
+    /// host re-tag the projection's output without re-matching every
+    /// [`Command`] variant.
+    #[doc(hidden)]
+    pub fn from_command_unchecked(c: Command) -> Self {
+        Self(c)
+    }
 }
 
 impl From<KakouneSideCommand> for Command {
@@ -329,6 +342,14 @@ impl ProcessCommand {
     /// Borrow the inner command for inspection.
     pub fn as_command(&self) -> &Command {
         &self.0
+    }
+
+    /// Wrap a [`Command`] without verifying it is Tier-2-admissible.
+    /// See [`KakouneSideCommand::from_command_unchecked`] for the rationale —
+    /// the WIT bridge holds the same Tier-2 narrowness guarantee.
+    #[doc(hidden)]
+    pub fn from_command_unchecked(c: Command) -> Self {
+        Self(c)
     }
 }
 

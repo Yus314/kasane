@@ -11,10 +11,11 @@ use kasane_core::element::{Element, InteractiveId, PluginTag};
 use kasane_core::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, Command, ContributeContext, Contribution,
-    DisplayDirective, Effects, ElementPatch, FrameworkAccess, IoEvent, KeyHandleResult,
-    LineAnnotation, OrnamentBatch, OverlayContext, OverlayContribution, PluginAuthorities,
-    PluginBackend, PluginCapabilities, PluginDiagnostic, PluginId, RenderOrnamentContext, SlotId,
-    TransformContext, TransformSubject, TransformTarget, VirtualTextItem,
+    DisplayDirective, Effects, ElementPatch, FrameworkAccess, HandlerRegistry, IoEvent,
+    KeyHandleResult, LineAnnotation, OrnamentBatch, OverlayContext, OverlayContribution, Plugin,
+    PluginAuthorities, PluginBackend, PluginCapabilities, PluginDiagnostic, PluginId,
+    RenderOrnamentContext, SlotId, TransformContext, TransformSubject, TransformTarget,
+    VirtualTextItem,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -289,6 +290,46 @@ impl WasmPluginShared {
         convert::wit_process_capable_effects_to_effects_with(effects, move |command| {
             shared.convert_command(command)
         })
+    }
+
+    /// Tier-1 counterpart of [`Self::convert_kakoune_side_effects`] used
+    /// by the Plugin-trait (`HandlerRegistry`) path. The closure return
+    /// type [`KakouneSideEffects`] is what `on_*_tier1` setters require.
+    fn convert_kakoune_side_effects_typed(
+        self: &Arc<Self>,
+        effects: &wit::KakouneSideEffects,
+    ) -> kasane_core::plugin::KakouneSideEffects {
+        let shared = Arc::clone(self);
+        convert::wit_kakoune_side_effects_to_kakoune_side_effects_with(effects, move |command| {
+            shared.convert_command(command)
+        })
+    }
+
+    /// Tier-2 counterpart of [`Self::convert_process_capable_effects`] used
+    /// by the Plugin-trait (`HandlerRegistry`) path.
+    fn convert_process_capable_effects_typed(
+        self: &Arc<Self>,
+        effects: &wit::ProcessCapableEffects,
+    ) -> kasane_core::plugin::ProcessCapableEffects {
+        let shared = Arc::clone(self);
+        convert::wit_process_capable_effects_to_process_capable_effects_with(
+            effects,
+            move |command| shared.convert_command(command),
+        )
+    }
+
+    /// `call_synced_with_hash` variant whose closure operates on
+    /// `&Arc<Self>` so it can clone the shared state for inner helpers
+    /// like [`Self::convert_kakoune_side_effects_typed`]. Used by the
+    /// `Plugin::register` closures on `WasmPlugin`.
+    fn call_synced_with_hash_arc<R: Default>(
+        self: &Arc<Self>,
+        state: &AppView<'_>,
+        method: &str,
+        f: impl FnOnce(&Arc<Self>, &mut WasmPluginRuntime) -> anyhow::Result<R>,
+    ) -> R {
+        let shared = Arc::clone(self);
+        self.call_synced_inner(state, method, true, move |runtime| f(&shared, runtime))
     }
 }
 
@@ -711,6 +752,109 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
                 }
                 Ok(out)
             })
+    }
+}
+
+/// Plugin-trait facet of `WasmPlugin`. Built up incrementally as
+/// β-3.3b walks the WIT-export wirings into [`HandlerRegistry`]
+/// closures (see ADR-049). Until [`WasmPluginLoader::load`] is flipped
+/// in β-3.3b.12, these closures are *not* exercised at runtime — the
+/// `impl PluginBackend for WasmPlugin` block below is still the live
+/// path. Keeping both in lockstep lets each sub-phase land as a small,
+/// reviewable commit that compiles + ships through `cargo test
+/// -p kasane-wasm` on the existing dispatch.
+///
+/// Sub-phase coverage so far: **β-3.3b.1 — Lifecycle (6 handlers)**.
+impl Plugin for WasmPlugin {
+    type State = ();
+
+    fn id(&self) -> PluginId {
+        self.shared.plugin_id.clone()
+    }
+
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.declare_interests(self.shared.cached_view_deps);
+
+        // on_init_effects → on_init_tier1
+        let shared = Arc::clone(&self.shared);
+        r.on_init_tier1(move |_state, app| {
+            let effects = shared.call_synced_with_hash(app, "on_init_effects", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                Ok(convert::wit_bootstrap_effects_to_kakoune_side_effects(
+                    &api.call_on_init_effects(&mut rt.store)?,
+                ))
+            });
+            ((), effects)
+        });
+
+        // on_active_session_ready_effects → on_session_ready_tier1
+        let shared = Arc::clone(&self.shared);
+        r.on_session_ready_tier1(move |_state, app| {
+            let effects =
+                shared.call_synced_with_hash(app, "on_active_session_ready_effects", |rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    Ok(convert::wit_session_ready_effects_to_kakoune_side_effects(
+                        &api.call_on_active_session_ready_effects(&mut rt.store)?,
+                    ))
+                });
+            ((), effects)
+        });
+
+        // on_state_changed_effects → on_state_changed_tier1
+        let shared = Arc::clone(&self.shared);
+        r.on_state_changed_tier1(move |_state, app, dirty| {
+            let effects =
+                shared.call_synced_with_hash_arc(app, "on_state_changed_effects", |s, rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    let wit_effects =
+                        api.call_on_state_changed_effects(&mut rt.store, dirty.bits())?;
+                    Ok(s.convert_kakoune_side_effects_typed(&wit_effects))
+                });
+            ((), effects)
+        });
+
+        // on_io_event_effects → on_io_event_tier2
+        let shared = Arc::clone(&self.shared);
+        r.on_io_event_tier2(move |_state, event, app| {
+            let effects = shared.call_synced_with_hash_arc(app, "on_io_event_effects", |s, rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_event = convert::io_event_to_wit(event);
+                Ok(s.convert_process_capable_effects_typed(
+                    &api.call_on_io_event_effects(&mut rt.store, &wit_event)?,
+                ))
+            });
+            ((), effects)
+        });
+
+        // on_workspace_changed
+        let shared = Arc::clone(&self.shared);
+        r.on_workspace_changed(move |_state, query| {
+            let snapshot = convert::workspace_query_to_snapshot(query);
+            shared.with_runtime(|runtime| {
+                let api = runtime.instance.kasane_plugin_plugin_api();
+                if let Err(e) = api.call_on_workspace_changed(&mut runtime.store, &snapshot) {
+                    tracing::error!(
+                        "WASM plugin {}.on_workspace_changed failed: {e}",
+                        shared.plugin_id.0
+                    );
+                    return;
+                }
+                if let Ok(hash) = api.call_state_hash(&mut runtime.store) {
+                    shared.set_state_hash(hash);
+                }
+            });
+        });
+
+        // on_shutdown
+        let shared = Arc::clone(&self.shared);
+        r.on_shutdown(move |_state| {
+            shared.with_runtime(|runtime| {
+                let api = runtime.instance.kasane_plugin_plugin_api();
+                if let Err(e) = api.call_on_shutdown(&mut runtime.store) {
+                    tracing::error!("WASM plugin {}.on_shutdown failed: {e}", shared.plugin_id.0);
+                }
+            });
+        });
     }
 }
 
