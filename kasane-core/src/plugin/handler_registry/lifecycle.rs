@@ -30,35 +30,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     // Lifecycle handlers
     // =========================================================================
 
-    /// Register an initialization handler.
-    ///
-    /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.
-    /// Using `KakouneTransparentEffects` provides a compile-time guarantee of no
-    /// Kakoune writes (ADR-030 Level 5).
-    ///
-    /// **For new code, prefer [`Self::on_init_tier1`]** — it enforces the
-    /// Tier-1 contract from
-    /// [ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
-    /// at compile time, rejecting `ProcessCommand` variants. `on_init` is
-    /// narrow at the WIT level already (Bootstrap phase rejects most
-    /// commands), but the type-level pin further reduces ambiguity.
-    #[deprecated(
-        since = "0.7.1",
-        note = "ADR-044 Phase A-3g: prefer `on_init_tier1`. Init is re-entrance-safe \
-                by contract; the broad `Effects` return permits process spawn that \
-                does not belong here. Add `#[allow(deprecated)]` if you legitimately \
-                need the broad type."
-    )]
-    pub fn on_init<E: Into<Effects> + Transparency + 'static>(
-        &mut self,
-        handler: impl Fn(&S, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
-    ) {
-        register_state_effect!(self, init_handler, handler, app);
-        if E::IS_TRANSPARENT {
-            self.table.transparency.init_handler = true;
-        }
-    }
-
     /// Register a tier-1 initialization handler
     /// ([ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)).
     ///
@@ -79,32 +50,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             let effects: Effects = side.into();
             (Box::new(new_state) as Box<dyn PluginState>, effects)
         }));
-    }
-
-    /// Register a session-ready handler.
-    ///
-    /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.
-    ///
-    /// **For new code, prefer [`Self::on_session_ready_tier1`]** — it
-    /// enforces the Tier-1 contract from
-    /// [ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
-    /// at compile time.
-    #[deprecated(
-        since = "0.7.1",
-        note = "ADR-044 Phase A-3g: prefer `on_session_ready_tier1`. The WIT \
-                `session-ready-command` variant already narrows to Kakoune-side \
-                commands; the Tier-1 type lifts the same guarantee to the \
-                native side. Add `#[allow(deprecated)]` if you legitimately \
-                need the broad type."
-    )]
-    pub fn on_session_ready<E: Into<Effects> + Transparency + 'static>(
-        &mut self,
-        handler: impl Fn(&S, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
-    ) {
-        register_state_effect!(self, session_ready_handler, handler, app);
-        if E::IS_TRANSPARENT {
-            self.table.transparency.session_ready_handler = true;
-        }
     }
 
     /// Register a tier-1 session-ready handler
@@ -128,33 +73,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             let effects: Effects = side.into();
             (Box::new(new_state) as Box<dyn PluginState>, effects)
         }));
-    }
-
-    /// Register a state-changed handler.
-    ///
-    /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.
-    ///
-    /// **For new code, prefer [`Self::on_state_changed_tier1`]** — it enforces
-    /// the Tier-1 contract from
-    /// [ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
-    /// at compile time, rejecting `ProcessCommand` variants (`SpawnProcess`,
-    /// `HttpRequest`, etc.) that re-entrance-prone handlers should not emit.
-    #[deprecated(
-        since = "0.7.1",
-        note = "ADR-044 Phase A-3g: prefer `on_state_changed_tier1`. The state-\
-                changed handler fires per tick; the broad `Effects` return permits \
-                `SpawnProcess` / `HttpRequest` that re-entrance-prone handlers \
-                must not issue (see issue #100). Add `#[allow(deprecated)]` if \
-                you legitimately need the broad type."
-    )]
-    pub fn on_state_changed<E: Into<Effects> + Transparency + 'static>(
-        &mut self,
-        handler: impl Fn(&S, &AppView<'_>, DirtyFlags) -> (S, E) + Send + Sync + 'static,
-    ) {
-        register_state_effect!(self, state_changed_handler, handler, app, dirty);
-        if E::IS_TRANSPARENT {
-            self.table.transparency.state_changed_handler = true;
-        }
     }
 
     /// Register a tier-1 state-changed handler
@@ -191,33 +109,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         }));
     }
 
-    /// Register an I/O event handler.
-    ///
-    /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.
-    ///
-    /// **For new code, prefer [`Self::on_io_event_tier2`]** — it pins the
-    /// Tier-2 contract from
-    /// [ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
-    /// at compile time. Tier 2 admits process commands, which I/O handlers
-    /// naturally need for spawn chains, but the typed return still beats
-    /// `Effects` for review readability and migration to the WIT tier
-    /// split (Phase B).
-    #[deprecated(
-        since = "0.7.1",
-        note = "ADR-044 Phase A-3g: prefer `on_io_event_tier2`. The Tier-2 \
-                return type still admits process commands but pins the \
-                contract for review readability."
-    )]
-    pub fn on_io_event<E: Into<Effects> + Transparency + 'static>(
-        &mut self,
-        handler: impl Fn(&S, &IoEvent, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
-    ) {
-        register_state_effect!(self, io_event_handler, handler, event, app);
-        if E::IS_TRANSPARENT {
-            self.table.transparency.io_event_handler = true;
-        }
-    }
-
     /// Register a tier-2 I/O event handler
     /// ([ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)).
     ///
@@ -242,94 +133,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             let effects: Effects = tier.into();
             (Box::new(new_state) as Box<dyn PluginState>, effects)
         }));
-    }
-
-    /// Register a declarative process task.
-    ///
-    /// The framework manages job ID allocation, stdout buffering, fallback on
-    /// spawn failure, and state machine transitions. The handler receives a
-    /// [`ProcessTaskResult`] when the task completes, fails, or (in streaming
-    /// mode) produces output.
-    ///
-    /// The task is started by calling [`start_process_task`] on the plugin bridge.
-    ///
-    /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.
-    ///
-    /// ```ignore
-    /// r.on_process_task(
-    ///     "file_list",
-    ///     ProcessTaskSpec::new("fd", &["--type", "f"])
-    ///         .fallback(ProcessTaskSpec::new("find", &[".", "-type", "f"])),
-    ///     |state, result, _app| match result {
-    ///         ProcessTaskResult::Completed { stdout, .. } => { /* ... */ }
-    ///         ProcessTaskResult::Failed(msg) => { /* ... */ }
-    ///         _ => (state.clone(), Effects::none()),
-    ///     },
-    /// );
-    /// ```
-    ///
-    /// **For new code, prefer [`Self::on_process_task_tier2`]**.
-    #[deprecated(
-        since = "0.7.1",
-        note = "ADR-044 Phase A-3g: prefer `on_process_task_tier2`. Process-\
-                task completion handlers naturally chain into further spawns; \
-                the Tier-2 return pins that contract."
-    )]
-    pub fn on_process_task<E: Into<Effects> + Transparency + 'static>(
-        &mut self,
-        name: &'static str,
-        spec: ProcessTaskSpec,
-        handler: impl Fn(&S, &ProcessTaskResult, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
-    ) {
-        self.table.process_tasks.push(ProcessTaskEntry {
-            name,
-            spec,
-            handler: Box::new(move |state, result, app| {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                let (new_state, effects) = handler(s, result, app);
-                (Box::new(new_state) as Box<dyn PluginState>, effects.into())
-            }),
-            streaming: false,
-            transparent: E::IS_TRANSPARENT,
-        });
-    }
-
-    /// Register a streaming process task.
-    ///
-    /// Like [`on_process_task`](Self::on_process_task), but delivers stdout
-    /// chunks incrementally via [`ProcessTaskResult::Stdout`] instead of
-    /// accumulating them until process exit.
-    ///
-    /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.
-    ///
-    /// **For new code, prefer [`Self::on_process_task_streaming_tier2`]**.
-    #[deprecated(
-        since = "0.7.1",
-        note = "ADR-044 Phase A-3g: prefer `on_process_task_streaming_tier2`."
-    )]
-    pub fn on_process_task_streaming<E: Into<Effects> + Transparency + 'static>(
-        &mut self,
-        name: &'static str,
-        spec: ProcessTaskSpec,
-        handler: impl Fn(&S, &ProcessTaskResult, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
-    ) {
-        self.table.process_tasks.push(ProcessTaskEntry {
-            name,
-            spec,
-            handler: Box::new(move |state, result, app| {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                let (new_state, effects) = handler(s, result, app);
-                (Box::new(new_state) as Box<dyn PluginState>, effects.into())
-            }),
-            streaming: true,
-            transparent: E::IS_TRANSPARENT,
-        });
     }
 
     /// Register a tier-2 process task
@@ -498,31 +301,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         factory: impl Fn() -> Vec<std::sync::Arc<dyn crate::lens::Lens>> + Send + Sync + 'static,
     ) {
         self.table.lenses_factory = Some(Box::new(factory));
-    }
-
-    /// Register an update (message) handler.
-    ///
-    /// Accepts closures returning `(S, Effects)` or `(S, KakouneTransparentEffects)`.
-    ///
-    /// **For new code, prefer [`Self::on_update_tier2`]** — it pins the
-    /// Tier-2 contract from
-    /// [ADR-044](../../../../docs/decisions.md#adr-044-handler--effect-tier-hierarchy)
-    /// at compile time. The command-handler pattern legitimately spawns
-    /// processes, so Tier 2 is the appropriate enforcement.
-    #[deprecated(
-        since = "0.7.1",
-        note = "ADR-044 Phase A-3g: prefer `on_update_tier2`. The command-\
-                handler pattern legitimately spawns processes; Tier 2 admits \
-                the same surface but pins the contract for review readability."
-    )]
-    pub fn on_update<E: Into<Effects> + Transparency + 'static>(
-        &mut self,
-        handler: impl Fn(&S, &mut dyn Any, &AppView<'_>) -> (S, E) + Send + Sync + 'static,
-    ) {
-        register_state_effect!(self, update_handler, handler, msg, app);
-        if E::IS_TRANSPARENT {
-            self.table.transparency.update_handler = true;
-        }
     }
 
     /// Register a tier-2 update (message) handler

@@ -831,20 +831,16 @@ impl crate::plugin::Plugin for CascadingMessagePlugin {
         // The handler intentionally cascades to itself to exercise the
         // depth limit; the framework cuts it off at
         // MAX_COMMAND_CASCADE_DEPTH.
-        #[allow(deprecated)]
-        r.on_update(|_state, _msg, _app| {
-            (
-                (),
-                Effects {
-                    redraw: DirtyFlags::empty(),
-                    commands: vec![Command::PluginMessage {
-                        target: PluginId("cascading".to_string()),
-                        payload: Box::new(()),
-                    }],
-                    scroll_plans: vec![],
-                    state_updates: Default::default(),
-                },
-            )
+        r.on_update_tier2(|_state, _msg, _app| {
+            let mut effects = crate::plugin::ProcessCapableEffects::none();
+            effects
+                .base
+                .commands
+                .push(crate::plugin::KakouneSideCommand::plugin_message(
+                    PluginId("cascading".to_string()),
+                    Box::new(()),
+                ));
+            ((), effects)
         });
     }
 }

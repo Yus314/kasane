@@ -1675,7 +1675,6 @@ fn unified_and_legacy_annotators_coexist() {
 
 mod sync_lenses {
     use super::super::super::PluginRuntime;
-    use super::super::super::traits::PluginBackend;
     use crate::lens::{Lens, LensId, LensRegistry};
     use crate::plugin::PluginId;
     use std::sync::{Arc, Mutex};

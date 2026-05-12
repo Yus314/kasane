@@ -8,8 +8,7 @@ use kasane_core::element::Element;
 use kasane_core::input::{Key, KeyEvent, Modifiers};
 use kasane_core::kasane_plugin;
 use kasane_core::plugin::{
-    AppView, Command, ContribSizeHint, ContributeContext, Contribution, PluginBackend,
-    PluginCapabilities, PluginId, PluginRuntime, SlotId,
+    AppView, Command, ContribSizeHint, Contribution, PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{Color, Coord, Line, MenuStyle, NamedColor, WireFace};
 use kasane_core::render::{CursorStyle, cursor_style_default};

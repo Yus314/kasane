@@ -1588,34 +1588,29 @@ mod tests {
                 PluginId("test.all-handlers".into())
             }
 
-            // The fixture exercises every legacy setter to keep the dispatch
-            // coverage assertion meaningful; the per-call deprecation warnings
-            // are silenced here because the test deliberately covers the
-            // legacy surface, not because callers should emulate this.
-            #[allow(deprecated)]
             fn register(&self, r: &mut HandlerRegistry<u32>) {
                 let inv = self.invoked.clone();
-                r.on_init(move |s, _app| {
+                r.on_init_tier1(move |s, _app| {
                     inv.lock().unwrap().insert("init");
-                    (*s, Effects::default())
+                    (*s, crate::plugin::KakouneSideEffects::none())
                 });
 
                 let inv = self.invoked.clone();
-                r.on_session_ready(move |s, _app| {
+                r.on_session_ready_tier1(move |s, _app| {
                     inv.lock().unwrap().insert("session_ready");
-                    (*s, Effects::default())
+                    (*s, crate::plugin::KakouneSideEffects::none())
                 });
 
                 let inv = self.invoked.clone();
-                r.on_state_changed(move |s, _app, _dirty| {
+                r.on_state_changed_tier1(move |s, _app, _dirty| {
                     inv.lock().unwrap().insert("state_changed");
-                    (*s, Effects::default())
+                    (*s, crate::plugin::KakouneSideEffects::none())
                 });
 
                 let inv = self.invoked.clone();
-                r.on_io_event(move |s, _event, _app| {
+                r.on_io_event_tier2(move |s, _event, _app| {
                     inv.lock().unwrap().insert("io_event");
-                    (*s, Effects::default())
+                    (*s, crate::plugin::ProcessCapableEffects::none())
                 });
 
                 let inv = self.invoked.clone();
@@ -1630,9 +1625,9 @@ mod tests {
                 });
 
                 let inv = self.invoked.clone();
-                r.on_update(move |s, _msg, _app| {
+                r.on_update_tier2(move |s, _msg, _app| {
                     inv.lock().unwrap().insert("update");
-                    (*s, Effects::default())
+                    (*s, crate::plugin::ProcessCapableEffects::none())
                 });
 
                 let inv = self.invoked.clone();

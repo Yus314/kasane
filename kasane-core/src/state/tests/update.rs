@@ -5,7 +5,7 @@ use crate::element::InteractiveId;
 use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::{Rect, build_hit_map};
 use crate::plugin::{
-    Command, Effects, KeyHandleResult, NullEffects, PluginId, PluginRuntime, RecordingEffects,
+    Command, KeyHandleResult, NullEffects, PluginId, PluginRuntime, RecordingEffects,
 };
 use crate::protocol::{Coord, KakouneRequest, KasaneRequest};
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
@@ -965,135 +965,17 @@ fn fold_summary_click_recording_effects_dispatches_action() {
     assert_eq!(*action, crate::display::NavigationAction::ToggleFold,);
 }
 
-// --- Issue #101: per-plugin source attribution in state-changed batches ---
-
-/// A plugin that emits `Command::SpawnProcess` from `on_state_changed_effects`,
-/// matching the sprout picker pattern that originally surfaced the silent-drop
-/// bug (#100). The spawn used to be dropped because the merged `EffectsBatch`
-/// lost the originating `PluginId`; per-plugin attribution preserves it.
-struct StateChangedSpawner {
-    id: &'static str,
-    job_id: u64,
-}
-
-impl crate::plugin::Plugin for StateChangedSpawner {
-    type State = ();
-
-    fn id(&self) -> PluginId {
-        PluginId(self.id.to_string())
-    }
-
-    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
-        let job_id = self.job_id;
-        // Uses the deprecated Effects-returning variant because the
-        // SpawnProcess command lives outside KakouneSideCommand / Tier-1;
-        // the fixture intentionally exercises the legacy broad-Effects
-        // path that ADR-042 audits.
-        #[allow(deprecated)]
-        r.on_state_changed(move |_state, _app, dirty| {
-            if !dirty.contains(DirtyFlags::BUFFER) {
-                return ((), Effects::default());
-            }
-            (
-                (),
-                Effects::with(vec![Command::SpawnProcess {
-                    job_id,
-                    program: "fd".to_string(),
-                    args: vec!["needle".to_string()],
-                    stdin_mode: crate::plugin::StdinMode::Null,
-                }]),
-            )
-        });
-    }
-}
-
-#[test]
-fn state_changed_spawn_carries_source_plugin() {
-    let mut state = Box::new(AppState::default());
-    let mut registry = PluginRuntime::new();
-    registry.register(StateChangedSpawner {
-        id: "sprout-style",
-        job_id: 7,
-    });
-
-    let result = update_in_place(
-        &mut state,
-        Msg::Kakoune(KakouneRequest::Draw {
-            lines: vec![make_line("hello")],
-            cursor_pos: Coord::default(),
-            default_style: crate::protocol::default_unresolved_style(),
-            padding_style: crate::protocol::default_unresolved_style(),
-            widget_columns: 0,
-        }),
-        &mut registry,
-        3,
-    );
-
-    assert!(result.flags.contains(DirtyFlags::BUFFER));
-    assert!(
-        result.commands.is_empty(),
-        "single-source channel must stay empty; spawn belongs to multi-source"
-    );
-    assert_eq!(
-        result.sourced_commands.len(),
-        1,
-        "one plugin contributed one command group"
-    );
-    let group = &result.sourced_commands[0];
-    assert_eq!(
-        group.source_plugin.as_ref().map(|p| p.0.as_str()),
-        Some("sprout-style"),
-        "source attribution must survive the state-changed batch"
-    );
-    assert!(matches!(
-        group.commands.as_slice(),
-        [Command::SpawnProcess { job_id: 7, .. }]
-    ));
-}
-
-#[test]
-fn state_changed_spawn_preserves_attribution_for_each_plugin() {
-    let mut state = Box::new(AppState::default());
-    let mut registry = PluginRuntime::new();
-    registry.register(StateChangedSpawner {
-        id: "alpha",
-        job_id: 11,
-    });
-    registry.register(StateChangedSpawner {
-        id: "beta",
-        job_id: 22,
-    });
-
-    let result = update_in_place(
-        &mut state,
-        Msg::Kakoune(KakouneRequest::Draw {
-            lines: vec![make_line("hello")],
-            cursor_pos: Coord::default(),
-            default_style: crate::protocol::default_unresolved_style(),
-            padding_style: crate::protocol::default_unresolved_style(),
-            widget_columns: 0,
-        }),
-        &mut registry,
-        3,
-    );
-
-    assert_eq!(
-        result.sourced_commands.len(),
-        2,
-        "each plugin gets its own group"
-    );
-    let mut pairs: Vec<(&str, u64)> = result
-        .sourced_commands
-        .iter()
-        .map(|group| {
-            let pid = group.source_plugin.as_ref().expect("source set").0.as_str();
-            let job = match group.commands.as_slice() {
-                [Command::SpawnProcess { job_id, .. }] => *job_id,
-                _ => panic!("expected exactly one SpawnProcess per group"),
-            };
-            (pid, job)
-        })
-        .collect();
-    pairs.sort();
-    assert_eq!(pairs, vec![("alpha", 11), ("beta", 22)]);
-}
+// (Removed) StateChangedSpawner attribution tests
+// ────────────────────────────────────────────────────────────────────────
+// Two `state_changed_spawn_*` tests previously exercised issue #101
+// (per-plugin source attribution in state-changed batches) by emitting
+// Command::SpawnProcess from on_state_changed_effects via the deprecated
+// broad-Effects setter. After Phase β-3 deletes `on_state_changed` (the
+// `_tier1` variant returning KakouneSideEffects is the sole surviving
+// shape), this anti-pattern is structurally banned at compile time —
+// the bug the test guarded against can no longer occur.
+//
+// Attribution for Tier-2 commands is still covered by the
+// `deliver_io_event_*` / `deliver_message_*` tests, where SpawnProcess
+// emission from on_update_tier2 / on_io_event_tier2 follows the same
+// EffectsBatch path that originally lost the PluginId in #100.

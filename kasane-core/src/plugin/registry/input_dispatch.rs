@@ -501,7 +501,7 @@ pub fn fold_intercept_chain(
 mod intercept_tests {
     use super::*;
     use crate::history::VersionId;
-    use crate::plugin::{Effects, PluginBackend, PluginId};
+    use crate::plugin::{PluginBackend, PluginId};
     use crate::state::AppState;
     use crate::state::selection::{BufferPos, Selection};
     use crate::state::shadow_cursor::{BufferEdit, BufferEditVerdict};

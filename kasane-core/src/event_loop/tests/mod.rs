@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::layout::SplitDirection;
 use crate::plugin::{
-    AppView, AppliedWinnerDelta, Command, Effects, PluginAuthorities, PluginDescriptor, PluginId,
+    AppView, AppliedWinnerDelta, Command, PluginAuthorities, PluginDescriptor, PluginId,
     PluginRank, PluginRevision, PluginSource, StdinMode,
 };
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
