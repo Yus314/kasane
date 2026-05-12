@@ -126,32 +126,35 @@ mod tests {
     #[test]
     fn test_user_plugin_overrides_builtin() {
         use crate::input::Modifiers;
-        use crate::plugin::{PluginBackend, PluginCapabilities, PluginRuntime};
+        use crate::plugin::PluginRuntime;
         use crate::state::{Msg, update_in_place};
 
         struct CustomPageUpPlugin;
-        impl PluginBackend for CustomPageUpPlugin {
+        impl crate::plugin::Plugin for CustomPageUpPlugin {
+            type State = ();
             fn id(&self) -> PluginId {
                 PluginId("custom_pageup".into())
             }
-            fn capabilities(&self) -> PluginCapabilities {
-                PluginCapabilities::INPUT_HANDLER
-            }
-            fn handle_key(&mut self, key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
-                if key.key == Key::PageUp {
-                    Some(vec![Command::SendToKakoune(KasaneRequest::Keys(vec![
-                        "custom".to_string(),
-                    ]))])
-                } else {
-                    None
-                }
+            fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+                r.on_key(|_state, key, _app| {
+                    if key.key == Key::PageUp {
+                        Some((
+                            (),
+                            vec![Command::SendToKakoune(KasaneRequest::Keys(vec![
+                                "custom".to_string(),
+                            ]))],
+                        ))
+                    } else {
+                        None
+                    }
+                });
             }
         }
 
         let mut state = Box::new(AppState::default());
         let mut registry = PluginRuntime::new();
         // Custom plugin registered BEFORE builtin → gets priority
-        registry.register_backend(Box::new(CustomPageUpPlugin));
+        registry.register(CustomPageUpPlugin);
         registry.register(BuiltinInputPlugin);
         let key = KeyEvent {
             key: Key::PageUp,
@@ -170,20 +173,22 @@ mod tests {
     #[test]
     fn test_builtin_fallback_when_no_override() {
         use crate::input::Modifiers;
-        use crate::plugin::{PluginBackend, PluginRuntime};
+        use crate::plugin::PluginRuntime;
         use crate::state::{Msg, update_in_place};
 
         // Plugin that doesn't handle PageUp
         struct NoOpPlugin;
-        impl PluginBackend for NoOpPlugin {
+        impl crate::plugin::Plugin for NoOpPlugin {
+            type State = ();
             fn id(&self) -> PluginId {
                 PluginId("noop".into())
             }
+            fn register(&self, _r: &mut crate::plugin::HandlerRegistry<()>) {}
         }
 
         let mut state = Box::new(AppState::default());
         let mut registry = PluginRuntime::new();
-        registry.register_backend(Box::new(NoOpPlugin));
+        registry.register(NoOpPlugin);
         registry.register(BuiltinInputPlugin);
         let key = KeyEvent {
             key: Key::PageUp,
@@ -248,17 +253,15 @@ mod tests {
     fn test_user_scroll_policy_overrides_builtin_production_default() {
         struct OverrideScrollPlugin;
 
-        impl PluginBackend for OverrideScrollPlugin {
+        impl crate::plugin::Plugin for OverrideScrollPlugin {
+            type State = ();
             fn id(&self) -> PluginId {
                 PluginId("override.scroll".into())
             }
-
-            fn handle_default_scroll(
-                &mut self,
-                _candidate: DefaultScrollCandidate,
-                _state: &AppView<'_>,
-            ) -> Option<ScrollPolicyResult> {
-                Some(ScrollPolicyResult::Suppress)
+            fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+                r.on_default_scroll(|_state, _candidate, _app| {
+                    Some(((), ScrollPolicyResult::Suppress))
+                });
             }
         }
 
@@ -272,7 +275,7 @@ mod tests {
             crate::scroll::ResolvedScroll::new(3, 10, 5),
         );
         let mut registry = crate::plugin::PluginRuntime::new();
-        registry.register_backend(Box::new(OverrideScrollPlugin));
+        registry.register(OverrideScrollPlugin);
         registry.register(BuiltinInputPlugin);
 
         assert_eq!(
