@@ -312,7 +312,7 @@ impl StyledLine {
     /// ([`super::shaper::shape_line`]) calls Parley's
     /// `push_inline_box` for each slot so the layout engine reserves
     /// the declared geometry; the host then queries
-    /// `PluginBackend::paint_inline_box(box_id)` per slot at render
+    /// `PluginBridge::paint_inline_box(box_id)` per slot at render
     /// time to obtain the paint Element.
     ///
     /// `box_id` and slot geometry are part of the L1 LayoutCache

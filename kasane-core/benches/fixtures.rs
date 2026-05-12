@@ -5,8 +5,8 @@ use std::any::Any;
 use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{
-    AppView, Command, ContribSizeHint, ContributeContext, Contribution, PluginBackend,
-    PluginCapabilities, PluginId, PluginRuntime, SlotId,
+    AppView, Command, ContribSizeHint, ContributeContext, Contribution, PluginCapabilities,
+    PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{
     Atom, Attributes, Color, Coord, KakouneRequest, Line, MenuStyle, NamedColor, Style, WireFace,

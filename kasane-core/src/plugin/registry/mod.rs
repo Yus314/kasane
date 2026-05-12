@@ -480,11 +480,6 @@ impl PluginRuntime {
     }
 
     /// Notify all plugins about a state change and collect typed runtime effects.
-    ///
-    /// Phase β-1.5: native (PluginBridge-backed) plugins dispatch via a
-    /// concrete method call on `&mut PluginBridge`, bypassing the vtable.
-    /// External implementers (WasmPlugin etc.) keep the existing
-    /// `Box<dyn PluginBackend>` vtable path.
     pub fn notify_state_changed_batch(
         &mut self,
         app: &AppView<'_>,
@@ -848,8 +843,8 @@ impl PluginRuntime {
 
     /// Register a [`Plugin`] by wrapping it in a [`PluginBridge`].
     ///
-    /// The bridge builds a [`HandlerTable`] from `P::register()`, then dispatches
-    /// all `PluginBackend` methods through the table's erased handlers.
+    /// The bridge builds a [`HandlerTable`] from `P::register()`; every
+    /// dispatch method is then inherent on the bridge.
     pub fn register<P: Plugin>(&mut self, plugin: P) {
         let bridge = PluginBridge::new(plugin);
         self.register_backend(Box::new(bridge));

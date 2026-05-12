@@ -1679,8 +1679,8 @@ mod sync_lenses {
     use crate::plugin::PluginId;
     use std::sync::{Arc, Mutex};
 
-    /// Native plugin that owns one lens and registers it via the
-    /// `PluginBackend::register_lenses` hook.
+    /// Native plugin that owns one lens and registers it via
+    /// [`HandlerRegistry::declare_lenses`].
     struct LensOwningPlugin {
         id: PluginId,
         lens_name: String,

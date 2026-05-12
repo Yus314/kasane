@@ -404,12 +404,9 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     // =========================================================================
-    // ADR-044 Phase A-3e: builder-driven `on_command_error` / `on_subscription`.
-    // Both handlers were previously only reachable via overriding the
-    // `PluginBackend` trait method, leaving HandlerRegistry-driven plugins
-    // (the canonical path) without a way to register them. Returning the
-    // broad `Effects` type matches the WIT shape; tier enforcement can be
-    // added later as a sibling setter.
+    // `on_command_error` / `on_subscription` (ADR-044). Returning the broad
+    // `Effects` type matches the WIT shape; tier enforcement can be added
+    // later as a sibling setter.
     // =========================================================================
 
     /// Register a handler for plugin-attributed Kakoune command failures

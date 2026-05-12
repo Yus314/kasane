@@ -1,8 +1,7 @@
-//! Shared widget evaluation functions used by [`WidgetPlugin`](super::plugin::WidgetPlugin).
+//! Shared widget evaluation helpers used by [`WidgetPlugin`](super::plugin::WidgetPlugin).
 //!
-//! The legacy `WidgetBackend` (test-only `impl PluginBackend` aggregator) was
-//! deleted in Phase β-3.3a. Tests now drive widgets through `PluginRuntime`
-//! via a thin shim in `widget/tests.rs` that preserves their pre-refactor surface.
+//! Tests drive widgets through `PluginRuntime` via a thin shim in
+//! `widget/tests.rs` that aggregates per-widget plugin registrations.
 
 use crate::element::{Element, ElementStyle};
 use crate::plugin::{AppView, PluginDiagnostic, PluginId};

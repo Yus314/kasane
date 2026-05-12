@@ -693,63 +693,37 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
     }
 }
 
-/// Plugin-trait facet of `WasmPlugin`. Built up incrementally as
-/// β-3.3b walks the WIT-export wirings into [`HandlerRegistry`]
-/// closures (see ADR-049). Until [`WasmPluginLoader::load`] is flipped
-/// in β-3.3b.12, these closures are *not* exercised at runtime — the
-/// `impl PluginBackend for WasmPlugin` block below is still the live
-/// path. Keeping both in lockstep lets each sub-phase land as a small,
-/// reviewable commit that compiles + ships through `cargo test
-/// -p kasane-wasm` on the existing dispatch.
+/// `Plugin::register` for the WASM adapter.
 ///
-/// Sub-phase coverage so far:
-/// - **β-3.3b.1 — Lifecycle** (6 handlers)
-/// - **β-3.3b.2 — Input observers** (3 handlers; `observe-text-input`
-///   has no WIT export and is intentionally absent)
-/// - **β-3.3b.3 — Input handlers** (5 handlers: `handle-key`,
-///   `handle-key-middleware`, `handle-mouse`, `handle-drop`,
-///   `handle-default-scroll`; `handle-text-input` has no WIT export)
-/// - **β-3.3b.4 — Input dispatch helpers** (3 handlers: pre-built
-///   `CompiledKeyMap` install, group-refresh, named-action dispatch)
-/// - **β-3.3b.5 — View / contribute / transform** (3 handlers:
-///   slot-agnostic `contribute_to`, declarative `transform_patch`
-///   with WIT-supplied priority, `transform_menu_item`; the legacy
-///   full-rewrite `transform` WIT export is auto-derived by
-///   `PluginBridge::transform` from the registered patch)
-/// - **β-3.3b.6 — Annotations + ornaments** (3 handlers: monolithic
-///   `on_annotate_line` for the unified `annotate-line` WIT export,
-///   `on_render_ornaments`, `on_paint_inline_box`)
-/// - **β-3.3b.7 — Display + projections** (3 handlers + per-descriptor
-///   projections: `on_display`, conditionally `on_display_unified`
-///   when the WIT `display` export is present, and one
-///   `define_projection` per cached descriptor; the priority handler
-///   is declarative — the WIT-supplied `display_directive_priority`
-///   stayed pinned at 0)
-/// - **β-3.3b.8 — Navigation + overlay + edit intercept** (4 handlers:
-///   conditionally `on_navigation_policy` and `on_navigation_action`
-///   when the matching capability bit is set, `on_overlay`,
-///   `on_buffer_edit_intercept`)
-/// - **β-3.3b.9 — Persistence + workspace** (3 handlers:
-///   `on_persist_state`, `on_restore_state`, `declare_surfaces`;
-///   `workspace_request` skipped — `WasmPlugin` does not override
-///   the trait default of `None`)
-/// - **β-3.3b.10 — Process tasks + pubsub + lens** (5 handlers:
-///   `on_update_tier2`, one `publish_raw` per declared topic, one
-///   `subscribe_raw` per subscribed topic plus a single
-///   `on_subscription` for the per-topic batch dispatch,
-///   `on_command_error`, `declare_lenses`; `start_process_task` is
-///   skipped — `WasmPlugin` does not override the trait default)
-/// - **β-3.3b.11 — Static metadata + cleanup** (`declare_authorities`,
-///   `declare_capabilities`, conditional `deny_process_spawn`,
-///   conditional `declare_capability_descriptor`; id /
-///   set_plugin_tag / drain_diagnostics / state_hash are
-///   bridge-internal)
+/// Each closure clones `Arc<WasmPluginShared>` and translates one or
+/// more `kasane:plugin` WIT exports into a [`HandlerRegistry`]
+/// registration. The grouping below mirrors the WIT export families;
+/// adapter helpers live on [`WasmPluginShared`].
 ///
-/// All 11 handler families are now wired through `register()`. The
-/// `impl PluginBackend for WasmPlugin` block remains intact; it is
-/// the live runtime path until β-3.3b.12 flips
-/// [`WasmPluginLoader::load`] to return a `PluginBridge` and removes
-/// the trait impl.
+/// WIT exports that are intentionally absent (no migration target):
+///
+/// - `observe-text-input`, `handle-text-input` — no WIT exports.
+/// - `start-process-task` and `workspace-request` — no override on
+///   the WASM side; the framework default is sufficient.
+///
+/// Behavioural caveats:
+///
+/// - **Transform**: `transform-patch` registers via [`on_transform`];
+///   the legacy full-rewrite `transform` export uses
+///   [`on_transform_full`] so [`PluginBridge::transform`] can fall
+///   back to it when the patch resolves to `ElementPatch::Identity`.
+/// - **Annotations**: the unified `annotate-line` WIT export uses the
+///   monolithic [`on_annotate_line`] setter to avoid 5× WIT round-trips
+///   per annotated line.
+/// - **Capabilities**: WIT plugins always register no-op-tolerant
+///   handlers (`on_io_event_tier2`, `on_command_error`, …), so the
+///   handler-presence inferred capability set is a superset. The
+///   adapter calls [`declare_capabilities`] / [`declare_capability_descriptor`]
+///   to override with the manifest / `register-capabilities` set.
+/// - **State hash**: WIT plugins surface change signals via the
+///   `state-hash` export; [`declare_state_hash`] forwards that to the
+///   bridge instead of the per-mutation generation counter (which
+///   never advances for `type State = ()`).
 impl Plugin for WasmPlugin {
     type State = ();
 

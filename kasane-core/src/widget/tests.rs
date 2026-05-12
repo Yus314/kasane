@@ -18,15 +18,11 @@ use super::types::Template;
 use super::variables::{AppViewResolver, VariableResolver, variable_dirty_flag};
 use crate::state::DirtyFlags;
 
-/// Test-only adapter that preserves the legacy `WidgetBackend` surface
-/// over a [`PluginRuntime`]. Phase β-3.3a removed the production
-/// `WidgetBackend` (`impl PluginBackend` directly); these tests still
-/// drive widgets through the same method shapes — the shim translates
-/// each call into a runtime view query.
-///
-/// New widget code should use [`WidgetPlugin`](super::plugin::WidgetPlugin)
-/// + [`register_all_widgets`](super::plugin::register_all_widgets); this
-/// rig only exists to keep the pre-β-3.3 test bodies stable.
+/// Test-only widget aggregator over a [`PluginRuntime`]. Each call
+/// translates into a runtime view query; production widget code uses
+/// [`WidgetPlugin`](super::plugin::WidgetPlugin) +
+/// [`register_all_widgets`](super::plugin::register_all_widgets)
+/// directly.
 struct WidgetBackend {
     runtime: PluginRuntime,
     /// Diagnostics emitted by the most recent parse (drained on access).

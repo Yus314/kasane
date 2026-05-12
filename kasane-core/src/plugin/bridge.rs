@@ -1,8 +1,9 @@
-//! `PluginBridge` — adapts `Plugin` to the internal `PluginBackend` trait.
+//! `PluginBridge` — the framework's loaded-plugin shape.
 //!
-//! Dispatches `PluginBackend` methods through a [`HandlerTable`] built from
-//! `Plugin::register()`. State changes are tracked via a generation counter
-//! for L1 cache invalidation.
+//! Construction calls `Plugin::register()` to capture a [`HandlerTable`];
+//! all dispatch methods are inherent on `PluginBridge` and route through
+//! the table's erased handlers. State changes are tracked via a
+//! generation counter for L1 cache invalidation.
 
 use std::any::Any;
 
@@ -29,11 +30,13 @@ use super::{
     TransformContext, TransformDescriptor, TransformSubject, TransformTarget, VirtualTextItem,
 };
 
-/// Adapts a [`Plugin`] to the internal [`PluginBackend`] trait via data-driven dispatch.
+/// The framework's loaded-plugin shape — built by [`Plugin::register`]
+/// and stored unboxed inside `PluginRuntime::PluginSlot`.
 ///
-/// Construction calls `P::register()` to capture a [`HandlerTable`], then all
-/// `PluginBackend` methods dispatch through the table's erased handlers.
-/// State changes are tracked via a generation counter for L1 cache invalidation.
+/// Construction calls `P::register()` to capture a [`HandlerTable`];
+/// every dispatch method is inherent on `PluginBridge` and routes
+/// through the table's erased handlers. State changes are tracked via
+/// a generation counter for L1 cache invalidation.
 pub struct PluginBridge {
     id: PluginId,
     table: HandlerTable,
@@ -516,9 +519,9 @@ impl PluginBridge {
                 app
             )
         } else {
-            // No middleware handler: fall back to handle_key (mirrors
-            // PluginBackend default). Cannot inline into the macro
-            // because the fallback dispatches through another method.
+            // No middleware handler: fall back to handle_key. Cannot
+            // inline into the dispatch macro because the fallback
+            // dispatches through another method on `self`.
             match self.handle_key(key, app) {
                 Some(commands) => KeyHandleResult::Consumed(commands),
                 None => KeyHandleResult::Passthrough,
@@ -1045,20 +1048,14 @@ impl PluginBridge {
     }
 }
 
-/// Marker trait for runtime detection of `Plugin`-backed plugins.
-///
-/// Enables the framework to access externalized state directly on `dyn PluginBackend`
-/// objects that are backed by `PluginBridge`.
-pub trait IsBridgedPlugin {
-    fn plugin_state(&self) -> &dyn PluginState;
-    fn plugin_state_mut(&mut self) -> &mut dyn PluginState;
-}
-
-impl IsBridgedPlugin for PluginBridge {
-    fn plugin_state(&self) -> &dyn PluginState {
+impl PluginBridge {
+    /// Borrow the framework-managed [`PluginState`] for this bridge.
+    pub fn plugin_state(&self) -> &dyn PluginState {
         &*self.state
     }
-    fn plugin_state_mut(&mut self) -> &mut dyn PluginState {
+
+    /// Mutably borrow the framework-managed [`PluginState`].
+    pub fn plugin_state_mut(&mut self) -> &mut dyn PluginState {
         &mut *self.state
     }
 }

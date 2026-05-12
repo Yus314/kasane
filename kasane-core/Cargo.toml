@@ -62,10 +62,6 @@ harness = false
 name = "bridge_overhead"
 harness = false
 
-[[bench]]
-name = "dispatch_overhead"
-harness = false
-
 [[bin]]
 name = "alloc_budget"
 required-features = ["bench-alloc"]

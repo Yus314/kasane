@@ -2,7 +2,7 @@
 //!
 //! Plugins declare their required authorities via `requested-authorities` (WIT export).
 //! The host resolves these against user configuration (`deny_authorities` in config.toml)
-//! and stores the granted set on the adapted `PluginBackend`.
+//! and stores the granted set on the loaded [`PluginBridge`](kasane_core::plugin::PluginBridge).
 
 use kasane_core::plugin::PluginAuthorities;
 

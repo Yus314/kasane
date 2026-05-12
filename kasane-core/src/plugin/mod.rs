@@ -1,4 +1,4 @@
-//! Plugin infrastructure: `Plugin` trait, `PluginBackend` trait, registry, context, command, I/O.
+//! Plugin infrastructure: `Plugin` trait, `PluginBridge` adapter, registry, context, command, I/O.
 
 pub mod app_view;
 pub mod bridge;
@@ -139,7 +139,7 @@ pub use compose::{
 // Re-export app_view, state, and bridge modules
 pub use crate::state::Truth;
 pub use app_view::{AppView, FrameworkAccess};
-pub use bridge::{IsBridgedPlugin, PluginBridge};
+pub use bridge::PluginBridge;
 pub use channel::ChannelValue;
 pub use element_patch::ElementPatch;
 pub use handler_registry::HandlerRegistry;
@@ -176,7 +176,7 @@ bitflags! {
         const OVERLAY            = 1 << 2;
         const MENU_TRANSFORM     = 1 << 5;
         /// Plugin paints content inside a `DisplayDirective::InlineBox` slot.
-        /// Dispatched via `PluginBackend::paint_inline_box(box_id) -> Option<Element>`
+        /// Dispatched via `PluginBridge::paint_inline_box(box_id) -> Option<Element>`
         /// when the renderer encounters an inline-box reservation matching
         /// the plugin's `box_id` (ADR-031 Phase 10 Step 2-native).
         const INLINE_BOX_PAINTER = 1 << 13;

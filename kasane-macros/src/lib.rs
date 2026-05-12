@@ -16,8 +16,8 @@ use proc_macro::TokenStream;
 /// - `fn on_state_changed(...)` → `r.on_state_changed_tier1(...)`
 /// - `#[dirty(FLAGS)]` on `#[state]` struct → `r.declare_interests(FLAGS)`
 ///
-/// The legacy `#[kasane_plugin]` (no-argument) mode that emitted
-/// `impl PluginBackend` was removed in Phase β-3.2.
+/// The macro requires the `v2` argument; bare `#[kasane_plugin]` is
+/// rejected at compile time with a migration hint.
 #[proc_macro_attribute]
 pub fn kasane_plugin(attr: TokenStream, input: TokenStream) -> TokenStream {
     let attr_str = attr.to_string();
