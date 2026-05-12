@@ -840,14 +840,13 @@ fn apply_child_bounds(size: u16, min: Option<u16>, max: Option<u16>) -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
 
     use super::*;
     use crate::element::FlexChild;
     use crate::element::{Edges, ElementStyle};
     use crate::layout::flex;
-    use crate::plugin::{AppView, PluginBackend, PluginCapabilities, PluginId, PluginRuntime};
+    use crate::plugin::{PluginId, PluginRuntime};
     use crate::protocol::WireFace;
     use crate::state::AppState;
     use crate::surface::{SlotDeclaration, SlotKind, SurfaceId, SurfaceRegistry};
@@ -923,34 +922,29 @@ mod tests {
 
     #[derive(Clone)]
     struct RecordingPlugin {
-        seen: Rc<RefCell<Vec<ContributeContext>>>,
+        seen: Arc<Mutex<Vec<ContributeContext>>>,
     }
 
-    impl PluginBackend for RecordingPlugin {
+    impl crate::plugin::Plugin for RecordingPlugin {
+        type State = ();
+
         fn id(&self) -> PluginId {
             PluginId("recording_plugin".into())
         }
 
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::CONTRIBUTOR
-        }
-
-        fn contribute_to(
-            &self,
-            region: &SlotId,
-            _state: &AppView<'_>,
-            ctx: &ContributeContext,
-        ) -> Option<Contribution> {
-            if region.as_str() == "test.surface.slot" {
-                self.seen.borrow_mut().push(ctx.clone());
-                Some(Contribution {
-                    element: Element::plain_text("x"),
-                    priority: 0,
-                    size_hint: ContribSizeHint::Auto,
-                })
-            } else {
-                None
-            }
+        fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+            let seen = self.seen.clone();
+            r.on_contribute(
+                SlotId::new("test.surface.slot"),
+                move |_state, _app, ctx| {
+                    seen.lock().unwrap().push(ctx.clone());
+                    Some(Contribution {
+                        element: Element::plain_text("x"),
+                        priority: 0,
+                        size_hint: ContribSizeHint::Auto,
+                    })
+                },
+            );
         }
     }
 
@@ -988,9 +982,9 @@ mod tests {
 
     #[test]
     fn test_resolve_placeholder_uses_container_child_constraints() {
-        let seen = Rc::new(RefCell::new(Vec::new()));
+        let seen = Arc::new(Mutex::new(Vec::new()));
         let mut registry = PluginRuntime::new();
-        registry.register_backend(Box::new(RecordingPlugin { seen: seen.clone() }));
+        registry.register(RecordingPlugin { seen: seen.clone() });
         let state = AppState::default();
 
         let root = Element::Container {
@@ -1021,7 +1015,7 @@ mod tests {
         );
         assert!(outcome.report.owner_errors.is_empty());
 
-        let seen = seen.borrow();
+        let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 1);
         assert_eq!(
             seen[0],
@@ -1041,9 +1035,9 @@ mod tests {
 
     #[test]
     fn test_resolve_placeholder_uses_flex_share_constraints() {
-        let seen = Rc::new(RefCell::new(Vec::new()));
+        let seen = Arc::new(Mutex::new(Vec::new()));
         let mut registry = PluginRuntime::new();
-        registry.register_backend(Box::new(RecordingPlugin { seen: seen.clone() }));
+        registry.register(RecordingPlugin { seen: seen.clone() });
         let state = AppState::default();
 
         let root = Element::row(vec![
@@ -1065,7 +1059,7 @@ mod tests {
         );
         assert!(outcome.report.owner_errors.is_empty());
 
-        let seen = seen.borrow();
+        let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 1);
         assert_eq!(
             seen[0],
@@ -1085,9 +1079,9 @@ mod tests {
 
     #[test]
     fn test_resolve_overlay_slot_inside_stack_overlay() {
-        let seen = Rc::new(RefCell::new(Vec::new()));
+        let seen = Arc::new(Mutex::new(Vec::new()));
         let mut registry = PluginRuntime::new();
-        registry.register_backend(Box::new(RecordingPlugin { seen: seen.clone() }));
+        registry.register(RecordingPlugin { seen: seen.clone() });
         let state = AppState::default();
 
         let root = Element::stack(
@@ -1125,7 +1119,7 @@ mod tests {
             ),
         }
 
-        let seen = seen.borrow();
+        let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 1);
         assert_eq!(
             seen[0],
