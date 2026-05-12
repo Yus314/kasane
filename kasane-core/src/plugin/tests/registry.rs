@@ -295,8 +295,8 @@ fn test_deliver_message_batch_collects_runtime_effects() {
 #[test]
 fn test_shutdown_all_calls_all_plugins() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(LifecyclePlugin::new()));
-    registry.register_backend(Box::new(LifecyclePlugin::new()));
+    registry.register(LifecyclePlugin::new());
+    registry.register(LifecyclePlugin::new());
     registry.shutdown_all();
     // Verify via count — can't inspect internal state, but no panic = success
 }
@@ -327,7 +327,7 @@ fn test_collect_plugin_surfaces_returns_owner_group() {
 #[test]
 fn test_remove_plugin_removes_registered_plugin() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin));
+    registry.register(TestPlugin);
     registry.register_backend(Box::new(SurfacePlugin));
 
     assert!(registry.remove_plugin(&PluginId("surface-plugin".to_string())));
@@ -500,7 +500,7 @@ fn test_notify_workspace_changed_dispatches_only_to_observers() {
         id: "observer",
         hits: hits.clone(),
     }));
-    registry.register_backend(Box::new(TestPlugin));
+    registry.register(TestPlugin);
 
     let workspace = crate::workspace::Workspace::default();
     let query = workspace.query(Rect {
@@ -618,7 +618,7 @@ fn test_unload_plugin_calls_shutdown_and_removes_plugin() {
 #[test]
 fn test_on_state_changed_dispatched_with_flags() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(LifecyclePlugin::new()));
+    registry.register(LifecyclePlugin::new());
     let state = AppState::default();
 
     // Simulate what update() does for Msg::Kakoune
@@ -634,7 +634,7 @@ fn test_on_state_changed_dispatched_with_flags() {
 fn test_lifecycle_defaults() {
     // TestPlugin has no lifecycle hooks — defaults should work
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin));
+    registry.register(TestPlugin);
     let state = AppState::default();
 
     let batch = registry.init_all_batch(&AppView::new(&state));
@@ -647,7 +647,7 @@ fn test_lifecycle_defaults() {
 #[test]
 fn test_init_all_batch_collects_lifecycle_bootstrap_effects() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(LifecyclePlugin::new()));
+    registry.register(LifecyclePlugin::new());
     let state = AppState::default();
 
     let batch = registry.init_all_batch(&AppView::new(&state));
@@ -1169,7 +1169,7 @@ use crate::input::{MouseButton, MouseEventKind};
 #[test]
 fn test_plugin_tags_are_monotonically_assigned_starting_from_1() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin));
+    registry.register(TestPlugin);
     registry.register_backend(Box::new(SurfacePlugin));
 
     let tags: Vec<(PluginId, PluginTag)> = registry.all_plugin_tags();
@@ -1180,7 +1180,7 @@ fn test_plugin_tags_are_monotonically_assigned_starting_from_1() {
 #[test]
 fn test_plugin_tag_zero_is_reserved_for_framework() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin));
+    registry.register(TestPlugin);
     registry.register_backend(Box::new(SurfacePlugin));
     registry.register_backend(Box::new(StatefulPlugin { hash: 1 }));
 
@@ -1196,11 +1196,11 @@ fn test_plugin_tag_zero_is_reserved_for_framework() {
 #[test]
 fn test_replacing_plugin_reuses_its_tag() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin));
+    registry.register(TestPlugin);
     let original_tag = registry.plugin_tag(&PluginId("test".to_string())).unwrap();
 
     // Replace with same ID
-    registry.register_backend(Box::new(TestPlugin));
+    registry.register(TestPlugin);
     let replaced_tag = registry.plugin_tag(&PluginId("test".to_string())).unwrap();
     assert_eq!(original_tag, replaced_tag);
 }
@@ -1208,7 +1208,7 @@ fn test_replacing_plugin_reuses_its_tag() {
 #[test]
 fn test_unloading_plugin_does_not_recycle_tag() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin));
+    registry.register(TestPlugin);
     registry.register_backend(Box::new(SurfacePlugin));
 
     // Remove first plugin

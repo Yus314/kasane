@@ -1,7 +1,6 @@
 use super::*;
 use crate::input::KeyEvent;
 use crate::layout::SplitDirection;
-use crate::plugin::Effects;
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::{Surface, SurfaceId};
 use crate::test_support::TestSurfaceBuilder;
@@ -18,45 +17,42 @@ mod registry;
 
 struct TestPlugin;
 
-impl PluginBackend for TestPlugin {
+impl crate::plugin::Plugin for TestPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("test".to_string())
     }
+
+    fn register(&self, _r: &mut crate::plugin::HandlerRegistry<()>) {}
 }
 
-struct LifecyclePlugin {
-    init_called: bool,
-    shutdown_called: bool,
-    state_changes: Vec<DirtyFlags>,
-}
+struct LifecyclePlugin;
 
 impl LifecyclePlugin {
     fn new() -> Self {
-        LifecyclePlugin {
-            init_called: false,
-            shutdown_called: false,
-            state_changes: Vec::new(),
-        }
+        LifecyclePlugin
     }
 }
 
-impl PluginBackend for LifecyclePlugin {
+impl crate::plugin::Plugin for LifecyclePlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("lifecycle".to_string())
     }
 
-    fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
-        self.init_called = true;
-        Effects::redraw(DirtyFlags::BUFFER)
-    }
-
-    fn on_shutdown(&mut self) {
-        self.shutdown_called = true;
-    }
-
-    fn on_state_changed_effects(&mut self, _state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
-        self.state_changes.push(dirty);
-        Effects::default()
+    fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
+        r.on_init_tier1(|state, _app| {
+            (
+                state.clone(),
+                crate::plugin::KakouneSideEffects::redraw(DirtyFlags::BUFFER),
+            )
+        });
+        r.on_shutdown(|_state| {});
+        r.on_state_changed_tier1(|state, _app, _dirty| {
+            (state.clone(), crate::plugin::KakouneSideEffects::none())
+        });
     }
 }
 

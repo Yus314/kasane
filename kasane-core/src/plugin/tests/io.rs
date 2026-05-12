@@ -222,7 +222,7 @@ fn test_recording_dispatcher_tracks_operations() {
 fn test_plugin_allows_process_spawn_default_true() {
     // TestPlugin uses default allows_process_spawn() which returns true
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(TestPlugin));
+    registry.register(TestPlugin);
     assert!(registry.plugin_allows_process_spawn(&PluginId("test".to_string())));
 }
 
