@@ -8,7 +8,7 @@ the crate-level axis follows Rust semver and is enforced by Cargo.
 
 | Axis | Source of truth | Example |
 |---|---|---|
-| WIT ABI | `kasane-wasm/wit/plugin.wit:1` | `package kasane:plugin@5.0.0;` |
+| WIT ABI | `kasane-wasm/wit/plugin.wit:1` | `package kasane:plugin@6.0.0;` |
 | SDK crate semver | `kasane-plugin-sdk/Cargo.toml` | `version = "0.6.0"` |
 
 The two move together for major bumps that change the wire format. The
@@ -74,18 +74,24 @@ SDK that uses only existing WIT types is a *crate* minor bump but
 | Kasane host | WIT ABI | SDK crate |
 |---|---|---|
 | 0.6.x | 3.0.0 | 0.6.x |
-| 0.7.x | 5.0.0 | 0.7.x |
+| 0.7.x (early) | 5.0.0 | 0.7.x |
+| 0.7.x (Phase β-4) | 6.0.0 | 0.7.x |
 
 Future entries land here as releases ship.
 
-ABI 5.0.0 is the [ADR-044](decisions.md#adr-044-handler--effect-tier-hierarchy)
+ABI 6.0.0 (Phase β-4) removes the retired `evaluate-extension` export
+(no producers since [ADR-045](decisions.md#adr-045-retire-the-extension-point-dispatch-path);
+the WIT declaration was kept under 5.0.0 to preserve binding-table
+parity for legacy guests). 5.0.0 plugins are rejected at load time.
+
+ABI 5.0.0 was the [ADR-044](decisions.md#adr-044-handler--effect-tier-hierarchy)
 tier-hierarchy split: the five `runtime-effects`-returning exports
 (`on-state-changed-effects`, `on-command-error-effects`,
 `on-subscription`, `update-effects`, `on-io-event-effects`) now return
 their ADR-mapped tier — `kakoune-side-effects` (Tier 1) or
 `process-capable-effects` (Tier 2). The `runtime-effects` record and
-the transitional B-2 `on-state-changed-tier1-effects` parallel are
-removed. ABI 4.x plugins are rejected at load time.
+the transitional B-2 `on-state-changed-tier1-effects` parallel were
+removed.
 
 ---
 

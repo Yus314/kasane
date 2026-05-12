@@ -116,7 +116,6 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "display",
         "publish_value",
         "on_subscription",
-        "evaluate_extension",
         "persist_state",
         "restore_state",
         "paint_inline_box",
@@ -688,15 +687,6 @@ pub(crate) fn generate_defaults(
             fn on_subscription(_topic: String, _values: Vec<ChannelValue>) -> KakouneSideEffects {
                 KakouneSideEffects::default()
             }
-        }
-    );
-
-    // --- Extension points (v0.24.0) ---
-
-    add_default!(
-        "evaluate_extension",
-        quote! {
-            fn evaluate_extension(_id: String, _input: ChannelValue) -> Option<ChannelValue> { None }
         }
     );
 
