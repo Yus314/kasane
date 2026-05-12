@@ -801,6 +801,17 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
 ///   `on_subscription` for the per-topic batch dispatch,
 ///   `on_command_error`, `declare_lenses`; `start_process_task` is
 ///   skipped — `WasmPlugin` does not override the trait default)
+/// - **β-3.3b.11 — Static metadata + cleanup** (`declare_authorities`,
+///   `declare_capabilities`, conditional `deny_process_spawn`,
+///   conditional `declare_capability_descriptor`; id /
+///   set_plugin_tag / drain_diagnostics / state_hash are
+///   bridge-internal)
+///
+/// All 11 handler families are now wired through `register()`. The
+/// `impl PluginBackend for WasmPlugin` block remains intact; it is
+/// the live runtime path until β-3.3b.12 flips
+/// [`WasmPluginLoader::load`] to return a `PluginBridge` and removes
+/// the trait impl.
 impl Plugin for WasmPlugin {
     type State = ();
 
@@ -1693,6 +1704,34 @@ impl Plugin for WasmPlugin {
                 })
                 .collect()
         });
+
+        // ---- β-3.3b.11 — Static metadata + cleanup ----
+        // The WIT-supplied capabilities and capability descriptor often
+        // diverge from what the host can infer from registered handlers
+        // (e.g. WASM plugins always register `on_io_event_tier2` even
+        // when the WIT module never exports `on-io-event-effects`, so
+        // auto-inference would over-report `IO_HANDLER`). The override
+        // setters preserve the trait method's exact-cap semantics.
+        r.declare_authorities(self.shared.authorities);
+        r.declare_capabilities(self.shared.cached_capabilities);
+        if !self.shared.process_allowed {
+            r.deny_process_spawn();
+        }
+        if let Some(descriptor) = self.shared.manifest_descriptor.clone() {
+            r.declare_capability_descriptor(descriptor);
+        }
+
+        // id, set_plugin_tag, drain_diagnostics, state_hash are
+        // bridge-internal: PluginBridge derives id from `Plugin::id()`
+        // (already provided above), maintains its own plugin_tag /
+        // pending_diagnostics / generation counter, so no register-time
+        // wiring is needed. WasmPlugin's WIT-side state hash continues
+        // to ride on the closure side via `call_synced_with_hash`; the
+        // bridge's generation counter advances independently as the
+        // (unit) state changes (it never does for WasmPlugin), but the
+        // change-detection hashes from the WIT calls keep the per-frame
+        // staleness signal accurate through the same machinery the trait
+        // method relied on.
     }
 }
 

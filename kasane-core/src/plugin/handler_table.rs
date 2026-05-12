@@ -616,6 +616,17 @@ pub(crate) struct HandlerTable {
     /// allow; `false` opts the plugin out of process spawning entirely.
     pub(crate) allows_process_spawn: bool,
 
+    /// Optional override for the auto-inferred capabilities. Used by
+    /// adapters whose capability set is sourced from an external manifest
+    /// or WIT export — primarily WASM plugins via `register-capabilities`.
+    /// When `Some`, takes precedence over `Self::capabilities()`.
+    pub(crate) capabilities_override: Option<PluginCapabilities>,
+
+    /// Optional override for the auto-derived capability descriptor.
+    /// Used by adapters whose capability descriptor is sourced from an
+    /// external manifest — primarily WASM plugins.
+    pub(crate) capability_descriptor_override: Option<super::CapabilityDescriptor>,
+
     // --- Host-resolved authorities ---
     /// Bitflags requested by the plugin at registration. Defaults to empty.
     pub(crate) authorities: super::PluginAuthorities,
@@ -708,6 +719,8 @@ impl HandlerTable {
             surfaces_factory: None,
             workspace_request: None,
             allows_process_spawn: true,
+            capabilities_override: None,
+            capability_descriptor_override: None,
             authorities: super::PluginAuthorities::empty(),
             display_priority: 0,
             lenses_factory: None,

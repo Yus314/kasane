@@ -326,6 +326,29 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         self.table.authorities = authorities;
     }
 
+    /// Override the auto-inferred [`PluginCapabilities`] set.
+    ///
+    /// Counterpart to handler-presence inference for adapters whose
+    /// capability set is sourced from an external manifest or WIT
+    /// export (e.g. WASM plugins via `register-capabilities`). When
+    /// set, this value is returned by `PluginBridge::capabilities()`
+    /// instead of [`HandlerTable::capabilities()`]'s derivation.
+    pub fn declare_capabilities(&mut self, caps: super::super::PluginCapabilities) {
+        self.table.capabilities_override = Some(caps);
+    }
+
+    /// Override the auto-derived [`CapabilityDescriptor`].
+    ///
+    /// Counterpart to the handler-presence-derived descriptor for
+    /// adapters whose authoritative descriptor lives in a manifest
+    /// (e.g. WASM plugins).
+    pub fn declare_capability_descriptor(
+        &mut self,
+        descriptor: super::super::CapabilityDescriptor,
+    ) {
+        self.table.capability_descriptor_override = Some(descriptor);
+    }
+
     /// Set the priority for this plugin's display directives.
     ///
     /// Higher priorities win during `DirectiveSet` resolution. Default 0.

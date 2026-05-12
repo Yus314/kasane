@@ -347,7 +347,9 @@ impl PluginBackend for PluginBridge {
     }
 
     fn capabilities(&self) -> PluginCapabilities {
-        self.table.capabilities()
+        self.table
+            .capabilities_override
+            .unwrap_or_else(|| self.table.capabilities())
     }
 
     fn authorities(&self) -> PluginAuthorities {
@@ -921,7 +923,12 @@ impl PluginBackend for PluginBridge {
     }
 
     fn capability_descriptor(&self) -> Option<super::CapabilityDescriptor> {
-        Some(self.table.capability_descriptor())
+        Some(
+            self.table
+                .capability_descriptor_override
+                .clone()
+                .unwrap_or_else(|| self.table.capability_descriptor()),
+        )
     }
 
     fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
