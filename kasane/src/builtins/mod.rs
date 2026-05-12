@@ -25,7 +25,7 @@ pub fn builtin_plugin_factories() -> Vec<Arc<dyn PluginFactory>> {
             PluginBridge::new(BuiltinInfoPlugin)
         }),
         builtin_plugin("builtin-diagnostics", "kasane.builtin.diagnostics", || {
-            diagnostics::BuiltinDiagnosticsPlugin
+            PluginBridge::new(diagnostics::BuiltinDiagnosticsPlugin)
         }),
         builtin_plugin(
             "builtin-diagnostics-panel",

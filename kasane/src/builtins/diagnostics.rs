@@ -6,9 +6,7 @@
 
 use kasane_core::element::{BorderConfig, BorderLineStyle, Element, ElementStyle, FlexChild};
 use kasane_core::plugin::diagnostics::PluginDiagnosticOverlayState;
-use kasane_core::plugin::{
-    AppView, OverlayContext, OverlayContribution, PluginBackend, PluginCapabilities, PluginId,
-};
+use kasane_core::plugin::{HandlerRegistry, OverlayContribution, Plugin, PluginId};
 use kasane_core::protocol::{Atom, Brush, Style};
 use unicode_width::UnicodeWidthStr;
 
@@ -18,37 +16,33 @@ use unicode_width::UnicodeWidthStr;
 /// overlay when diagnostics are active.
 pub struct BuiltinDiagnosticsPlugin;
 
-impl PluginBackend for BuiltinDiagnosticsPlugin {
+impl Plugin for BuiltinDiagnosticsPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.diagnostics".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::OVERLAY
-    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_overlay(|_state, app, _ctx| {
+            let overlay_state = app.diagnostic_overlay();
+            if !overlay_state.is_active() {
+                return None;
+            }
 
-    fn contribute_overlay_with_ctx(
-        &self,
-        state: &AppView<'_>,
-        _ctx: &OverlayContext,
-    ) -> Option<OverlayContribution> {
-        let overlay_state = state.diagnostic_overlay();
-        if !overlay_state.is_active() {
-            return None;
-        }
+            let cols = app.cols();
+            let rows = app.rows();
+            let log_path = app.log_path().and_then(|p| p.to_str().map(str::to_owned));
+            let (element, anchor) =
+                build_diagnostic_element(overlay_state, cols, rows, log_path.as_deref())?;
 
-        let cols = state.cols();
-        let rows = state.rows();
-        let log_path = state.log_path().and_then(|p| p.to_str().map(str::to_owned));
-        let (element, anchor) =
-            build_diagnostic_element(overlay_state, cols, rows, log_path.as_deref())?;
-
-        Some(OverlayContribution {
-            element,
-            anchor,
-            z_index: 100,
-            plugin_id: PluginId("kasane.builtin.diagnostics".into()),
-        })
+            Some(OverlayContribution {
+                element,
+                anchor,
+                z_index: 100,
+                plugin_id: PluginId("kasane.builtin.diagnostics".into()),
+            })
+        });
     }
 }
 
