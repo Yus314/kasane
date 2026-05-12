@@ -1024,14 +1024,13 @@ impl Plugin for PublisherPlugin {
     fn id(&self) -> PluginId {
         PluginId("publisher".to_string())
     }
-    #[allow(deprecated)] // ADR-044 A-3g: test fixture exercises the legacy setter
     fn register(&self, r: &mut HandlerRegistry<PubState>) {
-        r.on_state_changed(|state, _app, _dirty| {
+        r.on_state_changed_tier1(|state, _app, _dirty| {
             (
                 PubState {
                     counter: state.counter + 1,
                 },
-                Effects::default(),
+                KakouneSideEffects::none(),
             )
         });
         r.publish::<u32>(TopicId::new("test.counter"), |state, _app| state.counter);

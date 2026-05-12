@@ -87,7 +87,9 @@ pub trait Plugin: Send + 'static {
 #[cfg(test)]
 pub(in crate::plugin) mod tests {
     use super::*;
-    use crate::plugin::{BackgroundLayer, BlendMode, Effects, HandlerRegistry, PluginId};
+    use crate::plugin::{
+        BackgroundLayer, BlendMode, HandlerRegistry, KakouneSideEffects, PluginId,
+    };
     use crate::protocol::{Color, NamedColor, WireFace};
     use crate::state::DirtyFlags;
 
@@ -107,17 +109,16 @@ pub(in crate::plugin) mod tests {
             PluginId("test.cursor-line-pure".into())
         }
 
-        #[allow(deprecated)] // ADR-044 A-3g: test fixture exercises the legacy setter
         fn register(&self, r: &mut HandlerRegistry<CursorLineState>) {
             r.declare_interests(DirtyFlags::BUFFER);
-            r.on_state_changed(|state, app, dirty| {
+            r.on_state_changed_tier1(|state, app, dirty| {
                 if dirty.intersects(DirtyFlags::BUFFER) {
                     let new_state = CursorLineState {
                         active_line: app.cursor_line(),
                     };
-                    (new_state, Effects::default())
+                    (new_state, KakouneSideEffects::none())
                 } else {
-                    (state.clone(), Effects::default())
+                    (state.clone(), KakouneSideEffects::none())
                 }
             });
             r.on_decorate_background(|state, line, _app, _ctx| {
@@ -165,17 +166,16 @@ pub(in crate::plugin) mod tests {
             PluginId("test.color-preview-pure".into())
         }
 
-        #[allow(deprecated)] // ADR-044 A-3g: test fixture exercises the legacy setter
         fn register(&self, r: &mut HandlerRegistry<ColorPreviewState>) {
             r.declare_interests(DirtyFlags::BUFFER);
-            r.on_state_changed(|state, app, dirty| {
+            r.on_state_changed_tier1(|state, app, dirty| {
                 if dirty.intersects(DirtyFlags::BUFFER) {
                     let mut new_state = state.clone();
                     new_state.active_line = app.cursor_line();
                     new_state.generation += 1;
-                    (new_state, Effects::default())
+                    (new_state, KakouneSideEffects::none())
                 } else {
-                    (state.clone(), Effects::default())
+                    (state.clone(), KakouneSideEffects::none())
                 }
             });
             r.on_decorate_background(|state, line, _app, _ctx| {

@@ -277,15 +277,15 @@ fn has_annotation_handlers_with_gutter() {
 }
 
 #[test]
-#[allow(deprecated)] // ADR-044 A-3g: test exercises the legacy setter
 fn handler_type_erasure_invocation() {
+    use super::super::KakouneSideEffects;
     // Verify that erased handlers can be invoked with the correct state type.
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_state_changed(|state, _app, _dirty| {
+    registry.on_state_changed_tier1(|state, _app, _dirty| {
         let new_state = TestState {
             counter: state.counter + 1,
         };
-        (new_state, Effects::default())
+        (new_state, KakouneSideEffects::none())
     });
     let table = registry.into_table();
 
