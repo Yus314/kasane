@@ -768,6 +768,9 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
 /// - **β-3.3b.1 — Lifecycle** (6 handlers)
 /// - **β-3.3b.2 — Input observers** (3 handlers; `observe-text-input`
 ///   has no WIT export and is intentionally absent)
+/// - **β-3.3b.3 — Input handlers** (5 handlers: `handle-key`,
+///   `handle-key-middleware`, `handle-mouse`, `handle-drop`,
+///   `handle-default-scroll`; `handle-text-input` has no WIT export)
 impl Plugin for WasmPlugin {
     type State = ();
 
@@ -915,6 +918,147 @@ impl Plugin for WasmPlugin {
                     .call_observe_drop(&mut rt.store, &wit_event)
                     .map(|_| ())?)
             });
+        });
+
+        // ---- β-3.3b.3 — Input handlers ----
+        // WIT exports: handle-key / handle-key-middleware / handle-mouse /
+        // handle-drop / handle-default-scroll. There is no
+        // `handle-text-input` WIT export; the corresponding `on_text_input`
+        // registry slot stays empty for WASM plugins.
+
+        // handle_key → on_key
+        let shared = Arc::clone(&self.shared);
+        r.on_key(move |_state, key, app| {
+            let shared_for_call = Arc::clone(&shared);
+            shared.with_runtime(|runtime| {
+                host::sync_from_app_state(
+                    runtime.store.data_mut(),
+                    app.as_app_state(),
+                    shared_for_call.cached_view_deps,
+                );
+                let api = runtime.instance.kasane_plugin_plugin_api();
+                let wit_key = convert::key_event_to_wit(key);
+                let result = match api.call_handle_key(&mut runtime.store, wit_key) {
+                    Ok(Some(cmds)) => Some(shared_for_call.convert_commands(&cmds)),
+                    Ok(None) => None,
+                    Err(e) => {
+                        tracing::error!(
+                            "WASM plugin {}.handle_key failed: {e}",
+                            shared_for_call.plugin_id.0
+                        );
+                        return None;
+                    }
+                };
+
+                if result.is_some()
+                    && let Ok(h) = api.call_state_hash(&mut runtime.store)
+                {
+                    shared_for_call.set_state_hash(h);
+                }
+
+                result.map(|cmds| ((), cmds))
+            })
+        });
+
+        // handle_key_middleware → on_key_middleware
+        let shared = Arc::clone(&self.shared);
+        r.on_key_middleware(move |_state, key, app| {
+            let result = shared.call_synced_with_hash_arc(
+                app,
+                "handle_key_middleware",
+                |s, rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    let wit_key = convert::key_event_to_wit(key);
+                    let wit_result = api.call_handle_key_middleware(&mut rt.store, wit_key)?;
+                    Ok(match wit_result {
+                        wit::KeyHandleResult::Consumed(commands) => {
+                            KeyHandleResult::Consumed(s.convert_commands(&commands))
+                        }
+                        wit::KeyHandleResult::Transformed(next_key) => {
+                            match convert::wit_key_event_to_key_event(&next_key) {
+                                Ok(next_key) => KeyHandleResult::Transformed(next_key),
+                                Err(error) => {
+                                    tracing::error!(
+                                        "WASM plugin {}.handle_key_middleware returned invalid key: {error}",
+                                        s.plugin_id.0
+                                    );
+                                    KeyHandleResult::Passthrough
+                                }
+                            }
+                        }
+                        wit::KeyHandleResult::Passthrough => KeyHandleResult::Passthrough,
+                    })
+                },
+            );
+            ((), result)
+        });
+
+        // handle_mouse → on_handle_mouse (matches trait path: call_synced
+        // without hash update; per-click state propagation rides on the
+        // returned Effects/commands cycle).
+        let shared = Arc::clone(&self.shared);
+        r.on_handle_mouse(move |_state, event, id, app| {
+            let shared_for_call = Arc::clone(&shared);
+            shared
+                .call_synced(app, "handle_mouse", |rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    let wit_event = convert::mouse_event_to_wit(event);
+                    Ok(api
+                        .call_handle_mouse(&mut rt.store, wit_event, id.local)
+                        .map(|opt| opt.map(|cmds| shared_for_call.convert_commands(&cmds)))?)
+                })
+                .map(|cmds| ((), cmds))
+        });
+
+        // handle_drop → on_drop (matches trait path: call_synced without
+        // hash update).
+        let shared = Arc::clone(&self.shared);
+        r.on_drop(move |_state, event, id, app| {
+            let shared_for_call = Arc::clone(&shared);
+            shared
+                .call_synced(app, "handle_drop", |rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    let wit_event = convert::drop_event_to_wit(event);
+                    Ok(api
+                        .call_handle_drop(&mut rt.store, &wit_event, id.local)
+                        .map(|opt| opt.map(|cmds| shared_for_call.convert_commands(&cmds)))?)
+                })
+                .map(|cmds| ((), cmds))
+        });
+
+        // handle_default_scroll → on_default_scroll
+        let shared = Arc::clone(&self.shared);
+        r.on_default_scroll(move |_state, candidate, app| {
+            let shared_for_call = Arc::clone(&shared);
+            shared.with_runtime(|runtime| {
+                host::sync_from_app_state(
+                    runtime.store.data_mut(),
+                    app.as_app_state(),
+                    shared_for_call.cached_view_deps,
+                );
+                let api = runtime.instance.kasane_plugin_plugin_api();
+                let wit_candidate = convert::default_scroll_candidate_to_wit(&candidate);
+                let result = match api.call_handle_default_scroll(&mut runtime.store, wit_candidate)
+                {
+                    Ok(Some(result)) => Some(convert::wit_scroll_policy_result_to_result(&result)),
+                    Ok(None) => None,
+                    Err(e) => {
+                        tracing::error!(
+                            "WASM plugin {}.handle_default_scroll failed: {e}",
+                            shared_for_call.plugin_id.0
+                        );
+                        return None;
+                    }
+                };
+
+                if result.is_some()
+                    && let Ok(h) = api.call_state_hash(&mut runtime.store)
+                {
+                    shared_for_call.set_state_hash(h);
+                }
+
+                result.map(|res| ((), res))
+            })
         });
     }
 }
