@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use crate::display::{
-    self, BufferLine, DirectiveCategory, DisplayDirective, DisplayMap, FoldToggleState, GutterSide,
+    BufferLine, DirectiveCategory, DisplayDirective, DisplayMap, FoldToggleState, GutterSide,
     InlineBoxAlignment, InlineInteraction, VirtualTextPosition,
 };
 use crate::element::Element;
