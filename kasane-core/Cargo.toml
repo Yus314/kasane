@@ -17,7 +17,6 @@ unicode-width = { workspace = true }
 unicode-segmentation = { workspace = true }
 bitflags = { workspace = true }
 compact_str = { workspace = true }
-dyn-clone = { workspace = true }
 tracing = { workspace = true }
 postcard = { workspace = true }
 itoa = { workspace = true }

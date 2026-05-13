@@ -372,8 +372,8 @@ mod tests {
     #[test]
     fn navigation_action_handler_sets_capability() {
         let mut table = HandlerTable::empty();
-        table.navigation_action_handler = Some(Box::new(|state, _unit, _action| {
-            (dyn_clone::clone_box(state), ActionResult::Pass)
+        table.navigation_action_handler = Some(Box::new(|_state, _unit, _action| {
+            (Box::new(()) as Box<dyn PluginState>, ActionResult::Pass)
         }));
         assert!(
             table

@@ -830,7 +830,7 @@ The `Plugin` trait externalizes plugin state ownership to the framework. The key
 
 Plugin state changes are tracked by two independent tiers:
 
-- **Tier 1 (coarse)**: Current state is compared against a previous snapshot via `PartialEq` after every mutable hook. If different, a monotonic generation counter is incremented. The runtime reads generation counters to determine whether any plugin state changed.
+- **Tier 1 (coarse)**: After each mutable hook, the handler's returned state is compared against the current state via `PartialEq` before the swap; if different, a monotonic generation counter is incremented. The runtime reads generation counters to determine whether any plugin state changed.
 - **Tier 2 (fine)**: When the coarse tier indicates a change, plugin outputs are re-collected. Individual Salsa inputs use `PartialEq` early-cutoff — unchanged contributions produce cached outputs even when re-collected.
 
 Both tiers are necessary. The generation counter provides the coarse "did anything change?" gate. Salsa provides fine-grained memoization. Removing the generation counter would force Salsa to re-collect all plugin contributions every frame. Removing Salsa would lose incremental computation.

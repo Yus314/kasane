@@ -6,8 +6,6 @@
 
 use std::any::Any;
 
-use dyn_clone::DynClone;
-
 // =============================================================================
 // Phase 0: Foundation Types
 // =============================================================================
@@ -15,15 +13,17 @@ use dyn_clone::DynClone;
 /// Marker trait for externalized plugin state.
 ///
 /// Framework owns `Box<dyn PluginState>` for each `Plugin`.
-/// Implements `Clone`, `PartialEq`, and `Debug` on trait objects via
-/// blanket impl: any `T: Clone + PartialEq + Debug + Send + 'static`
-/// automatically satisfies this trait.
+/// Implements `PartialEq` and `Debug` on trait objects via
+/// blanket impl: any `Clone + PartialEq + Debug + Send + 'static`
+/// type automatically satisfies this trait.
 ///
-/// Change detection in [`PluginBridge`](super::plugin_bridge::PluginBridge) uses
-/// [`dyn_eq`](Self::dyn_eq) against a clone of the previous state. There
-/// is no longer a hash-based fast path, so plugin-state types are free to
-/// contain `HashMap` or other non-`Hash` collections without boilerplate.
-pub trait PluginState: DynClone + std::fmt::Debug + Send + 'static {
+/// Change detection in [`PluginBridge`](super::plugin_bridge::PluginBridge)
+/// compares the handler's returned state against the current state via
+/// [`dyn_eq`](Self::dyn_eq) *before* the swap, so no per-mutation snapshot
+/// clone is required. Plugin-state types remain free to contain `HashMap`
+/// or other non-`Hash` collections — only `PartialEq` is needed for
+/// invalidation tracking.
+pub trait PluginState: std::fmt::Debug + Send + 'static {
     /// Downcast to concrete type (immutable).
     fn as_any(&self) -> &dyn Any;
     /// Downcast to concrete type (mutable).
@@ -32,9 +32,6 @@ pub trait PluginState: DynClone + std::fmt::Debug + Send + 'static {
     fn dyn_eq(&self, other: &dyn PluginState) -> bool;
 }
 
-// Enable Box<dyn PluginState>.clone()
-dyn_clone::clone_trait_object!(PluginState);
-
 // Enable *dyn_state_a == *dyn_state_b
 impl PartialEq for dyn PluginState {
     fn eq(&self, other: &Self) -> bool {
@@ -42,11 +39,11 @@ impl PartialEq for dyn PluginState {
     }
 }
 
-/// Blanket implementation: any `Clone + PartialEq + Debug + Send + 'static`
+/// Blanket implementation: any `PartialEq + Debug + Send + 'static`
 /// type can be used as plugin state with zero boilerplate.
 impl<T> PluginState for T
 where
-    T: Clone + PartialEq + std::fmt::Debug + Send + 'static,
+    T: PartialEq + std::fmt::Debug + Send + 'static,
 {
     fn as_any(&self) -> &dyn Any {
         self
@@ -255,12 +252,5 @@ pub(in crate::plugin) mod tests {
         let s1: Box<dyn PluginState> = Box::new(CursorLineState { active_line: 0 });
         let s2: Box<dyn PluginState> = Box::new(ColorPreviewState::default());
         assert_ne!(*s1, *s2);
-    }
-
-    #[test]
-    fn plugin_state_clone() {
-        let s1: Box<dyn PluginState> = Box::new(CursorLineState { active_line: 5 });
-        let s2 = s1.clone();
-        assert_eq!(*s1, *s2);
     }
 }

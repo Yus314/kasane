@@ -36,7 +36,6 @@ iai-callgrind = "0.16"
 toml = "0.9"
 bitflags = "2"
 compact_str = { version = "0.9", features = ["serde"] }
-dyn-clone = "1"
 salsa = "0.26"
 bytemuck = { version = "1", features = ["derive"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

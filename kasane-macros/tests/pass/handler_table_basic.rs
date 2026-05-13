@@ -41,7 +41,7 @@ fn main() {
     assert_eq!(table.display_priority, 0);
 
     // Register one handler per shape via the generated HandlerRegistry<u32>.
-    // u32 is PluginState + Clone + 'static via the dyn-clone blanket impl.
+    // u32 satisfies the PluginState blanket impl (PartialEq + Debug + Send + 'static).
     let mut registry: spec::HandlerRegistry<u32> = spec::HandlerRegistry::new();
     registry.on_init(|state, _app| (*state + 1, kasane_core::plugin::Effects::default()));
     registry.on_observe_key(|state, _ev, _app| *state);

@@ -3,7 +3,8 @@
 //! Construction calls `Plugin::register()` to capture a [`HandlerTable`];
 //! all dispatch methods are inherent on `PluginBridge` and route through
 //! the table's erased handlers. State changes are tracked via a
-//! generation counter for L1 cache invalidation.
+//! generation counter, bumped only when the handler's returned state
+//! differs from the current state under [`PluginState::dyn_eq`].
 
 use std::any::Any;
 
@@ -36,18 +37,15 @@ use super::{
 /// Construction calls `P::register()` to capture a [`HandlerTable`];
 /// every dispatch method is inherent on `PluginBridge` and routes
 /// through the table's erased handlers. State changes are tracked via
-/// a generation counter for L1 cache invalidation.
+/// a generation counter for L1 cache invalidation: dispatch macros
+/// compare the handler's returned state against the current state with
+/// [`PluginState::dyn_eq`] *before* swapping, so the counter bumps only
+/// on real mutations and no per-mutation snapshot clone is required.
 pub struct PluginBridge {
     id: PluginId,
     table: HandlerTable,
     state: Box<dyn PluginState>,
     generation: u64,
-    /// Snapshot of the last state observed by `check_state_change`.
-    /// Cloned via `dyn_clone` whenever a change is detected. Pays one
-    /// state-clone per real mutation in exchange for not requiring
-    /// `Hash` on plugin-state types — `HashMap` and other non-`Hash`
-    /// collections become legal as plugin state without boilerplate.
-    prev_state: Box<dyn PluginState>,
     plugin_tag: PluginTag,
     /// Active process tasks managed by the framework.
     active_process_tasks: Vec<ProcessTaskHandle>,
@@ -72,13 +70,11 @@ impl PluginBridge {
             .map(|e| e.key.clone())
             .collect();
         let state: Box<dyn PluginState> = Box::new(P::State::default());
-        let prev_state = state.clone();
         PluginBridge {
             id,
             table,
             state,
             generation: 0,
-            prev_state,
             plugin_tag: PluginTag::UNASSIGNED,
             active_process_tasks: Vec::new(),
             // Start at a high offset to avoid collisions with manually managed job IDs.
@@ -94,22 +90,21 @@ impl PluginBridge {
         self
     }
 
-    /// Compare current state with the previous snapshot; bump generation if
-    /// changed and refresh the snapshot.
+    /// Swap `self.state` for `new_state`, bumping `generation` when the
+    /// two differ under [`PluginState::dyn_eq`].
     ///
-    /// Uses [`PluginState::dyn_eq`] for an exact compare — no false negatives
-    /// from hash collisions. Pays one state-clone per real mutation.
-    fn check_state_change(&mut self) {
-        // Deref through the trait object so dispatch goes via the inner
-        // type's vtable. `self.state.dyn_eq(...)` would otherwise resolve
+    /// Comparing *before* the swap means no snapshot clone is needed —
+    /// the previous state is still owned by `self.state` for the
+    /// duration of the call.
+    fn replace_state(&mut self, new_state: Box<dyn PluginState>) {
+        // Deref through the trait objects so dispatch goes via each
+        // inner type's vtable. `box.dyn_eq(...)` would otherwise resolve
         // to the blanket `impl<T> PluginState for T` on `Box<dyn
-        // PluginState>` itself (which now satisfies the relaxed bound),
-        // causing the downcast to fail and every comparison to report
-        // "not equal".
-        if !(*self.state).dyn_eq(&*self.prev_state) {
+        // PluginState>` itself, causing the downcast to fail.
+        if !(*new_state).dyn_eq(&*self.state) {
             self.generation += 1;
-            self.prev_state = self.state.clone();
         }
+        self.state = new_state;
     }
 
     /// Try to route a process event through active task handles.
@@ -162,8 +157,7 @@ impl PluginBridge {
                     .find(|e| e.name == task_name)
                 {
                     let (new_state, effects) = (entry.handler)(&*self.state, &result, app);
-                    self.state = new_state;
-                    self.check_state_change();
+                    self.replace_state(new_state);
                     effects
                 } else {
                     Effects::default()
@@ -239,13 +233,13 @@ fn inject_owner_in_patch(patch: &mut super::ElementPatch, tag: PluginTag) {
     }
 }
 
-/// Dispatch a state+effects handler: call handler, update state, check change, return effects.
+/// Dispatch a state+effects handler: call handler, swap state in-place
+/// (with pre-swap dyn_eq → generation bump), return effects.
 macro_rules! dispatch_state_effect {
     ($self:expr, $field:ident $(, $arg:expr)*) => {
         if let Some(handler) = &$self.table.$field {
             let (new_state, effects) = handler(&*$self.state, $($arg),*);
-            $self.state = new_state;
-            $self.check_state_change();
+            $self.replace_state(new_state);
             effects
         } else {
             Effects::default()
@@ -253,23 +247,24 @@ macro_rules! dispatch_state_effect {
     };
 }
 
-/// Dispatch a state-only handler: call handler, update state, check change.
+/// Dispatch a state-only handler: call handler, swap state in-place
+/// (with pre-swap dyn_eq → generation bump).
 macro_rules! dispatch_state_only {
     ($self:expr, $field:ident $(, $arg:expr)*) => {
         if let Some(handler) = &$self.table.$field {
-            $self.state = handler(&*$self.state, $($arg),*);
-            $self.check_state_change();
+            let new_state = handler(&*$self.state, $($arg),*);
+            $self.replace_state(new_state);
         }
     };
 }
 
-/// Dispatch an optional-consume handler: call handler, update state if Some, return mapped result.
+/// Dispatch an optional-consume handler: call handler, swap state if `Some`
+/// (with pre-swap dyn_eq → generation bump), return mapped result.
 macro_rules! dispatch_optional_consume {
     ($self:expr, $field:ident $(, $arg:expr)*) => {
         if let Some(handler) = &$self.table.$field {
             handler(&*$self.state, $($arg),*).map(|(new_state, result)| {
-                $self.state = new_state;
-                $self.check_state_change();
+                $self.replace_state(new_state);
                 result
             })
         } else {
@@ -309,8 +304,7 @@ macro_rules! dispatch_state_with_default {
     ($self:expr, $field:ident, $default:expr $(, $arg:expr)*) => {
         if let Some(handler) = &$self.table.$field {
             let (new_state, result) = handler(&*$self.state, $($arg),*);
-            $self.state = new_state;
-            $self.check_state_change();
+            $self.replace_state(new_state);
             result
         } else {
             $default
@@ -964,14 +958,22 @@ impl PluginBridge {
     }
 
     pub fn deliver_subscriptions(&mut self, bus: &TopicBus, app: &AppView<'_>) -> Effects {
-        let mut changed = false;
         let mut merged = Effects::default();
         // Per-value subscribers (state mutation only).
+        //
+        // The dyn_eq compare + generation bump are inlined (rather than
+        // routed through `replace_state`) because the surrounding loop
+        // holds `&self.table.subscribe_handlers`; `&mut self` would
+        // conflict, while per-field borrows on `self.state` /
+        // `self.generation` are disjoint from the table borrow.
         for entry in &self.table.subscribe_handlers {
             if let Some(publications) = bus.get_publications(&entry.key) {
                 for pub_value in publications {
-                    self.state = (entry.handler)(&*self.state, &pub_value.value);
-                    changed = true;
+                    let new_state = (entry.handler)(&*self.state, &pub_value.value);
+                    if !(*new_state).dyn_eq(&*self.state) {
+                        self.generation += 1;
+                    }
+                    self.state = new_state;
                 }
             }
         }
@@ -990,14 +992,13 @@ impl PluginBridge {
                     }
                     let (new_state, effects) =
                         handler(&*self.state, entry.key.as_str(), &values, app);
+                    if !(*new_state).dyn_eq(&*self.state) {
+                        self.generation += 1;
+                    }
                     self.state = new_state;
                     merged.merge(effects);
-                    changed = true;
                 }
             }
-        }
-        if changed {
-            self.check_state_change();
         }
         merged
     }
