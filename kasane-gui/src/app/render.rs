@@ -90,7 +90,8 @@ where
         if !self.dirty.is_empty() {
             self.surface_registry.sync_ephemeral_surfaces(&self.state);
             self.plugin_manager.run_pre_render_hooks(&mut self.state);
-            self.registry.prepare_plugin_cache(self.dirty);
+            self.registry
+                .prepare_plugin_cache(self.dirty, &mut self.salsa_db);
 
             // Sync Salsa inputs from updated state
             kasane_core::event_loop::sync_salsa_for_render(

@@ -207,7 +207,8 @@ fn menu_transform_adds_prefix() {
     registry.register(kasane_core::render::view::menu::BuiltinMenuPlugin);
     registry.register(PrefixPlugin);
     let _ = registry.init_all_batch(&AppView::new(&state));
-    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let mut db = kasane_core::salsa_db::KasaneDatabase::default();
+    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
 
     let grid = render_with_registry(&state, &registry);
 
