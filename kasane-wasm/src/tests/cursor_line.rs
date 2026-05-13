@@ -14,7 +14,7 @@ fn apply_cursor_line_state_change(
 #[test]
 fn plugin_id() {
     let plugin = load_cursor_line_plugin();
-    assert_eq!(plugin.id().0, "cursor_line");
+    assert_eq!(plugin.id().as_str(), "cursor_line");
 }
 
 #[test]

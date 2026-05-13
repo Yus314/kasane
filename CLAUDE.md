@@ -39,6 +39,8 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 |---|---|
 | `kasane/` | Main binary + library — CLI parsing, Kakoune process management, `kasane::run()` entry point for custom plugin binaries |
 | `kasane-core/` | Core library — protocol, state (TEA), element tree, layout, rendering, plugin system |
+| `kasane-core-tests/` | Integration test surface for `kasane-core` — `tests/` tree split out of the library crate so `cargo test --lib -p kasane-core` is the fast inner loop (ε-3) |
+| `kasane-internal/` | Façade re-exporting `kasane-core`'s `#[doc(hidden)] pub` items (Salsa runtime + display algebra + WireFace + RecoveryWitness + SafeDisplayDirective). Internal consumers (`kasane-tui`, `kasane-gui`, future Salsa users) depend on this crate so plugin-author code only sees `kasane-core`'s prelude-shaped public API (ε-1) |
 | `kasane-tui/` | TUI backend — crossterm-based terminal rendering |
 | `kasane-gui/` | GPU backend — winit + wgpu + Parley + swash (feature-gated via `--features gui`) |
 | `kasane-macros/` | Proc macros — `#[kasane::plugin]` and `#[kasane::component]` |
@@ -49,10 +51,7 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane-plugin-sdk-macros/` | Proc macros for WASM SDK — `define_plugin!` all-in-one macro (excluded from workspace, independent crate) |
 | `kasane-plugin-sdk-test/` | Mock-host harness for native plugin unit tests — pulled in by SDK `test-harness` feature; re-exported as `kasane_plugin_sdk::test` (excluded from workspace, independent crate) |
 | `kasane-wasm-bench/` | WASM benchmarks — wasmtime Component Model overhead measurement (Phase W0) |
-| `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, selection-algebra, fuzzy-finder, pane-manager, prompt-highlight, session-ui, smooth-scroll, image-preview |
-| `examples/line-numbers/` | Native plugin example — `Plugin` trait with `kasane::run()` |
-| `examples/virtual-text-demo/` | Display transformation proof artifact — `DisplayDirective` (InsertAfter, Fold, Hide) |
-| `examples/image-test/` | GPU image pipeline test — inline RGBA / file-based async image overlay |
+| `examples/wasm/` | WASM plugin examples — cursor-line, color-preview (curated bundled set; wider gallery moved to future external `kasane-plugin-gallery` repo per δ-3) |
 | `kasane-syntax/` | Syntax integration — tree-sitter `SyntaxProvider`, grammar loading, `SyntaxManager` lifecycle (feature-gated via `--features syntax`) |
 | `tools/wasm-test/` | WASM integration test binary |
 

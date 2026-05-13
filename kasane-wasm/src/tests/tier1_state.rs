@@ -19,7 +19,7 @@ fn load_tier1_state_plugin() -> crate::WasmPlugin {
 #[test]
 fn tier1_export_drives_state_change_effects() {
     let mut plugin = load_tier1_state_plugin();
-    assert_eq!(plugin.id().0, "tier1_state");
+    assert_eq!(plugin.id().as_str(), "tier1_state");
 
     let state = AppState::default();
     let effects = plugin.on_state_changed_effects(&AppView::new(&state), DirtyFlags::BUFFER);

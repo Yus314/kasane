@@ -57,9 +57,7 @@ fn widgets_reload(source: &str) -> Result<PluginRuntime, Vec<PluginDiagnostic>> 
 
 fn parse_failure_diagnostic(e: &impl std::fmt::Display) -> PluginDiagnostic {
     PluginDiagnostic {
-        target: crate::plugin::PluginDiagnosticTarget::Plugin(PluginId(
-            WIDGETS_PLUGIN_ID.to_string(),
-        )),
+        target: crate::plugin::PluginDiagnosticTarget::Plugin(PluginId::from(WIDGETS_PLUGIN_ID)),
         kind: PluginDiagnosticKind::RuntimeError {
             method: "parse".to_string(),
         },

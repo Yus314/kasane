@@ -127,7 +127,7 @@ fn test_update_plugin_handles_key() {
     impl crate::plugin::Plugin for KeyPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("key_plugin".into())
+            PluginId::from("key_plugin")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             r.on_key(|_state, _key, _app| {
@@ -171,7 +171,7 @@ fn test_update_key_forwards_transformed_key_to_kakoune() {
     impl crate::plugin::Plugin for TransformPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("transform".into())
+            PluginId::from("transform")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             r.on_key_middleware(|state, key, _app| {
@@ -219,7 +219,7 @@ fn test_update_key_transformed_then_consumed_by_next_plugin() {
     impl crate::plugin::Plugin for TransformPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("transform".into())
+            PluginId::from("transform")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             r.on_key_middleware(|state, key, _app| {
@@ -240,7 +240,7 @@ fn test_update_key_transformed_then_consumed_by_next_plugin() {
     impl crate::plugin::Plugin for ConsumePlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("consume".into())
+            PluginId::from("consume")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             r.on_key_middleware(|state, key, _app| {
@@ -272,7 +272,7 @@ fn test_update_key_transformed_then_consumed_by_next_plugin() {
     );
 
     assert!(result.flags.is_empty());
-    assert_eq!(result.source_plugin, Some(PluginId("consume".into())));
+    assert_eq!(result.source_plugin, Some(PluginId::from("consume")));
     assert_eq!(result.commands.len(), 1);
     match &result.commands[0] {
         Command::SendToKakoune(KasaneRequest::Keys(keys)) => {
@@ -288,7 +288,7 @@ fn test_update_mouse_routes_to_plugin() {
     impl crate::plugin::Plugin for MousePlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("mouse_plugin".into())
+            PluginId::from("mouse_plugin")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             r.on_handle_mouse(|_state, _event, _id, _app| {
@@ -367,7 +367,7 @@ fn test_observe_key_called_for_all_plugins() {
     impl crate::plugin::Plugin for ObserverPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("observer".into())
+            PluginId::from("observer")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             let flag = self.0.clone();
@@ -398,7 +398,7 @@ fn test_observe_key_called_even_when_plugin_handles() {
     impl crate::plugin::Plugin for ObserverPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("observer".into())
+            PluginId::from("observer")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             let flag = self.0.clone();
@@ -412,7 +412,7 @@ fn test_observe_key_called_even_when_plugin_handles() {
     impl crate::plugin::Plugin for HandlerPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("handler".into())
+            PluginId::from("handler")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             r.on_key(|_state, _key, _app| Some(((), Vec::<Command>::new())));
@@ -440,7 +440,7 @@ fn test_observe_text_input_called_for_all_plugins() {
     impl crate::plugin::Plugin for ObserverPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("observer".into())
+            PluginId::from("observer")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             let flag = self.0.clone();
@@ -464,7 +464,7 @@ fn test_plugin_can_handle_text_input() {
     impl crate::plugin::Plugin for TextPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("text_plugin".into())
+            PluginId::from("text_plugin")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             r.on_text_input(|_state, text, _app| {
@@ -480,7 +480,7 @@ fn test_plugin_can_handle_text_input() {
     let result = update_in_place(&mut state, Msg::TextInput("abc".into()), &mut registry, 3);
 
     assert!(result.flags.is_empty());
-    assert_eq!(result.source_plugin, Some(PluginId("text_plugin".into())));
+    assert_eq!(result.source_plugin, Some(PluginId::from("text_plugin")));
     assert_eq!(result.commands.len(), 1);
     assert!(matches!(
         &result.commands[0],
@@ -494,7 +494,7 @@ fn test_plugin_can_override_pageup() {
     impl crate::plugin::Plugin for PageUpPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("pageup_override".into())
+            PluginId::from("pageup_override")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             r.on_key(|_state, key, _app| {
@@ -538,7 +538,7 @@ fn test_observe_mouse_called_without_hit_test() {
     impl crate::plugin::Plugin for MouseObserver {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("mouse_observer".into())
+            PluginId::from("mouse_observer")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             let flag = self.0.clone();
@@ -573,7 +573,7 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
     impl crate::plugin::Plugin for StateWatcher {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("watcher".into())
+            PluginId::from("watcher")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             let flag = self.0.clone();
@@ -614,7 +614,7 @@ fn test_on_state_changed_effects_return_scroll_plans() {
     impl crate::plugin::Plugin for StateWatcher {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("watcher-effects".into())
+            PluginId::from("watcher-effects")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             r.on_state_changed_tier1(|_state, _app, dirty| {

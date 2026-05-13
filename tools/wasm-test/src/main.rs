@@ -12,7 +12,7 @@ fn main() {
 
     kasane::run_with_factories([plugin_factory(
         PluginDescriptor {
-            id: kasane::kasane_core::plugin::PluginId("cursor_line".to_string()),
+            id: kasane::kasane_core::plugin::PluginId::from("cursor_line"),
             source: PluginSource::FilesystemWasm {
                 path: cursor_line_path.clone(),
             },

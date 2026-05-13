@@ -1,4 +1,6 @@
-use anyhow::{Context, Result};
+#[cfg(feature = "wasm-plugins")]
+use anyhow::Context;
+use anyhow::Result;
 
 pub fn run(path: Option<&str>, release: bool) -> Result<()> {
     let project_dir = path.unwrap_or(".");

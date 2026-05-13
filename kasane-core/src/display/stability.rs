@@ -274,7 +274,7 @@ mod tests {
         ContentAnnotation {
             anchor: ContentAnchor::InsertAfter(line),
             element: Element::Empty,
-            plugin_id: PluginId("test".into()),
+            plugin_id: PluginId::from("test"),
             priority,
         }
     }
@@ -283,7 +283,7 @@ mod tests {
         ContentAnnotation {
             anchor: ContentAnchor::InsertBefore(line),
             element: Element::Empty,
-            plugin_id: PluginId("test".into()),
+            plugin_id: PluginId::from("test"),
             priority: 0,
         }
     }

@@ -6,17 +6,15 @@
 
 use crate::element::Element;
 use crate::plugin::host::context::{ContribSizeHint, Contribution};
-use crate::plugin::state::Plugin;
+use crate::plugin::state::StatelessPlugin;
 use crate::plugin::{HandlerRegistry, PluginId, SlotId};
 
 /// Builtin plugin that displays active projection state in STATUS_RIGHT.
 pub struct ProjectionStatusPlugin;
 
-impl Plugin for ProjectionStatusPlugin {
-    type State = ();
-
+impl StatelessPlugin for ProjectionStatusPlugin {
     fn id(&self) -> PluginId {
-        PluginId("kasane.builtin.projection-status".into())
+        PluginId::from("kasane.builtin.projection-status")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {

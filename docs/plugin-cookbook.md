@@ -32,7 +32,7 @@ Key points:
 - `status_badge(condition, text)` returns `Some(contribution)` when the condition is true, `None` otherwise
 - Simple slot form `SLOT(deps) => |ctx| { ... }` auto-wraps the return in `auto_contribution()`
 
-See: `examples/wasm/sel-badge/`
+See: previously `examples/wasm/sel-badge/` — moved to future external `kasane-plugin-gallery` repo (see git history before δ-3 cleanup).
 
 ## Line Highlighter (Annotation)
 
@@ -145,7 +145,7 @@ Key points:
 - `overlay(ctx)` is called every frame when the plugin has the `OVERLAY` capability
 - Return `redraw()` to trigger a repaint after state changes
 
-See: `examples/wasm/fuzzy-finder/`
+See: previously `examples/wasm/fuzzy-finder/` — moved to future external `kasane-plugin-gallery` repo (see git history before δ-3 cleanup).
 
 ## Register Kakoune APIs at Session-Ready
 
@@ -188,7 +188,7 @@ Key points:
   entry to `SessionReadyCommand::EvalCommand` automatically (WIT 4.0.0+,
   ADR-041). Requires a host on WIT 4.0.0 or higher.
 
-See: `examples/wasm/kakoune-bindings-demo/`
+See: previously `examples/wasm/kakoune-bindings-demo/` — moved to future external `kasane-plugin-gallery` repo (see git history before δ-3 cleanup).
 
 ## Process Spawner
 
@@ -283,7 +283,7 @@ Key points:
 - Spawn in `on_session_ready()` (after Kakoune connection is established)
 - Handle stdout/exit in `on_io_event()`
 
-See: `examples/wasm/fuzzy-finder/`
+See: previously `examples/wasm/fuzzy-finder/` — moved to future external `kasane-plugin-gallery` repo (see git history before δ-3 cleanup).
 
 ## Declarative Transform (Native)
 

@@ -1,116 +1,25 @@
-//! Navigation, virtual-edit, buffer-edit intercept, paint-inline-box,
-//! and pub/sub handlers.
+//! Pub/sub typed wrappers — the only carve-outs on this axis.
+//!
+//! γ-3.3c-5b: the redundant manual `on_navigation_policy` /
+//! `on_navigation_action` / `on_virtual_edit` / `on_buffer_edit_intercept` /
+//! `on_paint_inline_box` setters were retired — plugin code now invokes
+//! the macro-generated counterparts via `Deref` from `HandlerRegistry`
+//! to `gen::HandlerRegistry`. The `publish` / `subscribe` family stays
+//! manual because each setter wraps the underlying generated `on_publish`
+//! / `on_subscribe` with `T: Serialize` / `T: DeserializeOwned`
+//! conversion through `ChannelValue` — a typed-API ergonomic carve-out.
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
-use crate::display::unit::DisplayUnit;
-use crate::element::Element;
-
 use super::super::channel::ChannelValue;
 use super::super::pubsub::{PublishEntry, SubscribeEntry, Topic, TopicId};
-use super::super::{AppView, Command, PluginState};
+use super::super::{AppView, PluginState};
 
-use super::{HandlerRegistry, VirtualEditContext};
+use super::HandlerRegistry;
 
 impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
-    pub fn on_navigation_policy(
-        &mut self,
-        handler: impl Fn(&S, &DisplayUnit) -> NavigationPolicy + Send + Sync + 'static,
-    ) {
-        register_view!(self, navigation_policy_handler, handler, unit);
-    }
-
-    /// Register a navigation action handler for display units.
-    ///
-    /// Called when a `Boundary` unit is activated (click or keyboard).
-    /// Returns `(new_state, ActionResult)` following the functional-update model.
-    /// FirstWins composition: the first non-Pass result wins.
-    pub fn on_navigation_action(
-        &mut self,
-        handler: impl Fn(&S, &DisplayUnit, NavigationAction) -> (S, ActionResult)
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        register_state_effect!(self, navigation_action_handler, handler, unit, action);
-    }
-
     // =========================================================================
-    // Virtual edit handlers (BDT)
-    // =========================================================================
-
-    /// Register a virtual edit handler for editable virtual text.
-    ///
-    /// Called when a shadow cursor edit is committed on a `PluginDefined`
-    /// projection. The handler receives the edit context and returns
-    /// `(new_state, Vec<Command>)` with the commands to apply.
-    pub fn on_virtual_edit(
-        &mut self,
-        handler: impl Fn(&S, &VirtualEditContext, &AppView<'_>) -> (S, Vec<Command>)
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        register_state_effect!(self, virtual_edit_handler, handler, ctx, app);
-    }
-
-    /// Register a buffer-edit intercept handler (ADR-035 ShadowCursor
-    /// follow-up).
-    ///
-    /// Invoked by the dispatch loop after the builtin shadow cursor
-    /// computes a Mirror-projection commit but before serializing it
-    /// to Kakoune `exec -draft` commands. Plugins return a
-    /// [`BufferEditVerdict`](crate::state::shadow_cursor::BufferEditVerdict):
-    ///
-    /// - `PassThrough` — observe without changing the edit (typical
-    ///   for logging plugins).
-    /// - `Replace(BufferEdit)` — substitute a transformed edit (e.g.
-    ///   snap indentation, run an auto-formatter).
-    /// - `Veto` — drop the commit entirely (no Kakoune commands
-    ///   emitted; the shadow cursor still deactivates).
-    ///
-    /// Multiple plugins compose: verdicts fold in plugin-priority
-    /// order, with `Veto` short-circuiting. Plugins that don't
-    /// register an intercept default to PassThrough.
-    pub fn on_buffer_edit_intercept(
-        &mut self,
-        handler: impl Fn(
-            &S,
-            &crate::state::shadow_cursor::BufferEdit,
-            &AppView<'_>,
-        ) -> (S, crate::state::shadow_cursor::BufferEditVerdict)
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        register_state_effect!(self, buffer_edit_intercept_handler, handler, edit, app);
-    }
-
-    // =========================================================================
-    // Inline-box paint handler (ADR-031 Phase 10 Step 2-native)
-    // =========================================================================
-
-    /// Register an inline-box paint handler.
-    ///
-    /// Called by the renderer when a `DisplayDirective::InlineBox` slot
-    /// owned by this plugin needs paint content. The handler receives the
-    /// `box_id` declared in the directive and returns either an Element
-    /// to paint inside the slot, or `None` to leave the slot empty (the
-    /// renderer falls back to the placeholder reservation).
-    ///
-    /// Auto-registers `PluginCapabilities::INLINE_BOX_PAINTER`. Step 2-host
-    /// will wire the renderer to invoke this; until then registration is
-    /// inert.
-    pub fn on_paint_inline_box(
-        &mut self,
-        handler: impl Fn(&S, u64, &AppView<'_>) -> Option<Element> + Send + Sync + 'static,
-    ) {
-        register_view!(self, inline_box_paint_handler, handler, box_id, app);
-    }
-
-    // =========================================================================
-    // Pub/Sub handlers
+    // Pub/Sub handlers (typed serialization wrappers)
     // =========================================================================
 
     /// Publish a typed value on a topic each frame.
@@ -126,8 +35,8 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         topic: TopicId,
         handler: impl Fn(&S, &AppView<'_>) -> T + Send + Sync + 'static,
     ) {
-        self.table.publishers.push(PublishEntry {
-            topic,
+        self.table.publish_handlers.push(PublishEntry {
+            key: topic,
             handler: Box::new(move |state: &dyn PluginState, app: &AppView<'_>| {
                 let s = state
                     .as_any()
@@ -150,8 +59,8 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         topic: TopicId,
         handler: impl Fn(&S, &AppView<'_>) -> Option<ChannelValue> + Send + Sync + 'static,
     ) {
-        self.table.publishers.push(PublishEntry {
-            topic,
+        self.table.publish_handlers.push(PublishEntry {
+            key: topic,
             handler: Box::new(move |state: &dyn PluginState, app: &AppView<'_>| {
                 let s = state
                     .as_any()
@@ -172,8 +81,8 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// export. The per-value handler is a no-op clone so the existing
     /// `deliver_subscriptions` per-value loop stays well-defined.
     pub fn subscribe_raw(&mut self, topic: TopicId) {
-        self.table.subscribers.push(SubscribeEntry {
-            topic,
+        self.table.subscribe_handlers.push(SubscribeEntry {
+            key: topic,
             handler: Box::new(
                 move |state: &dyn PluginState, _value: &ChannelValue| -> Box<dyn PluginState> {
                     let s = state
@@ -201,8 +110,8 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         topic: TopicId,
         handler: impl Fn(&S, &T) -> S + Send + Sync + 'static,
     ) {
-        self.table.subscribers.push(SubscribeEntry {
-            topic,
+        self.table.subscribe_handlers.push(SubscribeEntry {
+            key: topic,
             handler: Box::new(
                 move |state: &dyn PluginState, value: &ChannelValue| -> Box<dyn PluginState> {
                     let s = state
@@ -235,8 +144,8 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         handler: impl Fn(&S, &AppView<'_>) -> T + Send + Sync + 'static,
     ) -> Topic<T> {
         let topic = Topic::<T>::new(name);
-        self.table.publishers.push(PublishEntry {
-            topic: topic.id().clone(),
+        self.table.publish_handlers.push(PublishEntry {
+            key: topic.id().clone(),
             handler: Box::new(move |state: &dyn PluginState, app: &AppView<'_>| {
                 let s = state
                     .as_any()

@@ -783,7 +783,7 @@ mod tests {
         ) {
             let mut set = DirectiveSet::default();
             for (i, d) in directives.into_iter().enumerate() {
-                set.push(d, 0, PluginId(format!("p{i}")));
+                set.push(d, 0, PluginId::from(format!("p{i}")));
             }
             let resolved = resolve_via_algebra(&set, line_count);
             let dm = DisplayMap::build(line_count, &resolved);
@@ -801,7 +801,7 @@ mod tests {
         ) {
             let mut set = DirectiveSet::default();
             for (i, d) in directives.into_iter().enumerate() {
-                set.push(d, 0, PluginId(format!("p{i}")));
+                set.push(d, 0, PluginId::from(format!("p{i}")));
             }
             let resolved = resolve_via_algebra(&set, line_count);
             let dm = DisplayMap::build(line_count, &resolved);
@@ -827,7 +827,7 @@ mod tests {
         ) {
             let mut set = DirectiveSet::default();
             for (i, d) in directives.iter().enumerate() {
-                set.push(d.clone(), 0, PluginId(format!("p{i}")));
+                set.push(d.clone(), 0, PluginId::from(format!("p{i}")));
             }
             let resolved = resolve_via_algebra(&set, line_count);
             let dm = DisplayMap::build(line_count, &resolved);

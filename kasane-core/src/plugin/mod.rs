@@ -22,6 +22,7 @@ pub mod diagnostics;
 pub mod effect;
 pub mod handler_registry;
 pub(crate) mod handler_table;
+pub(crate) mod handler_table_spec;
 pub mod host;
 pub(crate) mod inline_box;
 pub mod io;
@@ -44,12 +45,77 @@ pub use crate::session::SessionCommand;
 use bitflags::bitflags;
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Stable, unique identifier for a plugin. Used as the attribution key
 /// for effect routing, error reporting, and inter-plugin pub/sub.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PluginId(pub String);
+///
+/// Backed by `Arc<str>` so cloning is cheap (atomic refcount bump, no
+/// per-frame allocation) — `id.clone()` is hot-path safe in dispatch
+/// loops, error attribution, and pub/sub routing.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PluginId(pub Arc<str>);
+
+impl Serialize for PluginId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for PluginId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = <&str>::deserialize(deserializer)?;
+        Ok(PluginId(Arc::from(s)))
+    }
+}
+
+impl PluginId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for PluginId {
+    fn from(s: &str) -> Self {
+        PluginId(Arc::from(s))
+    }
+}
+
+impl From<String> for PluginId {
+    fn from(s: String) -> Self {
+        PluginId(Arc::from(s))
+    }
+}
+
+impl From<&String> for PluginId {
+    fn from(s: &String) -> Self {
+        PluginId(Arc::from(s.as_str()))
+    }
+}
+
+impl From<Arc<str>> for PluginId {
+    fn from(s: Arc<str>) -> Self {
+        PluginId(s)
+    }
+}
+
+impl From<Box<str>> for PluginId {
+    fn from(s: Box<str>) -> Self {
+        PluginId(Arc::from(s))
+    }
+}
+
+impl std::fmt::Display for PluginId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::borrow::Borrow<str> for PluginId {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
 
 // Re-export command module
 pub use diagnostics::{
@@ -156,7 +222,7 @@ pub use render_ornament::{
     CursorEffect, CursorEffectOrn, CursorPositionOrn, CursorStyleOrn, OrnamentBatch,
     OrnamentModality, RenderOrnamentContext, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
 };
-pub use state::{Plugin, PluginState};
+pub use state::{Plugin, PluginState, StatelessPlugin};
 
 /// Identifies a built-in plugin feature that can be suppressed by user plugins.
 ///

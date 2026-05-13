@@ -33,11 +33,11 @@ fn test_partition_separates_correctly() {
         Command::ScheduleTimer {
             timer_id: 1,
             delay: std::time::Duration::from_millis(100),
-            target: PluginId("test".into()),
+            target: PluginId::from("test"),
             payload: Box::new(42u32),
         },
         Command::PluginMessage {
-            target: PluginId("other".into()),
+            target: PluginId::from("other"),
             payload: Box::new("hello"),
         },
         Command::SetConfig {

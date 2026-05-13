@@ -22,7 +22,7 @@ fn load_color_preview_plugin() -> crate::WasmPlugin {
 #[test]
 fn plugin_id() {
     let plugin = load_color_preview_plugin();
-    assert_eq!(plugin.id().0, "color_preview");
+    assert_eq!(plugin.id().as_str(), "color_preview");
 }
 
 #[test]

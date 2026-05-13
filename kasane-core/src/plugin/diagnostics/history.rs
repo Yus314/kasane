@@ -131,7 +131,7 @@ mod tests {
         assert_eq!(h.len(), 2);
         let names: Vec<String> = h
             .entries()
-            .map(|e| e.diagnostic.plugin_id().unwrap().0.clone())
+            .map(|e| e.diagnostic.plugin_id().unwrap().as_str().to_string())
             .collect();
         assert_eq!(names, vec!["b", "c"]);
         assert_eq!(h.truncated_count(), 1);

@@ -562,7 +562,7 @@ impl PluginRuntime {
         let mut data = std::collections::HashMap::new();
         for slot in &self.slots {
             if let Some(value) = slot.backend.workspace_save() {
-                data.insert(slot.backend.id().0.clone(), value);
+                data.insert(slot.backend.id().as_str().to_string(), value);
             }
         }
         data
@@ -577,8 +577,8 @@ impl PluginRuntime {
         plugin_data: &std::collections::HashMap<String, serde_json::Value>,
     ) {
         for slot in &mut self.slots {
-            let id = slot.backend.id().0.clone();
-            if let Some(data) = plugin_data.get(&id) {
+            let id = slot.backend.id();
+            if let Some(data) = plugin_data.get(id.as_str()) {
                 slot.backend.workspace_restore(data);
             }
         }

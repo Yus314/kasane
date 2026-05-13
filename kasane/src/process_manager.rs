@@ -556,7 +556,7 @@ mod tests {
     }
 
     fn test_plugin_id() -> PluginId {
-        PluginId("test_plugin".to_string())
+        PluginId::from("test_plugin")
     }
 
     fn create_manager(sink: TestSink) -> (tokio::runtime::Runtime, ProcessManager) {
@@ -683,8 +683,8 @@ mod tests {
         let sink = TestSink::new();
         let (_rt, mut mgr) = create_manager(sink.clone());
 
-        let alpha = PluginId("alpha".to_string());
-        let beta = PluginId("beta".to_string());
+        let alpha = PluginId::from("alpha");
+        let beta = PluginId::from("beta");
 
         mgr.spawn_process(&alpha, 1, "sleep", &["60".into()], StdinMode::Null);
         mgr.spawn_process(&alpha, 2, "sleep", &["60".into()], StdinMode::Null);

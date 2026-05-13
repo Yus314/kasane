@@ -1,7 +1,9 @@
 //! Built-in plugin for mouse-to-Kakoune fallback.
 
 use crate::input;
-use crate::plugin::{FrameworkAccess, HandlerRegistry, KakouneSideCommand, Plugin, PluginId};
+use crate::plugin::{
+    FrameworkAccess, HandlerRegistry, KakouneSideCommand, PluginId, StatelessPlugin,
+};
 
 /// Built-in plugin that forwards unhandled mouse events to Kakoune.
 ///
@@ -10,11 +12,9 @@ use crate::plugin::{FrameworkAccess, HandlerRegistry, KakouneSideCommand, Plugin
 /// by registering their own `MOUSE_FALLBACK` handler.
 pub struct BuiltinMouseFallbackPlugin;
 
-impl Plugin for BuiltinMouseFallbackPlugin {
-    type State = ();
-
+impl StatelessPlugin for BuiltinMouseFallbackPlugin {
     fn id(&self) -> PluginId {
-        PluginId("kasane.builtin.mouse_fallback".into())
+        PluginId::from("kasane.builtin.mouse_fallback")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {

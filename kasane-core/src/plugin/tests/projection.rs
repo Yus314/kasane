@@ -26,7 +26,7 @@ impl Plugin for ProjectionTestPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId(self.id.to_string())
+        PluginId::from(&*self.id)
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -34,7 +34,7 @@ impl Plugin for ProjectionTestPlugin {
             let directives: Vec<DisplayDirective> = self
                 .directive_map
                 .iter()
-                .find(|(k, _)| k == &*desc.id.0)
+                .find(|(k, _)| k == desc.id.as_str())
                 .map(|(_, v)| v.clone())
                 .unwrap_or_default();
             r.define_projection(desc.clone(), move |_state, _app| directives.clone());
@@ -278,8 +278,8 @@ fn collect_projection_descriptors_returns_all() {
 
     let descriptors = registry.view().collect_projection_descriptors();
     assert_eq!(descriptors.len(), 2);
-    assert!(descriptors.iter().any(|d| &*d.id.0 == "outline"));
-    assert!(descriptors.iter().any(|d| &*d.id.0 == "error-lens"));
+    assert!(descriptors.iter().any(|d| d.id.as_str() == "outline"));
+    assert!(descriptors.iter().any(|d| d.id.as_str() == "error-lens"));
 }
 
 #[test]

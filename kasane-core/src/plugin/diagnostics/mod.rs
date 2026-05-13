@@ -305,7 +305,7 @@ pub enum PluginDiagnosticOverlayTagKind {
 pub fn summarize_plugin_diagnostic(diagnostic: &PluginDiagnostic) -> String {
     let target = diagnostic
         .plugin_id()
-        .map(|id| id.0.as_str())
+        .map(|id| id.as_str())
         .or_else(|| diagnostic.provider_name())
         .unwrap_or("unknown");
 
@@ -371,7 +371,7 @@ fn provider_artifact_summary_name(artifact: &str) -> &str {
 
 pub fn report_plugin_diagnostics(diagnostics: &[PluginDiagnostic]) {
     for diagnostic in diagnostics {
-        let plugin_id = diagnostic.plugin_id().map(|plugin_id| plugin_id.0.as_str());
+        let plugin_id = diagnostic.plugin_id().map(|plugin_id| plugin_id.as_str());
         let provider = diagnostic.provider_name();
         let severity = diagnostic.severity();
         match diagnostic.kind {

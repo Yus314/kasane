@@ -350,30 +350,31 @@ check_doc_links() {
 check_readme_code_examples() {
   echo "--- README code examples ---" >&2
   local readme="$ROOT_DIR/README.md"
-  local sel_badge_src="$ROOT_DIR/examples/wasm/sel-badge/src/lib.rs"
+  local cursor_line_src="$ROOT_DIR/examples/wasm/cursor-line/src/lib.rs"
 
-  if [[ ! -f "$readme" ]] || [[ ! -f "$sel_badge_src" ]]; then
-    warn "README.md or sel-badge/src/lib.rs not found"
+  if [[ ! -f "$readme" ]] || [[ ! -f "$cursor_line_src" ]]; then
+    warn "README.md or cursor-line/src/lib.rs not found"
     return
   fi
 
-  # Extract the rust code block from README that contains define_plugin!
+  # Extract the first ```rust block from README (the cursor-line example).
   local readme_code
-  readme_code=$(sed -n '/^```rust$/,/^```$/{ /^```/d; p; }' "$readme")
+  readme_code=$(awk '/^```rust$/{flag=1; next} /^```$/{if(flag){exit}} flag' "$readme")
 
-  # Get the sel-badge source (strip trailing newline)
+  # Get the cursor-line source up to (but not including) the unit-test module
+  # — the README only carries the `define_plugin!` block.
   local source_code
-  source_code=$(sed '/^$/d' "$sel_badge_src" | sed 's/[[:space:]]*$//')
+  source_code=$(awk '/^\/\/ -+$/{exit} {print}' "$cursor_line_src")
 
-  # Normalize both for comparison (strip blank lines and trailing whitespace)
+  # Normalize both for comparison (strip blank lines and trailing whitespace).
   local readme_norm source_norm
   readme_norm=$(echo "$readme_code" | sed '/^$/d' | sed 's/[[:space:]]*$//')
   source_norm=$(echo "$source_code" | sed '/^$/d' | sed 's/[[:space:]]*$//')
 
   if [[ "$readme_norm" != "$source_norm" ]]; then
-    error "README.md: sel-badge code example does not match examples/wasm/sel-badge/src/lib.rs"
+    error "README.md: cursor-line code example does not match examples/wasm/cursor-line/src/lib.rs"
   else
-    ok "README sel-badge example matches source"
+    ok "README cursor-line example matches source"
   fi
 }
 
@@ -519,23 +520,45 @@ check_roadmap_pending_unique() {
 # =============================================================================
 check_decisions_adr_refs() {
   echo "--- ADR references ---" >&2
-  local decisions="$ROOT_DIR/docs/decisions.md"
+  local decisions_index="$ROOT_DIR/docs/decisions.md"
+  local decisions_dir="$ROOT_DIR/docs/decisions"
 
-  if [[ ! -f "$decisions" ]]; then
-    warn "decisions.md not found"
+  if [[ ! -f "$decisions_index" ]] || [[ ! -d "$decisions_dir" ]]; then
+    warn "decisions.md or docs/decisions/ not found"
     return
   fi
 
-  # ADR IDs defined as section headings: `## ADR-NNN[A-Z]?:`
-  local defined_adrs
-  defined_adrs=$(grep -oE '^## ADR-[0-9]+[A-Z]*' "$decisions" \
-    | sed 's/^## ADR-//' \
+  # Per-ADR layout (post ε-4): each `docs/decisions/adr-NNN[a]-*.md` file
+  # owns one ADR. The H1 inside is `# ADR-NNN[A]: …`. Collect IDs from
+  # both the in-file H1 (canonical record) and the index table in
+  # decisions.md (cross-link surface) — they should agree.
+  local defined_per_file
+  defined_per_file=$(grep -hoE '^# ADR-[0-9]+[A-Z]*' "$decisions_dir"/adr-*.md 2>/dev/null \
+    | sed 's/^# ADR-//' \
     | sort -u)
 
-  if [[ -z "$defined_adrs" ]]; then
-    warn "decisions.md: no ADR headings found"
+  local defined_index
+  defined_index=$(grep -oE '^\| ADR-[0-9]+[A-Z]*' "$decisions_index" \
+    | sed 's/^| ADR-//' \
+    | sort -u)
+
+  if [[ -z "$defined_per_file" ]]; then
+    warn "docs/decisions/: no ADR files found"
     return
   fi
+
+  # Index ⇄ per-file consistency: every per-file ADR has an index entry.
+  local index_drift=0
+  while IFS= read -r adr; do
+    [[ -z "$adr" ]] && continue
+    if ! grep -qxF "$adr" <<< "$defined_index"; then
+      error "ADR-${adr} per-file record exists but is missing from docs/decisions.md index table"
+      index_drift=$((index_drift + 1))
+    fi
+  done <<< "$defined_per_file"
+
+  # Use per-file as the canonical defined-set.
+  local defined_adrs="$defined_per_file"
 
   # Scan all referenced ADR IDs across documentation surfaces.
   local refs
@@ -552,13 +575,13 @@ check_decisions_adr_refs() {
     [[ -z "$ref" ]] && continue
     checked=$((checked + 1))
     if ! grep -qxF "$ref" <<< "$defined_adrs"; then
-      error "ADR-${ref} referenced but not defined in docs/decisions.md"
+      error "ADR-${ref} referenced but not defined in docs/decisions/"
       missing=$((missing + 1))
     fi
   done <<< "$refs"
 
-  if [[ $missing -eq 0 ]] && [[ $checked -gt 0 ]]; then
-    ok "all ADR references resolve ($checked unique IDs)"
+  if [[ $missing -eq 0 ]] && [[ $index_drift -eq 0 ]] && [[ $checked -gt 0 ]]; then
+    ok "all ADR references resolve ($checked unique IDs across $(echo "$defined_adrs" | wc -l | xargs) per-file records)"
   fi
 }
 

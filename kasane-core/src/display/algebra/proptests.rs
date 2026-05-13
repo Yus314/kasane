@@ -87,7 +87,7 @@ fn arb_display() -> impl Strategy<Value = Display> {
 /// A `TaggedDisplay` carrying an arbitrary tree and tag.
 fn arb_tagged() -> impl Strategy<Value = TaggedDisplay> {
     (arb_display(), -4i16..4, "[a-z]{1,4}", 0u32..3)
-        .prop_map(|(d, prio, plugin, seq)| TaggedDisplay::new(d, prio, PluginId(plugin), seq))
+        .prop_map(|(d, prio, plugin, seq)| TaggedDisplay::new(d, prio, PluginId::from(plugin), seq))
 }
 
 /// A small forest of tagged displays.
@@ -126,8 +126,8 @@ proptest! {
     ) {
         let left = Display::then(Display::then(a.clone(), b.clone()), c.clone());
         let right = Display::then(a, Display::then(b, c));
-        let lhs = normalize(vec![TaggedDisplay::new(left, 0, PluginId("p".into()), 0)]);
-        let rhs = normalize(vec![TaggedDisplay::new(right, 0, PluginId("p".into()), 0)]);
+        let lhs = normalize(vec![TaggedDisplay::new(left, 0, PluginId::from("p"), 0)]);
+        let rhs = normalize(vec![TaggedDisplay::new(right, 0, PluginId::from("p"), 0)]);
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -143,8 +143,8 @@ proptest! {
     ) {
         let left = Display::merge(Display::merge(a.clone(), b.clone()), c.clone());
         let right = Display::merge(a, Display::merge(b, c));
-        let lhs = normalize(vec![TaggedDisplay::new(left, 0, PluginId("p".into()), 0)]);
-        let rhs = normalize(vec![TaggedDisplay::new(right, 0, PluginId("p".into()), 0)]);
+        let lhs = normalize(vec![TaggedDisplay::new(left, 0, PluginId::from("p"), 0)]);
+        let rhs = normalize(vec![TaggedDisplay::new(right, 0, PluginId::from("p"), 0)]);
         prop_assert_eq!(lhs, rhs);
     }
 
@@ -164,13 +164,13 @@ proptest! {
         let lhs = normalize(vec![TaggedDisplay::new(
             Display::merge(a.clone(), b.clone()),
             0,
-            PluginId("p".into()),
+            PluginId::from("p"),
             0,
         )]);
         let rhs = normalize(vec![TaggedDisplay::new(
             Display::merge(b, a),
             0,
-            PluginId("p".into()),
+            PluginId::from("p"),
             0,
         )]);
         prop_assert_eq!(lhs, rhs);
@@ -185,7 +185,7 @@ proptest! {
         let tagged: Vec<_> = forest
             .into_iter()
             .enumerate()
-            .map(|(i, d)| TaggedDisplay::new(d, 0, PluginId("p".into()), i as u32))
+            .map(|(i, d)| TaggedDisplay::new(d, 0, PluginId::from("p"), i as u32))
             .collect();
         let result = normalize(tagged);
         prop_assert!(result.conflicts.is_empty());

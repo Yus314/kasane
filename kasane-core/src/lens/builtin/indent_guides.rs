@@ -373,7 +373,7 @@ mod tests {
     fn id_uses_builtin_plugin_namespace_with_indent_width_in_name() {
         let lens = IndentGuidesLens::new(4, Style::default());
         let id = lens.id();
-        assert_eq!(id.plugin.0, "kasane.builtin");
+        assert_eq!(id.plugin.as_str(), "kasane.builtin");
         assert_eq!(id.name, "indent-guides-4");
     }
 

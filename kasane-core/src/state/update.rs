@@ -144,7 +144,7 @@ fn update_inner<E: PluginEffects>(
             if !pending_errors.is_empty() {
                 let view = AppView::new(state);
                 for err in &pending_errors {
-                    let target = PluginId(err.plugin_id.clone());
+                    let target = PluginId::from(err.plugin_id.as_str());
                     let mut batch = effects.dispatch_command_error(&target, err, &view);
                     scroll_plans.append(&mut batch.scroll_plans);
                     extra_redraw |= batch.redraw;
@@ -561,7 +561,7 @@ fn dispatch_display_unit_mouse<E: PluginEffects>(
                         if let NavigationAction::ActivateShadowCursor = &action
                             && let UnitSource::ProjectedLine { anchor, spans: _ } = &unit.source
                         {
-                            let owner = crate::plugin::PluginId(String::new());
+                            let owner = crate::plugin::PluginId::from("");
                             state.runtime.shadow_cursor = Some(ShadowCursor {
                                 display_line: unit.display_line,
                                 span_index: 0,

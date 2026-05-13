@@ -28,7 +28,7 @@ Kasane's long-term strategy is to **make WASM the first-class distribution and e
 - A host-integration API requiring redesign to achieve WASM parity
 - An API intentionally kept native-only based on security boundary decisions
 
-File system access is provided via WASI capability declarations (Phase P-1), and external process execution is provided via host-mediated `Command` + `IoEvent` (Phase P-2). See [ADR-019](./decisions.md#adr-019-plugin-io-infrastructure--hybrid-model) for design rationale.
+File system access is provided via WASI capability declarations (Phase P-1), and external process execution is provided via host-mediated `Command` + `IoEvent` (Phase P-2). See [ADR-019](./decisions/adr-019-plugin-io-infrastructure-hybrid-model.md) for design rationale.
 
 ## 1. Extension Points
 
@@ -108,7 +108,7 @@ The **Display Transform API** (`display_directives()`) provides the first concre
 - Kakoune controls the viewport and cursor movement, so true code folding (where folded lines are skipped during navigation) is not possible; `Fold` is best suited for read-only summaries
 - `InsertAfter`/`InsertBefore` (virtual text) are the primary practical use cases; `InsertBefore` enables Gap 0 (before the first buffer line)
 
-See `examples/virtual-text-demo/` for a working proof artifact.
+See the previous `examples/virtual-text-demo/` artifact (moved to the future external `kasane-plugin-gallery` per δ-3 cleanup; recover from this repo's git history).
 
 For mechanisms not covered by DisplayDirective (overlay composition, element-level restructuring), plugins should use the existing combination of `contribute_to()`, `transform()`, `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, and `Surface`.
 
@@ -867,9 +867,9 @@ Plugins can observe session state and control session switching:
 - **Session lifecycle notification**: `DirtyFlags::SESSION` is set when sessions are created, closed, switched, or when a session dies. Plugins react via `on_state_changed`.
 - **Session switch command**: `SessionCommand::Switch { key }` (native) or `command::switch-session(key)` (WIT) requests activation of a specific session by key.
 
-See [ADR-023](./decisions.md#adr-023-session-management-boundaries--mechanism--policy-split) for the boundary rationale and decision record.
+See [ADR-023](./decisions/adr-023-session-management-boundaries-mechanism-policy-split.md) for the boundary rationale and decision record.
 
-WASM plugins are sandboxed by default. The host constructs the WASI context from the plugin manifest (`kasane-plugin.toml` → `[capabilities].wasi`) **before** instantiating the WASM component — plugins never participate in their own permission decisions. Without a manifest capability declaration, access to host resources such as file system and network is unavailable. The host functions available to WASM plugins are limited to the two WIT interfaces: `host-state` (state reading) and `element-builder` (element construction). Per Phase P ([ADR-019](./decisions.md#adr-019-plugin-io-infrastructure--hybrid-model)), `preopened_dir` / `env` are unlocked based on manifest capability declarations (P-1), and process execution is provided via host mediation (`Command::SpawnProcess` + `IoEvent`) (P-2). Process execution requires declaring `process` in the manifest's `[capabilities].wasi`, which can be denied via `deny_capabilities` in `kasane.kdl`.
+WASM plugins are sandboxed by default. The host constructs the WASI context from the plugin manifest (`kasane-plugin.toml` → `[capabilities].wasi`) **before** instantiating the WASM component — plugins never participate in their own permission decisions. Without a manifest capability declaration, access to host resources such as file system and network is unavailable. The host functions available to WASM plugins are limited to the two WIT interfaces: `host-state` (state reading) and `element-builder` (element construction). Per Phase P ([ADR-019](./decisions/adr-019-plugin-io-infrastructure-hybrid-model.md)), `preopened_dir` / `env` are unlocked based on manifest capability declarations (P-1), and process execution is provided via host mediation (`Command::SpawnProcess` + `IoEvent`) (P-2). Process execution requires declaring `process` in the manifest's `[capabilities].wasi`, which can be denied via `deny_capabilities` in `kasane.kdl`.
 
 ## 4. Capabilities and Caching
 
@@ -1179,11 +1179,12 @@ theme {
 Plugins with the `SURFACE_PROVIDER` capability can provide their own surfaces. In Native, they return `Box<dyn Surface>`, while in WASM, they map to a hosted surface model returning static `surface-descriptor` groups, `render-surface(surface-key, ctx)`, `handle-surface-event(surface-key, event, ctx)`, and `handle-surface-state-changed(surface-key, dirty-flags)`.
 
 ```rust
-impl Plugin for MyPlugin {
-    type State = ();
-
+// Stateless plugin — no per-instance state across handler calls.
+// `StatelessPlugin` auto-derives `Plugin<State = ()>` via blanket impl,
+// so no `type State = ()` boilerplate is needed.
+impl StatelessPlugin for MyPlugin {
     fn id(&self) -> PluginId {
-        PluginId("my-plugin".into())
+        PluginId::from("my-plugin")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
@@ -1191,6 +1192,8 @@ impl Plugin for MyPlugin {
     }
 }
 ```
+
+Plugins that need state across handler calls implement `Plugin` directly with a concrete `type State`.
 
 `SURFACE_PROVIDER` is auto-inferred from the `declare_surfaces` registration; no explicit capability declaration is needed.
 

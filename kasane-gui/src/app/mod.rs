@@ -38,12 +38,12 @@ use kasane_core::plugin::{
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::{RenderResult, SceneCache};
-use kasane_core::salsa_db::KasaneDatabase;
-use kasane_core::salsa_sync::SalsaInputHandles;
 use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
+use kasane_internal::salsa_db::KasaneDatabase;
+use kasane_internal::salsa_sync::SalsaInputHandles;
 
 pub struct App<R, W, C>
 where
@@ -236,7 +236,7 @@ where
         let (salsa_db, salsa_handles) = {
             let mut db = KasaneDatabase::default();
             let handles = SalsaInputHandles::new(&mut db);
-            kasane_core::salsa_sync::sync_inputs_from_state(&mut db, &state, &handles);
+            kasane_internal::salsa_sync::sync_inputs_from_state(&mut db, &state, &handles);
             (db, handles)
         };
         let scroll_runtime_session = session_manager.active_session_id();
@@ -677,7 +677,7 @@ where
                                 .iter()
                                 .map(|e| PluginDiagnostic {
                                     target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
-                                        kasane_core::plugin::PluginId("kasane.config".to_string()),
+                                        kasane_core::plugin::PluginId::from("kasane.config"),
                                     ),
                                     kind: kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
                                         method: "parse".to_string(),
@@ -763,7 +763,7 @@ where
                             tracing::warn!("restart required for: {field_list}");
                             let diagnostic = PluginDiagnostic {
                                 target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
-                                    kasane_core::plugin::PluginId("kasane.config".to_string()),
+                                    kasane_core::plugin::PluginId::from("kasane.config"),
                                 ),
                                 kind: kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
                                     method: "reload".to_string(),
@@ -842,7 +842,7 @@ where
                         tracing::warn!("kasane.kdl reload failed (keeping previous): {err}");
                         let diagnostic = PluginDiagnostic {
                             target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
-                                kasane_core::plugin::PluginId("kasane.widget.reload".to_string()),
+                                kasane_core::plugin::PluginId::from("kasane.widget.reload"),
                             ),
                             kind: kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
                                 method: "reload".to_string(),
@@ -1312,11 +1312,11 @@ fn log_reload_summary(deltas: &[kasane_core::plugin::AppliedWinnerDelta]) {
     let mut replaced = Vec::new();
     for delta in deltas {
         if delta.is_added() {
-            added.push(delta.id.0.as_str());
+            added.push(delta.id.as_str());
         } else if delta.is_removed() {
-            removed.push(delta.id.0.as_str());
+            removed.push(delta.id.as_str());
         } else if delta.is_replaced() {
-            replaced.push(delta.id.0.as_str());
+            replaced.push(delta.id.as_str());
         }
     }
     tracing::info!(

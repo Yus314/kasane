@@ -1003,7 +1003,7 @@ Therefore, Surface is partially integrated as a first-class abstraction. Full un
 
 In multi-pane mode, the global status bar surface is not rendered at the screen-level composition. Instead, each pane renders its own status bar: the same status bar descriptor is rendered once per pane with that pane's own state.
 
-Pane-specific context is propagated through the rendering system to plugin contributions during slot resolution. This ensures that plugin contributions (e.g., sel-badge, session-ui) in status bar slots receive the correct pane-specific state and focus information.
+Pane-specific context is propagated through the rendering system to plugin contributions during slot resolution. This ensures that plugin contributions (status widgets, session indicators, etc.) in status bar slots receive the correct pane-specific state and focus information.
 
 Each pane's element tree is composed as `Column [buffer(flex=1.0), status(fixed)]` (or `[status, buffer]` when `status_at_top` is true). Kakoune clients are resized to `rect.h - 1` to account for the status bar row consumed within each pane.
 

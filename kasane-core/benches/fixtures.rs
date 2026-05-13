@@ -26,7 +26,7 @@ impl kasane_core::plugin::Plugin for BenchPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId(self.id.clone())
+        PluginId::from(&*self.id)
     }
 
     fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {

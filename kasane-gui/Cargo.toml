@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 kasane-core = { workspace = true, features = ["svg"] }
+kasane-internal = { workspace = true }
 winit = { workspace = true }
 wgpu = { workspace = true }
 # ADR-031 Phase 11 — cosmic-text retired in favour of Parley + swash.

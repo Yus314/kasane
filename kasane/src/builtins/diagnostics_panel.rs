@@ -291,7 +291,7 @@ fn build_overlay(state: &DiagnosticsPanelState, app: &AppView<'_>) -> Option<Ove
             h: layout.h,
         },
         z_index: PANEL_Z_INDEX,
-        plugin_id: PluginId("kasane.builtin.diagnostics_panel".into()),
+        plugin_id: PluginId::from("kasane.builtin.diagnostics_panel"),
     })
 }
 
@@ -302,7 +302,7 @@ impl Plugin for BuiltinDiagnosticsPanelPlugin {
     type State = DiagnosticsPanelState;
 
     fn id(&self) -> PluginId {
-        PluginId("kasane.builtin.diagnostics_panel".into())
+        PluginId::from("kasane.builtin.diagnostics_panel")
     }
 
     fn register(&self, r: &mut HandlerRegistry<DiagnosticsPanelState>) {
@@ -1007,7 +1007,7 @@ mod tests {
         let mut app_state = kasane_core::state::AppState::default();
         app_state.runtime.diagnostic_history.record(&[
             kasane_core::plugin::diagnostics::PluginDiagnostic::instantiation_failed(
-                kasane_core::plugin::PluginId("session-ui".into()),
+                kasane_core::plugin::PluginId::from("session-ui"),
                 "wasm trap: unreachable",
             ),
         ]);

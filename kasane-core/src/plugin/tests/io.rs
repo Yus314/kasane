@@ -71,7 +71,7 @@ impl crate::plugin::Plugin for IoHandlerPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("io_handler".to_string())
+        PluginId::from("io_handler")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -107,7 +107,7 @@ fn test_deliver_io_event_dispatches_to_plugin() {
         data: b"output".to_vec(),
     });
     let batch = registry.deliver_io_event_batch(
-        &PluginId("io_handler".to_string()),
+        &PluginId::from("io_handler"),
         &event,
         &AppView::new(&state),
     );
@@ -127,7 +127,7 @@ fn test_deliver_io_event_unknown_target() {
         data: vec![],
     });
     let batch = registry.deliver_io_event_batch(
-        &PluginId("nonexistent".to_string()),
+        &PluginId::from("nonexistent"),
         &event,
         &AppView::new(&state),
     );
@@ -141,7 +141,7 @@ fn test_deliver_io_event_unknown_target() {
 #[test]
 fn test_null_process_dispatcher() {
     let mut dispatcher = NullProcessDispatcher;
-    let plugin_id = PluginId("test".into());
+    let plugin_id = PluginId::from("test");
     // All methods should be no-ops (no panic)
     dispatcher.spawn(&plugin_id, 1, "echo", &["hello".into()], StdinMode::Null);
     dispatcher.write(&plugin_id, 1, b"data");
@@ -178,7 +178,7 @@ impl ProcessDispatcher for RecordingDispatcher {
         _stdin_mode: StdinMode,
     ) {
         self.spawns
-            .push((plugin_id.0.clone(), job_id, program.to_string()));
+            .push((plugin_id.as_str().to_string(), job_id, program.to_string()));
     }
     fn write(&mut self, _plugin_id: &PluginId, job_id: u64, data: &[u8]) {
         self.writes.push((job_id, data.to_vec()));
@@ -196,7 +196,7 @@ impl ProcessDispatcher for RecordingDispatcher {
 #[test]
 fn test_recording_dispatcher_tracks_operations() {
     let mut dispatcher = RecordingDispatcher::new();
-    let plugin_id = PluginId("my_plugin".into());
+    let plugin_id = PluginId::from("my_plugin");
 
     dispatcher.spawn(&plugin_id, 1, "grep", &["foo".into()], StdinMode::Piped);
     dispatcher.write(&plugin_id, 1, b"search input");
@@ -223,7 +223,7 @@ fn test_plugin_allows_process_spawn_default_true() {
     // TestPlugin uses default allows_process_spawn() which returns true
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin);
-    assert!(registry.plugin_allows_process_spawn(&PluginId("test".to_string())));
+    assert!(registry.plugin_allows_process_spawn(&PluginId::from("test")));
 }
 
 #[test]
@@ -232,7 +232,7 @@ fn test_plugin_allows_process_spawn_denied() {
     impl crate::plugin::Plugin for DenySpawnPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("deny_spawn".to_string())
+            PluginId::from("deny_spawn")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             r.deny_process_spawn();
@@ -241,14 +241,14 @@ fn test_plugin_allows_process_spawn_denied() {
 
     let mut registry = PluginRuntime::new();
     registry.register(DenySpawnPlugin);
-    assert!(!registry.plugin_allows_process_spawn(&PluginId("deny_spawn".to_string())));
+    assert!(!registry.plugin_allows_process_spawn(&PluginId::from("deny_spawn")));
 }
 
 #[test]
 fn test_plugin_allows_process_spawn_unknown_plugin() {
     let registry = PluginRuntime::new();
     // Unknown plugin should return false (is_some_and fails on None)
-    assert!(!registry.plugin_allows_process_spawn(&PluginId("unknown".to_string())));
+    assert!(!registry.plugin_allows_process_spawn(&PluginId::from("unknown")));
 }
 
 #[test]

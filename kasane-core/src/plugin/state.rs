@@ -69,6 +69,10 @@ where
 /// from which handlers are registered.
 ///
 /// Register via `PluginRuntime::register()` or wrap manually with `PluginBridge`.
+///
+/// Plugins that don't need state should impl [`StatelessPlugin`] instead —
+/// the blanket impl below auto-derives `Plugin<State = ()>` from any
+/// `StatelessPlugin`, eliminating the `type State = ();` boilerplate.
 pub trait Plugin: Send + 'static {
     /// Concrete state type. Must be `Clone + PartialEq + Debug + Send + Default`.
     type State: PluginState + PartialEq + Clone + Default;
@@ -78,6 +82,45 @@ pub trait Plugin: Send + 'static {
 
     /// Register handlers on the given registry.
     fn register(&self, registry: &mut super::HandlerRegistry<Self::State>);
+}
+
+/// Plugin trait for stateless plugins — those that maintain no per-instance
+/// state across handler invocations.
+///
+/// Implementing `StatelessPlugin` automatically gives you `Plugin<State = ()>`
+/// via the blanket impl below, so you don't have to spell out
+/// `type State = ();` in every stateless plugin.
+///
+/// **When to use**: any plugin whose `register()` callbacks don't need to
+/// read or mutate plugin-owned state — typical examples are the WASM
+/// adapter (state lives guest-side), pure renderers, observers that
+/// only emit effects, and most builtin plugins.
+///
+/// **When NOT to use**: plugins that need to memoize / cache / accumulate
+/// state across handler calls. Implement [`Plugin`] directly with a
+/// concrete `type State`.
+///
+/// Coherence note: a single type may impl `StatelessPlugin` *or* `Plugin`,
+/// but not both — the blanket below would conflict.
+pub trait StatelessPlugin: Send + 'static {
+    /// Unique plugin identifier — same contract as [`Plugin::id`].
+    fn id(&self) -> super::PluginId;
+
+    /// Register handlers on a `HandlerRegistry<()>` — same contract as
+    /// [`Plugin::register`] specialized to `Self::State = ()`.
+    fn register(&self, registry: &mut super::HandlerRegistry<()>);
+}
+
+impl<P: StatelessPlugin> Plugin for P {
+    type State = ();
+
+    fn id(&self) -> super::PluginId {
+        StatelessPlugin::id(self)
+    }
+
+    fn register(&self, registry: &mut super::HandlerRegistry<Self::State>) {
+        StatelessPlugin::register(self, registry)
+    }
 }
 
 // =============================================================================
@@ -106,7 +149,7 @@ pub(in crate::plugin) mod tests {
         type State = CursorLineState;
 
         fn id(&self) -> PluginId {
-            PluginId("test.cursor-line-pure".into())
+            PluginId::from("test.cursor-line-pure")
         }
 
         fn register(&self, r: &mut HandlerRegistry<CursorLineState>) {
@@ -121,7 +164,7 @@ pub(in crate::plugin) mod tests {
                     (state.clone(), KakouneSideEffects::none())
                 }
             });
-            r.on_decorate_background(|state, line, _app, _ctx| {
+            r.on_background(|state, line, _app, _ctx| {
                 if line as i32 == state.active_line {
                     Some(BackgroundLayer {
                         style: crate::protocol::Style::from_face(&WireFace {
@@ -163,7 +206,7 @@ pub(in crate::plugin) mod tests {
         type State = ColorPreviewState;
 
         fn id(&self) -> PluginId {
-            PluginId("test.color-preview-pure".into())
+            PluginId::from("test.color-preview-pure")
         }
 
         fn register(&self, r: &mut HandlerRegistry<ColorPreviewState>) {
@@ -178,7 +221,7 @@ pub(in crate::plugin) mod tests {
                     (state.clone(), KakouneSideEffects::none())
                 }
             });
-            r.on_decorate_background(|state, line, _app, _ctx| {
+            r.on_background(|state, line, _app, _ctx| {
                 if state.color_lines.contains_key(&line) {
                     Some(BackgroundLayer {
                         style: crate::protocol::Style::from_face(&WireFace {

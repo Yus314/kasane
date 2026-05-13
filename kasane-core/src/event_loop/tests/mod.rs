@@ -46,7 +46,7 @@ impl crate::plugin::Plugin for RuntimeMessagePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("runtime-message".to_string())
+        PluginId::from("runtime-message")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -80,7 +80,7 @@ impl crate::plugin::Plugin for TextInputPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("text-input-plugin".to_string())
+        PluginId::from("text-input-plugin")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -190,7 +190,7 @@ impl crate::plugin::Plugin for SurfacePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("surface-plugin".to_string())
+        PluginId::from("surface-plugin")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -210,7 +210,7 @@ impl crate::plugin::Plugin for ReplacementSurfacePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("surface-plugin".to_string())
+        PluginId::from("surface-plugin")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -230,7 +230,7 @@ impl crate::plugin::Plugin for InvalidSurfacePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("invalid-surface-plugin".to_string())
+        PluginId::from("invalid-surface-plugin")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -243,7 +243,7 @@ impl crate::plugin::Plugin for InvalidSurfacePlugin {
 pub(super) fn owner_delta(old: Option<&str>, new: Option<&str>) -> AppliedWinnerDelta {
     fn descriptor(id: &str, revision: &str) -> PluginDescriptor {
         PluginDescriptor {
-            id: PluginId(id.to_string()),
+            id: PluginId::from(id),
             source: PluginSource::Host {
                 provider: "test".to_string(),
             },
@@ -253,7 +253,7 @@ pub(super) fn owner_delta(old: Option<&str>, new: Option<&str>) -> AppliedWinner
     }
 
     AppliedWinnerDelta {
-        id: PluginId("surface-plugin".to_string()),
+        id: PluginId::from("surface-plugin"),
         old: old.map(|rev| descriptor("surface-plugin", rev)),
         new: new.map(|rev| descriptor("surface-plugin", rev)),
     }

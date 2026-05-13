@@ -34,7 +34,7 @@ impl Plugin for DebugOverlayPlugin {
     type State = DebugOverlayState;
 
     fn id(&self) -> PluginId {
-        PluginId("debug_overlay".into())
+        PluginId::from("debug_overlay")
     }
 
     fn register(&self, r: &mut HandlerRegistry<DebugOverlayState>) {
@@ -77,7 +77,7 @@ impl Plugin for DebugOverlayPlugin {
                     h: height,
                 },
                 z_index: 100,
-                plugin_id: PluginId("debug_overlay".into()),
+                plugin_id: PluginId::from("debug_overlay"),
             })
         });
     }
@@ -191,7 +191,7 @@ mod tests {
         let mut runtime = PluginRuntime::new();
         runtime.register(DebugOverlayPlugin);
 
-        assert!(runtime.contains_plugin(&PluginId("debug_overlay".into())));
+        assert!(runtime.contains_plugin(&PluginId::from("debug_overlay")));
         assert_eq!(runtime.plugin_count(), 1);
     }
 

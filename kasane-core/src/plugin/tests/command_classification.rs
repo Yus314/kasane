@@ -28,12 +28,12 @@ pub(super) fn make_all_command_instances() -> Vec<Command> {
         Command::ScheduleTimer {
             timer_id: 0,
             delay: Duration::ZERO,
-            target: PluginId("test".into()),
+            target: PluginId::from("test"),
             payload: Box::new(()),
         },
         Command::CancelTimer { timer_id: 0 },
         Command::PluginMessage {
-            target: PluginId("test".into()),
+            target: PluginId::from("test"),
             payload: Box::new(()),
         },
         Command::SetConfig {
@@ -41,7 +41,7 @@ pub(super) fn make_all_command_instances() -> Vec<Command> {
             value: String::new(),
         },
         Command::SetSetting {
-            plugin_id: PluginId("test".into()),
+            plugin_id: PluginId::from("test"),
             key: String::new(),
             value: crate::plugin::host::setting::SettingValue::Bool(false),
         },

@@ -111,5 +111,5 @@ pub(super) fn build_contribution_element(
 }
 
 pub fn node_error_to_diagnostic(error: &WidgetNodeError) -> PluginDiagnostic {
-    PluginDiagnostic::config_error(PluginId(PLUGIN_ID.to_string()), &error.name, &error.message)
+    PluginDiagnostic::config_error(PluginId::from(PLUGIN_ID), &error.name, &error.message)
 }

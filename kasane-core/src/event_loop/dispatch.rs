@@ -331,7 +331,7 @@ fn handle_expose_variable(
         // entries persisted indefinitely.
         let owner = command_source_plugin
             .cloned()
-            .unwrap_or_else(|| PluginId("kasane.host".to_string()));
+            .unwrap_or_else(|| PluginId::from("kasane.host"));
         ctx.registry.variable_store_mut().set(&name, value, owner);
     }
 }
@@ -354,7 +354,7 @@ fn register_surface_core(
         }
         Err(err) => {
             tracing::warn!(
-                plugin = plugin_id.0,
+                plugin = plugin_id.as_str(),
                 surface_id = surface_id.0,
                 "{label} ignored: {err:?}"
             );
@@ -380,8 +380,8 @@ fn unregister_and_log(
         UnregisterResult::Removed => {}
         UnregisterResult::OwnedByOther(owner) => {
             tracing::warn!(
-                plugin = plugin_id.0,
-                owner = owner.0,
+                plugin = plugin_id.as_str(),
+                owner = owner.as_str(),
                 surface_id = surface_id.0,
                 surface_key = surface_key.unwrap_or(""),
                 "{label} ignored: surface owned by another plugin"
@@ -389,7 +389,7 @@ fn unregister_and_log(
         }
         UnregisterResult::NotFound => {
             tracing::warn!(
-                plugin = plugin_id.0,
+                plugin = plugin_id.as_str(),
                 surface_id = surface_id.0,
                 surface_key = surface_key.unwrap_or(""),
                 "{label} ignored: surface is not plugin-owned or missing"
@@ -435,7 +435,7 @@ fn handle_surface_mgmt_command(
                     else {
                         let _ = ctx.surface_registry.remove(surface_id);
                         tracing::warn!(
-                            plugin = plugin_id.0,
+                            plugin = plugin_id.as_str(),
                             surface_id = surface_id.0,
                             "RegisterSurfaceRequested ignored: unresolved placement request"
                         );
@@ -446,7 +446,7 @@ fn handle_surface_mgmt_command(
                 }
                 Err(err) => {
                     tracing::warn!(
-                        plugin = plugin_id.0,
+                        plugin = plugin_id.as_str(),
                         surface_id = surface_id.0,
                         "RegisterSurfaceRequested ignored: {err:?}"
                     );
@@ -473,7 +473,7 @@ fn handle_surface_mgmt_command(
 
             let Some(surface_id) = ctx.surface_registry.surface_id_by_key(&surface_key) else {
                 tracing::warn!(
-                    plugin = plugin_id.0,
+                    plugin = plugin_id.as_str(),
                     surface_key,
                     "UnregisterSurfaceKey ignored: unknown surface key"
                 );
@@ -563,7 +563,7 @@ fn handle_process_command(
                         .plugin_has_authority(plugin_id, PluginAuthorities::PTY_PROCESS);
                 if pty_denied {
                     tracing::warn!(
-                        plugin = plugin_id.0.as_str(),
+                        plugin = plugin_id.as_str(),
                         "SpawnProcess denied: PTY_PROCESS authority not granted"
                     );
                     if deliver_spawn_failure(
@@ -580,7 +580,7 @@ fn handle_process_command(
                         .spawn(plugin_id, job_id, &program, &args, stdin_mode);
                 } else {
                     tracing::warn!(
-                        plugin = plugin_id.0,
+                        plugin = plugin_id.as_str(),
                         "SpawnProcess denied: process capability not granted"
                     );
                     if deliver_spawn_failure(
@@ -625,7 +625,7 @@ fn handle_process_command(
                     .plugin_has_authority(plugin_id, PluginAuthorities::PTY_PROCESS)
                 {
                     tracing::warn!(
-                        plugin = plugin_id.0.as_str(),
+                        plugin = plugin_id.as_str(),
                         "ResizePty rejected: plugin lacks PTY_PROCESS authority"
                     );
                 } else {
@@ -675,7 +675,7 @@ fn handle_session_pane_command(
                     .plugin_has_authority(plugin_id, PluginAuthorities::WORKSPACE)
             {
                 tracing::warn!(
-                    plugin = plugin_id.0.as_str(),
+                    plugin = plugin_id.as_str(),
                     "SpawnPaneClient denied: WORKSPACE authority not granted"
                 );
                 return Some(false);
@@ -725,7 +725,7 @@ fn handle_session_pane_command(
                     .plugin_has_authority(plugin_id, PluginAuthorities::WORKSPACE)
             {
                 tracing::warn!(
-                    plugin = plugin_id.0.as_str(),
+                    plugin = plugin_id.as_str(),
                     "ClosePaneClient denied: WORKSPACE authority not granted"
                 );
                 return Some(false);
@@ -845,7 +845,7 @@ fn handle_http_command(
                     .plugin_has_authority(plugin_id, PluginAuthorities::HTTP_REQUEST)
                 {
                     tracing::warn!(
-                        plugin = plugin_id.0.as_str(),
+                        plugin = plugin_id.as_str(),
                         "HttpRequest denied: HTTP_REQUEST authority not granted"
                     );
                     let fail_event =
@@ -894,7 +894,7 @@ fn handle_start_process_task(
 
     if !ctx.registry.plugin_allows_process_spawn(plugin_id) {
         tracing::warn!(
-            plugin = plugin_id.0.as_str(),
+            plugin = plugin_id.as_str(),
             task_name,
             "StartProcessTask denied: process capability not granted"
         );

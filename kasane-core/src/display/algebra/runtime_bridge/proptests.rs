@@ -38,7 +38,7 @@ const MAX_LINE: usize = LINE_COUNT - 1;
 const MAX_BYTE: usize = 16;
 
 fn pid(s: &str) -> PluginId {
-    PluginId(s.to_string())
+    PluginId::from(s)
 }
 
 fn atom(s: &str) -> Atom {

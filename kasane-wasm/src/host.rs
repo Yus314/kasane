@@ -513,7 +513,7 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
         name: String,
     ) -> Result<(), bindings::kasane::plugin::types::SetSaveError> {
         let native = selection_set_from_wit(set);
-        match native.save(PluginId(self.plugin_id.clone()), &name) {
+        match native.save(PluginId::from(self.plugin_id.as_str()), &name) {
             Ok(()) => Ok(()),
             Err(kasane_core::state::selection_set::SaveError::InvalidName) => {
                 Err(bindings::kasane::plugin::types::SetSaveError::InvalidName)
@@ -532,7 +532,7 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
         use kasane_core::state::selection::BufferId;
         use kasane_core::state::selection_set::LoadError;
         match kasane_core::state::selection_set::SelectionSet::load(
-            PluginId(self.plugin_id.clone()),
+            PluginId::from(self.plugin_id.as_str()),
             &name,
             BufferId::new(buffer),
         ) {
@@ -1325,7 +1325,7 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
         && let Some(ps) = state
             .config
             .plugin_settings
-            .get(&PluginId(host.plugin_id.clone()))
+            .get(&PluginId::from(host.plugin_id.as_str()))
     {
         host.settings.clone_from(ps);
     }

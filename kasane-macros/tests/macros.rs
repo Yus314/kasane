@@ -9,6 +9,11 @@ fn test_component_pass() {
 }
 
 #[test]
+fn test_handler_table_pass() {
+    trybuild::TestCases::new().pass("tests/pass/handler_table_*.rs");
+}
+
+#[test]
 fn test_fail() {
     trybuild::TestCases::new().compile_fail("tests/fail/*.rs");
 }

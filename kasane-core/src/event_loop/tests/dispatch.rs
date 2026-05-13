@@ -12,7 +12,7 @@ use super::super::surface::register_builtin_surfaces;
 
 #[test]
 fn sourced_surface_commands_preserve_plugin_for_spawn_process() {
-    let plugin_id = PluginId("surface-owner".to_string());
+    let plugin_id = PluginId::from("surface-owner");
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin {
         id: plugin_id.clone(),
@@ -85,7 +85,7 @@ fn plugin_message_runtime_effects_update_dirty_and_enqueue_scroll_plans() {
 
     let quit = handle_deferred_commands(
         vec![Command::PluginMessage {
-            target: PluginId("runtime-message".to_string()),
+            target: PluginId::from("runtime-message"),
             payload: Box::new(11u32),
         }],
         &mut DeferredContext {
@@ -117,7 +117,7 @@ fn plugin_message_runtime_effects_update_dirty_and_enqueue_scroll_plans() {
 
 #[test]
 fn register_surface_requires_dynamic_surface_authority() {
-    let plugin_id = PluginId("surface-owner".to_string());
+    let plugin_id = PluginId::from("surface-owner");
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin {
@@ -172,7 +172,7 @@ fn register_surface_requires_dynamic_surface_authority() {
 
 #[test]
 fn register_surface_adds_plugin_owned_surface_to_workspace() {
-    let plugin_id = PluginId("surface-owner".to_string());
+    let plugin_id = PluginId::from("surface-owner");
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin {
@@ -232,7 +232,7 @@ fn register_surface_adds_plugin_owned_surface_to_workspace() {
 
 #[test]
 fn register_surface_requested_resolves_keyed_placement() {
-    let plugin_id = PluginId("surface-owner".to_string());
+    let plugin_id = PluginId::from("surface-owner");
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin {
@@ -291,8 +291,8 @@ fn register_surface_requested_resolves_keyed_placement() {
 
 #[test]
 fn unregister_surface_rejects_non_owner_even_with_authority() {
-    let owner_id = PluginId("surface-owner".to_string());
-    let other_id = PluginId("other-owner".to_string());
+    let owner_id = PluginId::from("surface-owner");
+    let other_id = PluginId::from("other-owner");
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin {
@@ -372,7 +372,7 @@ fn unregister_surface_rejects_non_owner_even_with_authority() {
 
 #[test]
 fn unregister_surface_removes_owned_surface() {
-    let plugin_id = PluginId("surface-owner".to_string());
+    let plugin_id = PluginId::from("surface-owner");
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin {
@@ -448,7 +448,7 @@ fn unregister_surface_removes_owned_surface() {
 
 #[test]
 fn unregister_surface_key_removes_owned_surface() {
-    let plugin_id = PluginId("surface-owner".to_string());
+    let plugin_id = PluginId::from("surface-owner");
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin {
@@ -524,7 +524,7 @@ fn unregister_surface_key_removes_owned_surface() {
 
 #[test]
 fn pty_spawn_requires_pty_process_authority() {
-    let plugin_id = PluginId("pty-plugin".to_string());
+    let plugin_id = PluginId::from("pty-plugin");
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin {
@@ -576,7 +576,7 @@ fn pty_spawn_requires_pty_process_authority() {
 
 #[test]
 fn pty_spawn_allowed_with_authority() {
-    let plugin_id = PluginId("pty-plugin".to_string());
+    let plugin_id = PluginId::from("pty-plugin");
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin {
@@ -631,7 +631,7 @@ fn pty_spawn_allowed_with_authority() {
 
 #[test]
 fn piped_spawn_does_not_require_pty_authority() {
-    let plugin_id = PluginId("piped-plugin".to_string());
+    let plugin_id = PluginId::from("piped-plugin");
     let mut state = AppState::default();
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin {
@@ -824,7 +824,7 @@ impl crate::plugin::Plugin for CascadingMessagePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("cascading".to_string())
+        PluginId::from("cascading")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -837,7 +837,7 @@ impl crate::plugin::Plugin for CascadingMessagePlugin {
                 .base
                 .commands
                 .push(crate::plugin::KakouneSideCommand::plugin_message(
-                    PluginId("cascading".to_string()),
+                    PluginId::from("cascading"),
                     Box::new(()),
                 ));
             ((), effects)
@@ -862,7 +862,7 @@ fn command_cascade_terminates_at_depth_limit() {
     // Seed a single PluginMessage — should cascade but terminate
     let quit = handle_deferred_commands(
         vec![Command::PluginMessage {
-            target: PluginId("cascading".to_string()),
+            target: PluginId::from("cascading"),
             payload: Box::new(()),
         }],
         &mut DeferredContext {
@@ -898,7 +898,7 @@ impl crate::plugin::Plugin for CascadingInjectPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("cascading-inject".to_string())
+        PluginId::from("cascading-inject")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -972,7 +972,7 @@ impl crate::plugin::Plugin for SuppressPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("suppress-test".to_string())
+        PluginId::from("suppress-test")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -1133,7 +1133,7 @@ fn process_command_without_source_logs_error() {
 fn state_changed_sourced_commands_reach_dispatcher_with_plugin_id() {
     use crate::plugin::SourcedCommands;
 
-    let plugin_id = PluginId("state-changed-spawner".to_string());
+    let plugin_id = PluginId::from("state-changed-spawner");
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin {
         id: plugin_id.clone(),

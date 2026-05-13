@@ -6,7 +6,9 @@
 //! `update.rs`.
 
 use crate::input::MouseEventKind;
-use crate::plugin::{HandlerRegistry, MousePreDispatchResult, Plugin, PluginId, StateUpdates};
+use crate::plugin::{
+    HandlerRegistry, MousePreDispatchResult, PluginId, StateUpdates, StatelessPlugin,
+};
 use crate::state::DragState;
 
 /// Built-in plugin that tracks mouse drag state.
@@ -16,11 +18,9 @@ use crate::state::DragState;
 /// new drag state without an out-of-band side channel.
 pub struct BuiltinDragPlugin;
 
-impl Plugin for BuiltinDragPlugin {
-    type State = ();
-
+impl StatelessPlugin for BuiltinDragPlugin {
     fn id(&self) -> PluginId {
-        PluginId("kasane.builtin.drag".into())
+        PluginId::from("kasane.builtin.drag")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {

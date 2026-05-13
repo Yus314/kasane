@@ -1,11 +1,10 @@
-use kasane_core::element::{Direction, Element, OverlayAnchor};
+use kasane_core::element::{Direction, Element};
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    AppView, Command, ContribSizeHint, ContributeContext, Contribution, DisplayDirective, IoEvent,
-    OverlayContext, PluginId, PluginRuntime, ProcessEvent, SlotId,
+    AppView, Command, ContribSizeHint, ContributeContext, Contribution, DisplayDirective,
+    OverlayContext, PluginId, PluginRuntime, SlotId,
 };
-use kasane_core::protocol::Color;
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::{
     ResolvedSlotContentKind, SlotKind, SurfaceEvent, SurfacePlacementRequest, SurfaceRegistry,
@@ -20,32 +19,12 @@ mod bulk_buffer;
 mod color_preview;
 mod cursor_line;
 mod discovery;
-mod fuzzy_finder;
-mod prompt_highlight;
-mod session_ui;
-mod smooth_scroll;
 mod surface_probe;
 mod tier1_state;
 
 fn load_cursor_line_plugin() -> crate::WasmPlugin {
     let loader = WasmPluginLoader::new().expect("failed to create loader");
     let bytes = crate::load_wasm_fixture("cursor-line.wasm").expect("failed to load fixture");
-    loader
-        .load(&bytes, &crate::WasiCapabilityConfig::default())
-        .expect("failed to load plugin")
-}
-
-fn load_prompt_highlight_plugin() -> crate::WasmPlugin {
-    let loader = WasmPluginLoader::new().expect("failed to create loader");
-    let bytes = crate::load_wasm_fixture("prompt-highlight.wasm").expect("failed to load fixture");
-    loader
-        .load(&bytes, &crate::WasiCapabilityConfig::default())
-        .expect("failed to load plugin")
-}
-
-fn load_session_ui_plugin() -> crate::WasmPlugin {
-    let loader = WasmPluginLoader::new().expect("failed to create loader");
-    let bytes = crate::load_wasm_fixture("session-ui.wasm").expect("failed to load fixture");
     loader
         .load(&bytes, &crate::WasiCapabilityConfig::default())
         .expect("failed to load plugin")
@@ -61,14 +40,6 @@ fn load_surface_probe_plugin_with_config(
     let loader = WasmPluginLoader::new().expect("failed to create loader");
     let bytes = crate::load_wasm_fixture("surface-probe.wasm").expect("failed to load fixture");
     loader.load(&bytes, config).expect("failed to load plugin")
-}
-
-fn load_smooth_scroll_plugin() -> crate::WasmPlugin {
-    let loader = WasmPluginLoader::new().expect("failed to create loader");
-    let bytes = crate::load_wasm_fixture("smooth-scroll.wasm").expect("failed to load fixture");
-    loader
-        .load(&bytes, &crate::WasiCapabilityConfig::default())
-        .expect("failed to load plugin")
 }
 
 fn load_fixture_manifest(name: &str) -> crate::manifest::PluginManifest {
@@ -87,37 +58,6 @@ fn load_cursor_line_with_manifest() -> crate::WasmPlugin {
     let manifest = load_fixture_manifest("cursor-line.toml");
     loader
         .load_with_manifest(&bytes, &manifest, &crate::WasiCapabilityConfig::default())
-        .map_err(|(_, e)| e)
-        .expect("failed to load plugin with manifest")
-}
-
-fn load_prompt_highlight_with_manifest() -> crate::WasmPlugin {
-    let loader = WasmPluginLoader::new().expect("failed to create loader");
-    let bytes = crate::load_wasm_fixture("prompt-highlight.wasm").expect("failed to load fixture");
-    let manifest = load_fixture_manifest("prompt-highlight.toml");
-    loader
-        .load_with_manifest(&bytes, &manifest, &crate::WasiCapabilityConfig::default())
-        .map_err(|(_, e)| e)
-        .expect("failed to load plugin with manifest")
-}
-
-fn load_fuzzy_finder_with_manifest() -> crate::WasmPlugin {
-    let loader = WasmPluginLoader::new().expect("failed to create loader");
-    let bytes = crate::load_wasm_fixture("fuzzy-finder.wasm").expect("failed to load fixture");
-    let manifest = load_fixture_manifest("fuzzy-finder.toml");
-    loader
-        .load_with_manifest(&bytes, &manifest, &crate::WasiCapabilityConfig::default())
-        .map_err(|(_, e)| e)
-        .expect("failed to load plugin with manifest")
-}
-
-fn load_pane_manager_with_manifest() -> crate::WasmPlugin {
-    let loader = WasmPluginLoader::new().expect("failed to create loader");
-    let bytes = crate::BUNDLED_PANE_MANAGER;
-    let manifest = crate::manifest::PluginManifest::parse(crate::BUNDLED_PANE_MANAGER_MANIFEST)
-        .expect("failed to parse bundled manifest");
-    loader
-        .load_with_manifest(bytes, &manifest, &crate::WasiCapabilityConfig::default())
         .map_err(|(_, e)| e)
         .expect("failed to load plugin with manifest")
 }
@@ -151,7 +91,7 @@ impl kasane_core::plugin::Plugin for SurfaceProbeContributor {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("surface_probe_contributor".to_string())
+        PluginId::from("surface_probe_contributor")
     }
 
     fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
@@ -189,25 +129,7 @@ fn make_state_with_lines(lines: &[&str]) -> AppState {
 #[test]
 fn cursor_line_with_manifest_id() {
     let plugin = load_cursor_line_with_manifest();
-    assert_eq!(plugin.id().0, "cursor_line");
-}
-
-#[test]
-fn prompt_highlight_with_manifest_id() {
-    let plugin = load_prompt_highlight_with_manifest();
-    assert_eq!(plugin.id().0, "prompt_highlight");
-}
-
-#[test]
-fn fuzzy_finder_with_manifest_id() {
-    let plugin = load_fuzzy_finder_with_manifest();
-    assert_eq!(plugin.id().0, "fuzzy_finder");
-}
-
-#[test]
-fn pane_manager_with_manifest_id() {
-    let plugin = load_pane_manager_with_manifest();
-    assert_eq!(plugin.id().0, "pane_manager");
+    assert_eq!(plugin.id().as_str(), "cursor_line");
 }
 
 #[test]

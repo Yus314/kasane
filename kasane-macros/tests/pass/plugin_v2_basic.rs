@@ -51,5 +51,5 @@ mod highlight {
 
 fn main() {
     let plugin = HighlightPlugin;
-    assert_eq!(plugin.id(), PluginId("highlight".to_string()));
+    assert_eq!(plugin.id(), PluginId::from("highlight"));
 }

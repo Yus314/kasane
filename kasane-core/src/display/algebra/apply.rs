@@ -229,7 +229,7 @@ mod tests {
     use super::*;
 
     fn pid(s: &str) -> PluginId {
-        PluginId(s.to_string())
+        PluginId::from(s)
     }
 
     fn t(d: Display, prio: i16, plugin: &str, seq: u32) -> TaggedDisplay {

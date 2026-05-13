@@ -1218,7 +1218,7 @@ mod inline_box_dispatch_tests {
         type State = ();
 
         fn id(&self) -> PluginId {
-            PluginId("test.inline-box-painter".into())
+            PluginId::from("test.inline-box-painter")
         }
 
         fn register(&self, r: &mut HandlerRegistry<()>) {
@@ -1244,7 +1244,7 @@ mod inline_box_dispatch_tests {
         // ADR-031 Phase 10 Step 2-renderer (Step A.2b): verify that the
         // post-walk dispatch helper populates `inline_box_paint_commands`
         // for slots whose owning plugin returns Some(Element).
-        let owner = PluginId("test.inline-box-painter".into());
+        let owner = PluginId::from("test.inline-box-painter");
         let mut runtime = PluginRuntime::new();
         runtime.register(InlineBoxPainterPlugin);
 
@@ -1299,7 +1299,7 @@ mod inline_box_dispatch_tests {
         // Plugin returns None for a non-matching box_id; the slot's paint
         // commands stay empty so the GPU renderer falls back to the
         // placeholder fill.
-        let owner = PluginId("test.inline-box-painter".into());
+        let owner = PluginId::from("test.inline-box-painter");
         let mut runtime = PluginRuntime::new();
         runtime.register(InlineBoxPainterPlugin);
 

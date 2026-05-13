@@ -9,7 +9,7 @@ For measurement and profiling workflows, see [profiling.md](./profiling.md).
 
 ### Perceptual Goal
 
-Kasane's performance target is human imperceptibility: the overhead Kasane adds compared to native Kakoune must be imperceptible to the most perceptive user on the best current hardware (240 Hz display, low-latency terminal, experienced typist). This is an order-of-magnitude guide, not a precise threshold — perception is probabilistic and context-dependent. See [vision.md](./vision.md) for the origin statement and [ADR-024](./decisions.md#adr-024-perception-oriented-performance-policy) for the full framework.
+Kasane's performance target is human imperceptibility: the overhead Kasane adds compared to native Kakoune must be imperceptible to the most perceptive user on the best current hardware (240 Hz display, low-latency terminal, experienced typist). This is an order-of-magnitude guide, not a precise threshold — perception is probabilistic and context-dependent. See [vision.md](./vision.md) for the origin statement and [ADR-024](./decisions/adr-024-perception-oriented-performance-policy.md) for the full framework.
 
 ### Principles
 
@@ -47,7 +47,7 @@ Ordered by tier. Within each tier, original numbering is preserved for cross-ref
 
 ### SLO Derivation
 
-These SLOs function as engineering ratchets ([ADR-024](./decisions.md#adr-024-perception-oriented-performance-policy), Layer 2), not perceptual thresholds. The 200 μs full-frame budget is derived from: the current baseline of ~57 μs leaves 3.5× headroom, and regression up to 200 μs still keeps Kasane well under 1 ms — comfortably below the 4.17 ms display scanout at 240 Hz. Plugin budgets (< 3 μs/plugin) ensure ecosystem scalability: 50 plugins at budget would consume ~150 μs, still under 1 ms.
+These SLOs function as engineering ratchets ([ADR-024](./decisions/adr-024-perception-oriented-performance-policy.md), Layer 2), not perceptual thresholds. The 200 μs full-frame budget is derived from: the current baseline of ~57 μs leaves 3.5× headroom, and regression up to 200 μs still keeps Kasane well under 1 ms — comfortably below the 4.17 ms display scanout at 240 Hz. Plugin budgets (< 3 μs/plugin) ensure ecosystem scalability: 50 plugins at budget would consume ~150 μs, still under 1 ms.
 
 ## Degradation Model
 
@@ -60,7 +60,7 @@ frame_cost(w, h, n) ≈ base_cpu(w,h) + salsa_sync(w,h) + plugin_overhead(n) + b
 - `plugin_overhead` ≈ 1.5 μs × n (WASM CM)
 - `backend_io` ≈ 30–60 μs (TUI, terminal I/O dominated)
 
-For Kasane's position within the full input-to-photon chain, see [ADR-024](./decisions.md#adr-024-perception-oriented-performance-policy).
+For Kasane's position within the full input-to-photon chain, see [ADR-024](./decisions/adr-024-perception-oriented-performance-policy.md).
 
 ## Frame Execution Flow
 
@@ -513,7 +513,7 @@ The GPU text pipeline now caches at two levels:
 > are backend-agnostic and unchanged: `salsa_scaling/full_frame/80x24`
 > ≈ 49 µs, `salsa_sync_inputs/all_flags/80x24` ≈ 3.5 µs.
 >
-> See [ADR-031](./decisions.md#adr-031-text-stack-migration--cosmic-text--parley--swash-with-protocol-style-redesign).
+> See [ADR-031](./decisions/adr-031-text-stack-migration-cosmic-text-parley-swash-with-protocol-style-redesign.md).
 
 > **Cross-machine baseline — Apple M1 / macOS 26.3 (2026-05-02)** —
 > captured to verify ADR-032 §Spike Measurement Matrix targets are
@@ -651,7 +651,7 @@ Kakoune sends only viewport lines (24-80), so the worst practical case is ~132 �
 
 At ~132 μs worst practical case, this is well within the perceptual imperceptibility range (ADR-024). Further optimization is justified by headroom for multi-pane rendering (Principle 10), not by perceptual necessity.
 
-For resolved bottlenecks (Buffer Line Cloning, Container Fill Loop, diff() Allocation Dominance, grid.diff() Exceeds Target), see [ADR-015 in decisions.md](./decisions.md#adr-015-rendering-pipeline-performance-improvements).
+For resolved bottlenecks (Buffer Line Cloning, Container Fill Loop, diff() Allocation Dominance, grid.diff() Exceeds Target), see [ADR-015 in decisions.md](./decisions/adr-015-rendering-pipeline-performance-improvements.md).
 
 ### Severity: Low
 
@@ -667,16 +667,16 @@ For resolved bottlenecks (Buffer Line Cloning, Container Fill Loop, diff() Alloc
 
 ## Optimization Status
 
-For historical context on the compiler-driven optimization (superseded by Salsa incremental computation), see [ADR-010 in decisions.md](./decisions.md#adr-010-compiler-driven-optimization--svelte-like-two-layer-rendering).
+For historical context on the compiler-driven optimization (superseded by Salsa incremental computation), see [ADR-010 in decisions.md](./decisions/adr-010-compiler-driven-optimization-svelte-like-two-layer-rendering.md).
 
-For rendering pipeline improvements (zero-alloc diff, draw_grid, line-dirty expansion, container fill optimization), see [ADR-015 in decisions.md](./decisions.md#adr-015-rendering-pipeline-performance-improvements).
+For rendering pipeline improvements (zero-alloc diff, draw_grid, line-dirty expansion, container fill optimization), see [ADR-015 in decisions.md](./decisions/adr-015-rendering-pipeline-performance-improvements.md).
 
 Kasane's CPU pipeline (~57 μs) is roughly 73× below the 240 Hz display scanout period. Steady-state overhead is demonstrably imperceptible (ADR-024). Remaining optimization work is justified by headroom preservation and structural improvements, not perceptual necessity. Edge cases identified by Principle 9 — large viewports, terminal resize, plugin startup — remain the primary perceptual risk area.
 
 ## WASM Plugin Benchmarks
 
 Measured with `cargo bench -p kasane-wasm-bench` (wasmtime 43, Component Model, criterion).
-See [ADR-013](./decisions.md#adr-013-wasm-plugin-runtime--component-model-adoption) for the full decision record.
+See [ADR-013](./decisions/adr-013-wasm-plugin-runtime-component-model-adoption.md) for the full decision record.
 
 ### Raw WASM Overhead
 
@@ -742,7 +742,7 @@ Total startup for 10 plugins ≈ 15 ms on first run. On subsequent startups, pre
 
 ## High Refresh Rate (240Hz)
 
-The CPU pipeline uses <2% of the 4.17 ms budget at 80×24. 240fps is achievable for the GPU backend with animation path separation (animation frames bypass view/place/paint, only updating scroll offset + GPU draw). See [ADR-015 in decisions.md](./decisions.md#adr-015-rendering-pipeline-performance-improvements) for analysis.
+The CPU pipeline uses <2% of the 4.17 ms budget at 80×24. 240fps is achievable for the GPU backend with animation path separation (animation frames bypass view/place/paint, only updating scroll offset + GPU draw). See [ADR-015 in decisions.md](./decisions/adr-015-rendering-pipeline-performance-improvements.md) for analysis.
 
 ## See also
 

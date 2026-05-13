@@ -4,6 +4,7 @@ pub mod builtins;
 pub mod cli;
 pub mod http_manager;
 mod init_cmd;
+#[cfg(feature = "wasm-plugins")]
 mod locked_wasm_provider;
 pub mod orchestrator;
 pub mod plugin_cmd;
@@ -544,7 +545,7 @@ mod tests {
     impl kasane_core::plugin::Plugin for CursorLineOverridePlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("cursor_line".to_string())
+            PluginId::from("cursor_line")
         }
         fn register(&self, _r: &mut kasane_core::plugin::HandlerRegistry<()>) {}
     }
@@ -605,7 +606,7 @@ mod tests {
         type State = ();
 
         fn id(&self) -> PluginId {
-            PluginId("reload_owner".to_string())
+            PluginId::from("reload_owner")
         }
 
         fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
@@ -649,7 +650,7 @@ mod tests {
         fn collect(&self) -> AnyResult<PluginCollect> {
             let variant = *self.variant.lock().expect("poisoned reload variant");
             let descriptor = PluginDescriptor {
-                id: PluginId("reload_owner".to_string()),
+                id: PluginId::from("reload_owner"),
                 source: PluginSource::Host {
                     provider: "reload-test".to_string(),
                 },
@@ -682,7 +683,7 @@ mod tests {
         type State = ();
 
         fn id(&self) -> PluginId {
-            PluginId("diagnostic_owner".to_string())
+            PluginId::from("diagnostic_owner")
         }
 
         fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
@@ -723,7 +724,7 @@ mod tests {
                 DiagnosticVariant::Invalid => "invalid",
             };
             let descriptor = PluginDescriptor {
-                id: PluginId("diagnostic_owner".to_string()),
+                id: PluginId::from("diagnostic_owner"),
                 source: PluginSource::Host {
                     provider: "diagnostic-test".to_string(),
                 },
@@ -784,7 +785,7 @@ mod tests {
         assert!(result.deltas[0].is_removed());
         assert_eq!(result.ready_targets().count(), 0);
         assert_eq!(registry.plugin_count(), 0);
-        assert!(!registry.contains_plugin(&PluginId("cursor_line".to_string())));
+        assert!(!registry.contains_plugin(&PluginId::from("cursor_line")));
     }
 
     #[test]
@@ -797,8 +798,8 @@ mod tests {
         let mut manager = wasm_manager(&dir);
         commit_initial_winners(&mut manager, &mut registry);
 
-        let smooth_scroll = dir.store_fixture("smooth-scroll.wasm");
-        dir.write_lock([&cursor_line, &smooth_scroll]);
+        let color_preview = dir.store_fixture("color-preview.wasm");
+        dir.write_lock([&cursor_line, &color_preview]);
 
         let state = AppState::default();
         let result = manager
@@ -806,9 +807,9 @@ mod tests {
             .unwrap();
         assert_eq!(result.deltas.len(), 1);
         assert!(result.deltas[0].is_added());
-        assert_eq!(result.deltas[0].id, PluginId("smooth_scroll".to_string()));
+        assert_eq!(result.deltas[0].id, PluginId::from("color_preview"));
         assert_eq!(registry.plugin_count(), 2);
-        assert!(registry.contains_plugin(&PluginId("smooth_scroll".to_string())));
+        assert!(registry.contains_plugin(&PluginId::from("color_preview")));
     }
 
     #[test]
@@ -828,7 +829,7 @@ mod tests {
         assert!(matches!(
             manager
                 .snapshot()
-                .winner(&PluginId("cursor_line".to_string()))
+                .winner(&PluginId::from("cursor_line"))
                 .map(|winner| &winner.source),
             Some(PluginSource::Host { .. })
         ));
@@ -843,12 +844,12 @@ mod tests {
             result
                 .deltas
                 .iter()
-                .all(|delta| delta.id != PluginId("cursor_line".to_string()))
+                .all(|delta| delta.id != PluginId::from("cursor_line"))
         );
         assert!(matches!(
             manager
                 .snapshot()
-                .winner(&PluginId("cursor_line".to_string()))
+                .winner(&PluginId::from("cursor_line"))
                 .map(|winner| &winner.source),
             Some(PluginSource::Host { .. })
         ));
@@ -878,12 +879,12 @@ mod tests {
             result
                 .deltas
                 .iter()
-                .all(|delta| delta.id != PluginId("cursor_line".to_string()))
+                .all(|delta| delta.id != PluginId::from("cursor_line"))
         );
         assert!(matches!(
             manager
                 .snapshot()
-                .winner(&PluginId("cursor_line".to_string()))
+                .winner(&PluginId::from("cursor_line"))
                 .map(|winner| &winner.source),
             Some(PluginSource::Host { .. })
         ));
@@ -931,7 +932,7 @@ mod tests {
         assert!(result.deltas[0].is_replaced());
         assert_eq!(
             result.ready_targets().cloned().collect::<Vec<_>>(),
-            vec![PluginId("reload_owner".to_string())]
+            vec![PluginId::from("reload_owner")]
         );
         assert_eq!(
             surface_registry
@@ -945,7 +946,7 @@ mod tests {
         );
 
         let ready_batch = registry.notify_plugin_active_session_ready_batch(
-            &PluginId("reload_owner".to_string()),
+            &PluginId::from("reload_owner"),
             &AppView::new(&state),
         );
         assert_eq!(ready_batch.redraw, ReloadVariant::V2.ready_redraw());
@@ -971,7 +972,7 @@ mod tests {
         assert_eq!(result.diagnostics.len(), 1);
         assert_eq!(
             result.diagnostics[0].plugin_id(),
-            Some(&PluginId("diagnostic_owner".to_string()))
+            Some(&PluginId::from("diagnostic_owner"))
         );
         assert!(matches!(
             result.diagnostics[0].kind,
@@ -990,10 +991,10 @@ mod tests {
         assert!(
             manager
                 .snapshot()
-                .winner(&PluginId("diagnostic_owner".to_string()))
+                .winner(&PluginId::from("diagnostic_owner"))
                 .is_none()
         );
-        assert!(!registry.contains_plugin(&PluginId("diagnostic_owner".to_string())));
+        assert!(!registry.contains_plugin(&PluginId::from("diagnostic_owner")));
     }
 
     #[test]
@@ -1026,7 +1027,7 @@ mod tests {
         assert_eq!(result.diagnostics.len(), 1);
         assert_eq!(
             result.diagnostics[0].plugin_id(),
-            Some(&PluginId("diagnostic_owner".to_string()))
+            Some(&PluginId::from("diagnostic_owner"))
         );
         assert!(matches!(
             result.diagnostics[0].kind,
@@ -1053,10 +1054,10 @@ mod tests {
         assert!(
             manager
                 .snapshot()
-                .winner(&PluginId("diagnostic_owner".to_string()))
+                .winner(&PluginId::from("diagnostic_owner"))
                 .is_none()
         );
-        assert!(!registry.contains_plugin(&PluginId("diagnostic_owner".to_string())));
+        assert!(!registry.contains_plugin(&PluginId::from("diagnostic_owner")));
         assert!(surface_registry.get(SurfaceId(201)).is_none());
         assert!(
             !surface_registry

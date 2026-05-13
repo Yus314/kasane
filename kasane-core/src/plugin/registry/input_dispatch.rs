@@ -632,7 +632,7 @@ mod intercept_tests {
         let mut a = backend("vetoer", BufferEditVerdict::Veto);
         let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let mut b = crate::plugin::PluginBridge::new(CountingBackend {
-            id: PluginId("after-veto".into()),
+            id: PluginId::from("after-veto"),
             invoked: counter.clone(),
             verdict: BufferEditVerdict::PassThrough,
         });

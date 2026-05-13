@@ -1,0 +1,5 @@
+error: unknown dispatch shape `Magic`. Expected one of: Lifecycle<E>, Observer, Dispatcher<C>, View<Out>
+ --> tests/fail/handler_table_bad_shape.rs:7:42
+  |
+7 |         handler bad(_app: &AppView<'_>): Magic<Effects>;
+  |                                          ^^^^^

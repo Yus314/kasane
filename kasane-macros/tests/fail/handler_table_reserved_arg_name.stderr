@@ -1,0 +1,5 @@
+error: `state` is reserved as the implicit first arg of every handler
+ --> tests/fail/handler_table_reserved_arg_name.rs:8:22
+  |
+8 |         handler init(state: &AppView<'_>): Lifecycle<Effects>;
+  |                      ^^^^^

@@ -296,7 +296,7 @@ mod tests {
     fn id_uses_builtin_plugin_namespace_with_threshold_in_name() {
         let lens = LongLineLens::new(80, Style::default());
         let id = lens.id();
-        assert_eq!(id.plugin.0, "kasane.builtin");
+        assert_eq!(id.plugin.as_str(), "kasane.builtin");
         assert_eq!(id.name, "long-line-80");
     }
 

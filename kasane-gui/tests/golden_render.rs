@@ -911,7 +911,7 @@ fn inline_box_text_flow_matches_snapshot() {
             1.0,
             0,
             InlineBoxAlignment::Center,
-            PluginId("test.inline_box_fixture".to_string()),
+            PluginId::from("test.inline_box_fixture"),
             inline_paint,
         )
         .build();

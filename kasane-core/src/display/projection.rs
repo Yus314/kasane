@@ -23,6 +23,10 @@ impl ProjectionId {
     pub fn new(name: impl Into<Arc<str>>) -> Self {
         Self(name.into())
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 /// Whether a projection is structural (mutually exclusive) or additive (composable).

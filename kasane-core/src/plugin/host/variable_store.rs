@@ -62,7 +62,7 @@ mod tests {
     use super::*;
 
     fn pid(s: &str) -> PluginId {
-        PluginId(s.to_string())
+        PluginId::from(s)
     }
 
     #[test]

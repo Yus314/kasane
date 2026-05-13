@@ -396,7 +396,7 @@ mod tests {
             .unwrap();
         let sink = Arc::new(TestSink::new());
         let mut mgr = HttpManager::new(rt.handle().clone(), sink.clone());
-        let pid = PluginId("test".to_string());
+        let pid = PluginId::from("test");
 
         // Saturate the per-plugin limit
         for i in 0..MAX_HTTP_REQUESTS_PER_PLUGIN {
@@ -454,7 +454,7 @@ mod tests {
             .unwrap();
         let sink = Arc::new(TestSink::new());
         let mut mgr = HttpManager::new(rt.handle().clone(), sink.clone());
-        let pid = PluginId("test".to_string());
+        let pid = PluginId::from("test");
 
         let config = HttpRequestConfig {
             url: "https://httpbin.org/delay/999".to_string(),
@@ -492,7 +492,7 @@ mod tests {
             .unwrap();
         let sink = Arc::new(TestSink::new());
         let mut mgr = HttpManager::new(rt.handle().clone(), sink);
-        let pid = PluginId("test".to_string());
+        let pid = PluginId::from("test");
 
         mgr.start_request(
             &pid,

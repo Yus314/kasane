@@ -1,78 +1,32 @@
-//! Contribution and transform-chain handlers.
-
-use crate::protocol::Atom;
+//! Carve-outs on the contribute / transform axis.
+//!
+//! γ-3.3c-5b: the redundant manual `on_contribute` / `on_contribute_any` /
+//! `on_menu_transform` setters were retired — plugin code now invokes
+//! the macro-generated counterparts via `Deref` from `HandlerRegistry`
+//! to `gen::HandlerRegistry`. The two manual setters retained are:
+//!
+//! - **`on_transform(priority, handler)`** — convenience over generated
+//!   `on_transform(priority, targets, handler)` for the common case
+//!   where the plugin doesn't need to declare specific transform
+//!   targets (defaults to `Vec::new()`).
+//! - **`on_transform_for(priority, targets, handler)`** — thin
+//!   `&[TransformTarget]` → `Vec<TransformTarget>` adapter over the
+//!   generated setter.
+//! - **`on_transform_full`** — full-rewrite carve-out (spec §9.4).
 
 use super::super::algebra::element_patch::ElementPatch;
-use super::super::handler_table::{ContributeAnyEntry, ContributeEntry, TransformEntry};
-use super::super::{
-    AppView, ContributeContext, Contribution, PluginState, SlotId, TransformContext,
-    TransformTarget,
-};
+use super::super::{AppView, PluginState, TransformContext, TransformTarget};
 
 use super::HandlerRegistry;
 
 impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
-    pub fn on_contribute(
-        &mut self,
-        slot: SlotId,
-        handler: impl Fn(&S, &AppView<'_>, &ContributeContext) -> Option<Contribution>
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        let erased = Box::new(
-            move |state: &dyn PluginState,
-                  app: &AppView<'_>,
-                  ctx: &ContributeContext|
-                  -> Option<Contribution> {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, app, ctx)
-            },
-        );
-        self.table.contribute_handlers.push(ContributeEntry {
-            slot,
-            handler: erased,
-        });
-    }
-
-    /// Register a slot-agnostic contribute handler.
+    /// Register a transform handler with priority (no specific targets).
     ///
-    /// Counterpart to [`Self::on_contribute`] for adapters whose
-    /// underlying contract dispatches contribution requests for arbitrary
-    /// slots — primarily WASM plugins, which delegate slot routing to the
-    /// `contribute-to(region, …)` WIT export. The bridge consults
-    /// [`Self::on_contribute`] entries first; the any-handler is the
-    /// fallback when no slot-specific handler matches.
-    pub fn on_contribute_any(
-        &mut self,
-        handler: impl Fn(&S, &SlotId, &AppView<'_>, &ContributeContext) -> Option<Contribution>
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        let erased = Box::new(
-            move |state: &dyn PluginState,
-                  slot: &SlotId,
-                  app: &AppView<'_>,
-                  ctx: &ContributeContext|
-                  -> Option<Contribution> {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, slot, app, ctx)
-            },
-        );
-        self.table.contribute_any_handler = Some(ContributeAnyEntry { handler: erased });
-    }
-
-    /// Register a transform handler with priority.
-    ///
-    /// The handler returns an [`ElementPatch`] describing the declarative transform.
-    /// Higher priority = applied earlier (inner position in the chain).
+    /// Convenience wrapper over the generated
+    /// `on_transform(priority, targets, handler)` for plugins that
+    /// don't declare specific transform targets. The handler returns an
+    /// [`ElementPatch`] describing the declarative transform; higher
+    /// priority = applied earlier (inner position in the chain).
     pub fn on_transform(
         &mut self,
         priority: i16,
@@ -81,30 +35,10 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         + Sync
         + 'static,
     ) {
-        let erased = Box::new(
-            move |state: &dyn PluginState,
-                  target: &TransformTarget,
-                  app: &AppView<'_>,
-                  ctx: &TransformContext|
-                  -> ElementPatch {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, target, app, ctx)
-            },
-        );
-        let existing_full = self
-            .table
-            .transform_handler
-            .take()
-            .and_then(|prev| prev.full_handler);
-        self.table.transform_handler = Some(TransformEntry {
-            priority,
-            targets: Vec::new(),
-            handler: erased,
-            full_handler: existing_full,
-        });
+        // Shadows generated `on_transform` (which has 3 args). Disambiguate
+        // by calling through `self.inner` so this method's body doesn't
+        // recurse into itself.
+        self.inner.on_transform(priority, Vec::new(), handler);
     }
 
     /// Register a transform handler for specific targets.
@@ -121,30 +55,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         + Sync
         + 'static,
     ) {
-        let erased = Box::new(
-            move |state: &dyn PluginState,
-                  target: &TransformTarget,
-                  app: &AppView<'_>,
-                  ctx: &TransformContext|
-                  -> ElementPatch {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, target, app, ctx)
-            },
-        );
-        let existing_full = self
-            .table
-            .transform_handler
-            .take()
-            .and_then(|prev| prev.full_handler);
-        self.table.transform_handler = Some(TransformEntry {
-            priority,
-            targets: targets.to_vec(),
-            handler: erased,
-            full_handler: existing_full,
-        });
+        self.inner.on_transform(priority, targets.to_vec(), handler);
     }
 
     /// Register an imperative full-rewrite transform handler.
@@ -189,37 +100,11 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 handler(s, target, subject, app, ctx)
             },
         );
-        let entry = self
-            .table
-            .transform_handler
-            .get_or_insert_with(|| TransformEntry {
-                priority: 0,
-                targets: Vec::new(),
-                handler: Box::new(|_, _, _, _| ElementPatch::Identity),
-                full_handler: None,
-            });
-        entry.full_handler = Some(erased);
-    }
-
-    /// Register a gutter annotation handler.
-    ///
-    /// `side` determines left or right gutter placement. `priority` controls
-    /// sort ordering (lower = further left within the same side).
-    pub fn on_menu_transform(
-        &mut self,
-        handler: impl Fn(&S, &[Atom], usize, bool, &AppView<'_>) -> Option<Vec<Atom>>
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        register_view!(
-            self,
-            menu_transform_handler,
-            handler,
-            item,
-            index,
-            selected,
-            app
-        );
+        // The full handler is stored separately from the patch entry
+        // (carve-out, spec §9.4) so registering the full handler does
+        // not implicitly create a patch entry — the bridge falls back
+        // to the full handler only when the patch path returns
+        // `ElementPatch::Identity` (or no patch entry exists).
+        self.transform_full_handler = Some(erased);
     }
 }

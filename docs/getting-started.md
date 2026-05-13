@@ -44,14 +44,52 @@ Other targets: `aarch64-linux-gnu`, `x86_64-linux-musl`, `x86_64-macos`, `aarch6
 git clone https://github.com/Yus314/kasane.git
 cd kasane
 
-# TUI only
+# Default: TUI + WASM plugin support (cursor-line and color-preview bundled)
 cargo install --path kasane
 
-# With GPU backend
+# Include the GPU backend
 cargo install --path kasane --features gui
+
+# Add tree-sitter syntax highlighting
+cargo install --path kasane --features syntax
+
+# Combine
+cargo install --path kasane --features "gui syntax"
 ```
 
 Requires [Rust](https://rustup.rs/) stable toolchain.
+
+#### Slim-Build Matrix
+
+The `kasane` binary composes from four optional feature flags:
+
+| Flag | Default | Adds |
+|---|---|---|
+| `wasm-plugins` | **on** | WASM plugin runtime (`kasane-wasm`) + bundled `cursor_line` / `color_preview` + the lock-file resolver + plugin reload watcher (`notify`). Disable with `--no-default-features` for a TUI-only build with native plugins only. |
+| `gui` | off | GPU backend (`kasane-gui`: winit + wgpu + Parley + swash). Significantly larger binary. |
+| `syntax` | off | Tree-sitter syntax highlighting (`kasane-syntax`). Pre-render hook attached automatically. |
+| `tui-image` | off (in `kasane-core`) | TUI image protocol support (kitty / sixel). Off by default to keep `kasane-core` slim. |
+
+Common build invocations:
+
+```bash
+# Slimmest: TUI only, no WASM, no GUI, no syntax
+cargo build --no-default-features
+
+# TUI + WASM (the default)
+cargo build
+
+# TUI + WASM + syntax
+cargo build --features syntax
+
+# TUI + WASM + GUI + syntax (the maximum surface)
+cargo build --features "gui syntax"
+```
+
+`--no-default-features` retires the entire `kasane-wasm` dependency (lock
+resolver, bundled plugins, hot-reload watcher) — useful for embedded
+targets or environments where the WASM runtime is not desired. Custom
+native plugins built via `kasane::run()` continue to work in this mode.
 
 ### Nix
 

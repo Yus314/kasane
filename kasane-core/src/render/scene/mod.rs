@@ -814,7 +814,7 @@ mod tests {
         // managing the two vectors by hand.
         use crate::display::InlineBoxAlignment;
         use crate::plugin::PluginId;
-        let owner = PluginId("test.plugin".to_string());
+        let owner = PluginId::from("test.plugin");
         let para = BufferParagraph::builder()
             .atom("a", Style::default())
             .inline_box_slot(

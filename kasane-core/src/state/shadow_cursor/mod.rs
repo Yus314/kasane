@@ -202,7 +202,7 @@ mod tests {
             display_line: 0,
             span_index: 1,
             phase: ShadowPhase::Navigating,
-            owner_plugin: PluginId("p".into()),
+            owner_plugin: PluginId::from("p"),
         };
 
         let sel = shadow.buffer_projection_target(&spans).unwrap();
@@ -218,7 +218,7 @@ mod tests {
             display_line: 0,
             span_index: 5, // out of bounds
             phase: ShadowPhase::Navigating,
-            owner_plugin: PluginId("p".into()),
+            owner_plugin: PluginId::from("p"),
         };
         assert!(shadow.buffer_projection_target(&spans).is_none());
     }
@@ -235,7 +235,7 @@ mod tests {
             display_line: 0,
             span_index: 0,
             phase,
-            owner_plugin: PluginId(String::new()),
+            owner_plugin: PluginId::from(""),
         }
     }
 
@@ -714,8 +714,8 @@ mod tests {
 use crate::display::InteractionPolicy;
 use crate::plugin::{
     BuiltinTarget, CursorPositionOrn, FrameworkAccess, HandlerRegistry, KakouneSideEffects,
-    KeyPreDispatchResult, MousePreDispatchResult, OrnamentBatch, OrnamentModality, Plugin,
-    StateUpdates, TextInputPreDispatchResult,
+    KeyPreDispatchResult, MousePreDispatchResult, OrnamentBatch, OrnamentModality, StateUpdates,
+    StatelessPlugin, TextInputPreDispatchResult,
 };
 
 /// Builtin plugin that implements the shadow cursor key/text pre-dispatch.
@@ -725,11 +725,9 @@ use crate::plugin::{
 /// `Effects::state_updates.shadow_cursor` (R4 typed channel).
 pub struct BuiltinShadowCursorPlugin;
 
-impl Plugin for BuiltinShadowCursorPlugin {
-    type State = ();
-
+impl StatelessPlugin for BuiltinShadowCursorPlugin {
     fn id(&self) -> PluginId {
-        PluginId("kasane.builtin.shadow_cursor".into())
+        PluginId::from("kasane.builtin.shadow_cursor")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
@@ -945,7 +943,7 @@ impl Plugin for BuiltinShadowCursorPlugin {
             ((), result)
         });
 
-        r.on_render_ornaments(|_state, app, ctx| {
+        r.on_render_ornament(|_state, app, ctx| {
             let app_state = app.as_app_state();
             let shadow = match app_state.runtime.shadow_cursor.as_ref() {
                 Some(s) => s,

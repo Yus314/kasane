@@ -1,9 +1,0 @@
-[plugin]
-id = "pane_manager"
-abi_version = "6.0.0"
-
-[authorities]
-host = ["workspace-management"]
-
-[handlers]
-flags = ["input-handler", "workspace-observer"]

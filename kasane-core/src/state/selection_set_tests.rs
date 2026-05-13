@@ -273,9 +273,9 @@ fn flat_map_can_split_one_into_many() {
 #[test]
 fn save_and_load_round_trips() {
     let a = set(vec![sel(0, 0, 5)]);
-    a.save(PluginId("persistence-roundtrip".into()), "k")
+    a.save(PluginId::from("persistence-roundtrip"), "k")
         .unwrap();
-    let loaded = SelectionSet::load(PluginId("persistence-roundtrip".into()), "k", buf()).unwrap();
+    let loaded = SelectionSet::load(PluginId::from("persistence-roundtrip"), "k", buf()).unwrap();
     assert_eq!(loaded, a);
 }
 
@@ -283,11 +283,11 @@ fn save_and_load_round_trips() {
 fn save_invalid_name_rejected() {
     let a = set(vec![sel(0, 0, 5)]);
     assert_eq!(
-        a.save(PluginId("persistence-invalid".into()), ""),
+        a.save(PluginId::from("persistence-invalid"), ""),
         Err(SaveError::InvalidName)
     );
     assert_eq!(
-        a.save(PluginId("persistence-invalid".into()), "scoped:bad"),
+        a.save(PluginId::from("persistence-invalid"), "scoped:bad"),
         Err(SaveError::InvalidName)
     );
 }
@@ -295,7 +295,7 @@ fn save_invalid_name_rejected() {
 #[test]
 fn load_missing_returns_not_found() {
     let result = SelectionSet::load(
-        PluginId("persistence-missing".into()),
+        PluginId::from("persistence-missing"),
         "definitely-not-there",
         buf(),
     );
@@ -305,10 +305,9 @@ fn load_missing_returns_not_found() {
 #[test]
 fn load_buffer_mismatch_surfaces_error() {
     let a = set(vec![sel(0, 0, 5)]);
-    a.save(PluginId("persistence-mismatch".into()), "k")
-        .unwrap();
+    a.save(PluginId::from("persistence-mismatch"), "k").unwrap();
     let result = SelectionSet::load(
-        PluginId("persistence-mismatch".into()),
+        PluginId::from("persistence-mismatch"),
         "k",
         BufferId::new("other-buffer"),
     );
@@ -319,13 +318,13 @@ fn load_buffer_mismatch_surfaces_error() {
 fn save_under_different_plugins_does_not_collide() {
     let a = set(vec![sel(0, 0, 5)]);
     let b = set(vec![sel(1, 0, 5)]);
-    a.save(PluginId("persistence-collide-1".into()), "shared")
+    a.save(PluginId::from("persistence-collide-1"), "shared")
         .unwrap();
-    b.save(PluginId("persistence-collide-2".into()), "shared")
+    b.save(PluginId::from("persistence-collide-2"), "shared")
         .unwrap();
 
-    let la = SelectionSet::load(PluginId("persistence-collide-1".into()), "shared", buf()).unwrap();
-    let lb = SelectionSet::load(PluginId("persistence-collide-2".into()), "shared", buf()).unwrap();
+    let la = SelectionSet::load(PluginId::from("persistence-collide-1"), "shared", buf()).unwrap();
+    let lb = SelectionSet::load(PluginId::from("persistence-collide-2"), "shared", buf()).unwrap();
     assert_eq!(la, a);
     assert_eq!(lb, b);
 }

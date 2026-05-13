@@ -14,9 +14,8 @@ use kasane_core::element::{Element, PluginTag};
 use kasane_core::input::{CompiledKeyMap, KeyResponse};
 use kasane_core::plugin::{
     AppView, BackgroundLayer, BlendMode, Command, Contribution, ElementPatch, FrameworkAccess,
-    HandlerRegistry, KeyHandleResult, LineAnnotation, OverlayContribution, Plugin,
-    PluginAuthorities, PluginCapabilities, PluginDiagnostic, PluginId, TransformSubject,
-    VirtualTextItem,
+    HandlerRegistry, KeyHandleResult, LineAnnotation, OverlayContribution, PluginAuthorities,
+    PluginCapabilities, PluginDiagnostic, PluginId, TransformSubject, VirtualTextItem,
 };
 use kasane_core::state::DirtyFlags;
 use kasane_core::surface::{
@@ -249,7 +248,7 @@ impl WasmPluginShared {
                 let wrapped =
                     kasane_core::plugin::effect::error_attribution::wrap_command_with_marker(
                         cmd,
-                        self.plugin_id.0.as_str(),
+                        self.plugin_id.as_str(),
                     );
                 vec![Command::kakoune_command(&wrapped)]
             }
@@ -507,7 +506,7 @@ impl WasmPlugin {
         Self {
             shared: Arc::new(WasmPluginShared {
                 runtime: Mutex::new(WasmPluginRuntime { store, instance }),
-                plugin_id: PluginId(id),
+                plugin_id: PluginId::from(id),
                 plugin_tag: AtomicU16::new(PluginTag::UNASSIGNED.0),
                 cached_state_hash: AtomicU64::new(0),
                 cached_view_deps,
@@ -582,7 +581,7 @@ impl WasmPlugin {
         Self {
             shared: Arc::new(WasmPluginShared {
                 runtime: Mutex::new(WasmPluginRuntime { store, instance }),
-                plugin_id: PluginId(id),
+                plugin_id: PluginId::from(id),
                 plugin_tag: AtomicU16::new(PluginTag::UNASSIGNED.0),
                 cached_state_hash: AtomicU64::new(0),
                 cached_view_deps,
@@ -724,10 +723,8 @@ impl kasane_core::lens::Lens for WasmLensAdapter {
 /// - **State hash**: WIT plugins surface change signals via the
 ///   `state-hash` export; [`declare_state_hash`] forwards that to the
 ///   bridge instead of the per-mutation generation counter (which
-///   never advances for `type State = ()`).
-impl Plugin for WasmPlugin {
-    type State = ();
-
+///   never advances for stateless plugins).
+impl kasane_core::plugin::StatelessPlugin for WasmPlugin {
     fn id(&self) -> PluginId {
         self.shared.plugin_id.clone()
     }
@@ -964,10 +961,10 @@ impl Plugin for WasmPlugin {
                 .map(|cmds| ((), cmds))
         });
 
-        // handle_drop → on_drop (matches trait path: call_synced without
+        // handle_drop → on_handle_drop (matches trait path: call_synced without
         // hash update).
         let shared = Arc::clone(&self.shared);
-        r.on_drop(move |_state, event, id, app| {
+        r.on_handle_drop(move |_state, event, id, app| {
             let shared_for_call = Arc::clone(&shared);
             shared
                 .call_synced(app, "handle_drop", |rt| {
@@ -1025,9 +1022,9 @@ impl Plugin for WasmPlugin {
             r.declare_key_map(map);
         }
 
-        // refresh_key_groups → on_refresh_key_groups
+        // refresh_key_groups → on_group_refresh
         let shared = Arc::clone(&self.shared);
-        r.on_refresh_key_groups(move |_state, app, map| {
+        r.on_group_refresh(move |_state, app, map| {
             for group in &mut map.groups {
                 let name = group.name.to_string();
                 let active = shared.call_synced(app, "is_group_active", |rt| {
@@ -1038,9 +1035,9 @@ impl Plugin for WasmPlugin {
             }
         });
 
-        // invoke_action → on_invoke_action
+        // invoke_action → on_action
         let shared = Arc::clone(&self.shared);
-        r.on_invoke_action(move |_state, action_id, key, app| {
+        r.on_action(move |_state, action_id, key, app| {
             let shared_for_call = Arc::clone(&shared);
             let response = shared.with_runtime(|runtime| {
                 host::sync_from_app_state(
@@ -1259,9 +1256,9 @@ impl Plugin for WasmPlugin {
             })
         });
 
-        // render_ornaments → on_render_ornaments
+        // render_ornaments → on_render_ornament
         let shared = Arc::clone(&self.shared);
-        r.on_render_ornaments(move |_state, app, ctx| {
+        r.on_render_ornament(move |_state, app, ctx| {
             shared.call_synced(app, "render_ornaments", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
                 let wit_ctx = convert::render_ornament_context_to_wit(ctx);
@@ -1300,7 +1297,7 @@ impl Plugin for WasmPlugin {
             })
         });
 
-        // unified_display → on_display_unified. Only registered when the
+        // unified_display → on_unified_display. Only registered when the
         // WIT plugin exports the unified `display` function (probed at
         // construction time and cached on `WasmPluginShared`). Skipping
         // this when the export is absent matches the trait method's
@@ -1308,7 +1305,7 @@ impl Plugin for WasmPlugin {
         // the separate-display path instead.
         if self.shared.has_unified_display_export {
             let shared = Arc::clone(&self.shared);
-            r.on_display_unified(move |_state, app| {
+            r.on_unified_display(move |_state, app| {
                 shared.call_synced(app, "display", |rt| {
                     let api = rt.instance.kasane_plugin_plugin_api();
                     let wit_directives = api.call_display(&mut rt.store)?;
@@ -1434,7 +1431,7 @@ impl Plugin for WasmPlugin {
                             element,
                             anchor,
                             z_index: wit_oc.z_index,
-                            plugin_id: PluginId(String::new()),
+                            plugin_id: PluginId::from(""),
                         }
                     }))
             })

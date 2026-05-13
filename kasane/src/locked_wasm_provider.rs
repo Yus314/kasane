@@ -36,7 +36,7 @@ fn check_manifest_abi_compat(
             resolved
                 .diagnostics
                 .push(PluginDiagnostic::abi_version_mismatch(
-                    PluginId(plugin_id.to_string()),
+                    PluginId::from(plugin_id),
                     required,
                     host,
                 ));
@@ -46,7 +46,7 @@ fn check_manifest_abi_compat(
             resolved
                 .diagnostics
                 .push(PluginDiagnostic::abi_version_mismatch(
-                    PluginId(plugin_id.to_string()),
+                    PluginId::from(plugin_id),
                     value,
                     abi::HOST_ABI_VERSION,
                 ));
@@ -352,7 +352,7 @@ fn collect_locked_filesystem_plugin(
         return;
     }
 
-    let plugin_id = PluginId(manifest.plugin.id.clone());
+    let plugin_id = PluginId::from(manifest.plugin.id.as_str());
     let settings = resolve_plugin_settings(&manifest, config_settings);
     if !settings.is_empty() {
         resolved
@@ -485,7 +485,7 @@ fn collect_locked_bundled_plugin(
         return;
     }
 
-    let plugin_id = PluginId(manifest.plugin.id.clone());
+    let plugin_id = PluginId::from(manifest.plugin.id.as_str());
     let settings = resolve_plugin_settings(&manifest, config_settings);
     if !settings.is_empty() {
         resolved
@@ -505,7 +505,11 @@ fn collect_locked_bundled_plugin(
         rank: PluginRank::BUNDLED_WASM,
     };
 
-    let factory = locked_bundled_wasm_factory(descriptor, plugin_id.0.clone(), wasi_config.clone());
+    let factory = locked_bundled_wasm_factory(
+        descriptor,
+        plugin_id.as_str().to_string(),
+        wasi_config.clone(),
+    );
     upsert_resolved_factory(&mut resolved.factories, factory);
 }
 
@@ -597,7 +601,7 @@ flags = ["contributor"]
             component_entry: "plugin.wasm".to_string(),
             component: fs::read(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../kasane-wasm/fixtures/sel-badge.wasm"),
+                    .join("../kasane-wasm/fixtures/cursor-line.wasm"),
             )
             .unwrap(),
             manifest,
@@ -651,7 +655,7 @@ flags = ["contributor"]
         assert!(collected.diagnostics.is_empty());
         assert_eq!(
             collected.factories[0].descriptor().id,
-            PluginId("sel_badge".to_string())
+            PluginId::from("sel_badge")
         );
     }
 
@@ -741,9 +745,9 @@ flags = ["contributor"]
     #[test]
     fn collect_loads_bundled_plugins_from_lock() {
         let tmp = tempfile::tempdir().unwrap();
-        let artifact = bundled_plugin_artifact_by_plugin_id("pane_manager")
+        let artifact = bundled_plugin_artifact_by_plugin_id("cursor_line")
             .unwrap()
-            .expect("pane_manager bundled plugin");
+            .expect("cursor_line bundled plugin");
 
         let mut lock = PluginsLock::new();
         lock.plugins.insert(
@@ -775,16 +779,16 @@ flags = ["contributor"]
         assert!(collected.diagnostics.is_empty());
         assert_eq!(
             collected.factories[0].descriptor().id,
-            PluginId("pane_manager".to_string())
+            PluginId::from("cursor_line")
         );
     }
 
     #[test]
     fn collect_auto_updates_bundled_plugin_on_digest_mismatch() {
         let tmp = tempfile::tempdir().unwrap();
-        let artifact = bundled_plugin_artifact_by_plugin_id("pane_manager")
+        let artifact = bundled_plugin_artifact_by_plugin_id("cursor_line")
             .unwrap()
-            .expect("pane_manager bundled plugin");
+            .expect("cursor_line bundled plugin");
 
         let stale_digest =
             "sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -825,7 +829,7 @@ flags = ["contributor"]
         );
         assert_eq!(
             collected.factories[0].descriptor().id,
-            PluginId("pane_manager".to_string())
+            PluginId::from("cursor_line")
         );
 
         // lock file should have been updated with current artifact digest

@@ -63,7 +63,7 @@ Want to add feature F
   │  Insufficient API? → Plugin trait / WIT extension comes first
 ```
 
-For the full decision record, see [ADR-012](decisions.md#adr-012-layer-responsibility-model).
+For the full decision record, see [ADR-012](decisions/adr-012-layer-responsibility-model.md).
 
 ## Document Classification
 

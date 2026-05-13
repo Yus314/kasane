@@ -147,6 +147,49 @@ fn main() {
     grid.swap();
     let (swap_count, swap_bytes) = alloc_counter::snapshot();
 
+    // decorated paint — exercises the apply_inline_ops + virtual-text path
+    // that γ-4.2 targets. Constructs an Element::BufferRef directly with
+    // realistic per-line decorations + EOL virtual text on every line; this
+    // bypasses the view phase (which is plugin-driven, empty here) and lets
+    // us measure the per-decorated-line allocation cost in isolation.
+    let mut deco_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    deco_grid.clear(&kasane_core::render::TerminalStyle::from_style(
+        &state.observed.default_style,
+    ));
+    use kasane_core::element::Element;
+    use kasane_core::render::inline_decoration::{InlineDecoration, InlineOp};
+
+    let line_count = state.observed.lines.len();
+    let underline = Style {
+        fg: Brush::rgb(255, 255, 0),
+        ..Style::default()
+    };
+    let inline_decorations: Vec<Option<InlineDecoration>> = (0..line_count)
+        .map(|_| {
+            // Style a small range to force apply_inline_ops to allocate.
+            Some(InlineDecoration::new(vec![InlineOp::Style {
+                range: 0..3,
+                style: underline.clone(),
+            }]))
+        })
+        .collect();
+    let virtual_text: Vec<Option<Vec<Atom>>> = (0..line_count)
+        .map(|i| Some(vec![Atom::plain(format!(" /* line {i} */"))]))
+        .collect();
+    let deco_element = Element::BufferRef {
+        line_range: 0..line_count,
+        line_backgrounds: None,
+        display_map: None,
+        state: None,
+        inline_decorations: Some(std::sync::Arc::new(inline_decorations)),
+        virtual_text: Some(std::sync::Arc::new(virtual_text)),
+    };
+    let deco_layout = flex::place(&deco_element, area, &state);
+
+    alloc_counter::reset();
+    paint::paint(&deco_element, &deco_layout, &mut deco_grid, &state);
+    let (paint_decorated_count, paint_decorated_bytes) = alloc_counter::snapshot();
+
     // parse_request (100-line draw)
     // The wire format expects `Atom { face, contents }`-shaped JSON; the
     // post-closure `Atom` is opaque to the wire format (carries
@@ -191,7 +234,7 @@ fn main() {
 
     // Output as JSON
     println!(
-        r#"{{"full_frame":{{"count":{},"bytes":{}}},"view":{{"count":{},"bytes":{}}},"place":{{"count":{},"bytes":{}}},"paint":{{"count":{},"bytes":{}}},"diff":{{"count":{},"bytes":{}}},"swap":{{"count":{},"bytes":{}}},"parse_request_100":{{"count":{},"bytes":{}}}}}"#,
+        r#"{{"full_frame":{{"count":{},"bytes":{}}},"view":{{"count":{},"bytes":{}}},"place":{{"count":{},"bytes":{}}},"paint":{{"count":{},"bytes":{}}},"paint_decorated":{{"count":{},"bytes":{}}},"diff":{{"count":{},"bytes":{}}},"swap":{{"count":{},"bytes":{}}},"parse_request_100":{{"count":{},"bytes":{}}}}}"#,
         total_count,
         total_bytes,
         view_count,
@@ -200,6 +243,8 @@ fn main() {
         place_bytes,
         paint_count,
         paint_bytes,
+        paint_decorated_count,
+        paint_decorated_bytes,
         diff_count,
         diff_bytes,
         swap_count,

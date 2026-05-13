@@ -12,25 +12,24 @@ The plugin API provides extension points for UI contributions, line annotations,
 
 ## Bundled WASM Plugins
 
-Kasane embeds a small set of WASM plugins in the binary. Their source is in
+Kasane embeds a curated pair of WASM plugins in the binary. Source lives in
 [`examples/wasm/`](../examples/wasm/):
 
 | Plugin | ID | Default | Demonstrates |
 |---|---|---|---|
-| Cursor Line | `cursor_line` | Off | Line annotation (`annotate_line_with_ctx`) |
+| Cursor Line | `cursor_line` | Off | Display directives (`display`) — line styling |
 | Color Preview | `color_preview` | Off | Line annotation + overlay + mouse input |
-| Selection Badge | `sel_badge` | Off | Slot contribution (`contribute_to`) |
-| Fuzzy Finder | `fuzzy_finder` | Off | Overlay + key input + external process I/O |
-| Pane Manager | `pane_manager` | **On** | Workspace authority + pane split/focus commands |
-| Smooth Scroll | `smooth_scroll` | Off | Default wheel scroll policy (`handle_default_scroll`) |
 
-A native plugin example is also available at [`examples/line-numbers/`](../examples/line-numbers/).
+The wider example fleet (sel-badge, fuzzy-finder, pane-manager, smooth-scroll,
+prompt-highlight, session-ui, image-preview, line-numbers, virtual-text-demo,
+selection-algebra, etc.) is slated to move to a future external
+`kasane-plugin-gallery` repo (γ/δ-3 cleanup); historical sources are
+recoverable from this repo's git log.
 
 ## Enabling Bundled Plugins
 
-Most bundled WASM plugins are not loaded by default. Add plugin IDs to the `enabled`
-list in your configuration. `pane_manager` is the exception — it loads automatically
-unless explicitly disabled.
+Bundled WASM plugins are off by default. Add plugin IDs to the `enabled` list
+in your configuration to activate them:
 
 ```kdl
 // ~/.config/kasane/kasane.kdl
@@ -38,17 +37,6 @@ plugins {
     enabled "cursor_line" "color_preview"
 }
 ```
-
-## Additional Source Examples
-
-Some plugin examples are provided as source only and must be built and
-installed as external plugins before use.
-
-| Plugin | ID | Demonstrates | Source |
-|---|---|---|---|
-| Prompt Highlight | `prompt_highlight` | Element transform (`transform`) | [`examples/wasm/prompt-highlight/`](../examples/wasm/prompt-highlight/) |
-| Session UI | `session_ui` | Slot contribution + overlay + session commands | [`examples/wasm/session-ui/`](../examples/wasm/session-ui/) |
-| Image Preview | `image_preview` | Image element display (GPU backend) | [`examples/wasm/image-preview/`](../examples/wasm/image-preview/) |
 
 ## Installing External Plugins
 
@@ -141,9 +129,8 @@ font features and variations, letter-spacing, decorations, plus blink /
 reverse / dim) and renames `color` → `brush`; see
 [plugin-development.md §Migrating to ABI 1.0.0](./plugin-development.md#migrating-to-abi-100).
 
-For example, `prompt_highlight` is not embedded in the binary. Build and install
-the WASM from [`examples/wasm/prompt-highlight/`](../examples/wasm/prompt-highlight/)
-if you want to enable it.
+External (non-bundled) plugins are installed via `kasane plugin install
+path/to/my-plugin-x.y.z.kpk` — see Installing External Plugins below.
 
 ### Disabling Plugins
 

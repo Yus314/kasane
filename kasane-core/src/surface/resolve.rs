@@ -278,7 +278,7 @@ pub fn collect_slot_contributions(
                         surface_key: descriptor.surface_key.clone(),
                         slot_name: scanned.name.clone(),
                         slot_instance_id: Some(instance_id),
-                        contributor: sc.contributor.0.into(),
+                        contributor: sc.contributor.as_str().into(),
                         kind,
                         detail,
                     });
@@ -929,7 +929,7 @@ mod tests {
         type State = ();
 
         fn id(&self) -> PluginId {
-            PluginId("recording_plugin".into())
+            PluginId::from("recording_plugin")
         }
 
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {

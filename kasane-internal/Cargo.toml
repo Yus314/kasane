@@ -1,0 +1,27 @@
+[package]
+name = "kasane-internal"
+version = "0.7.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Internal façade crate (ε-1).
+#
+# Re-exports the surface that `kasane-core` historically published as
+# `#[doc(hidden)] pub` so that internal consumers — `kasane-tui`,
+# `kasane-gui`, `kasane-wasm`, internal benches — can express their
+# dependency on the host runtime without consuming `kasane-core`'s
+# nominally-public API by accident.
+#
+# This crate has no code of its own; it is a thin re-export layer.
+# Future contraction work: once all internal consumers route through
+# `kasane-internal`, the re-exported items in `kasane-core` can be
+# downgraded to `pub(crate)` and lifted into here proper. That move is
+# tracked separately because Salsa's input/query graph in
+# `kasane-core/src/salsa_*` is built from `kasane-core` types — moving
+# the Salsa modules would require either a `kasane-internal` →
+# `kasane-core` dep (which exists) plus splitting the type definitions
+# across crates (which does not yet have a clean cut).
+
+[dependencies]
+kasane-core = { workspace = true }

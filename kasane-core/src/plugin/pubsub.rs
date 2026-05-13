@@ -17,8 +17,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
+use super::PluginId;
 use super::channel::ChannelValue;
-use super::{AppView, PluginId, PluginState};
 
 /// Stable identifier for a pub/sub topic.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -89,35 +89,20 @@ impl<T> std::fmt::Debug for Topic<T> {
 // Type-erased handler types
 // =============================================================================
 
-/// Type-erased publisher: `fn(&dyn PluginState, &AppView) -> Option<ChannelValue>`.
-///
-/// `None` lets the publisher opt out of emitting on a given frame —
-/// matches the WIT `publish-value(topic) -> option<channel-value>` shape
-/// used by WASM plugins. Native [`HandlerRegistry::publish`] /
-/// [`HandlerRegistry::publish_typed`] callers always wrap their `T`
-/// return in `Some`, preserving the behavior of always-on publication.
-pub(crate) type ErasedPublisher =
-    Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> Option<ChannelValue> + Send + Sync>;
-
-/// Type-erased subscriber: `fn(&dyn PluginState, &ChannelValue) -> Box<dyn PluginState>`.
-pub(crate) type ErasedSubscriber =
-    Box<dyn Fn(&dyn PluginState, &ChannelValue) -> Box<dyn PluginState> + Send + Sync>;
-
 // =============================================================================
-// Registration entries (stored in HandlerTable)
+// Registration entries (re-exported from the macro-generated module)
 // =============================================================================
-
-/// A publication registration: plugin publishes `T` on a topic.
-pub(crate) struct PublishEntry {
-    pub(crate) topic: TopicId,
-    pub(crate) handler: ErasedPublisher,
-}
-
-/// A subscription registration: plugin receives `T` from a topic.
-pub(crate) struct SubscribeEntry {
-    pub(crate) topic: TopicId,
-    pub(crate) handler: ErasedSubscriber,
-}
+//
+// γ-3.3c-4b: `PublishEntry` and `SubscribeEntry` are re-exports of the
+// macro-generated counterparts (spec entries `publish` / `subscribe`,
+// both `per_slot = TopicId`). The previous manual struct definitions
+// had identical shape but distinct types, blocking storage unification
+// in `HandlerTable`. The retired manual `ErasedPublisher` /
+// `ErasedSubscriber` aliases were structurally identical to the
+// generated `gen::ErasedPublishHandler` / `gen::ErasedSubscribeHandler`
+// (both boxed-fn types) and had no remaining consumers after the
+// re-export.
+pub(crate) use crate::plugin::handler_table_spec::generated::{PublishEntry, SubscribeEntry};
 
 // =============================================================================
 // TopicBus — runtime coordination
@@ -290,7 +275,7 @@ mod tests {
     fn publish_and_retrieve() {
         let mut bus = TopicBus::new();
         let topic = TopicId::new("test.counter");
-        let plugin = PluginId("test-plugin".to_string());
+        let plugin = PluginId::from("test-plugin");
 
         bus.publish(topic.clone(), plugin, ChannelValue::new(&42u32).unwrap());
 
@@ -306,12 +291,12 @@ mod tests {
 
         bus.publish(
             topic.clone(),
-            PluginId("a".to_string()),
+            PluginId::from("a"),
             ChannelValue::new(&1u32).unwrap(),
         );
         bus.publish(
             topic.clone(),
-            PluginId("b".to_string()),
+            PluginId::from("b"),
             ChannelValue::new(&2u32).unwrap(),
         );
 
@@ -325,7 +310,7 @@ mod tests {
         let topic = TopicId::new("test");
         bus.publish(
             topic.clone(),
-            PluginId("p".to_string()),
+            PluginId::from("p"),
             ChannelValue::new(&()).unwrap(),
         );
         assert!(bus.get_publications(&topic).is_some());
@@ -340,7 +325,7 @@ mod tests {
         bus.begin_delivery();
         bus.publish(
             TopicId::new("x"),
-            PluginId("p".to_string()),
+            PluginId::from("p"),
             ChannelValue::new(&()).unwrap(),
         );
         bus.end_delivery();
@@ -408,7 +393,7 @@ mod tests {
     fn record_frame_hashes_builds_history() {
         let mut bus = TopicBus::new();
         let topic = TopicId::new("test.topic");
-        let plugin = PluginId("p".to_string());
+        let plugin = PluginId::from("p");
 
         // Frame 1
         bus.publish(
@@ -441,7 +426,7 @@ mod tests {
             let plugin_name = if i % 2 == 0 { "a" } else { "b" };
             bus.publish(
                 topic.clone(),
-                PluginId(plugin_name.to_string()),
+                PluginId::from(plugin_name),
                 ChannelValue::new(&()).unwrap(),
             );
             bus.record_frame_hashes();

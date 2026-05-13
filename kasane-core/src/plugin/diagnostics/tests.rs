@@ -38,8 +38,7 @@ fn provider_artifact_failures_are_warnings() {
 
 #[test]
 fn winner_activation_failures_are_errors() {
-    let diagnostic =
-        PluginDiagnostic::instantiation_failed(PluginId("test.plugin".to_string()), "boom");
+    let diagnostic = PluginDiagnostic::instantiation_failed(PluginId::from("test.plugin"), "boom");
     assert_eq!(diagnostic.severity(), PluginDiagnosticSeverity::Error);
 }
 
@@ -105,7 +104,7 @@ fn overlay_lines_prioritize_errors_and_plugin_targets() {
             "warn 3",
         ),
         PluginDiagnostic::instantiation_failed(
-            PluginId("plugin.target".to_string()),
+            PluginId::from("plugin.target"),
             "instantiate failed",
         ),
     ];
@@ -471,12 +470,12 @@ fn overlay_state_shows_discovery_and_multiple_artifact_stages_in_provider_error_
 #[test]
 fn overlay_state_expands_further_for_plugin_targeted_errors() {
     let diagnostics = vec![
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.two".to_string()), "two"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.three".to_string()), "three"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.four".to_string()), "four"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.five".to_string()), "five"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.six".to_string()), "six"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.one"), "one"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.two"), "two"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.three"), "three"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.four"), "four"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.five"), "five"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.six"), "six"),
     ];
 
     let mut overlay = PluginDiagnosticOverlayState::default();
@@ -488,11 +487,11 @@ fn overlay_state_expands_further_for_plugin_targeted_errors() {
 #[test]
 fn overlay_state_reserves_provider_line_in_mixed_batches() {
     let diagnostics = vec![
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.two".to_string()), "two"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.three".to_string()), "three"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.four".to_string()), "four"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.five".to_string()), "five"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.one"), "one"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.two"), "two"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.three"), "three"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.four"), "four"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.five"), "five"),
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
     ];
 
@@ -518,9 +517,9 @@ fn overlay_state_reserves_provider_line_in_mixed_batches() {
 #[test]
 fn overlay_state_keeps_provider_warning_context_alongside_errors() {
     let diagnostics = vec![
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.two".to_string()), "two"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.three".to_string()), "three"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.one"), "one"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.two"), "two"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.three"), "three"),
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
         PluginDiagnostic::provider_artifact_failed(
             "provider",
@@ -544,9 +543,9 @@ fn overlay_state_keeps_provider_warning_context_alongside_errors() {
 #[test]
 fn overlay_state_prefers_plugin_lines_when_plugin_score_dominates_mixed_error_batches() {
     let diagnostics = vec![
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.two".to_string()), "two"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.three".to_string()), "three"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.one"), "one"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.two"), "two"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.three"), "three"),
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
         PluginDiagnostic::provider_artifact_failed(
             "provider",
@@ -612,8 +611,8 @@ fn overlay_state_prefers_plugin_lines_when_plugin_score_dominates_mixed_error_ba
 #[test]
 fn overlay_state_keeps_two_provider_artifact_stages_when_provider_score_dominates() {
     let diagnostics = vec![
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.two".to_string()), "two"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.one"), "one"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.two"), "two"),
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
         PluginDiagnostic::provider_artifact_failed(
@@ -661,7 +660,7 @@ fn overlay_state_keeps_two_provider_artifact_stages_when_provider_score_dominate
 #[test]
 fn overlay_state_shows_three_provider_artifact_stages_when_provider_strongly_dominates() {
     let diagnostics = vec![
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.one"), "one"),
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
         PluginDiagnostic::provider_artifact_failed(
@@ -725,7 +724,7 @@ fn overlay_frame_uses_activation_title_for_plugin_diagnostics() {
     let mut overlay = PluginDiagnosticOverlayState::default();
     overlay
         .record(&[PluginDiagnostic::instantiation_failed(
-            PluginId("plugin.target".to_string()),
+            PluginId::from("plugin.target"),
             "hard failure",
         )])
         .expect("generation");
@@ -755,7 +754,7 @@ fn overlay_state_warnings_have_finite_dismiss_errors_are_manual() {
     // timer must not be armed.
     overlay
         .record(&[PluginDiagnostic::instantiation_failed(
-            PluginId("plugin.target".to_string()),
+            PluginId::from("plugin.target"),
             "hard failure",
         )])
         .expect("generation");
@@ -767,7 +766,7 @@ fn dismiss_all_clears_active_overlay_regardless_of_generation() {
     let mut overlay = PluginDiagnosticOverlayState::default();
     overlay
         .record(&[PluginDiagnostic::instantiation_failed(
-            PluginId("plugin.x".to_string()),
+            PluginId::from("plugin.x"),
             "boom",
         )])
         .expect("generation");
@@ -811,7 +810,7 @@ fn overlay_state_coalesces_within_window() {
     overlay
         .record_at(
             &[PluginDiagnostic::instantiation_failed(
-                PluginId("plugin.target".to_string()),
+                PluginId::from("plugin.target"),
                 "hard failure",
             )],
             start,
@@ -855,7 +854,7 @@ fn overlay_state_resets_after_coalesce_window() {
     overlay
         .record_at(
             &[PluginDiagnostic::instantiation_failed(
-                PluginId("plugin.target".to_string()),
+                PluginId::from("plugin.target"),
                 "hard failure",
             )],
             start,
@@ -883,7 +882,7 @@ fn overlay_frame_precomputes_rows_and_tags_for_mixed_batches() {
     let diagnostics = vec![
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
         PluginDiagnostic::instantiation_failed(
-            PluginId("plugin.target".to_string()),
+            PluginId::from("plugin.target"),
             "instantiation failed",
         ),
     ];
@@ -905,7 +904,7 @@ fn overlay_frame_uses_neutral_title_for_mixed_batches() {
     let diagnostics = vec![
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
         PluginDiagnostic::instantiation_failed(
-            PluginId("plugin.target".to_string()),
+            PluginId::from("plugin.target"),
             "instantiation failed",
         ),
     ];
@@ -935,7 +934,7 @@ fn overlay_paint_spec_uses_activation_tone_for_plugin_error_with_provider_warnin
             "load failed",
         ),
         PluginDiagnostic::instantiation_failed(
-            PluginId("plugin.target".to_string()),
+            PluginId::from("plugin.target"),
             "instantiation failed",
         ),
     ];
@@ -982,7 +981,7 @@ fn overlay_paint_spec_uses_neutral_tone_for_plugin_error_with_provider_init_warn
             "init failed",
         ),
         PluginDiagnostic::instantiation_failed(
-            PluginId("plugin.target".to_string()),
+            PluginId::from("plugin.target"),
             "instantiation failed",
         ),
     ];
@@ -1016,7 +1015,7 @@ fn overlay_paint_spec_keeps_neutral_tone_for_balanced_mixed_errors() {
     let diagnostics = vec![
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
         PluginDiagnostic::surface_registration_failed(
-            PluginId("plugin.target".to_string()),
+            PluginId::from("plugin.target"),
             SurfaceRegistrationError::DuplicateSurfaceId {
                 surface_id: crate::surface::SurfaceId(12),
                 existing_surface_key: "existing".into(),
@@ -1060,8 +1059,8 @@ fn overlay_paint_spec_keeps_neutral_tone_for_balanced_mixed_errors() {
 #[test]
 fn overlay_paint_spec_uses_activation_tone_when_plugin_score_dominates_mixed_batch() {
     let diagnostics = vec![
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.two".to_string()), "two"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.one"), "one"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.two"), "two"),
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
     ];
 
@@ -1094,7 +1093,7 @@ fn overlay_paint_spec_uses_discovery_tone_when_provider_score_dominates_mixed_ba
     let diagnostics = vec![
         PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
         PluginDiagnostic::provider_collect_failed("provider", "collect failed again"),
-        PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
+        PluginDiagnostic::instantiation_failed(PluginId::from("plugin.one"), "one"),
     ];
 
     let mut overlay = PluginDiagnosticOverlayState::default();
@@ -1316,14 +1315,14 @@ fn overlay_tag_texts_are_stable() {
 #[test]
 fn config_error_is_warning_severity() {
     let diagnostic =
-        PluginDiagnostic::config_error(PluginId("test".to_string()), "my-widget", "bad slot");
+        PluginDiagnostic::config_error(PluginId::from("test"), "my-widget", "bad slot");
     assert_eq!(diagnostic.severity(), PluginDiagnosticSeverity::Warning);
 }
 
 #[test]
 fn config_error_summary_uses_key_not_target() {
     let diagnostic = PluginDiagnostic::config_error(
-        PluginId("kasane.widgets".to_string()),
+        PluginId::from("kasane.widgets"),
         "line-numbers",
         "unknown slot 'stauts-left' (did you mean 'status-left'?)",
     );
@@ -1337,7 +1336,7 @@ fn config_error_summary_uses_key_not_target() {
 #[test]
 fn config_error_overlay_tag_is_config() {
     let diagnostic =
-        PluginDiagnostic::config_error(PluginId("test".to_string()), "my-widget", "parse error");
+        PluginDiagnostic::config_error(PluginId::from("test"), "my-widget", "parse error");
     let lines = diagnostic_overlay_lines(&[diagnostic], 5);
     assert_eq!(lines.len(), 1);
     assert_eq!(lines[0].tag_kind, PluginDiagnosticOverlayTagKind::Config);
@@ -1357,7 +1356,7 @@ fn backend_capability_rejected_is_warning_severity() {
     // remains active. Severity reflects "best-effort dropped", not
     // "plugin is broken" → Warning, not Error.
     let diagnostic = PluginDiagnostic::backend_capability_rejected(
-        PluginId("test.path-emitter".to_string()),
+        PluginId::from("test.path-emitter"),
         "path",
         "WgpuBackend",
     );
@@ -1371,7 +1370,7 @@ fn backend_capability_rejected_summary_names_backend_and_primitive() {
     // capability mismatch. Static-string-shaped fields keep the
     // emission path allocation-free per ADR-032 §Decision item 3.
     let diagnostic = PluginDiagnostic::backend_capability_rejected(
-        PluginId("kasane.path-overlay".to_string()),
+        PluginId::from("kasane.path-overlay"),
         "path",
         "WgpuBackend",
     );
@@ -1386,7 +1385,7 @@ fn backend_capability_rejected_kind_carries_static_strings() {
     // not allocate. Pin that the kind variant exposes them as the
     // caller-supplied static literals (no string copy).
     let diagnostic = PluginDiagnostic::backend_capability_rejected(
-        PluginId("test".to_string()),
+        PluginId::from("test"),
         "DrawCanvas",
         "VelloBackend",
     );
@@ -1409,7 +1408,7 @@ fn backend_capability_rejected_overlay_tag_is_runtime() {
     // tags are reserved for plugin lifecycle, not contribution
     // rejection.
     let diagnostic = PluginDiagnostic::backend_capability_rejected(
-        PluginId("test".to_string()),
+        PluginId::from("test"),
         "blur",
         "WgpuBackend",
     );

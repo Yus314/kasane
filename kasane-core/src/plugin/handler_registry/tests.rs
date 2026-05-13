@@ -25,9 +25,9 @@ fn declare_interests() {
 }
 
 #[test]
-fn on_decorate_background_sets_annotator_capability() {
+fn on_background_sets_annotator_capability() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_decorate_background(|_state, _line, _app, _ctx| None);
+    registry.on_background(|_state, _line, _app, _ctx| None);
     let table = registry.into_table();
     assert!(table.capabilities().contains(PluginCapabilities::ANNOTATOR));
 }
@@ -43,7 +43,7 @@ fn on_contribute_sets_contributor_capability() {
             .contains(PluginCapabilities::CONTRIBUTOR)
     );
     assert_eq!(table.contribute_handlers.len(), 1);
-    assert_eq!(table.contribute_handlers[0].slot, SlotId::STATUS_LEFT);
+    assert_eq!(table.contribute_handlers[0].key, SlotId::STATUS_LEFT);
 }
 
 #[test]
@@ -188,9 +188,9 @@ fn on_display_sets_display_transform_capability() {
 }
 
 #[test]
-fn on_render_ornaments_sets_capability() {
+fn on_render_ornament_sets_capability() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_render_ornaments(|_state, _app, _ctx| OrnamentBatch::default());
+    registry.on_render_ornament(|_state, _app, _ctx| OrnamentBatch::default());
     let table = registry.into_table();
     assert!(
         table
@@ -227,13 +227,13 @@ fn paint_inline_box_default_is_no_op() {
 #[test]
 fn multiple_gutter_handlers() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_decorate_gutter(GutterSide::Left, 0, |_s, _l, _a, _c| None);
-    registry.on_decorate_gutter(GutterSide::Right, 10, |_s, _l, _a, _c| None);
+    registry.on_gutter(GutterSide::Left, 0, |_s, _l, _a, _c| None);
+    registry.on_gutter(GutterSide::Right, 10, |_s, _l, _a, _c| None);
     let table = registry.into_table();
     assert_eq!(table.gutter_handlers.len(), 2);
-    assert_eq!(table.gutter_handlers[0].side, GutterSide::Left);
+    assert_eq!(table.gutter_handlers[0].key, GutterSide::Left);
     assert_eq!(table.gutter_handlers[0].priority, 0);
-    assert_eq!(table.gutter_handlers[1].side, GutterSide::Right);
+    assert_eq!(table.gutter_handlers[1].key, GutterSide::Right);
     assert_eq!(table.gutter_handlers[1].priority, 10);
 }
 
@@ -249,7 +249,7 @@ fn multiple_contribute_handlers() {
 #[test]
 fn combined_capabilities() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_decorate_background(|_s, _l, _a, _c| None);
+    registry.on_background(|_s, _l, _a, _c| None);
     registry.on_overlay(|_s, _a, _c| None);
     registry.on_key(|_s, _k, _a| None::<(TestState, Vec<Command>)>);
     let table = registry.into_table();
@@ -263,7 +263,7 @@ fn combined_capabilities() {
 #[test]
 fn has_annotation_handlers_with_background() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_decorate_background(|_s, _l, _a, _c| None);
+    registry.on_background(|_s, _l, _a, _c| None);
     let table = registry.into_table();
     assert!(table.has_annotation_handlers());
 }
@@ -271,7 +271,7 @@ fn has_annotation_handlers_with_background() {
 #[test]
 fn has_annotation_handlers_with_gutter() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_decorate_gutter(GutterSide::Left, 0, |_s, _l, _a, _c| None);
+    registry.on_gutter(GutterSide::Left, 0, |_s, _l, _a, _c| None);
     let table = registry.into_table();
     assert!(table.has_annotation_handlers());
 }
@@ -393,7 +393,7 @@ fn tier2_process_task_setters_store_entries() {
 /// erased dispatch slots as the legacy setters. The asymmetric command
 /// projection (`KakouneSideCommand → Command`, no reverse) prevents
 /// `SpawnProcess`-bearing closures from compiling against
-/// `on_key_tier1` / `on_text_input_tier1` / `on_drop_tier1`.
+/// `on_key_tier1` / `on_text_input_tier1` / `on_handle_drop_tier1`.
 #[test]
 fn tier1_input_setters_store_handlers() {
     use super::super::KakouneSideCommand;
@@ -409,7 +409,7 @@ fn tier1_input_setters_store_handlers() {
             Some((state.clone(), vec![]))
         },
     );
-    registry.on_drop_tier1(
+    registry.on_handle_drop_tier1(
         |state, _event, _id, _app| -> Option<(TestState, Vec<KakouneSideCommand>)> {
             Some((state.clone(), vec![]))
         },
@@ -462,7 +462,7 @@ fn on_navigation_action_sets_capability_and_updates_state() {
     impl Plugin for NavTestPlugin {
         type State = NavTestState;
         fn id(&self) -> crate::plugin::PluginId {
-            crate::plugin::PluginId("nav-test".into())
+            crate::plugin::PluginId::from("nav-test")
         }
         fn register(&self, r: &mut HandlerRegistry<NavTestState>) {
             r.on_navigation_action(|state, _unit, _action| {
@@ -516,7 +516,7 @@ fn on_key_transparent_sets_input_handler_and_transparency() {
             .capabilities()
             .contains(PluginCapabilities::INPUT_HANDLER)
     );
-    assert!(table.transparency.key_handler);
+    assert!(table.transparency.key);
 }
 
 #[test]
@@ -565,9 +565,9 @@ fn no_handlers_is_input_transparent() {
 // =========================================================================
 
 #[test]
-fn on_display_unified_sets_display_transform_capability() {
+fn on_unified_display_sets_display_transform_capability() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_display_unified(|_state, _app| vec![]);
+    registry.on_unified_display(|_state, _app| vec![]);
     let table = registry.into_table();
     assert!(
         table
@@ -577,17 +577,17 @@ fn on_display_unified_sets_display_transform_capability() {
 }
 
 #[test]
-fn on_display_unified_sets_annotator_capability() {
+fn on_unified_display_sets_annotator_capability() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_display_unified(|_state, _app| vec![]);
+    registry.on_unified_display(|_state, _app| vec![]);
     let table = registry.into_table();
     assert!(table.capabilities().contains(PluginCapabilities::ANNOTATOR));
 }
 
 #[test]
-fn on_display_unified_sets_content_annotator_capability() {
+fn on_unified_display_sets_content_annotator_capability() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_display_unified(|_state, _app| vec![]);
+    registry.on_unified_display(|_state, _app| vec![]);
     let table = registry.into_table();
     assert!(
         table
@@ -597,15 +597,15 @@ fn on_display_unified_sets_content_annotator_capability() {
 }
 
 #[test]
-fn on_display_unified_safe_is_recoverable() {
+fn on_unified_display_safe_is_recoverable() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_display_unified_safe(|_state, _app| vec![]);
+    registry.on_unified_display_safe(|_state, _app| vec![]);
     assert!(registry.is_display_recoverable());
 }
 
 #[test]
-fn on_display_unified_is_not_recoverable() {
+fn on_unified_display_is_not_recoverable() {
     let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_display_unified(|_state, _app| vec![]);
+    registry.on_unified_display(|_state, _app| vec![]);
     assert!(!registry.is_display_recoverable());
 }

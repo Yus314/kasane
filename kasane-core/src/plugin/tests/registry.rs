@@ -16,7 +16,7 @@ impl crate::plugin::Plugin for TypedLifecyclePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("typed-lifecycle".to_string())
+        PluginId::from("typed-lifecycle")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -48,7 +48,7 @@ impl crate::plugin::Plugin for TypedRuntimePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("typed-runtime".to_string())
+        PluginId::from("typed-runtime")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -105,7 +105,7 @@ impl crate::plugin::Plugin for ShutdownProbePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId(self.id.to_string())
+        PluginId::from(&*self.id)
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -131,7 +131,7 @@ impl crate::plugin::Plugin for DisplayTransformPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId(self.id.to_string())
+        PluginId::from(&*self.id)
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -157,7 +157,7 @@ impl crate::plugin::Plugin for WorkspaceObserverPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId(self.id.to_string())
+        PluginId::from(&*self.id)
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -185,7 +185,7 @@ impl crate::plugin::Plugin for KeyMiddlewarePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId(self.id.to_string())
+        PluginId::from(&*self.id)
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -217,7 +217,7 @@ impl crate::plugin::Plugin for AuthorityPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId(self.id.to_string())
+        PluginId::from(&*self.id)
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -234,7 +234,7 @@ impl crate::plugin::Plugin for TargetedReadyPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId(self.id.to_string())
+        PluginId::from(&*self.id)
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -254,7 +254,7 @@ fn test_empty_registry() {
 #[test]
 fn test_plugin_id() {
     let plugin = TestPlugin;
-    assert_eq!(plugin.id(), PluginId("test".to_string()));
+    assert_eq!(plugin.id(), PluginId::from("test"));
 }
 
 #[test]
@@ -296,10 +296,8 @@ fn test_notify_plugin_active_session_ready_batch_targets_only_requested_plugin()
     });
     let state = AppState::default();
 
-    let batch = registry.notify_plugin_active_session_ready_batch(
-        &PluginId("beta".to_string()),
-        &AppView::new(&state),
-    );
+    let batch = registry
+        .notify_plugin_active_session_ready_batch(&PluginId::from("beta"), &AppView::new(&state));
     assert!(batch.redraw.contains(DirtyFlags::BUFFER));
     assert!(!batch.redraw.contains(DirtyFlags::STATUS));
 }
@@ -323,7 +321,7 @@ fn test_deliver_message_batch_collects_runtime_effects() {
     let state = AppState::default();
 
     let batch = registry.deliver_message_batch(
-        &PluginId("typed-runtime".to_string()),
+        &PluginId::from("typed-runtime"),
         Box::new(7u32),
         &AppView::new(&state),
     );
@@ -348,10 +346,7 @@ fn test_collect_plugin_surfaces_returns_owner_group() {
 
     let surface_sets = registry.collect_plugin_surfaces();
     assert_eq!(surface_sets.len(), 1);
-    assert_eq!(
-        surface_sets[0].owner,
-        PluginId("surface-plugin".to_string())
-    );
+    assert_eq!(surface_sets[0].owner, PluginId::from("surface-plugin"));
     assert_eq!(surface_sets[0].surfaces.len(), 2);
     assert_eq!(surface_sets[0].surfaces[0].id(), SurfaceId(200));
     assert_eq!(surface_sets[0].surfaces[1].id(), SurfaceId(201));
@@ -370,15 +365,15 @@ fn test_remove_plugin_removes_registered_plugin() {
     registry.register(TestPlugin);
     registry.register(SurfacePlugin);
 
-    assert!(registry.remove_plugin(&PluginId("surface-plugin".to_string())));
+    assert!(registry.remove_plugin(&PluginId::from("surface-plugin")));
     assert_eq!(registry.plugin_count(), 1);
-    assert!(!registry.remove_plugin(&PluginId("surface-plugin".to_string())));
+    assert!(!registry.remove_plugin(&PluginId::from("surface-plugin")));
 }
 
 #[test]
 fn test_plugin_has_authority_uses_declared_authorities() {
     let mut registry = PluginRuntime::new();
-    let plugin_id = PluginId("authority-probe".to_string());
+    let plugin_id = PluginId::from("authority-probe");
     registry.register(AuthorityPlugin {
         id: "authority-probe",
         authorities: PluginAuthorities::DYNAMIC_SURFACE,
@@ -391,7 +386,7 @@ fn test_plugin_has_authority_uses_declared_authorities() {
 #[test]
 fn test_register_backend_replacement_updates_authorities() {
     let mut registry = PluginRuntime::new();
-    let plugin_id = PluginId("authority-probe".to_string());
+    let plugin_id = PluginId::from("authority-probe");
     registry.register(AuthorityPlugin {
         id: "authority-probe",
         authorities: PluginAuthorities::DYNAMIC_SURFACE,
@@ -594,7 +589,7 @@ fn test_dispatch_key_middleware_passes_transformed_key_to_next_plugin() {
             source_plugin,
             commands,
         } => {
-            assert_eq!(source_plugin, PluginId("consumer".to_string()));
+            assert_eq!(source_plugin, PluginId::from("consumer"));
             assert_eq!(commands.len(), 1);
             assert!(matches!(
                 &commands[0],
@@ -647,11 +642,11 @@ fn test_unload_plugin_calls_shutdown_and_removes_plugin() {
         shutdowns: shutdowns.clone(),
     });
 
-    assert!(registry.contains_plugin(&PluginId("shutdown-probe".to_string())));
-    assert!(registry.unload_plugin(&PluginId("shutdown-probe".to_string())));
+    assert!(registry.contains_plugin(&PluginId::from("shutdown-probe")));
+    assert!(registry.unload_plugin(&PluginId::from("shutdown-probe")));
     assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
-    assert!(!registry.contains_plugin(&PluginId("shutdown-probe".to_string())));
-    assert!(!registry.unload_plugin(&PluginId("shutdown-probe".to_string())));
+    assert!(!registry.contains_plugin(&PluginId::from("shutdown-probe")));
+    assert!(!registry.unload_plugin(&PluginId::from("shutdown-probe")));
     assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
 }
 
@@ -728,7 +723,7 @@ fn test_deliver_message_unknown_target() {
     let mut registry = PluginRuntime::new();
     let state = AppState::default();
     let batch = registry.deliver_message_batch(
-        &PluginId("unknown".to_string()),
+        &PluginId::from("unknown"),
         Box::new(42u32),
         &AppView::new(&state),
     );
@@ -746,7 +741,7 @@ impl crate::plugin::Plugin for ContributorPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("contributor".to_string())
+        PluginId::from("contributor")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -769,7 +764,7 @@ impl crate::plugin::Plugin for AnnotatorPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("annotator".to_string())
+        PluginId::from("annotator")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -888,16 +883,16 @@ struct DecomposedAnnotatorPlugin;
 impl Plugin for DecomposedAnnotatorPlugin {
     type State = ();
     fn id(&self) -> PluginId {
-        PluginId("decomposed-annotator".to_string())
+        PluginId::from("decomposed-annotator")
     }
     fn register(&self, r: &mut HandlerRegistry<()>) {
-        r.on_decorate_gutter(GutterSide::Left, 10, |_state, line, _app, _ctx| {
+        r.on_gutter(GutterSide::Left, 10, |_state, line, _app, _ctx| {
             Some(crate::element::Element::text(
                 format!("{}", line + 1),
                 crate::protocol::Style::default(),
             ))
         });
-        r.on_decorate_background(|_state, line, _app, _ctx| {
+        r.on_background(|_state, line, _app, _ctx| {
             if line == 0 {
                 Some(BackgroundLayer {
                     style: crate::protocol::Style {
@@ -925,11 +920,11 @@ impl Plugin for LegacyAnnotatorPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("legacy-annotator".to_string())
+        PluginId::from("legacy-annotator")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
-        r.on_decorate_gutter(GutterSide::Left, 5, |_state, line, _app, _ctx| {
+        r.on_gutter(GutterSide::Left, 5, |_state, line, _app, _ctx| {
             Some(crate::element::Element::text(
                 format!("L{}", line + 1),
                 crate::protocol::Style::default(),
@@ -1001,7 +996,7 @@ fn test_mixed_decomposed_and_legacy_annotators() {
 // (Removed) `test_decomposed_annotator_has_decomposed_annotations_flag`:
 // asserted that LegacyAnnotatorPlugin reports `has_decomposed_annotations()
 // == false` while DecomposedAnnotatorPlugin reports true. After the
-// legacy fixture migrated to `impl Plugin` with `on_decorate_gutter`, the
+// legacy fixture migrated to `impl Plugin` with `on_gutter`, the
 // distinction is no longer meaningful at the test fixture level — every
 // native plugin reports decomposed = true. The WASM-side fallback is
 // exercised in kasane-wasm integration tests.
@@ -1027,7 +1022,7 @@ struct PublisherPlugin;
 impl Plugin for PublisherPlugin {
     type State = PubState;
     fn id(&self) -> PluginId {
-        PluginId("publisher".to_string())
+        PluginId::from("publisher")
     }
     fn register(&self, r: &mut HandlerRegistry<PubState>) {
         r.on_state_changed_tier1(|state, _app, _dirty| {
@@ -1047,7 +1042,7 @@ struct SubscriberPlugin;
 impl Plugin for SubscriberPlugin {
     type State = SubState;
     fn id(&self) -> PluginId {
-        PluginId("subscriber".to_string())
+        PluginId::from("subscriber")
     }
     fn register(&self, r: &mut HandlerRegistry<SubState>) {
         r.subscribe::<u32>(TopicId::new("test.counter"), |_state, value| SubState {
@@ -1108,7 +1103,7 @@ struct SubscriberWithOnSubscription;
 impl Plugin for SubscriberWithOnSubscription {
     type State = SubState;
     fn id(&self) -> PluginId {
-        PluginId("subscriber.tier1".to_string())
+        PluginId::from("subscriber.tier1")
     }
     fn register(&self, r: &mut HandlerRegistry<SubState>) {
         r.subscribe::<u32>(TopicId::new("test.counter"), |_state, value| SubState {
@@ -1155,7 +1150,7 @@ fn test_pubsub_bus_clears_between_evaluations() {
     let topic = TopicId::new("test");
     bus.publish(
         topic.clone(),
-        PluginId("p".to_string()),
+        PluginId::from("p"),
         super::super::channel::ChannelValue::new(&42u32).unwrap(),
     );
     assert!(bus.get_publications(&topic).is_some());
@@ -1202,11 +1197,11 @@ fn test_plugin_tag_zero_is_reserved_for_framework() {
 fn test_replacing_plugin_reuses_its_tag() {
     let mut registry = PluginRuntime::new();
     registry.register(TestPlugin);
-    let original_tag = registry.plugin_tag(&PluginId("test".to_string())).unwrap();
+    let original_tag = registry.plugin_tag(&PluginId::from("test")).unwrap();
 
     // Replace with same ID
     registry.register(TestPlugin);
-    let replaced_tag = registry.plugin_tag(&PluginId("test".to_string())).unwrap();
+    let replaced_tag = registry.plugin_tag(&PluginId::from("test")).unwrap();
     assert_eq!(original_tag, replaced_tag);
 }
 
@@ -1217,13 +1212,11 @@ fn test_unloading_plugin_does_not_recycle_tag() {
     registry.register(SurfacePlugin);
 
     // Remove first plugin
-    registry.remove_plugin(&PluginId("test".to_string()));
+    registry.remove_plugin(&PluginId::from("test"));
 
     // Register new plugin — should get tag 3, not 1
     registry.register(StatefulPlugin);
-    let new_tag = registry
-        .plugin_tag(&PluginId("stateful".to_string()))
-        .unwrap();
+    let new_tag = registry.plugin_tag(&PluginId::from("stateful")).unwrap();
     assert_eq!(new_tag, PluginTag(3));
 }
 
@@ -1235,7 +1228,7 @@ impl Plugin for MousePlugin42 {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("mouse42".to_string())
+        PluginId::from("mouse42")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
@@ -1255,7 +1248,7 @@ impl Plugin for DecoyMousePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("decoy-mouse".to_string())
+        PluginId::from("decoy-mouse")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
@@ -1272,9 +1265,7 @@ fn test_tagged_interactive_id_routes_to_correct_plugin() {
     registry.register(DecoyMousePlugin);
     registry.register(MousePlugin42);
 
-    let mouse42_tag = registry
-        .plugin_tag(&PluginId("mouse42".to_string()))
-        .unwrap();
+    let mouse42_tag = registry.plugin_tag(&PluginId::from("mouse42")).unwrap();
 
     let state = AppState::default();
     let id = InteractiveId::new(42, mouse42_tag);
@@ -1290,7 +1281,7 @@ fn test_tagged_interactive_id_routes_to_correct_plugin() {
             source_plugin,
             commands,
         } => {
-            assert_eq!(source_plugin, PluginId("mouse42".to_string()));
+            assert_eq!(source_plugin, PluginId::from("mouse42"));
             assert_eq!(commands.len(), 1);
         }
         MouseHandleResult::NotHandled => panic!("expected Handled"),
@@ -1313,7 +1304,7 @@ fn test_framework_tagged_id_uses_legacy_fallback() {
 
     match registry.dispatch_mouse_handler(&mouse_event, id, &AppView::new(&state)) {
         MouseHandleResult::Handled { source_plugin, .. } => {
-            assert_eq!(source_plugin, PluginId("mouse42".to_string()));
+            assert_eq!(source_plugin, PluginId::from("mouse42"));
         }
         MouseHandleResult::NotHandled => panic!("expected Handled via legacy fallback"),
     }
@@ -1365,7 +1356,7 @@ impl Plugin for NavPolicyPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId(self.name.to_string())
+        PluginId::from(self.name.to_string())
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
@@ -1383,7 +1374,7 @@ impl Plugin for NavActionPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId(self.name.to_string())
+        PluginId::from(self.name.to_string())
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
@@ -1449,16 +1440,16 @@ fn dispatch_navigation_action_first_wins() {
 
 // --- Unified display collection tests (Phase 1B.3) ---
 
-/// A Plugin that uses `on_display_unified()` to return all directive categories.
+/// A Plugin that uses `on_unified_display()` to return all directive categories.
 struct UnifiedDisplayPlugin;
 
 impl Plugin for UnifiedDisplayPlugin {
     type State = ();
     fn id(&self) -> PluginId {
-        PluginId("unified-display".to_string())
+        PluginId::from("unified-display")
     }
     fn register(&self, r: &mut HandlerRegistry<()>) {
-        r.on_display_unified(|_state, _app| {
+        r.on_unified_display(|_state, _app| {
             vec![
                 // Spatial
                 DisplayDirective::Hide { range: 2..3 },
@@ -1736,12 +1727,12 @@ mod sync_lenses {
         let counter_b = Arc::new(Mutex::new(0));
         let runtime = make_runtime_with_lens_plugins(vec![
             LensOwningPlugin {
-                id: PluginId("alpha".into()),
+                id: PluginId::from("alpha"),
                 lens_name: "lens-a".into(),
                 registered: counter_a.clone(),
             },
             LensOwningPlugin {
-                id: PluginId("beta".into()),
+                id: PluginId::from("beta"),
                 lens_name: "lens-b".into(),
                 registered: counter_b.clone(),
             },
@@ -1750,8 +1741,8 @@ mod sync_lenses {
         let mut lens_registry = LensRegistry::new();
         let count = runtime.sync_lenses(&mut lens_registry);
         assert_eq!(count, 2);
-        assert!(lens_registry.is_registered(&LensId::new(PluginId("alpha".into()), "lens-a")));
-        assert!(lens_registry.is_registered(&LensId::new(PluginId("beta".into()), "lens-b")));
+        assert!(lens_registry.is_registered(&LensId::new(PluginId::from("alpha"), "lens-a")));
+        assert!(lens_registry.is_registered(&LensId::new(PluginId::from("beta"), "lens-b")));
         assert_eq!(*counter_a.lock().unwrap(), 1);
         assert_eq!(*counter_b.lock().unwrap(), 1);
     }
@@ -1761,12 +1752,12 @@ mod sync_lenses {
         // First sync: alpha + beta both registered.
         let runtime_initial = make_runtime_with_lens_plugins(vec![
             LensOwningPlugin {
-                id: PluginId("alpha".into()),
+                id: PluginId::from("alpha"),
                 lens_name: "a".into(),
                 registered: Arc::new(Mutex::new(0)),
             },
             LensOwningPlugin {
-                id: PluginId("beta".into()),
+                id: PluginId::from("beta"),
                 lens_name: "b".into(),
                 registered: Arc::new(Mutex::new(0)),
             },
@@ -1778,14 +1769,14 @@ mod sync_lenses {
         // Second sync: only alpha remains. beta's lens should be
         // dropped; alpha's stays.
         let runtime_after = make_runtime_with_lens_plugins(vec![LensOwningPlugin {
-            id: PluginId("alpha".into()),
+            id: PluginId::from("alpha"),
             lens_name: "a".into(),
             registered: Arc::new(Mutex::new(0)),
         }]);
         runtime_after.sync_lenses(&mut lens_registry);
         assert_eq!(lens_registry.len(), 1);
-        assert!(lens_registry.is_registered(&LensId::new(PluginId("alpha".into()), "a")));
-        assert!(!lens_registry.is_registered(&LensId::new(PluginId("beta".into()), "b")));
+        assert!(lens_registry.is_registered(&LensId::new(PluginId::from("alpha"), "a")));
+        assert!(!lens_registry.is_registered(&LensId::new(PluginId::from("beta"), "b")));
     }
 
     #[test]
@@ -1796,7 +1787,7 @@ mod sync_lenses {
         impl crate::plugin::Plugin for NoLensPlugin {
             type State = ();
             fn id(&self) -> PluginId {
-                PluginId("no-lens".into())
+                PluginId::from("no-lens")
             }
             fn register(&self, _r: &mut crate::plugin::HandlerRegistry<()>) {}
         }

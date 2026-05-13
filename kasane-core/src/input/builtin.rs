@@ -4,7 +4,7 @@
 //! can override these keys via `handle_key()`.
 
 use crate::input::Key;
-use crate::plugin::{HandlerRegistry, KakouneSideCommand, Plugin, PluginId};
+use crate::plugin::{HandlerRegistry, KakouneSideCommand, PluginId, StatelessPlugin};
 use crate::protocol::KasaneRequest;
 use crate::scroll::ScrollPolicyResult;
 
@@ -14,11 +14,9 @@ use crate::scroll::ScrollPolicyResult;
 /// first-wins priority on these keys and on default scroll policy decisions.
 pub struct BuiltinInputPlugin;
 
-impl Plugin for BuiltinInputPlugin {
-    type State = ();
-
+impl StatelessPlugin for BuiltinInputPlugin {
     fn id(&self) -> PluginId {
-        PluginId("kasane.builtin.input".into())
+        PluginId::from("kasane.builtin.input")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
@@ -133,7 +131,7 @@ mod tests {
         impl crate::plugin::Plugin for CustomPageUpPlugin {
             type State = ();
             fn id(&self) -> PluginId {
-                PluginId("custom_pageup".into())
+                PluginId::from("custom_pageup")
             }
             fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
                 r.on_key(|_state, key, _app| {
@@ -181,7 +179,7 @@ mod tests {
         impl crate::plugin::Plugin for NoOpPlugin {
             type State = ();
             fn id(&self) -> PluginId {
-                PluginId("noop".into())
+                PluginId::from("noop")
             }
             fn register(&self, _r: &mut crate::plugin::HandlerRegistry<()>) {}
         }
@@ -256,7 +254,7 @@ mod tests {
         impl crate::plugin::Plugin for OverrideScrollPlugin {
             type State = ();
             fn id(&self) -> PluginId {
-                PluginId("override.scroll".into())
+                PluginId::from("override.scroll")
             }
             fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
                 r.on_default_scroll(|_state, _candidate, _app| {

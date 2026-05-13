@@ -82,7 +82,7 @@ rustup target add wasm32-wasip2
 ```toml
 # Cargo.toml
 [package]
-name = "sel-badge"
+name = "my-plugin"
 version = "0.1.0"
 edition = "2024"
 
@@ -96,35 +96,47 @@ wit-bindgen = "0.53"
 
 </details>
 
-### Full Example: sel-badge
+### Full Example: cursor-line
 
-This plugin displays the selection count on the right side of the status bar when multiple cursors are active.
+This plugin highlights the active cursor line via the `display` directive
+stream. It is the canonical small bundled example.
 
 ```rust
 kasane_plugin_sdk::define_plugin! {
-    id: "sel_badge",
+    manifest: "kasane-plugin.toml",
 
     state {
-        #[bind(host_state::get_cursor_count(), on: dirty::BUFFER)]
-        cursor_count: u32 = 0,
+        #[bind(host_state::get_cursor_line(), on: dirty::BUFFER)]
+        active_line: i32 = -1,
     },
 
-    slots {
-        STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
-            status_badge(state.cursor_count > 1, &format!(" {} sel ", state.cursor_count))
-        },
+    display() {
+        if state.active_line < 0 {
+            return vec![];
+        }
+        let bg = theme_style_or(
+            "cursor.line.bg",
+            if is_dark_background() {
+                style_bg(rgb(40, 40, 50))
+            } else {
+                style_bg(rgb(220, 220, 235))
+            },
+        );
+        vec![style_line(state.active_line as u32, bg)]
     },
 }
 ```
 
 **Key points:**
 
-- **`define_plugin!`** combines `generate!()`, state declaration, `#[plugin]`, and `export!()` into a single macro. All sections are optional except `id`.
+- **`define_plugin!`** combines `generate!()`, state declaration, `#[plugin]`, and `export!()` into a single macro. All sections are optional except `id` (or `manifest:` which supplies it).
 - **`#[bind(expr, on: flags)]`** on state fields auto-generates sync code in `on_state_changed_effects()`. The expression is evaluated when the specified dirty flags are set.
-- **`slots {}`** declares slot contributions with dependency tracking. Inside `slots` closures, `state.field` is available directly (read-only).
-- **`status_badge()`** is a helper that returns `Some(auto_contribution(plain(label)))` when the condition is true.
+- **`display() { … }`** declares display directives — the simplest extension surface for line styling, folds, virtual text, etc.
+- **`theme_style_or(token, fallback)`** resolves a theme token if defined, otherwise uses the provided fallback style.
 - The `dirty` and `modifiers` modules are auto-imported by `define_plugin!`.
 - In mutable contexts (`handle_key`, `overlay`, `on_io_event`, etc.), `bump_generation()` is called automatically when the state guard drops.
+
+A status-widget example using `slots {}` (the prior `sel-badge` example) lives in the future external `kasane-plugin-gallery` repo — recoverable from this repo's git history before the δ-3 cleanup.
 
 ### SDK Helpers Reference
 
@@ -202,15 +214,19 @@ At build time, Kasane packages the manifest and compiled WASM component into a s
 
 | Profile | Sections | Template | Example |
 |---|---|---|---|
-| Status widget | `state` (`#[bind]`), `slots` | `contribution` | sel-badge |
-| Line annotator | `state` (`#[bind]`), `annotate` | `annotation` | cursor-line |
-| Element transformer | `state` (`#[bind]`), `transform` | `transform` | prompt-highlight |
-| Display transform | `state`, `on_state_changed_effects`, `display_directives` | — | virtual-text-demo (native) |
+| Status widget | `state` (`#[bind]`), `slots` | `contribution` | sel-badge (gallery) |
+| Line annotator | `state` (`#[bind]`), `annotate` | `annotation` | cursor-line, color-preview |
+| Element transformer | `state` (`#[bind]`), `transform` | `transform` | prompt-highlight (gallery) |
+| Display transform | `state`, `on_state_changed_effects`, `display_directives` | — | virtual-text-demo (gallery, native) |
 | Structural projection | `state`, `define_projection`, `on_key_map` | — | semantic-zoom (builtin) |
-| Interactive overlay | `state`, `handle_key`, `overlay` | `overlay` | session-ui |
-| Process launcher | Above + `on_io_event_effects`, `capabilities` | `process` | fuzzy-finder |
-| Scroll policy | `handle_default_scroll` | — | smooth-scroll |
-| Kakoune-side bindings | `on_active_session_ready_effects` + `kak::*` helpers | — | kakoune-bindings-demo |
+| Interactive overlay | `state`, `handle_key`, `overlay` | `overlay` | session-ui (gallery) |
+| Process launcher | Above + `on_io_event_effects`, `capabilities` | `process` | fuzzy-finder (gallery) |
+| Scroll policy | `handle_default_scroll` | — | smooth-scroll (gallery) |
+| Kakoune-side bindings | `on_active_session_ready_effects` + `kak::*` helpers | — | kakoune-bindings-demo (gallery) |
+
+"(gallery)" entries refer to plugins moved to the future external
+`kasane-plugin-gallery` repo (δ-3 cleanup); recover from this repo's git
+history before that commit.
 
 Available `define_plugin!` sections: `manifest` or `id`, `state` (with optional `#[bind]`), `settings`, `on_init_effects`, `on_active_session_ready_effects`, `on_state_changed_effects`, `update_effects`, `slots`, `annotate`, `transform`, `transform_patch`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `authorities`, `on_io_event_effects`.
 
@@ -224,8 +240,9 @@ Each `kak::*` helper encodes the correct idempotency idiom for its command
 (e.g. `try %[ declare-user-mode … ]`, `define-command -override`), and the
 `kakoune_setup_effects!` macro sends each entry as its own `SendKeys` for
 failure isolation. See the
-[Plugin Cookbook entry](./plugin-cookbook.md#register-kakoune-apis-at-session-ready)
-and `examples/wasm/kakoune-bindings-demo/`.
+[Plugin Cookbook entry](./plugin-cookbook.md#register-kakoune-apis-at-session-ready).
+The `kakoune-bindings-demo` example moved to the future external
+`kasane-plugin-gallery` (δ-3 cleanup) — recover from git history if needed.
 
 As of WIT 4.0.0 (ADR-041), `eval-command(string)` is a case of the
 `session-ready-command` variant, so `kakoune_setup_effects!` composes
@@ -316,8 +333,8 @@ kasane plugin dev --release      # Same, but release builds
 WASM plugin ABI note: current Kasane releases expect
 `kasane:plugin@6.0.0` (Phase β-4 — removes the retired
 `evaluate-extension` export per
-[ADR-045](decisions.md#adr-045-retire-the-extension-point-dispatch-path)).
-ABI 5.0.0 is the [ADR-044](decisions.md#adr-044-handler--effect-tier-hierarchy)
+[ADR-045](decisions/adr-045-retire-the-extension-point-dispatch-path.md)).
+ABI 5.0.0 is the [ADR-044](decisions/adr-044-handler-effect-tier-hierarchy.md)
 tier-hierarchy split. Rebuild and reinstall any plugin that was built
 against an older version; ABI 5.x and earlier binaries are rejected at
 load time. See [`docs/migration/0.6-to-0.7.md` §8.3](migration/0.6-to-0.7.md)
@@ -368,7 +385,7 @@ kasane plugin doctor --fix       # Auto-fix missing target and plugins directory
 ```bash
 cargo build --target wasm32-wasip2 --release
 kasane plugin build
-kasane plugin install target/kasane/sel-badge-0.1.0.kpk
+kasane plugin install target/kasane/my-plugin-0.1.0.kpk
 ```
 
 </details>
@@ -460,7 +477,7 @@ exists in the manifest's `[settings.*]` and types match.
 - **`handle_default_scroll(candidate)`** only runs for default buffer scroll candidates. It does not override info popups, drag-scroll routing, or other core-owned scroll paths.
 - **Return `ScrollPolicyResult::Plan(...)`** to let the host runtime execute time-based scrolling. The plugin does not tick frames itself.
 - **Return `None`** to let the next scroll-policy plugin decide. For exact `None` / `Pass` / `Suppress` / `Immediate` semantics, see [`plugin-api.md`](./plugin-api.md#34-input-handling).
-- The source example lives at [`examples/wasm/smooth-scroll/`](../examples/wasm/smooth-scroll/). It is not part of the bundled WASM plugin set unless you build and install it yourself.
+- The source example was previously at `examples/wasm/smooth-scroll/`; it moved to the future external `kasane-plugin-gallery` (δ-3 cleanup). Recover from this repo's git history before that commit.
 
 ## Testing
 
@@ -564,7 +581,7 @@ Constraint: WASI capabilities are available from `on_init_effects()` onward. The
 
 ## Session-Aware Plugins
 
-Plugins can observe and control sessions using the Tier 8 host-state API and `SessionCommand`. For type definitions and semantics, see [plugin-api.md §3.5.3](./plugin-api.md#353-session-observability). The `session-ui` example (`examples/wasm/session-ui/src/lib.rs`) demonstrates the full pattern including overlay UI, keybinding, and session switching.
+Plugins can observe and control sessions using the Tier 8 host-state API and `SessionCommand`. For type definitions and semantics, see [plugin-api.md §3.5.3](./plugin-api.md#353-session-observability). A `session-ui` example demonstrating overlay UI + keybinding + session switching previously lived at `examples/wasm/session-ui/`; it moved to the future external `kasane-plugin-gallery` (δ-3 cleanup) — recover from git history.
 
 ## Example Plugins
 

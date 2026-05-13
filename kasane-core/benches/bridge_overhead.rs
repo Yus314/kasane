@@ -43,7 +43,7 @@ use kasane_core::protocol::Atom;
 const LINE_COUNT: usize = 24;
 
 fn pid(s: &str) -> PluginId {
-    PluginId(s.to_string())
+    PluginId::from(s)
 }
 
 fn atom(s: &str) -> Atom {

@@ -1,9 +1,0 @@
-[plugin]
-id = "session_ui"
-abi_version = "6.0.0"
-
-[handlers]
-flags = ["overlay", "input-handler", "contributor"]
-
-[view]
-deps = ["session"]

@@ -14,7 +14,7 @@
 //!         // ...
 //!         (new_state, KakouneSideEffects::default())
 //!     });
-//!     r.on_decorate_background(|state, line, app, ctx| {
+//!     r.on_background(|state, line, app, ctx| {
 //!         // ...
 //!         Some(BackgroundLayer { ... })
 //!     });
@@ -31,7 +31,6 @@
 // impls) and the test build.
 #[allow(unused_imports)]
 use std::any::Any;
-use std::marker::PhantomData;
 
 #[allow(unused_imports)]
 use serde::{Serialize, de::DeserializeOwned};
@@ -65,7 +64,7 @@ use super::channel::ChannelValue;
 use super::effect::kakoune_transparent_effects::KakouneTransparentEffects;
 #[allow(unused_imports)]
 use super::handler_table::{
-    ContributeEntry, GutterHandlerEntry, GutterSide, HandlerTable, TransformEntry,
+    ContributeEntry, GutterEntry, GutterSide, HandlerTable, TransformEntry,
 };
 #[allow(unused_imports)]
 use super::process_task::{ProcessTaskEntry, ProcessTaskResult, ProcessTaskSpec};
@@ -132,58 +131,51 @@ pub struct VirtualEditContext {
     pub buffer_byte_range: std::ops::Range<usize>,
 }
 
-/// Downcast state, call handler, box the new state and return `(BoxedState, second.into())`.
-macro_rules! register_state_effect {
-    ($self:ident, $field:ident, $handler:ident $(, $arg:ident)*) => {
-        $self.table.$field = Some(Box::new(move |state, $($arg),*| {
-            let s = state.as_any().downcast_ref::<S>().expect("state type mismatch");
-            let (new_state, effects) = $handler(s, $($arg),*);
-            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
-        }));
-    };
-}
-
-/// Downcast state, call handler, forward the return value directly.
-macro_rules! register_view {
-    ($self:ident, $field:ident, $handler:ident $(, $arg:ident)*) => {
-        $self.table.$field = Some(Box::new(move |state, $($arg),*| {
-            let s = state.as_any().downcast_ref::<S>().expect("state type mismatch");
-            $handler(s, $($arg),*)
-        }));
-    };
-}
-
-/// Downcast state, call handler, box only the returned state.
-macro_rules! register_state_only {
-    ($self:ident, $field:ident, $handler:ident $(, $arg:ident)*) => {
-        $self.table.$field = Some(Box::new(move |state, $($arg),*| {
-            let s = state.as_any().downcast_ref::<S>().expect("state type mismatch");
-            Box::new($handler(s, $($arg),*)) as Box<dyn PluginState>
-        }));
-    };
-}
-
-/// Downcast state, call handler (no return value).
-macro_rules! register_void {
-    ($self:ident, $field:ident, $handler:ident) => {
-        $self.table.$field = Some(Box::new(move |state| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            $handler(s);
-        }));
-    };
-}
+// γ-3.3c-5b: the `register_state_effect!` / `register_view!` /
+// `register_state_only!` / `register_void!` helper macros that the
+// retired axis modules used to box / downcast handler closures were
+// retired alongside their consumers. The macro-generated setter bodies
+// in `gen::HandlerRegistry` use the same boxing pattern but inlined
+// per setter — no shared helper macro is needed because the macro
+// emits the boilerplate directly.
 
 /// Type-safe handler registration builder.
 ///
-/// `S` is the plugin's concrete state type. Registration methods accept closures
-/// over `&S` and automatically infer [`PluginCapabilities`] from which handlers
-/// are registered.
-pub struct HandlerRegistry<S: PluginState> {
-    table: HandlerTable,
-    _phantom: PhantomData<S>,
+/// γ-3.3c-5a: `HandlerRegistry` is now a thin wrapper around the
+/// macro-generated `gen::HandlerRegistry<S>` plus carve-out registration
+/// state. Generic setters (e.g. `r.on_init(...)`) auto-deref through to
+/// the inner generated registry; carve-out setters
+/// (`define_projection`, `on_key_map`, `on_state_changed_for`,
+/// `on_transform_full`, `on_process_task_*`) live as `impl` blocks on
+/// this wrapper and write directly to the carve-out fields. Manual
+/// shadowing setters (the contents of `decoration.rs`/`extension.rs`/
+/// `input.rs`/`lifecycle.rs`/`render.rs`/`transform.rs`) currently
+/// shadow the generated counterparts via Rust's method resolution
+/// preferring inherent impls — γ-3.3c-5b/c retire the redundant ones.
+///
+/// `S` is the plugin's concrete state type. The inner registry's setter
+/// methods accept closures over `&S` and automatically infer
+/// [`PluginCapabilities`] from which handlers are registered.
+pub struct HandlerRegistry<S: PluginState + Clone + 'static> {
+    inner: super::handler_table_spec::generated::HandlerRegistry<S>,
+    /// `process_task` carve-out (spec §9.5) Vec-of-metadata storage.
+    process_tasks: Vec<ProcessTaskEntry>,
+    /// `full_fallback` carve-out (spec §9.4) imperative full-rewrite
+    /// transform companion.
+    transform_full_handler: Option<super::handler_table::ErasedFullTransformHandler>,
+}
+
+impl<S: PluginState + Clone + 'static> std::ops::Deref for HandlerRegistry<S> {
+    type Target = super::handler_table_spec::generated::HandlerRegistry<S>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<S: PluginState + Clone + 'static> std::ops::DerefMut for HandlerRegistry<S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
 }
 
 // Re-export the shared registration macros to all axis submodules.
@@ -199,14 +191,27 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// Create a new empty registry.
     pub(crate) fn new() -> Self {
         Self {
-            table: HandlerTable::empty(),
-            _phantom: PhantomData,
+            inner: super::handler_table_spec::generated::HandlerRegistry::new(),
+            process_tasks: Vec::new(),
+            transform_full_handler: None,
         }
     }
 
     /// Consume the registry and produce a type-erased [`HandlerTable`].
+    ///
+    /// Combines the inner generated table with the wrapper's carve-out
+    /// fields into the manual `HandlerTable` wrapper struct.
     pub(crate) fn into_table(self) -> HandlerTable {
-        self.table
+        let HandlerRegistry {
+            inner,
+            process_tasks,
+            transform_full_handler,
+        } = self;
+        HandlerTable {
+            generated: inner.into_table(),
+            process_tasks,
+            transform_full_handler,
+        }
     }
 }
 

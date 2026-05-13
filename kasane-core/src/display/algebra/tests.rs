@@ -15,7 +15,7 @@ use super::normalize::{TaggedDisplay, disjoint, normalize, pass_c_filter_evt};
 use super::primitives::{Content, Display, EditSpec, Span};
 
 fn pid(s: &str) -> PluginId {
-    PluginId(s.to_string())
+    PluginId::from(s)
 }
 
 fn tagged(d: Display, priority: i16, plugin: &str, seq: u32) -> TaggedDisplay {

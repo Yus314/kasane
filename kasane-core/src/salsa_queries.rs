@@ -130,8 +130,8 @@ pub fn display_directives_at_time(
                     crate::protocol::Style::default(),
                     0, // decorate priority
                 ),
-                0,                                    // tag priority
-                PluginId(format!("selection-{}", i)), // placeholder plugin id
+                0,                                          // tag priority
+                PluginId::from(format!("selection-{}", i)), // placeholder plugin id
                 i as u32,
             )
         })

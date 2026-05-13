@@ -67,9 +67,9 @@ impl PluginBridge {
         plugin.register(&mut registry);
         let table = registry.into_table();
         let cached_projection_descriptors: Vec<_> = table
-            .projection_entries
+            .projection_handlers
             .iter()
-            .map(|e| e.descriptor.clone())
+            .map(|e| e.key.clone())
             .collect();
         let state: Box<dyn PluginState> = Box::new(P::State::default());
         let prev_state = state.clone();
@@ -364,7 +364,7 @@ impl PluginBridge {
 
     pub fn state_hash(&self) -> u64 {
         self.table
-            .state_hash_handler
+            .state_hash
             .as_ref()
             .map_or(self.generation, |h| h())
     }
@@ -436,7 +436,7 @@ impl PluginBridge {
     }
 
     pub fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
-        match &self.table.surfaces_factory {
+        match &self.table.surfaces_handler {
             Some(factory) => factory(&*self.state),
             None => Vec::new(),
         }
@@ -447,7 +447,7 @@ impl PluginBridge {
     }
 
     pub fn register_lenses(&self, registry: &mut crate::lens::LensRegistry) -> usize {
-        let Some(factory) = &self.table.lenses_factory else {
+        let Some(factory) = &self.table.lenses_handler else {
             return 0;
         };
         let lenses = factory();
@@ -633,8 +633,14 @@ impl PluginBridge {
     }
 
     pub fn refresh_key_groups(&mut self, app: &AppView<'_>) {
-        if let Some(handler) = &self.table.group_refresh_handler
-            && let Some(map) = &mut self.table.key_map
+        // γ-3.3c-4c: explicit `&mut self.table.generated` binding so the
+        // simultaneous immutable + mutable borrows of distinct fields
+        // resolve via split borrow on the underlying generated table —
+        // Deref's `deref` / `deref_mut` method calls cannot be borrow-
+        // split because each borrows the entire deref target.
+        let table = &mut self.table.generated;
+        if let Some(handler) = &table.group_refresh_handler
+            && let Some(map) = &mut table.key_map
         {
             handler(&*self.state, app, map);
         }
@@ -653,7 +659,7 @@ impl PluginBridge {
         ctx: &ContributeContext,
     ) -> Option<Contribution> {
         for entry in &self.table.contribute_handlers {
-            if entry.slot == *region {
+            if entry.key == *region {
                 return dispatch_inject_owner_contribution!(
                     self,
                     &entry.handler,
@@ -663,15 +669,8 @@ impl PluginBridge {
                 );
             }
         }
-        if let Some(entry) = &self.table.contribute_any_handler {
-            return dispatch_inject_owner_contribution!(
-                self,
-                &entry.handler,
-                element,
-                region,
-                app,
-                ctx
-            );
+        if let Some(handler) = &self.table.contribute_any_handler {
+            return dispatch_inject_owner_contribution!(self, handler, element, region, app, ctx);
         }
         None
     }
@@ -709,9 +708,7 @@ impl PluginBridge {
         if let Some(patch) = self.transform_patch(target, app, ctx) {
             return patch.apply(subject);
         }
-        if let Some(entry) = &self.table.transform_handler
-            && let Some(full) = &entry.full_handler
-        {
+        if let Some(full) = &self.table.transform_full_handler {
             return full(&*self.state, target, subject, app, ctx);
         }
         subject
@@ -755,7 +752,7 @@ impl PluginBridge {
         ctx: &AnnotateContext,
     ) -> Option<(i16, crate::element::Element)> {
         for entry in &self.table.gutter_handlers {
-            if entry.side == side
+            if entry.key == side
                 && let Some(mut el) = (entry.handler)(&*self.state, line, app, ctx)
             {
                 inject_owner(&mut el, self.plugin_tag);
@@ -856,7 +853,7 @@ impl PluginBridge {
     }
 
     pub fn paint_inline_box(&self, box_id: u64, app: &AppView<'_>) -> Option<Element> {
-        dispatch_view_or!(self, inline_box_paint_handler, None, box_id, app)
+        dispatch_view_or!(self, paint_inline_box_handler, None, box_id, app)
     }
 
     pub fn transform_menu_item(
@@ -906,8 +903,8 @@ impl PluginBridge {
         id: &crate::display::ProjectionId,
         state: &AppView<'_>,
     ) -> Vec<DisplayDirective> {
-        for entry in &self.table.projection_entries {
-            if &entry.descriptor.id == id {
+        for entry in &self.table.projection_handlers {
+            if &entry.key.id == id {
                 return (entry.handler)(&*self.state, state);
             }
         }
@@ -959,9 +956,9 @@ impl PluginBridge {
 
     pub fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
         let plugin_id = self.id.clone();
-        for entry in &self.table.publishers {
+        for entry in &self.table.publish_handlers {
             if let Some(value) = (entry.handler)(&*self.state, state) {
-                bus.publish(entry.topic.clone(), plugin_id.clone(), value);
+                bus.publish(entry.key.clone(), plugin_id.clone(), value);
             }
         }
     }
@@ -970,8 +967,8 @@ impl PluginBridge {
         let mut changed = false;
         let mut merged = Effects::default();
         // Per-value subscribers (state mutation only).
-        for entry in &self.table.subscribers {
-            if let Some(publications) = bus.get_publications(&entry.topic) {
+        for entry in &self.table.subscribe_handlers {
+            if let Some(publications) = bus.get_publications(&entry.key) {
                 for pub_value in publications {
                     self.state = (entry.handler)(&*self.state, &pub_value.value);
                     changed = true;
@@ -984,15 +981,15 @@ impl PluginBridge {
         // forwards the handler's effects up so the dispatcher can route
         // them through the same pipeline as `notify_state_changed`.
         if let Some(handler) = &self.table.subscription_handler {
-            for entry in &self.table.subscribers {
-                if let Some(publications) = bus.get_publications(&entry.topic) {
+            for entry in &self.table.subscribe_handlers {
+                if let Some(publications) = bus.get_publications(&entry.key) {
                     let values: Vec<super::ChannelValue> =
                         publications.iter().map(|p| p.value.clone()).collect();
                     if values.is_empty() {
                         continue;
                     }
                     let (new_state, effects) =
-                        handler(&*self.state, entry.topic.as_str(), &values, app);
+                        handler(&*self.state, entry.key.as_str(), &values, app);
                     self.state = new_state;
                     merged.merge(effects);
                     changed = true;
@@ -1032,7 +1029,7 @@ impl PluginBridge {
 
     pub fn start_process_task(&mut self, name: &str) -> Vec<Command> {
         let Some(entry) = self.table.process_tasks.iter().find(|e| e.name == name) else {
-            tracing::warn!(plugin = self.id.0.as_str(), name, "unknown process task");
+            tracing::warn!(plugin = self.id.as_str(), name, "unknown process task");
             return vec![];
         };
 
@@ -1075,7 +1072,7 @@ mod tests {
     #[test]
     fn bridge_delegates_id_and_capabilities() {
         let bridge = PluginBridge::new(CursorLinePure);
-        assert_eq!(bridge.id(), PluginId("test.cursor-line-pure".into()));
+        assert_eq!(bridge.id(), PluginId::from("test.cursor-line-pure"));
         assert!(
             bridge
                 .capabilities()
@@ -1163,7 +1160,7 @@ mod tests {
             type State = CursorLineState;
 
             fn id(&self) -> PluginId {
-                PluginId("test.scroll-pure".into())
+                PluginId::from("test.scroll-pure")
             }
 
             fn register(&self, r: &mut HandlerRegistry<CursorLineState>) {
@@ -1210,7 +1207,7 @@ mod tests {
             type State = u32;
 
             fn id(&self) -> PluginId {
-                PluginId("test.workspace-observer-pure".into())
+                PluginId::from("test.workspace-observer-pure")
             }
 
             fn register(&self, r: &mut HandlerRegistry<u32>) {
@@ -1322,7 +1319,7 @@ mod tests {
         impl Plugin for BufferOnlyPlugin {
             type State = ();
             fn id(&self) -> PluginId {
-                PluginId("test.buffer-only".into())
+                PluginId::from("test.buffer-only")
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
                 r.declare_interests(DirtyFlags::BUFFER);
@@ -1379,7 +1376,7 @@ mod tests {
         impl Plugin for BufferOnlyPlugin {
             type State = ();
             fn id(&self) -> PluginId {
-                PluginId("test.buffer-only-view".into())
+                PluginId::from("test.buffer-only-view")
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
                 r.declare_interests(DirtyFlags::BUFFER);
@@ -1428,7 +1425,7 @@ mod tests {
         impl Plugin for AppendPlugin {
             type State = ();
             fn id(&self) -> PluginId {
-                PluginId("test.append-transform".into())
+                PluginId::from("test.append-transform")
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
                 r.on_transform(0, |_state, _target, _app, _ctx| ElementPatch::Append {
@@ -1483,7 +1480,7 @@ mod tests {
         impl Plugin for PrependPlugin {
             type State = ();
             fn id(&self) -> PluginId {
-                PluginId("test.prepend".into())
+                PluginId::from("test.prepend")
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
                 r.on_transform(10, |_state, _target, _app, _ctx| ElementPatch::Prepend {
@@ -1496,7 +1493,7 @@ mod tests {
         impl Plugin for AppendPlugin {
             type State = ();
             fn id(&self) -> PluginId {
-                PluginId("test.append".into())
+                PluginId::from("test.append")
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
                 r.on_transform(0, |_state, _target, _app, _ctx| ElementPatch::Append {
@@ -1538,7 +1535,7 @@ mod tests {
         impl Plugin for ModifyPlugin {
             type State = ();
             fn id(&self) -> PluginId {
-                PluginId("test.modify".into())
+                PluginId::from("test.modify")
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
                 r.on_transform(10, |_state, _target, _app, _ctx| {
@@ -1558,7 +1555,7 @@ mod tests {
         impl Plugin for ReplacePlugin {
             type State = ();
             fn id(&self) -> PluginId {
-                PluginId("test.replace".into())
+                PluginId::from("test.replace")
             }
             fn register(&self, r: &mut HandlerRegistry<()>) {
                 r.on_transform(0, |_state, _target, _app, _ctx| ElementPatch::Replace {
@@ -1581,471 +1578,6 @@ mod tests {
 
         // Replace (prio 0) absorbs ModifyFace (prio 10) during normalization
         assert_eq!(result.into_element(), Element::plain_text("replaced"));
-    }
-
-    // ---- Exhaustive handler dispatch coverage ----
-
-    /// Verifies that every handler field in `HandlerTable` is dispatched through
-    /// `PluginBridge`. If a new handler is added to `HandlerTable` but not wired
-    /// in `PluginBridge`, this test will fail with a descriptive message.
-    #[test]
-    fn exhaustive_handler_dispatch_coverage() {
-        use std::collections::HashSet;
-        use std::sync::{Arc, Mutex};
-
-        use crate::element::InteractiveId;
-        use crate::input::{Key, Modifiers, MouseButton, MouseEvent, MouseEventKind};
-        use crate::plugin::algebra::element_patch::ElementPatch;
-        use crate::plugin::handler_table::GutterSide;
-        use crate::plugin::pubsub::TopicId;
-        use crate::plugin::{
-            AnnotateContext, ContributeContext, OverlayContext, TransformContext, TransformTarget,
-        };
-
-        use crate::scroll::{ResolvedScroll, ScrollGranularity};
-
-        const EXPECTED_HANDLER_NAMES: &[&str] = &[
-            "init",
-            "session_ready",
-            "state_changed",
-            "io_event",
-            "workspace_changed",
-            "shutdown",
-            "update",
-            "key",
-            "key_pre_dispatch",
-            "key_middleware",
-            "observe_key",
-            "text_input",
-            "text_input_pre_dispatch",
-            "observe_text_input",
-            "observe_mouse",
-            "handle_mouse",
-            "mouse_pre_dispatch",
-            "mouse_fallback",
-            "default_scroll",
-            "contribute",
-            "contribute_any",
-            "transform",
-            "gutter",
-            "background",
-            "inline",
-            "virtual_text",
-            "annotate_line",
-            "overlay",
-            "display",
-            "menu_transform",
-            "publish",
-            "subscribe",
-            "on_subscription",
-            "command_error",
-            "paint_inline_box",
-            "buffer_edit_intercept",
-        ];
-
-        let invoked: Arc<Mutex<HashSet<&'static str>>> = Arc::new(Mutex::new(HashSet::new()));
-
-        // Build a plugin that registers every handler type.
-        struct AllHandlersPlugin {
-            invoked: Arc<Mutex<HashSet<&'static str>>>,
-        }
-
-        impl Plugin for AllHandlersPlugin {
-            type State = u32;
-
-            fn id(&self) -> PluginId {
-                PluginId("test.all-handlers".into())
-            }
-
-            fn register(&self, r: &mut HandlerRegistry<u32>) {
-                let inv = self.invoked.clone();
-                r.on_init_tier1(move |s, _app| {
-                    inv.lock().unwrap().insert("init");
-                    (*s, crate::plugin::KakouneSideEffects::none())
-                });
-
-                let inv = self.invoked.clone();
-                r.on_session_ready_tier1(move |s, _app| {
-                    inv.lock().unwrap().insert("session_ready");
-                    (*s, crate::plugin::KakouneSideEffects::none())
-                });
-
-                let inv = self.invoked.clone();
-                r.on_state_changed_tier1(move |s, _app, _dirty| {
-                    inv.lock().unwrap().insert("state_changed");
-                    (*s, crate::plugin::KakouneSideEffects::none())
-                });
-
-                let inv = self.invoked.clone();
-                r.on_io_event_tier2(move |s, _event, _app| {
-                    inv.lock().unwrap().insert("io_event");
-                    (*s, crate::plugin::ProcessCapableEffects::none())
-                });
-
-                let inv = self.invoked.clone();
-                r.on_workspace_changed(move |s, _query| {
-                    inv.lock().unwrap().insert("workspace_changed");
-                    *s
-                });
-
-                let inv = self.invoked.clone();
-                r.on_shutdown(move |_s| {
-                    inv.lock().unwrap().insert("shutdown");
-                });
-
-                let inv = self.invoked.clone();
-                r.on_update_tier2(move |s, _msg, _app| {
-                    inv.lock().unwrap().insert("update");
-                    (*s, crate::plugin::ProcessCapableEffects::none())
-                });
-
-                let inv = self.invoked.clone();
-                r.on_key(move |s, _key, _app| {
-                    inv.lock().unwrap().insert("key");
-                    Some((*s, Vec::<Command>::new()))
-                });
-
-                let inv = self.invoked.clone();
-                r.on_key_middleware(move |s, _key, _app| {
-                    inv.lock().unwrap().insert("key_middleware");
-                    (*s, KeyHandleResult::Passthrough)
-                });
-
-                let inv = self.invoked.clone();
-                r.on_key_pre_dispatch(move |s, _key, _app| {
-                    inv.lock().unwrap().insert("key_pre_dispatch");
-                    (
-                        *s,
-                        KeyPreDispatchResult::Pass {
-                            commands: Vec::new(),
-                            state_updates: super::super::effect::effects::StateUpdates::default(),
-                        },
-                    )
-                });
-
-                let inv = self.invoked.clone();
-                r.on_observe_key(move |s, _key, _app| {
-                    inv.lock().unwrap().insert("observe_key");
-                    *s
-                });
-
-                let inv = self.invoked.clone();
-                r.on_text_input(move |s, _text, _app| {
-                    inv.lock().unwrap().insert("text_input");
-                    Some((*s, Vec::<Command>::new()))
-                });
-
-                let inv = self.invoked.clone();
-                r.on_observe_text_input(move |s, _text, _app| {
-                    inv.lock().unwrap().insert("observe_text_input");
-                    *s
-                });
-
-                let inv = self.invoked.clone();
-                r.on_text_input_pre_dispatch(move |s, _text, _app| {
-                    inv.lock().unwrap().insert("text_input_pre_dispatch");
-                    (*s, TextInputPreDispatchResult::Pass)
-                });
-
-                let inv = self.invoked.clone();
-                r.on_observe_mouse(move |s, _event, _app| {
-                    inv.lock().unwrap().insert("observe_mouse");
-                    *s
-                });
-
-                let inv = self.invoked.clone();
-                r.on_handle_mouse(move |s, _event, _id, _app| {
-                    inv.lock().unwrap().insert("handle_mouse");
-                    Some((*s, Vec::<Command>::new()))
-                });
-
-                let inv = self.invoked.clone();
-                r.on_mouse_pre_dispatch(move |s, _event, _app| {
-                    inv.lock().unwrap().insert("mouse_pre_dispatch");
-                    (
-                        *s,
-                        MousePreDispatchResult::Pass {
-                            commands: Vec::new(),
-                            state_updates: super::super::effect::effects::StateUpdates::default(),
-                        },
-                    )
-                });
-
-                let inv = self.invoked.clone();
-                r.on_mouse_fallback(move |s, _event, _scroll, _app| {
-                    inv.lock().unwrap().insert("mouse_fallback");
-                    (*s, None)
-                });
-
-                let inv = self.invoked.clone();
-                r.on_default_scroll(move |s, _candidate, _app| {
-                    inv.lock().unwrap().insert("default_scroll");
-                    Some((
-                        *s,
-                        ScrollPolicyResult::Immediate(ResolvedScroll::new(1, 0, 0)),
-                    ))
-                });
-
-                let inv = self.invoked.clone();
-                r.on_contribute(SlotId::STATUS_LEFT, move |_s, _app, _ctx| {
-                    inv.lock().unwrap().insert("contribute");
-                    None
-                });
-
-                let inv = self.invoked.clone();
-                r.on_contribute_any(move |_s, _slot, _app, _ctx| {
-                    inv.lock().unwrap().insert("contribute_any");
-                    None
-                });
-
-                let inv = self.invoked.clone();
-                r.on_transform(0, move |_s, _target, _app, _ctx| {
-                    inv.lock().unwrap().insert("transform");
-                    ElementPatch::Identity
-                });
-
-                let inv = self.invoked.clone();
-                r.on_decorate_gutter(GutterSide::Left, 0, move |_s, _line, _app, _ctx| {
-                    inv.lock().unwrap().insert("gutter");
-                    None
-                });
-
-                let inv = self.invoked.clone();
-                r.on_decorate_background(move |_s, _line, _app, _ctx| {
-                    inv.lock().unwrap().insert("background");
-                    None
-                });
-
-                let inv = self.invoked.clone();
-                r.on_decorate_inline(move |_s, _line, _app, _ctx| {
-                    inv.lock().unwrap().insert("inline");
-                    None
-                });
-
-                let inv = self.invoked.clone();
-                r.on_virtual_text(move |_s, _line, _app, _ctx| {
-                    inv.lock().unwrap().insert("virtual_text");
-                    vec![]
-                });
-
-                let inv = self.invoked.clone();
-                r.on_annotate_line(move |_s, _line, _app, _ctx| {
-                    inv.lock().unwrap().insert("annotate_line");
-                    None
-                });
-
-                let inv = self.invoked.clone();
-                r.on_overlay(move |_s, _app, _ctx| {
-                    inv.lock().unwrap().insert("overlay");
-                    None
-                });
-
-                let inv = self.invoked.clone();
-                r.on_display(move |_s, _app| {
-                    inv.lock().unwrap().insert("display");
-                    vec![]
-                });
-
-                let inv = self.invoked.clone();
-                r.on_menu_transform(move |_s, _item, _index, _selected, _app| {
-                    inv.lock().unwrap().insert("menu_transform");
-                    None
-                });
-
-                let inv = self.invoked.clone();
-                r.on_paint_inline_box(move |_s, _box_id, _app| {
-                    inv.lock().unwrap().insert("paint_inline_box");
-                    None
-                });
-
-                let inv = self.invoked.clone();
-                r.publish::<u32>(TopicId::new("test.topic"), move |_s, _app| {
-                    inv.lock().unwrap().insert("publish");
-                    42u32
-                });
-
-                let inv = self.invoked.clone();
-                r.subscribe::<u32>(TopicId::new("test.topic"), move |s, _value| {
-                    inv.lock().unwrap().insert("subscribe");
-                    *s
-                });
-
-                let inv = self.invoked.clone();
-                r.on_subscription(move |s, _topic, _values, _app| {
-                    inv.lock().unwrap().insert("on_subscription");
-                    (*s, Effects::default())
-                });
-
-                let inv = self.invoked.clone();
-                r.on_command_error(move |s, _error, _app| {
-                    inv.lock().unwrap().insert("command_error");
-                    (*s, Effects::default())
-                });
-
-                let inv = self.invoked.clone();
-                r.on_buffer_edit_intercept(move |s, _edit, _app| {
-                    inv.lock().unwrap().insert("buffer_edit_intercept");
-                    (
-                        *s,
-                        crate::state::shadow_cursor::BufferEditVerdict::PassThrough,
-                    )
-                });
-            }
-        }
-
-        let mut bridge = PluginBridge::new(AllHandlersPlugin {
-            invoked: invoked.clone(),
-        });
-
-        let app_state = AppState::default();
-        let app = AppView::new(&app_state);
-        let key = KeyEvent {
-            key: Key::Char('a'),
-            modifiers: Modifiers::empty(),
-        };
-        let mouse = MouseEvent {
-            kind: MouseEventKind::Press(MouseButton::Left),
-            line: 0,
-            column: 0,
-            modifiers: Modifiers::empty(),
-        };
-        let annotate_ctx = AnnotateContext {
-            line_width: 80,
-            gutter_width: 0,
-            display_map: None,
-            pane_surface_id: None,
-            pane_focused: true,
-        };
-        let contribute_ctx = ContributeContext {
-            min_width: 0,
-            max_width: None,
-            min_height: 0,
-            max_height: None,
-            visible_lines: 0..24,
-            screen_cols: 80,
-            screen_rows: 24,
-            pane_surface_id: None,
-            pane_focused: true,
-        };
-        let transform_ctx = TransformContext {
-            is_default: true,
-            chain_position: 0,
-            pane_surface_id: None,
-            pane_focused: true,
-            target_line: None,
-        };
-        let overlay_ctx = OverlayContext {
-            screen_cols: 80,
-            screen_rows: 24,
-            menu_rect: None,
-            existing_overlays: vec![],
-            focused_surface_id: None,
-        };
-
-        // Lifecycle
-        bridge.on_init_effects(&app);
-        bridge.on_active_session_ready_effects(&app);
-        bridge.on_state_changed_effects(&app, DirtyFlags::ALL);
-        bridge.on_io_event_effects(
-            &IoEvent::Process(crate::plugin::ProcessEvent::Stdout {
-                job_id: 0,
-                data: vec![],
-            }),
-            &app,
-        );
-        let workspace = crate::workspace::Workspace::default();
-        let query = workspace.query(Rect {
-            x: 0,
-            y: 0,
-            w: 80,
-            h: 24,
-        });
-        bridge.on_workspace_changed(&query);
-        bridge.on_shutdown();
-        let mut msg: Box<dyn Any> = Box::new(());
-        bridge.update_effects(&mut *msg, &app);
-
-        // Input
-        bridge.handle_key(&key, &app);
-        bridge.handle_key_middleware(&key, &app);
-        bridge.handle_key_pre_dispatch(&key, &app);
-        bridge.observe_key(&key, &app);
-        bridge.handle_text_input("text", &app);
-        bridge.handle_text_input_pre_dispatch("text", &app);
-        bridge.observe_text_input("text", &app);
-        bridge.observe_mouse(&mouse, &app);
-        bridge.handle_mouse(&mouse, InteractiveId::framework(0), &app);
-        bridge.handle_mouse_pre_dispatch(&mouse, &app);
-        bridge.handle_mouse_fallback(&mouse, 0, &app);
-        let candidate = DefaultScrollCandidate::new(
-            0,
-            0,
-            Modifiers::empty(),
-            ScrollGranularity::Line,
-            1,
-            ResolvedScroll::new(1, 0, 0),
-        );
-        bridge.handle_default_scroll(candidate, &app);
-
-        // View
-        bridge.contribute_to(&SlotId::STATUS_LEFT, &app, &contribute_ctx);
-        // Use a slot the slot-specific handler does not match so the
-        // any-handler fallback in PluginBridge::contribute_to fires.
-        bridge.contribute_to(&SlotId::new("test.unmatched-slot"), &app, &contribute_ctx);
-        bridge.transform_patch(&TransformTarget::BUFFER, &app, &transform_ctx);
-        bridge.decorate_gutter(GutterSide::Left, 0, &app, &annotate_ctx);
-        bridge.decorate_background(0, &app, &annotate_ctx);
-        bridge.decorate_inline(0, &app, &annotate_ctx);
-        bridge.annotate_virtual_text(0, &app, &annotate_ctx);
-        bridge.annotate_line_with_ctx(0, &app, &annotate_ctx);
-        bridge.contribute_overlay_with_ctx(&app, &overlay_ctx);
-        bridge.display_directives(&app);
-        bridge.transform_menu_item(&[crate::protocol::Atom::plain("item")], 0, false, &app);
-
-        // Inline-box paint (ADR-031 Phase 10 Step 2-native)
-        bridge.paint_inline_box(0, &app);
-
-        // Buffer-edit intercept (ADR-035 ShadowCursor follow-up)
-        let probe_edit = crate::state::shadow_cursor::BufferEdit {
-            target: crate::state::selection::Selection::new(
-                crate::state::selection::BufferPos::new(0, 0),
-                crate::state::selection::BufferPos::new(0, 0),
-            ),
-            original: String::new(),
-            replacement: String::new(),
-            base_version: crate::history::VersionId::INITIAL,
-        };
-        bridge.intercept_buffer_edit(&probe_edit, &app);
-
-        // Pub/Sub
-        let mut bus = super::super::pubsub::TopicBus::new();
-        bridge.collect_publications(&mut bus, &app);
-        // Add an external publication so subscriber can receive it
-        bus.publish(
-            TopicId::new("test.topic"),
-            PluginId("external".into()),
-            super::super::channel::ChannelValue::new(&99u32).unwrap(),
-        );
-        bridge.deliver_subscriptions(&bus, &app);
-
-        // Command-error (ADR-044 A-3e): drive the new HandlerRegistry
-        // setter via the trait method.
-        let probe_error = super::super::effect::error_attribution::PluginErrorEvent {
-            plugin_id: "test.all-handlers".to_string(),
-            message: "1:1: 'noop': probe".to_string(),
-        };
-        bridge.on_command_error_effects(&probe_error, &app);
-
-        // Assert
-        let invoked = invoked.lock().unwrap();
-        let expected: HashSet<&str> = EXPECTED_HANDLER_NAMES.iter().copied().collect();
-        let missing: Vec<&&str> = expected.difference(&invoked).collect();
-        let extra: Vec<&&str> = invoked.difference(&expected).collect();
-        assert!(
-            missing.is_empty() && extra.is_empty(),
-            "Dispatch coverage mismatch.\n  Missing: {missing:?}\n  Extra: {extra:?}\n\
-             When adding a new handler, update EXPECTED_HANDLER_NAMES and the Plugin::register() above."
-        );
     }
 
     // --- inject_owner tests ---

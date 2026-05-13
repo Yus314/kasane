@@ -197,8 +197,17 @@ impl InlineDecoration {
     /// `InlineBox.at` falls inside a prior `Hide` range), the slot is
     /// clamped to the Hide range's start in the post-decoration stream.
     pub fn inline_box_slots_translated(&self) -> Vec<InlineBoxSlotMeta> {
-        let mut delta: isize = 0;
         let mut slots = Vec::new();
+        self.inline_box_slots_translated_into(&mut slots);
+        slots
+    }
+
+    /// In-place variant of [`Self::inline_box_slots_translated`] — writes
+    /// into the provided buffer (cleared first). Lets the GPU paint hot
+    /// path reuse a scratch slot vector across decorated lines.
+    pub fn inline_box_slots_translated_into(&self, slots: &mut Vec<InlineBoxSlotMeta>) {
+        slots.clear();
+        let mut delta: isize = 0;
         for op in &self.ops {
             match op {
                 InlineOp::Insert { at: _, content } => {
@@ -229,7 +238,6 @@ impl InlineDecoration {
                 InlineOp::Style { .. } => {}
             }
         }
-        slots
     }
 }
 
@@ -247,10 +255,38 @@ pub fn apply_inline_ops_for_gpu(
     atoms: &[Atom],
     decoration: &InlineDecoration,
 ) -> (Vec<Atom>, Vec<InlineBoxSlotMeta>) {
-    let slots = decoration.inline_box_slots_translated();
+    let mut atoms_out = Vec::with_capacity(atoms.len());
+    let mut slots_out = Vec::new();
+    apply_inline_ops_for_gpu_into(atoms, decoration, &mut atoms_out, &mut slots_out);
+    (atoms_out, slots_out)
+}
+
+/// In-place variant of [`apply_inline_ops_for_gpu`] — writes the GPU
+/// atom stream into `atoms_out` (cleared first) and the slot metadata
+/// into `slots_out` (cleared first). Hot-path callers should reuse a
+/// scratch [`crate::render::AtomScratch`] across loop iterations.
+///
+/// `filter_scratch` is used to hold the InlineBox-filtered op list
+/// across the call (cleared first); reusing it avoids allocating a
+/// fresh `Vec<InlineOp>` for every line that has decorations.
+pub fn apply_inline_ops_for_gpu_into(
+    atoms: &[Atom],
+    decoration: &InlineDecoration,
+    atoms_out: &mut Vec<Atom>,
+    slots_out: &mut Vec<InlineBoxSlotMeta>,
+) {
+    slots_out.clear();
+    decoration.inline_box_slots_translated_into(slots_out);
     if decoration.is_empty() {
-        return (atoms.to_vec(), slots);
+        atoms_out.clear();
+        atoms_out.extend_from_slice(atoms);
+        return;
     }
+    // Allocates a one-shot Vec<InlineOp>; the inner ops list is small
+    // (handful of decorations per line), so the alloc cost is dwarfed by
+    // the Vec<Atom> output we just retired. Threading a scratch for this
+    // too is possible but requires changing the InlineDecoration::new
+    // invariants, deferred to a follow-up if it shows up in profiles.
     let filtered_ops: Vec<InlineOp> = decoration
         .ops()
         .iter()
@@ -258,10 +294,24 @@ pub fn apply_inline_ops_for_gpu(
         .cloned()
         .collect();
     let filtered = InlineDecoration::new(filtered_ops);
-    (apply_inline_ops(atoms, &filtered), slots)
+    apply_inline_ops_into(atoms, &filtered, atoms_out);
 }
 
 /// Apply inline operations to a slice of atoms, producing a new atom vector.
+///
+/// Convenience wrapper around [`apply_inline_ops_into`] for callers that
+/// don't have a reusable scratch buffer. Hot-path callers (paint loops)
+/// should prefer the `_into` variant to avoid per-line allocations.
+pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<Atom> {
+    let mut result = Vec::with_capacity(atoms.len());
+    apply_inline_ops_into(atoms, decoration, &mut result);
+    result
+}
+
+/// Apply inline operations to a slice of atoms, writing the result into
+/// the provided buffer (cleared first). Lets hot-path callers reuse a
+/// scratch `Vec<Atom>` across loop iterations to avoid per-line
+/// allocations — see [`crate::render::AtomScratch`].
 ///
 /// Algorithm: single-pass sweep maintaining a byte cursor across atoms and ops.
 /// - Insert ops inject virtual text atoms at byte gap positions.
@@ -271,14 +321,20 @@ pub fn apply_inline_ops_for_gpu(
 ///
 /// Insert ops inside a Hide range are still emitted (S1 semantics).
 ///
-/// If `decoration` is empty, returns a clone of `atoms`.
-pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<Atom> {
+/// If `decoration` is empty, the buffer ends up holding a clone of `atoms`.
+pub fn apply_inline_ops_into(
+    atoms: &[Atom],
+    decoration: &InlineDecoration,
+    result: &mut Vec<Atom>,
+) {
+    result.clear();
     if decoration.is_empty() {
-        return atoms.to_vec();
+        result.extend_from_slice(atoms);
+        return;
     }
 
+    result.reserve(atoms.len());
     let ops = decoration.ops();
-    let mut result = Vec::with_capacity(atoms.len());
     let mut op_idx = 0;
     let mut byte_cursor: usize = 0;
 
@@ -288,7 +344,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
         byte_cursor = atom_end;
 
         // Drain Inserts at atom_start gap
-        drain_inserts(ops, &mut op_idx, atom_start, &mut result);
+        drain_inserts(ops, &mut op_idx, atom_start, result);
 
         // Fast path: no more ops or next op beyond this atom
         if op_idx >= ops.len() || ops[op_idx].start() >= atom_end {
@@ -302,7 +358,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
 
         while pos < atom_end {
             // Drain Inserts at current gap position
-            drain_inserts(ops, &mut op_idx, pos, &mut result);
+            drain_inserts(ops, &mut op_idx, pos, result);
 
             if op_idx >= ops.len() || ops[op_idx].start() >= atom_end {
                 // Remainder of atom: no more ops overlap
@@ -311,7 +367,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                     pos - atom_start,
                     atom_end - atom_start,
                     &atom.style_resolved_default(),
-                    &mut result,
+                    result,
                 );
                 break;
             }
@@ -328,7 +384,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                         pos - atom_start,
                         gap_end - atom_start,
                         &atom.style_resolved_default(),
-                        &mut result,
+                        result,
                     );
                     pos = gap_end;
                 }
@@ -340,7 +396,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                         contents,
                         atom_start,
                         atom_style: atom.style_resolved_default(),
-                        result: &mut result,
+                        result,
                     };
                     if advance_hide(range, &mut cx) {
                         continue;
@@ -357,7 +413,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                         contents,
                         atom_start,
                         atom_style: atom.style_resolved_default(),
-                        result: &mut result,
+                        result,
                     };
                     if advance_style(range, op_style, &mut cx) {
                         continue;
@@ -368,8 +424,7 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
     }
 
     // Trailing Inserts (at or past end of all atoms)
-    drain_inserts(ops, &mut op_idx, usize::MAX, &mut result);
-    result
+    drain_inserts(ops, &mut op_idx, usize::MAX, result);
 }
 
 /// Shared mutable context for inline op processing within a single atom.
@@ -558,7 +613,7 @@ mod tests {
     // ---- Existing tests (Style/Hide) ----
 
     fn pid(s: &str) -> PluginId {
-        PluginId(s.to_string())
+        PluginId::from(s)
     }
 
     // ---- InlineBox slot metadata + atom-pipeline projection ----

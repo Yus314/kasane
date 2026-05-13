@@ -44,7 +44,7 @@ pub struct WidgetPlugin {
 impl WidgetPlugin {
     /// Build the plugin ID for a given widget name (single-effect).
     pub fn plugin_id_for(name: &str) -> PluginId {
-        PluginId(format!("{PLUGIN_PREFIX}{name}"))
+        PluginId::from(format!("{PLUGIN_PREFIX}{name}"))
     }
 
     /// Create WidgetPlugins from a WidgetDef.
@@ -80,7 +80,7 @@ impl Plugin for WidgetPlugin {
     type State = WidgetState;
 
     fn id(&self) -> PluginId {
-        PluginId(self.plugin_id.to_string())
+        PluginId::from(self.plugin_id.as_str())
     }
 
     fn register(&self, r: &mut HandlerRegistry<WidgetState>) {
@@ -117,7 +117,7 @@ impl Plugin for WidgetPlugin {
             WidgetKind::Background(bg) => {
                 let bg = bg.clone();
                 let shared_when = shared_when.clone();
-                r.on_decorate_background(move |_state, line, app, _ctx| {
+                r.on_background(move |_state, line, app, _ctx| {
                     let resolver = AppViewResolver::new(app);
                     if let Some(ref cond) = shared_when
                         && !cond.evaluate_with_resolver(&resolver)
@@ -196,7 +196,7 @@ impl Plugin for WidgetPlugin {
             WidgetKind::Gutter(gutter) => {
                 let gutter = gutter.clone();
                 let shared_when = shared_when.clone();
-                r.on_decorate_gutter(gutter.side, priority, move |_state, line, app, _ctx| {
+                r.on_gutter(gutter.side, priority, move |_state, line, app, _ctx| {
                     let app_resolver = AppViewResolver::new(app);
                     if let Some(ref cond) = shared_when
                         && !cond.evaluate_with_resolver(&app_resolver)
@@ -229,7 +229,7 @@ impl Plugin for WidgetPlugin {
             WidgetKind::Inline(inline) => {
                 let inline = inline.clone();
                 let shared_when = shared_when.clone();
-                r.on_decorate_inline(move |_state, line, app, _ctx| {
+                r.on_inline(move |_state, line, app, _ctx| {
                     let resolver = AppViewResolver::new(app);
                     if let Some(ref cond) = shared_when
                         && !cond.evaluate_with_resolver(&resolver)
@@ -396,7 +396,7 @@ pub fn hot_reload_widgets(
     // Remove plugins that are no longer present
     for old_id in old_ids {
         if !new_ids.iter().any(|n| n == old_id) {
-            let id = PluginId(old_id.clone());
+            let id = PluginId::from(old_id.as_str());
             registry.remove_plugin(&id);
         }
     }

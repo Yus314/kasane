@@ -149,7 +149,7 @@ where
     F: Fn() -> PluginBridge + Send + Sync + 'static,
 {
     let descriptor = PluginDescriptor {
-        id: PluginId(id.into()),
+        id: PluginId::from(id.into()),
         source: PluginSource::Host {
             provider: provider.into(),
         },
@@ -168,7 +168,7 @@ where
     F: Fn() -> PluginBridge + Send + Sync + 'static,
 {
     let descriptor = PluginDescriptor {
-        id: PluginId(id.into()),
+        id: PluginId::from(id.into()),
         source: PluginSource::Builtin { name: name.into() },
         revision: PluginRevision("static".to_string()),
         rank: PluginRank::BUILTIN,

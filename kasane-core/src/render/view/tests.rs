@@ -172,7 +172,7 @@ fn test_status_left_slot_in_status_bar() {
     impl crate::plugin::Plugin for StatusLeftPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("status_left".into())
+            PluginId::from("status_left")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             r.on_contribute(SlotId::STATUS_LEFT, |_state, _app, _ctx| {
@@ -485,10 +485,10 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
     impl crate::plugin::Plugin for GutterPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("gutter_plugin".into())
+            PluginId::from("gutter_plugin")
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
-            r.on_decorate_gutter(
+            r.on_gutter(
                 crate::plugin::GutterSide::Left,
                 0,
                 |_state, line, _app, _ctx| {
@@ -499,7 +499,7 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
                     }
                 },
             );
-            r.on_decorate_gutter(
+            r.on_gutter(
                 crate::plugin::GutterSide::Right,
                 0,
                 |_state, line, _app, _ctx| {

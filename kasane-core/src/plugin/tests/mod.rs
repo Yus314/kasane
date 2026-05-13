@@ -21,7 +21,7 @@ impl crate::plugin::Plugin for TestPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("test".to_string())
+        PluginId::from("test")
     }
 
     fn register(&self, _r: &mut crate::plugin::HandlerRegistry<()>) {}
@@ -39,7 +39,7 @@ impl crate::plugin::Plugin for LifecyclePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("lifecycle".to_string())
+        PluginId::from("lifecycle")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -62,7 +62,7 @@ impl crate::plugin::Plugin for SurfacePlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("surface-plugin".to_string())
+        PluginId::from("surface-plugin")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -85,7 +85,7 @@ impl crate::plugin::Plugin for StatefulPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("stateful".to_string())
+        PluginId::from("stateful")
     }
 
     fn register(&self, _r: &mut crate::plugin::HandlerRegistry<()>) {}

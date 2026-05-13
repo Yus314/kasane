@@ -108,6 +108,11 @@ impl<'a> BufferRefParams<'a> {
 
 /// Describes *what* to render for a single buffer display line.
 /// Backends pattern-match on this to produce backend-specific output.
+///
+/// Slice fields (`decorated`, `decorated_for_gpu`, `inline_box_slots`)
+/// borrow from the [`AtomScratch`](crate::render::AtomScratch) passed
+/// to [`analyze_buffer_line`]; the borrow lives until the next call to
+/// `analyze_buffer_line` on the same scratch.
 #[derive(Debug)]
 pub(crate) enum BufferLineAction<'a> {
     /// Skip this line (TUI line-dirty optimization or no content to render).
@@ -123,7 +128,8 @@ pub(crate) enum BufferLineAction<'a> {
         /// Pre-computed decorated atoms (TUI flavour) if inline decorations
         /// apply. `InlineOp::InlineBox` ops emit `width_cells` placeholder
         /// spaces here so cell-grid backends keep correct column accounting.
-        decorated: Option<Vec<Atom>>,
+        /// Borrows from `AtomScratch::decorated`.
+        decorated: Option<&'a [Atom]>,
         /// Pre-computed decorated atoms (GPU flavour) — identical to
         /// `decorated` except `InlineOp::InlineBox` placeholders are
         /// stripped (Parley reserves the geometry via
@@ -131,14 +137,16 @@ pub(crate) enum BufferLineAction<'a> {
         ///
         /// `Some` only when the decoration contains at least one InlineBox
         /// op; otherwise `None` and the GPU path falls back to `decorated`.
+        /// Borrows from `AtomScratch::decorated_for_gpu`.
         /// ADR-031 Phase 10 Step 2-renderer C.
-        decorated_for_gpu: Option<Vec<Atom>>,
+        decorated_for_gpu: Option<&'a [Atom]>,
         /// Inline-box slot metadata for the GPU path. `byte_offset` is in
         /// the `decorated_for_gpu` (or `line`) coordinate system, ready to
         /// be passed to Parley's `push_inline_box`. Empty when no
-        /// `InlineOp::InlineBox` ops are present.
+        /// `InlineOp::InlineBox` ops are present. Borrows from
+        /// `AtomScratch::inline_box_slots`.
         /// ADR-031 Phase 10 Step 2-renderer C.
-        inline_box_slots: Vec<crate::render::inline_decoration::InlineBoxSlotMeta>,
+        inline_box_slots: &'a [crate::render::inline_decoration::InlineBoxSlotMeta],
         /// EOL virtual text atoms to append after buffer content.
         virtual_text: Option<&'a [Atom]>,
     },
@@ -159,6 +167,11 @@ pub(crate) enum BufferLineAction<'a> {
 /// DisplayMap resolution, dirty-line skipping, synthetic detection, inline decoration.
 ///
 /// - `skip_clean`: when `true` (TUI), clean lines return `Skip`. GPU always passes `false`.
+/// - `scratch`: reusable buffers for `apply_inline_ops` output. The
+///   returned `BufferLineAction::BufferLine` slice fields borrow from
+///   `*scratch` until dropped — release the action before re-calling
+///   on the same scratch.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn analyze_buffer_line<'a>(
     params: &'a BufferRefParams<'a>,
     display_line: usize,
@@ -167,6 +180,7 @@ pub(crate) fn analyze_buffer_line<'a>(
     inline_decorations: Option<&[Option<InlineDecoration>]>,
     virtual_text: Option<&'a [Option<Vec<Atom>>]>,
     skip_clean: bool,
+    scratch: &'a mut crate::render::AtomScratch,
 ) -> BufferLineAction<'a> {
     // Step 1: Resolve display line → buffer line via DisplayMap
     let (buffer_line_idx, synthetic): (Option<usize>, Option<&SyntheticContent>) =
@@ -231,29 +245,49 @@ pub(crate) fn analyze_buffer_line<'a>(
             .and_then(|ds| ds.get(line_idx))
             .and_then(|d| d.as_ref())
             .filter(|deco| !deco.is_empty());
-        let decorated =
-            active_deco.map(|deco| crate::render::inline_decoration::apply_inline_ops(line, deco));
-        // Compute GPU flavour only when the decoration carries InlineBox
-        // ops — otherwise the TUI flavour is byte-identical and `None`
-        // signals the GPU path to fall back to `decorated`.
-        let (decorated_for_gpu, inline_box_slots) = match active_deco {
-            Some(deco) => {
-                let has_inline_box = deco.ops().iter().any(|op| {
-                    matches!(
-                        op,
-                        crate::render::inline_decoration::InlineOp::InlineBox { .. }
-                    )
-                });
-                if has_inline_box {
-                    let (gpu_atoms, slots) =
-                        crate::render::inline_decoration::apply_inline_ops_for_gpu(line, deco);
-                    (Some(gpu_atoms), slots)
-                } else {
-                    (None, Vec::new())
-                }
+
+        // Phase 1: writes — fill scratch buffers in-place (sequential
+        // mutable borrows of disjoint AtomScratch fields).
+        let has_decorated = active_deco.is_some();
+        let mut has_inline_box = false;
+        if let Some(deco) = active_deco {
+            crate::render::inline_decoration::apply_inline_ops_into(
+                line,
+                deco,
+                &mut scratch.decorated,
+            );
+            has_inline_box = deco.ops().iter().any(|op| {
+                matches!(
+                    op,
+                    crate::render::inline_decoration::InlineOp::InlineBox { .. }
+                )
+            });
+            if has_inline_box {
+                crate::render::inline_decoration::apply_inline_ops_for_gpu_into(
+                    line,
+                    deco,
+                    &mut scratch.decorated_for_gpu,
+                    &mut scratch.inline_box_slots,
+                );
+            } else {
+                scratch.inline_box_slots.clear();
             }
-            None => (None, Vec::new()),
+        } else {
+            scratch.inline_box_slots.clear();
+        }
+
+        // Phase 2: borrow scratch immutably to construct the action.
+        let decorated = if has_decorated {
+            Some(scratch.decorated.as_slice())
+        } else {
+            None
         };
+        let decorated_for_gpu = if has_inline_box {
+            Some(scratch.decorated_for_gpu.as_slice())
+        } else {
+            None
+        };
+        let inline_box_slots = scratch.inline_box_slots.as_slice();
         let vt = virtual_text
             .and_then(|vts| vts.get(line_idx))
             .and_then(|v| v.as_deref());
@@ -297,6 +331,8 @@ pub(crate) fn paint_buffer_ref(
 ) {
     let params = BufferRefParams::resolve(state, ctx.buffer_state);
     let skip_clean = !params.lines_dirty.is_empty();
+    // One scratch per paint pass; the loop body reuses it across lines.
+    let mut scratch = crate::render::AtomScratch::new();
 
     for y_offset in 0..area.h {
         let display_line = line_range.start + y_offset as usize;
@@ -310,6 +346,7 @@ pub(crate) fn paint_buffer_ref(
             ctx.inline_decorations,
             ctx.virtual_text,
             skip_clean,
+            &mut scratch,
         ) {
             BufferLineAction::Skip => continue,
             BufferLineAction::Synthetic { atoms }
@@ -331,7 +368,7 @@ pub(crate) fn paint_buffer_ref(
             } => {
                 let base_term = TerminalStyle::from_style(&base_style);
                 grid.fill_region(y, area.x, area.w, &base_term);
-                let atoms = decorated.as_deref().unwrap_or(line);
+                let atoms = decorated.unwrap_or(line);
                 let used = grid.put_line_with_base(y, area.x, atoms, area.w, Some(&base_style));
                 // EOL virtual text: append after buffer content
                 if let Some(vt_atoms) = vt
@@ -755,7 +792,16 @@ mod tests {
     fn analyze_identity_no_display_map() {
         let lines = vec![make_line("hello"), make_line("world")];
         let params = make_params(&lines, &[]);
-        match analyze_buffer_line(&params, 0, None, None, None, None, false) {
+        match analyze_buffer_line(
+            &params,
+            0,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::BufferLine {
                 line_idx,
                 base_style,
@@ -787,7 +833,16 @@ mod tests {
             }],
         );
         // Display line 0 should be the fold summary (synthetic)
-        match analyze_buffer_line(&params, 0, Some(&dm), None, None, None, false) {
+        match analyze_buffer_line(
+            &params,
+            0,
+            Some(&dm),
+            None,
+            None,
+            None,
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::Synthetic { atoms } => {
                 let text: String = atoms.iter().map(|a| a.contents.as_str()).collect();
                 assert_eq!(text, "folded");
@@ -804,7 +859,16 @@ mod tests {
         let params = make_params(&lines, &[]);
         let dm = DisplayMap::build(1, &[]);
         // Display line 5 is beyond the map
-        match analyze_buffer_line(&params, 5, Some(&dm), None, None, None, false) {
+        match analyze_buffer_line(
+            &params,
+            5,
+            Some(&dm),
+            None,
+            None,
+            None,
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::Skip => {}
             other => panic!("expected Skip for beyond-range, got {other:?}"),
         }
@@ -816,17 +880,44 @@ mod tests {
         let lines_dirty = vec![false, true]; // line 0 clean, line 1 dirty
         let params = make_params(&lines, &lines_dirty);
         // skip_clean=true → clean line should Skip
-        match analyze_buffer_line(&params, 0, None, None, None, None, true) {
+        match analyze_buffer_line(
+            &params,
+            0,
+            None,
+            None,
+            None,
+            None,
+            true,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::Skip => {}
             other => panic!("expected Skip for clean line, got {other:?}"),
         }
         // skip_clean=true → dirty line should render
-        match analyze_buffer_line(&params, 1, None, None, None, None, true) {
+        match analyze_buffer_line(
+            &params,
+            1,
+            None,
+            None,
+            None,
+            None,
+            true,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::BufferLine { line_idx, .. } => assert_eq!(line_idx, 1),
             other => panic!("expected BufferLine for dirty line, got {other:?}"),
         }
         // skip_clean=false → clean line should still render (GPU mode)
-        match analyze_buffer_line(&params, 0, None, None, None, None, false) {
+        match analyze_buffer_line(
+            &params,
+            0,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::BufferLine { line_idx, .. } => assert_eq!(line_idx, 0),
             other => panic!("expected BufferLine with skip_clean=false, got {other:?}"),
         }
@@ -847,7 +938,16 @@ mod tests {
             style: deco_style,
         }]);
         let decos: Vec<Option<InlineDecoration>> = vec![Some(deco)];
-        match analyze_buffer_line(&params, 0, None, None, Some(&decos), None, false) {
+        match analyze_buffer_line(
+            &params,
+            0,
+            None,
+            None,
+            Some(&decos),
+            None,
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::BufferLine { decorated, .. } => {
                 assert!(decorated.is_some(), "expected decorated atoms");
             }
@@ -860,7 +960,16 @@ mod tests {
         let lines = vec![make_line("only")];
         let params = make_params(&lines, &[]);
         // Line index 1 is beyond the buffer → padding
-        match analyze_buffer_line(&params, 1, None, None, None, None, false) {
+        match analyze_buffer_line(
+            &params,
+            1,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::Padding { style, char_style } => {
                 assert_eq!(style, Style::default());
                 // When fg == bg, char_style.fg gets default_style.fg
@@ -879,7 +988,16 @@ mod tests {
             ..WireFace::default()
         };
         let bgs: Vec<Option<WireFace>> = vec![Some(bg_face)];
-        match analyze_buffer_line(&params, 0, None, Some(&bgs), None, None, false) {
+        match analyze_buffer_line(
+            &params,
+            0,
+            None,
+            Some(&bgs),
+            None,
+            None,
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::BufferLine { base_style, .. } => {
                 assert_eq!(base_style, Style::from_face(&bg_face));
             }
@@ -903,7 +1021,16 @@ mod tests {
             "  err",
             Style::from_face(&vt_face),
         )])];
-        match analyze_buffer_line(&params, 0, None, None, None, Some(&vt), false) {
+        match analyze_buffer_line(
+            &params,
+            0,
+            None,
+            None,
+            None,
+            Some(&vt),
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::BufferLine { virtual_text, .. } => {
                 let vt_atoms = virtual_text.expect("expected virtual text");
                 assert_eq!(vt_atoms.len(), 1);
@@ -919,7 +1046,16 @@ mod tests {
         let lines = vec![make_line("hello")];
         let params = make_params(&lines, &[]);
         // No virtual text at all
-        match analyze_buffer_line(&params, 0, None, None, None, None, false) {
+        match analyze_buffer_line(
+            &params,
+            0,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::BufferLine { virtual_text, .. } => {
                 assert!(virtual_text.is_none());
             }
@@ -933,7 +1069,16 @@ mod tests {
         let params = make_params(&lines, &[]);
         // Only line 0 has VT, line 1 has None
         let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom::plain(" hint")]), None];
-        match analyze_buffer_line(&params, 1, None, None, None, Some(&vt), false) {
+        match analyze_buffer_line(
+            &params,
+            1,
+            None,
+            None,
+            None,
+            Some(&vt),
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::BufferLine { virtual_text, .. } => {
                 assert!(virtual_text.is_none(), "line 1 should have no virtual text");
             }
@@ -960,7 +1105,16 @@ mod tests {
             None,
         ];
         // Display line 0 = fold summary → Synthetic, no virtual text
-        match analyze_buffer_line(&params, 0, Some(&dm), None, None, Some(&vt), false) {
+        match analyze_buffer_line(
+            &params,
+            0,
+            Some(&dm),
+            None,
+            None,
+            Some(&vt),
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::Synthetic { .. } => {} // fold summary, VT not applied
             other => panic!("expected Synthetic for folded line, got {other:?}"),
         }
@@ -1173,10 +1327,19 @@ mod tests {
             height_lines: 1.0,
             box_id: 0xABCD,
             alignment: InlineBoxAlignment::Center,
-            owner: PluginId("color.preview".into()),
+            owner: PluginId::from("color.preview"),
         }]);
         let decos: Vec<Option<InlineDecoration>> = vec![Some(deco)];
-        match analyze_buffer_line(&params, 0, None, None, Some(&decos), None, false) {
+        match analyze_buffer_line(
+            &params,
+            0,
+            None,
+            None,
+            Some(&decos),
+            None,
+            false,
+            &mut crate::render::AtomScratch::new(),
+        ) {
             BufferLineAction::BufferLine {
                 decorated,
                 decorated_for_gpu,

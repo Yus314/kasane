@@ -2537,12 +2537,23 @@ dependencies = [
  "serde",
  "serde_json",
  "simd-json",
+ "static_assertions",
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
  "tracing-subscriber",
  "unicode-segmentation",
  "unicode-width 0.2.2",
+]
+
+[[package]]
+name = "kasane-core-tests"
+version = "0.7.0"
+dependencies = [
+ "compact_str",
+ "kasane-core",
+ "proptest",
+ "serde_json",
 ]
 
 [[package]]
@@ -2557,6 +2568,7 @@ dependencies = [
  "image",
  "image-compare",
  "kasane-core",
+ "kasane-internal",
  "lru",
  "notify",
  "parley",
@@ -2566,6 +2578,13 @@ dependencies = [
  "tracing",
  "wgpu 29.0.2",
  "winit",
+]
+
+[[package]]
+name = "kasane-internal"
+version = "0.7.0"
+dependencies = [
+ "kasane-core",
 ]
 
 [[package]]
@@ -2616,6 +2635,7 @@ dependencies = [
  "iai-callgrind",
  "image",
  "kasane-core",
+ "kasane-internal",
  "notify",
  "serde",
  "serde_json",

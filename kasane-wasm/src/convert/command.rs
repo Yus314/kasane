@@ -30,14 +30,14 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
         wit::Command::ScheduleTimer(tc) => Command::ScheduleTimer {
             timer_id: tc.timer_id,
             delay: Duration::from_millis(tc.delay_ms),
-            target: PluginId(tc.target_plugin.clone()),
+            target: PluginId::from(tc.target_plugin.as_str()),
             payload: Box::new(tc.payload.clone()),
         },
         wit::Command::CancelTimer(timer_id) => Command::CancelTimer {
             timer_id: *timer_id,
         },
         wit::Command::PluginMessage(mc) => Command::PluginMessage {
-            target: PluginId(mc.target_plugin.clone()),
+            target: PluginId::from(mc.target_plugin.as_str()),
             payload: Box::new(mc.payload.clone()),
         },
         wit::Command::RegisterSurface(_) => {
@@ -340,7 +340,7 @@ pub(crate) fn wit_session_ready_effects_to_kakoune_side_effects(
             }
             wit::SessionReadyCommand::PasteClipboard => KakouneSideCommand::paste_clipboard(),
             wit::SessionReadyCommand::PluginMessage(message) => KakouneSideCommand::plugin_message(
-                PluginId(message.target_plugin.clone()),
+                PluginId::from(message.target_plugin.as_str()),
                 Box::new(message.payload.clone()),
             ),
         };

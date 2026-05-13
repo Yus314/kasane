@@ -19,7 +19,7 @@ use crate::protocol::Atom;
 // ---------------------------------------------------------------------------
 
 fn arb_plugin_id() -> impl Strategy<Value = PluginId> {
-    "[a-z]{1,8}".prop_map(|s| PluginId(s))
+    "[a-z]{1,8}".prop_map(|s| PluginId::from(s))
 }
 
 fn arb_sourced_contribution() -> impl Strategy<Value = SourcedContribution> {
@@ -296,7 +296,7 @@ proptest! {
 /// compose commutatively thanks to the 4-element sort key.
 #[test]
 fn directive_set_commutativity_same_plugin_same_priority() {
-    let pid = PluginId("p".into());
+    let pid = PluginId::from("p");
     let a = DirectiveSet {
         directives: vec![TaggedDirective {
             directive: DisplayDirective::Hide { range: 0..5 },
@@ -386,8 +386,8 @@ proptest! {
 
 #[test]
 fn menu_transform_chain_not_commutative() {
-    let a = MenuTransformChain::from_vec(vec![PluginId("alpha".into())]);
-    let b = MenuTransformChain::from_vec(vec![PluginId("beta".into())]);
+    let a = MenuTransformChain::from_vec(vec![PluginId::from("alpha")]);
+    let b = MenuTransformChain::from_vec(vec![PluginId::from("beta")]);
     let ab = a.clone().compose(b.clone());
     let ba = b.compose(a);
     assert_ne!(ab, ba, "MenuTransformChain must not be commutative");
@@ -495,8 +495,8 @@ fn transform_chain_not_commutative() {
     // happens to be commutative for those specific inputs. The monoid is marked
     // non-commutative because commutativity is not guaranteed in general.
     // Here we verify that same-priority distinct IDs produce a deterministic chain.
-    let a = TransformChain::single(PluginId("alpha".into()), 0);
-    let b = TransformChain::single(PluginId("beta".into()), 0);
+    let a = TransformChain::single(PluginId::from("alpha"), 0);
+    let b = TransformChain::single(PluginId::from("beta"), 0);
     let ab = a.clone().compose(b.clone());
     let ba = b.compose(a);
     // Sorted by (Reverse(0), id): alpha before beta — deterministic.
@@ -637,7 +637,7 @@ mod conflict_detection {
 
     #[test]
     fn no_warning_for_no_descriptors() {
-        let descriptors = vec![(PluginId("a".into()), None), (PluginId("b".into()), None)];
+        let descriptors = vec![(PluginId::from("a"), None), (PluginId::from("b"), None)];
         // Should not panic; warnings go to tracing (not captured here but
         // verifies the function runs without errors).
         check_transform_conflicts(&descriptors, &TransformTarget::BUFFER);
@@ -646,7 +646,7 @@ mod conflict_detection {
     #[test]
     fn no_warning_for_single_replacement() {
         let descriptors = vec![(
-            PluginId("a".into()),
+            PluginId::from("a"),
             Some(TransformDescriptor {
                 targets: vec![TransformTarget::BUFFER],
                 scope: TransformScope::Replacement,
@@ -659,14 +659,14 @@ mod conflict_detection {
     fn no_warning_for_non_matching_target() {
         let descriptors = vec![
             (
-                PluginId("a".into()),
+                PluginId::from("a"),
                 Some(TransformDescriptor {
                     targets: vec![TransformTarget::MENU],
                     scope: TransformScope::Replacement,
                 }),
             ),
             (
-                PluginId("b".into()),
+                PluginId::from("b"),
                 Some(TransformDescriptor {
                     targets: vec![TransformTarget::MENU],
                     scope: TransformScope::Replacement,
@@ -683,14 +683,14 @@ mod conflict_detection {
         // In a real scenario, tracing::warn would fire.
         let descriptors = vec![
             (
-                PluginId("a".into()),
+                PluginId::from("a"),
                 Some(TransformDescriptor {
                     targets: vec![TransformTarget::BUFFER],
                     scope: TransformScope::Replacement,
                 }),
             ),
             (
-                PluginId("b".into()),
+                PluginId::from("b"),
                 Some(TransformDescriptor {
                     targets: vec![TransformTarget::BUFFER],
                     scope: TransformScope::Replacement,
@@ -705,14 +705,14 @@ mod conflict_detection {
         // Wrapper before Replacement → absorbed warning
         let descriptors = vec![
             (
-                PluginId("wrapper".into()),
+                PluginId::from("wrapper"),
                 Some(TransformDescriptor {
                     targets: vec![TransformTarget::MENU],
                     scope: TransformScope::Wrapper,
                 }),
             ),
             (
-                PluginId("replacer".into()),
+                PluginId::from("replacer"),
                 Some(TransformDescriptor {
                     targets: vec![TransformTarget::MENU],
                     scope: TransformScope::Replacement,

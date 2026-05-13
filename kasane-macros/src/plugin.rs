@@ -350,17 +350,17 @@ fn generate_v2_plugin(def: &PluginDefV2, module: &ItemMod) -> syn::Result<TokenS
         let priority = gb.priority;
         let fn_name = &gb.fn_name;
         register_body.push(quote! {
-            r.on_decorate_gutter(#side, #priority, |state, line, app, ctx| #mod_ident::#fn_name(state, line, app, ctx));
+            r.on_gutter(#side, #priority, |state, line, app, ctx| #mod_ident::#fn_name(state, line, app, ctx));
         });
     }
     if def.decorate_background {
         register_body.push(quote! {
-            r.on_decorate_background(|state, line, app, ctx| #mod_ident::decorate_background(state, line, app, ctx));
+            r.on_background(|state, line, app, ctx| #mod_ident::decorate_background(state, line, app, ctx));
         });
     }
     if def.decorate_inline {
         register_body.push(quote! {
-            r.on_decorate_inline(|state, line, app, ctx| #mod_ident::decorate_inline(state, line, app, ctx));
+            r.on_inline(|state, line, app, ctx| #mod_ident::decorate_inline(state, line, app, ctx));
         });
     }
     if def.virtual_text {
@@ -399,7 +399,7 @@ fn generate_v2_plugin(def: &PluginDefV2, module: &ItemMod) -> syn::Result<TokenS
             type State = #state_type;
 
             fn id(&self) -> kasane_core::plugin::PluginId {
-                kasane_core::plugin::PluginId(#id_str.to_string())
+                kasane_core::plugin::PluginId::from(#id_str)
             }
 
             // Emits tier-typed setters (on_init_tier1, on_state_changed_tier1,

@@ -38,6 +38,7 @@ workspace = true
 criterion = { workspace = true }
 iai-callgrind = { workspace = true }
 proptest = "1"
+static_assertions = "1"
 tempfile = "3"
 tracing-subscriber = { workspace = true }
 

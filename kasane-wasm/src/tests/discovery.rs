@@ -78,16 +78,16 @@ fn load_package_file_loads_fixture_package() {
         .load_package_file(&package_path, &crate::WasiCapabilityConfig::default())
         .unwrap();
 
-    assert_eq!(plugin.id(), PluginId("cursor_line".to_string()));
+    assert_eq!(plugin.id(), PluginId::from("cursor_line"));
 }
 
 #[test]
 fn load_package_file_loads_nested_fixture_package() {
     let temp = TempPackageDir::new();
     let package_path = temp.write_fixture_package_as(
-        "prompt-highlight.toml",
-        "prompt-highlight.wasm",
-        "nested/prompt-highlight.kpk",
+        "color-preview.toml",
+        "color-preview.wasm",
+        "nested/color-preview.kpk",
     );
     let loader = WasmPluginLoader::new().unwrap();
 
@@ -95,7 +95,7 @@ fn load_package_file_loads_nested_fixture_package() {
         .load_package_file(&package_path, &crate::WasiCapabilityConfig::default())
         .unwrap();
 
-    assert_eq!(plugin.id(), PluginId("prompt_highlight".to_string()));
+    assert_eq!(plugin.id(), PluginId::from("color_preview"));
 }
 
 #[test]
@@ -128,16 +128,14 @@ fn load_package_file_reports_instantiate_errors() {
 }
 
 #[test]
-fn bundled_plugin_artifacts_include_default_enabled_pane_manager() {
+fn bundled_plugin_artifacts_lists_curated_set() {
     let artifacts = crate::bundled_plugin_artifacts().unwrap();
-    let pane_manager = artifacts
-        .into_iter()
-        .find(|artifact| artifact.plugin_id == "pane_manager")
-        .expect("pane_manager bundled plugin");
-
-    assert_eq!(pane_manager.package_name, "builtin/pane-manager");
-    assert!(pane_manager.default_enabled);
-    assert_eq!(pane_manager.abi_version, "6.0.0");
+    let names: Vec<_> = artifacts
+        .iter()
+        .map(|artifact| artifact.plugin_id.as_str())
+        .collect();
+    assert_eq!(names, vec!["cursor_line", "color_preview"]);
+    assert!(artifacts.iter().all(|a| !a.default_enabled));
 }
 
 #[test]
@@ -156,12 +154,12 @@ fn bundled_plugin_manifest_matches_artifact_metadata() {
 #[test]
 fn load_bundled_plugin_by_plugin_id_loads_requested_plugin() {
     let plugin = crate::load_bundled_plugin_by_plugin_id(
-        "pane_manager",
+        "color_preview",
         &crate::WasiCapabilityConfig::default(),
     )
     .unwrap();
 
-    assert_eq!(plugin.id(), PluginId("pane_manager".to_string()));
+    assert_eq!(plugin.id(), PluginId::from("color_preview"));
 }
 
 #[test]

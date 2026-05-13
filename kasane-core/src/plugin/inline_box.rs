@@ -38,8 +38,8 @@ pub(super) struct InlineBoxStackInner {
     /// `(plugin_id, box_id)` pairs that have already emitted an error
     /// log this process. Prevents log-volume blow-up when a buggy
     /// plugin re-enters the cycle path every frame.
-    pub(super) logged_overflow: std::collections::HashSet<(String, u64)>,
-    pub(super) logged_cycle: std::collections::HashSet<(String, u64)>,
+    pub(super) logged_overflow: std::collections::HashSet<(std::sync::Arc<str>, u64)>,
+    pub(super) logged_cycle: std::collections::HashSet<(std::sync::Arc<str>, u64)>,
 }
 
 pub(super) struct InlineBoxStack;
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn overflow_log_dedupes_per_owner_box_pair() {
         let mut stack = fresh_stack();
-        let owner = PluginId("plugin_a".to_string());
+        let owner = PluginId::from("plugin_a");
         // First call records the entry.
         stack.log_overflow_once(&owner, 100);
         let after_first = stack.logged_overflow.len();
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn cycle_log_dedupes_per_owner_box_pair() {
         let mut stack = fresh_stack();
-        let owner = PluginId("plugin_b".to_string());
+        let owner = PluginId::from("plugin_b");
         stack.log_cycle_once(&owner, 7);
         let after_first = stack.logged_cycle.len();
         stack.log_cycle_once(&owner, 7);

@@ -34,13 +34,13 @@ use kasane_core::plugin::{
 };
 use kasane_core::render::{CellGrid, ImageProtocol, ImageRequest};
 use kasane_core::render::{RenderPipelineOptions, render_pipeline_cached};
-use kasane_core::salsa_db::KasaneDatabase;
-use kasane_core::salsa_sync::SalsaInputHandles;
 use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::pane_map::PaneStates;
+use kasane_internal::salsa_db::KasaneDatabase;
+use kasane_internal::salsa_sync::SalsaInputHandles;
 
 use backend::TuiBackend;
 use event_handler::{
@@ -387,7 +387,7 @@ where
     let (mut salsa_db, mut salsa_handles) = {
         let mut db = KasaneDatabase::default();
         let handles = SalsaInputHandles::new(&mut db);
-        kasane_core::salsa_sync::sync_inputs_from_state(&mut db, &state, &handles);
+        kasane_internal::salsa_sync::sync_inputs_from_state(&mut db, &state, &handles);
         (db, handles)
     };
 

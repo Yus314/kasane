@@ -3,8 +3,8 @@
 Kakoune handles editing. Kasane rebuilds the rendering pipeline — terminal or GPU — and opens the full UI to extension: splits, image display, workspace persistence, and beyond. Extend it yourself with sandboxed WASM plugins — a complete one fits in 15 lines of Rust. Your kakrc works unchanged.
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="Kasane demo — fuzzy finder, pane splits, and color preview running as WASM plugins" width="800"><br>
-  <sub>GPU backend (<code>--ui gui</code>) — fuzzy finder, pane splits, and color preview are all WASM plugins</sub>
+  <img src="docs/assets/demo.gif" alt="Kasane demo — cursor-line and color-preview running as WASM plugins" width="800"><br>
+  <sub>GPU backend (<code>--ui gui</code>) — cursor highlighting and color preview running as WASM plugins</sub>
 </p>
 
 [![CI](https://github.com/Yus314/kasane/actions/workflows/ci.yml/badge.svg)](https://github.com/Yus314/kasane/actions/workflows/ci.yml)
@@ -58,16 +58,10 @@ Bundled [example plugins](examples/wasm/) you can try today:
 | Plugin | What it does |
 |---|---|
 | [cursor-line](examples/wasm/cursor-line/) | Highlight the active line with theme-aware colors |
-| [fuzzy-finder](examples/wasm/fuzzy-finder/) | fzf-powered file picker as a floating overlay |
-| [sel-badge](examples/wasm/sel-badge/) | Show selection count in the status bar |
 | [color-preview](examples/wasm/color-preview/) | Inline color swatches next to hex values |
-| [pane-manager](examples/wasm/pane-manager/) | Tmux-like splits with Ctrl+W — no external multiplexer needed |
-| [image-preview](examples/wasm/image-preview/) | Display images in a floating overlay anchored to the cursor |
-| [smooth-scroll](examples/wasm/smooth-scroll/) | Animated scrolling |
-| [prompt-highlight](examples/wasm/prompt-highlight/) | Visual feedback when entering prompt mode |
 
 Each plugin builds into a single `.kpk` package — sandboxed, composable,
-and ready to install. A complete plugin in 15 lines — here is sel-badge in its
+and ready to install. A complete plugin — here is cursor-line in its
 entirety:
 
 ```rust
@@ -75,19 +69,31 @@ kasane_plugin_sdk::define_plugin! {
     manifest: "kasane-plugin.toml",
 
     state {
-        #[bind(host_state::get_cursor_count(), on: dirty::BUFFER)]
-        cursor_count: u32 = 0,
+        #[bind(host_state::get_cursor_line(), on: dirty::BUFFER)]
+        active_line: i32 = -1,
     },
 
-    slots {
-        STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
-            (state.cursor_count > 1).then(|| {
-                auto_contribution(text(&format!(" {} sel ", state.cursor_count), default_style()))
-            })
-        },
+    display() {
+        if state.active_line < 0 {
+            return vec![];
+        }
+        let bg = theme_style_or(
+            "cursor.line.bg",
+            if is_dark_background() {
+                style_bg(rgb(40, 40, 50))
+            } else {
+                style_bg(rgb(220, 220, 235))
+            },
+        );
+        vec![style_line(state.active_line as u32, bg)]
     },
 }
 ```
+
+Additional plugins (fuzzy finder, pane manager, sel-badge, smooth scroll,
+prompt highlight, session UI, image preview) are slated to move to a future
+external `kasane-plugin-gallery` repo — recoverable from this repo's git
+history before the δ-3 cleanup commit.
 
 Start writing your own:
 

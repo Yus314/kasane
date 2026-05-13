@@ -8,7 +8,7 @@
 
 use crate::display::navigation::{ActionResult, NavigationAction};
 use crate::display::unit::UnitSource;
-use crate::plugin::{HandlerRegistry, Plugin, PluginId};
+use crate::plugin::{HandlerRegistry, PluginId, StatelessPlugin};
 
 /// Built-in plugin for fold toggle handling.
 ///
@@ -16,11 +16,9 @@ use crate::plugin::{HandlerRegistry, Plugin, PluginId};
 /// making it overridable by user plugins registered at higher priority.
 pub struct BuiltinFoldPlugin;
 
-impl Plugin for BuiltinFoldPlugin {
-    type State = ();
-
+impl StatelessPlugin for BuiltinFoldPlugin {
     fn id(&self) -> PluginId {
-        PluginId("kasane.builtin.fold".into())
+        PluginId::from("kasane.builtin.fold")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {

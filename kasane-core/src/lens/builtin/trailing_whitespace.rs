@@ -300,7 +300,7 @@ mod tests {
     fn id_uses_builtin_plugin_namespace() {
         let lens = TrailingWhitespaceLens::new(Style::default());
         let id = lens.id();
-        assert_eq!(id.plugin.0, "kasane.builtin");
+        assert_eq!(id.plugin.as_str(), "kasane.builtin");
         assert_eq!(id.name, "trailing-whitespace");
     }
 

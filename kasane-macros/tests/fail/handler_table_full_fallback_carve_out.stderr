@@ -1,0 +1,5 @@
+error: modifier `full_fallback` is a documented carve-out (spec §9): the on_<name>_full setter uses TransformSubject which does not generalize. The macro generates the entry-struct storage so a hand-written setter can populate the `full_handler: Option<…>` companion field. Remove this modifier from the spec entry — register the full handler via a manual impl block.
+  --> tests/fail/handler_table_full_fallback_carve_out.rs:19:76
+   |
+19 |         ): View<ElementPatch>(prioritized, targets = Vec<TransformTarget>, full_fallback);
+   |                                                                            ^^^^^^^^^^^^^

@@ -22,7 +22,7 @@ use crate::protocol::{Atom, Style};
 use super::resolve_via_algebra;
 
 fn pid(s: &str) -> PluginId {
-    PluginId(s.to_string())
+    PluginId::from(s)
 }
 
 fn atom(s: &str) -> Atom {

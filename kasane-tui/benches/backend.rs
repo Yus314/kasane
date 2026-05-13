@@ -17,11 +17,11 @@ use kasane_core::render::{
     Cell, CellGrid, CursorStyle, RenderPipelineOptions, RenderResult, TerminalStyle,
     render_pipeline_cached,
 };
-use kasane_core::salsa_db::KasaneDatabase;
-use kasane_core::salsa_sync::{
+use kasane_core::state::{AppState, DirtyFlags};
+use kasane_internal::salsa_db::KasaneDatabase;
+use kasane_internal::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
 };
-use kasane_core::state::{AppState, DirtyFlags};
 use kasane_tui::sgr::emit_sgr_diff_style;
 use serde::Serialize;
 

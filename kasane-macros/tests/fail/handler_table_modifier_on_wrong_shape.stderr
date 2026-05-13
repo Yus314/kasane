@@ -1,0 +1,5 @@
+error: modifier `transparent` is not valid on shape `View`
+ --> tests/fail/handler_table_modifier_on_wrong_shape.rs:9:47
+  |
+9 |             View<Option<OverlayContribution>>(transparent);
+  |                                               ^^^^^^^^^^^

@@ -80,11 +80,11 @@ SDK that uses only existing WIT types is a *crate* minor bump but
 Future entries land here as releases ship.
 
 ABI 6.0.0 (Phase β-4) removes the retired `evaluate-extension` export
-(no producers since [ADR-045](decisions.md#adr-045-retire-the-extension-point-dispatch-path);
+(no producers since [ADR-045](decisions/adr-045-retire-the-extension-point-dispatch-path.md);
 the WIT declaration was kept under 5.0.0 to preserve binding-table
 parity for legacy guests). 5.0.0 plugins are rejected at load time.
 
-ABI 5.0.0 was the [ADR-044](decisions.md#adr-044-handler--effect-tier-hierarchy)
+ABI 5.0.0 was the [ADR-044](decisions/adr-044-handler-effect-tier-hierarchy.md)
 tier-hierarchy split: the five `runtime-effects`-returning exports
 (`on-state-changed-effects`, `on-command-error-effects`,
 `on-subscription`, `update-effects`, `on-io-event-effects`) now return

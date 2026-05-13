@@ -82,7 +82,7 @@ pub(super) fn require_surface_authority<'a>(
     };
     if !registry.plugin_has_authority(plugin_id, PluginAuthorities::DYNAMIC_SURFACE) {
         tracing::warn!(
-            plugin = plugin_id.0,
+            plugin = plugin_id.as_str(),
             "{command_name} denied: dynamic surface authority not granted"
         );
         return None;

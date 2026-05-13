@@ -1,5 +1,6 @@
 mod component;
 mod dirty_tracked;
+mod handler_table;
 mod plugin;
 mod variant_meta;
 
@@ -10,8 +11,8 @@ use proc_macro::TokenStream;
 /// Place `#[kasane_plugin(v2)]` on a `mod` block to generate a `Plugin` impl:
 /// - `#[state] struct State { ... }` — `type State = State`
 /// - `#[contribute("slot.name")]` functions → `r.on_contribute(...)`
-/// - `#[decorate_background]` functions → `r.on_decorate_background(...)`
-/// - `#[decorate_gutter(Left, priority)]` functions → `r.on_decorate_gutter(...)`
+/// - `#[decorate_background]` functions → `r.on_background(...)`
+/// - `#[decorate_gutter(Left, priority)]` functions → `r.on_gutter(...)`
 /// - `#[handle_key]` functions → `r.on_key(...)`
 /// - `fn on_state_changed(...)` → `r.on_state_changed_tier1(...)`
 /// - `#[dirty(FLAGS)]` on `#[state]` struct → `r.declare_interests(FLAGS)`
@@ -55,6 +56,26 @@ pub fn kasane_component(attr: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_derive(DirtyTracked, attributes(dirty, epistemic))]
 pub fn derive_dirty_tracked(input: TokenStream) -> TokenStream {
     dirty_tracked::expand_dirty_tracked(input.into())
+        .unwrap_or_else(|e| e.to_compile_error())
+        .into()
+}
+
+/// Generate a `HandlerTable` + canonical name list from a declarative spec module.
+///
+/// See `docs/handler-table-dsl.md` for the spec. Invoked as a
+/// function-like macro (not an attribute) because the DSL uses custom
+/// `handler …;` and `config …;` keywords that are not valid Rust
+/// surface syntax. The argument is a `pub mod NAME { … }` block whose
+/// body contains the spec entries.
+///
+/// γ-3.2.1 ships base-shape codegen only (`Lifecycle<E>`, `Observer`,
+/// `Dispatcher<C>`, `View<Out>`). Modifiers (`tier1`, `tier2`,
+/// `transparent`, `per_slot`, `prioritized`, `unified`, `recovery`,
+/// `void`, `default`, `suppresses`, `targets`, `full_fallback`,
+/// `stateless`) parse but error at codegen with a γ-3.2.2 hint.
+#[proc_macro]
+pub fn handler_table(input: TokenStream) -> TokenStream {
+    handler_table::expand_handler_table(input.into())
         .unwrap_or_else(|e| e.to_compile_error())
         .into()
 }

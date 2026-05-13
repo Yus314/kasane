@@ -538,7 +538,7 @@ mod tests {
 
     fn host_descriptor(id: &str, revision: &str) -> PluginDescriptor {
         PluginDescriptor {
-            id: PluginId(id.to_string()),
+            id: PluginId::from(id),
             source: PluginSource::Host {
                 provider: "test".to_string(),
             },
@@ -552,7 +552,7 @@ mod tests {
     impl crate::plugin::Plugin for DemoPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId("demo".to_string())
+            PluginId::from("demo")
         }
         fn register(&self, _r: &mut crate::plugin::HandlerRegistry<()>) {}
     }
@@ -615,7 +615,7 @@ mod tests {
 
     #[test]
     fn commit_discards_failed_added_plugin() {
-        let plugin_id = PluginId("demo".to_string());
+        let plugin_id = PluginId::from("demo");
         let descriptor = host_descriptor("demo", "r1");
         let pending = PendingPluginCommit {
             result: PluginApplyResult {
@@ -656,7 +656,7 @@ mod tests {
 
     #[test]
     fn commit_turns_failed_replacement_into_removal() {
-        let plugin_id = PluginId("demo".to_string());
+        let plugin_id = PluginId::from("demo");
         let old_descriptor = host_descriptor("demo", "r1");
         let new_descriptor = host_descriptor("demo", "r2");
         let pending = PendingPluginCommit {
@@ -708,19 +708,14 @@ mod tests {
         let pending = PendingPluginCommit {
             result: PluginApplyResult::default(),
             next_snapshot: ResolvedPluginSnapshot {
-                winners: BTreeMap::from([(PluginId("demo".to_string()), descriptor.clone())]),
+                winners: BTreeMap::from([(PluginId::from("demo"), descriptor.clone())]),
             },
         };
 
-        assert!(
-            manager
-                .snapshot()
-                .winner(&PluginId("demo".to_string()))
-                .is_none()
-        );
+        assert!(manager.snapshot().winner(&PluginId::from("demo")).is_none());
         let _ = manager.commit(pending);
         assert_eq!(
-            manager.snapshot().winner(&PluginId("demo".to_string())),
+            manager.snapshot().winner(&PluginId::from("demo")),
             Some(&descriptor)
         );
     }
@@ -737,7 +732,7 @@ mod tests {
         assert_eq!(result.diagnostics.len(), 1);
         assert_eq!(
             result.diagnostics[0].plugin_id(),
-            Some(&PluginId("demo".to_string()))
+            Some(&PluginId::from("demo"))
         );
         assert!(matches!(
             result.diagnostics[0].kind,
@@ -751,13 +746,8 @@ mod tests {
                 .map(|descriptor| descriptor.revision.0.as_str()),
             Some("r1")
         );
-        assert!(!registry.contains_plugin(&PluginId("demo".to_string())));
-        assert!(
-            manager
-                .snapshot()
-                .winner(&PluginId("demo".to_string()))
-                .is_none()
-        );
+        assert!(!registry.contains_plugin(&PluginId::from("demo")));
+        assert!(manager.snapshot().winner(&PluginId::from("demo")).is_none());
     }
 
     #[test]
@@ -771,7 +761,7 @@ mod tests {
         assert_eq!(
             manager
                 .snapshot()
-                .winner(&PluginId("demo".to_string()))
+                .winner(&PluginId::from("demo"))
                 .map(|descriptor| descriptor.revision.0.as_str()),
             Some("r1")
         );
@@ -802,11 +792,11 @@ mod tests {
                 .map(|descriptor| descriptor.revision.0.as_str()),
             Some("r2")
         );
-        assert!(registry.contains_plugin(&PluginId("demo".to_string())));
+        assert!(registry.contains_plugin(&PluginId::from("demo")));
         assert_eq!(
             manager
                 .snapshot()
-                .winner(&PluginId("demo".to_string()))
+                .winner(&PluginId::from("demo"))
                 .map(|descriptor| descriptor.revision.0.as_str()),
             Some("r1")
         );
@@ -833,11 +823,11 @@ mod tests {
         assert!(result.diagnostics[0].plugin_id().is_none());
         assert_eq!(result.deltas.len(), 1);
         assert!(result.deltas[0].is_added());
-        assert!(registry.contains_plugin(&PluginId("demo".to_string())));
+        assert!(registry.contains_plugin(&PluginId::from("demo")));
         assert_eq!(
             manager
                 .snapshot()
-                .winner(&PluginId("demo".to_string()))
+                .winner(&PluginId::from("demo"))
                 .map(|descriptor| descriptor.revision.0.as_str()),
             Some("r1")
         );

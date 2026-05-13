@@ -130,7 +130,7 @@ impl Plugin for SemanticZoomPlugin {
     type State = SemanticZoomState;
 
     fn id(&self) -> PluginId {
-        PluginId(PROJECTION_ID_STR.to_string())
+        PluginId::from(PROJECTION_ID_STR)
     }
 
     fn register(&self, r: &mut HandlerRegistry<Self::State>) {
@@ -288,10 +288,10 @@ mod tests {
         let mut registry = HandlerRegistry::<SemanticZoomState>::new();
         plugin.register(&mut registry);
         let table = registry.into_table();
-        assert_eq!(table.projection_entries.len(), 1);
-        assert_eq!(table.projection_entries[0].descriptor.id, projection_id());
+        assert_eq!(table.projection_handlers.len(), 1);
+        assert_eq!(table.projection_handlers[0].key.id, projection_id());
         assert_eq!(
-            table.projection_entries[0].descriptor.category,
+            table.projection_handlers[0].key.category,
             ProjectionCategory::Structural,
         );
     }

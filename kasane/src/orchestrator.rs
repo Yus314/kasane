@@ -7,6 +7,8 @@
 use anyhow::Result;
 use kasane_core::config::Config;
 use kasane_core::event_loop::{ReloadOrchestrator, ResolveOutcome};
+
+#[cfg(feature = "wasm-plugins")]
 use kasane_core::plugin::{PluginDiagnostic, PluginId};
 
 #[cfg(feature = "wasm-plugins")]
@@ -23,7 +25,11 @@ impl ReloadOrchestrator for DefaultReloadOrchestrator {
             .issues
             .into_iter()
             .map(|issue| {
-                PluginDiagnostic::runtime_error(PluginId(issue.plugin_id), "resolve", issue.reason)
+                PluginDiagnostic::runtime_error(
+                    PluginId::from(issue.plugin_id),
+                    "resolve",
+                    issue.reason,
+                )
             })
             .collect();
         Ok(ResolveOutcome {

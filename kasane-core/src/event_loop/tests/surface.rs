@@ -31,7 +31,7 @@ fn rebuild_plugin_surface_registry_removes_stale_plugin_surfaces() {
             .contains(&SurfaceId(200))
     );
 
-    assert!(registry.unload_plugin(&PluginId("surface-plugin".to_string())));
+    assert!(registry.unload_plugin(&PluginId::from("surface-plugin")));
     rebuild_plugin_surface_registry(&mut registry, &mut surface_registry, &state);
 
     assert!(surface_registry.get(SurfaceId(200)).is_none());
@@ -66,7 +66,7 @@ fn reconcile_plugin_surfaces_removes_stale_plugin_surfaces() {
             .contains(&SurfaceId(200))
     );
 
-    assert!(registry.unload_plugin(&PluginId("surface-plugin".to_string())));
+    assert!(registry.unload_plugin(&PluginId::from("surface-plugin")));
     let disabled_plugins = reconcile_plugin_surfaces(
         &mut registry,
         &mut surface_registry,
@@ -144,7 +144,7 @@ fn setup_plugin_surfaces_returns_diagnostic_for_invalid_surface_contract() {
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(
         diagnostics[0].plugin_id(),
-        Some(&PluginId("invalid-surface-plugin".to_string()))
+        Some(&PluginId::from("invalid-surface-plugin"))
     );
     assert!(matches!(
         diagnostics[0].kind,
@@ -152,7 +152,7 @@ fn setup_plugin_surfaces_returns_diagnostic_for_invalid_surface_contract() {
             reason: SurfaceRegistrationError::DuplicateSurfaceId { .. }
         }
     ));
-    assert!(!registry.contains_plugin(&PluginId("invalid-surface-plugin".to_string())));
+    assert!(!registry.contains_plugin(&PluginId::from("invalid-surface-plugin")));
 }
 
 #[test]
@@ -175,10 +175,10 @@ fn reconcile_plugin_surfaces_returns_diagnostic_for_invalid_replacement() {
         &mut surface_registry,
         &state,
         &[AppliedWinnerDelta {
-            id: PluginId("invalid-surface-plugin".to_string()),
+            id: PluginId::from("invalid-surface-plugin"),
             old: None,
             new: Some(PluginDescriptor {
-                id: PluginId("invalid-surface-plugin".to_string()),
+                id: PluginId::from("invalid-surface-plugin"),
                 source: PluginSource::Host {
                     provider: "test".to_string(),
                 },
@@ -191,7 +191,7 @@ fn reconcile_plugin_surfaces_returns_diagnostic_for_invalid_replacement() {
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(
         diagnostics[0].plugin_id(),
-        Some(&PluginId("invalid-surface-plugin".to_string()))
+        Some(&PluginId::from("invalid-surface-plugin"))
     );
     assert!(matches!(
         diagnostics[0].kind,
@@ -199,7 +199,7 @@ fn reconcile_plugin_surfaces_returns_diagnostic_for_invalid_replacement() {
             reason: SurfaceRegistrationError::DuplicateSurfaceId { .. }
         }
     ));
-    assert!(!registry.contains_plugin(&PluginId("invalid-surface-plugin".to_string())));
+    assert!(!registry.contains_plugin(&PluginId::from("invalid-surface-plugin")));
 }
 
 struct TextInputSurface {
@@ -284,7 +284,7 @@ fn route_surface_text_input_preserves_surface_owner_and_commands() {
         w: 80,
         h: 24,
     };
-    let owner = PluginId("surface-owner".to_string());
+    let owner = PluginId::from("surface-owner");
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
     surface_registry
@@ -331,7 +331,7 @@ fn route_surface_paste_payload_preserves_surface_owner_and_commands() {
         w: 80,
         h: 24,
     };
-    let owner = PluginId("surface-owner".to_string());
+    let owner = PluginId::from("surface-owner");
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
     surface_registry
@@ -400,7 +400,7 @@ fn route_surface_key_input_preserves_surface_owner_and_commands() {
         w: 80,
         h: 24,
     };
-    let owner = PluginId("surface-owner".to_string());
+    let owner = PluginId::from("surface-owner");
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
     surface_registry

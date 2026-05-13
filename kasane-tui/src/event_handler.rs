@@ -415,9 +415,7 @@ where
                                     .iter()
                                     .map(|e| PluginDiagnostic {
                                         target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
-                                            kasane_core::plugin::PluginId(
-                                                "kasane.config".to_string(),
-                                            ),
+                                            kasane_core::plugin::PluginId::from("kasane.config"),
                                         ),
                                         kind:
                                             kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
@@ -521,9 +519,7 @@ where
                                     let diagnostic = PluginDiagnostic {
                                         target:
                                             kasane_core::plugin::PluginDiagnosticTarget::Plugin(
-                                                kasane_core::plugin::PluginId(
-                                                    "kasane.config".to_string(),
-                                                ),
+                                                kasane_core::plugin::PluginId::from("kasane.config"),
                                             ),
                                         kind:
                                             kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
@@ -585,9 +581,7 @@ where
                                 );
                                 let diagnostic = PluginDiagnostic {
                                     target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
-                                        kasane_core::plugin::PluginId(
-                                            "kasane.widget.reload".to_string(),
-                                        ),
+                                        kasane_core::plugin::PluginId::from("kasane.widget.reload"),
                                     ),
                                     kind: kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
                                         method: "reload".to_string(),
@@ -747,11 +741,11 @@ fn log_reload_summary(deltas: &[kasane_core::plugin::AppliedWinnerDelta]) {
     let mut replaced = Vec::new();
     for delta in deltas {
         if delta.is_added() {
-            added.push(delta.id.0.as_str());
+            added.push(delta.id.as_str());
         } else if delta.is_removed() {
-            removed.push(delta.id.0.as_str());
+            removed.push(delta.id.as_str());
         } else if delta.is_replaced() {
-            replaced.push(delta.id.0.as_str());
+            replaced.push(delta.id.as_str());
         }
     }
     tracing::info!(
@@ -987,7 +981,7 @@ mod tests {
         type State = ();
 
         fn id(&self) -> PluginId {
-            PluginId("reload-owner".to_string())
+            PluginId::from("reload-owner")
         }
 
         fn register(&self, r: &mut kasane_core::plugin::HandlerRegistry<()>) {
@@ -1006,7 +1000,7 @@ mod tests {
     ) -> kasane_core::plugin::AppliedWinnerDelta {
         fn descriptor(revision: &str) -> PluginDescriptor {
             PluginDescriptor {
-                id: PluginId("reload-owner".to_string()),
+                id: PluginId::from("reload-owner"),
                 source: PluginSource::Host {
                     provider: "test".to_string(),
                 },
@@ -1016,7 +1010,7 @@ mod tests {
         }
 
         kasane_core::plugin::AppliedWinnerDelta {
-            id: PluginId("reload-owner".to_string()),
+            id: PluginId::from("reload-owner"),
             old: old.map(descriptor),
             new: new.map(descriptor),
         }
@@ -1078,7 +1072,7 @@ mod tests {
         let disabled = setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
         assert!(disabled.is_empty());
 
-        assert!(registry.unload_plugin(&PluginId("reload-owner".to_string())));
+        assert!(registry.unload_plugin(&PluginId::from("reload-owner")));
 
         let disabled = reconcile_reloaded_plugin_resources(
             &mut registry,

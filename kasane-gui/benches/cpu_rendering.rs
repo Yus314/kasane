@@ -9,13 +9,13 @@ use kasane_core::config::ColorsConfig;
 use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{Atom, Brush, NamedColor, Style};
 use kasane_core::render::{CellGrid, RenderPipelineOptions, render_pipeline_cached};
-use kasane_core::salsa_db::KasaneDatabase;
-use kasane_core::salsa_sync::{
-    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
-};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_gui::colors::ColorResolver;
 use kasane_gui::gpu::cell_renderer::{build_bg_instances, build_row_spans, compute_row_hash};
+use kasane_internal::salsa_db::KasaneDatabase;
+use kasane_internal::salsa_sync::{
+    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
+};
 
 /// Build a typical state + rendered grid for benchmarking.
 fn setup_grid() -> (CellGrid, ColorResolver) {

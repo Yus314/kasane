@@ -193,7 +193,7 @@ fn setup_bridge_mixed_full() -> kasane_core::display::DirectiveSet {
     use kasane_core::protocol::Atom;
 
     const LINE_COUNT: usize = 24;
-    let pid = |s: &str| PluginId(s.to_string());
+    let pid = |s: &str| PluginId::from(s);
     let atom = |s: &str| {
         Atom::with_style(
             CompactString::from(s),

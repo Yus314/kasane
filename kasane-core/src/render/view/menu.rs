@@ -414,7 +414,7 @@ fn build_scrollbar(
 // BuiltinMenuPlugin — lowest-priority MENU_RENDERER
 // ---------------------------------------------------------------------------
 
-use crate::plugin::{FrameworkAccess, HandlerRegistry, Plugin, PluginId};
+use crate::plugin::{FrameworkAccess, HandlerRegistry, PluginId, StatelessPlugin};
 
 /// Built-in plugin for menu overlay rendering.
 ///
@@ -423,15 +423,13 @@ use crate::plugin::{FrameworkAccess, HandlerRegistry, Plugin, PluginId};
 /// with the same capability take precedence.
 pub struct BuiltinMenuPlugin;
 
-impl Plugin for BuiltinMenuPlugin {
-    type State = ();
-
+impl StatelessPlugin for BuiltinMenuPlugin {
     fn id(&self) -> PluginId {
-        PluginId("kasane.builtin.menu".into())
+        PluginId::from("kasane.builtin.menu")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
-        r.on_render_menu_overlay(|_state, app, view| {
+        r.on_menu_renderer(|_state, app, view| {
             let app_state = app.as_app_state();
             let menu = app_state.observed.menu.as_ref()?;
             build_menu_overlay(menu, app_state, view)

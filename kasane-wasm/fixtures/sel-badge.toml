@@ -1,9 +1,0 @@
-[plugin]
-id = "sel_badge"
-abi_version = "6.0.0"
-
-[handlers]
-flags = ["contributor"]
-
-[view]
-deps = ["buffer-content", "buffer-cursor"]

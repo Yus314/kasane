@@ -382,7 +382,7 @@ fn convert_session_ready_effects_from_wit() {
     assert!(matches!(
         converted.commands.get(1),
         Some(Command::PluginMessage { target, .. })
-        if target.0 == "peer"
+        if target.as_str() == "peer"
     ));
     assert_eq!(
         converted.scroll_plans,
@@ -841,7 +841,7 @@ fn convert_command_schedule_timer() {
         } => {
             assert_eq!(timer_id, 42);
             assert_eq!(delay, Duration::from_millis(500));
-            assert_eq!(target.0, "my_plugin");
+            assert_eq!(target.as_str(), "my_plugin");
             let bytes = payload.downcast::<Vec<u8>>().unwrap();
             assert_eq!(*bytes, vec![1, 2, 3]);
         }
@@ -868,7 +868,7 @@ fn convert_command_plugin_message() {
     });
     match wit_command_to_command(&wc) {
         Command::PluginMessage { target, payload } => {
-            assert_eq!(target.0, "other");
+            assert_eq!(target.as_str(), "other");
             let bytes = payload.downcast::<Vec<u8>>().unwrap();
             assert_eq!(*bytes, vec![42]);
         }

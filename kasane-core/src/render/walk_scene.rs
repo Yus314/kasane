@@ -102,6 +102,8 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
     ) {
         let cs = self.cell_size;
         let params = BufferRefParams::resolve(state, buffer_state);
+        // One scratch per buffer paint; the loop body reuses it across lines.
+        let mut scratch = crate::render::AtomScratch::new();
 
         for y_offset in 0..area.h {
             let display_line = line_range.start + y_offset as usize;
@@ -117,6 +119,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                 inline_decorations,
                 virtual_text,
                 false, // GPU never skips clean lines
+                &mut scratch,
             ) {
                 BufferLineAction::Skip => continue,
                 BufferLineAction::Synthetic { atoms } => {
@@ -155,10 +158,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     // when present, falls back to `decorated` (TUI flavour
                     // — only differs from the GPU flavour when InlineBox
                     // ops are present), and finally to the raw line.
-                    let atoms = decorated_for_gpu
-                        .as_deref()
-                        .or(decorated.as_deref())
-                        .unwrap_or(line);
+                    let atoms = decorated_for_gpu.or(decorated).unwrap_or(line);
                     let mut resolved = resolve_atoms(atoms, Some(&base_style));
 
                     // EOL virtual text: append after buffer content
@@ -197,6 +197,11 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     }
 
                     let slot_count = inline_box_slots.len();
+                    // BufferParagraph carries owned slots into the queued
+                    // DrawCommand stream (outlives this paint pass), so
+                    // copy from the scratch slice. Empty-slot lines clone
+                    // a zero-length Vec — no allocation.
+                    let owned_slots = inline_box_slots.to_vec();
                     self.out.push(DrawCommand::RenderParagraph {
                         pos: PixelPos { x: px, y: py },
                         max_width: row_w,
@@ -204,7 +209,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             atoms: resolved,
                             base_face: base_style,
                             annotations,
-                            inline_box_slots,
+                            inline_box_slots: owned_slots,
                             // Initialised empty; pipeline.rs populates
                             // post-walk via plugin dispatch.
                             inline_box_paint_commands: vec![Vec::new(); slot_count],

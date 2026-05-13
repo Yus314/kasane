@@ -20,7 +20,7 @@ impl Plugin for BuiltinDiagnosticsPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("kasane.builtin.diagnostics".into())
+        PluginId::from("kasane.builtin.diagnostics")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
@@ -40,7 +40,7 @@ impl Plugin for BuiltinDiagnosticsPlugin {
                 element,
                 anchor,
                 z_index: 100,
-                plugin_id: PluginId("kasane.builtin.diagnostics".into()),
+                plugin_id: PluginId::from("kasane.builtin.diagnostics"),
             })
         });
     }

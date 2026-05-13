@@ -223,7 +223,7 @@ fn build_info_nonframed(
 // ---------------------------------------------------------------------------
 
 use crate::plugin::{
-    FrameworkAccess, HandlerRegistry, Plugin, PluginId, TransformSubject, TransformTarget,
+    FrameworkAccess, HandlerRegistry, PluginId, StatelessPlugin, TransformSubject, TransformTarget,
 };
 
 /// Built-in plugin for info overlay rendering.
@@ -234,15 +234,13 @@ use crate::plugin::{
 /// with the same capability take precedence.
 pub struct BuiltinInfoPlugin;
 
-impl Plugin for BuiltinInfoPlugin {
-    type State = ();
-
+impl StatelessPlugin for BuiltinInfoPlugin {
     fn id(&self) -> PluginId {
-        PluginId("kasane.builtin.info".into())
+        PluginId::from("kasane.builtin.info")
     }
 
     fn register(&self, r: &mut HandlerRegistry<()>) {
-        r.on_render_info_overlays(|_state, app, avoid, view| {
+        r.on_info_renderer(|_state, app, avoid, view| {
             let app_state = app.as_app_state();
             if app_state.observed.infos.is_empty() {
                 return None;

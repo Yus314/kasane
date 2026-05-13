@@ -33,6 +33,37 @@ pub use cursor::*;
 pub use grid::CellDiff;
 pub use grid::{Cell, CellGrid};
 pub use inline_decoration::{InlineDecoration, InlineOp};
+
+/// Reusable scratch buffers for the per-buffer-line paint loop.
+///
+/// `paint_buffer_ref` (and the GPU/scene equivalents) iterate over
+/// every visible buffer line and may apply per-line inline decorations.
+/// Without scratch, each decorated line allocates fresh `Vec<Atom>`
+/// instances for the post-decoration TUI atom stream, the
+/// post-decoration GPU atom stream, and the inline-box slot metadata
+/// vector. `AtomScratch` collects these three vectors so the loop body
+/// can reuse them via `clear()` + push, dropping per-frame allocs from
+/// O(decorated_lines) to O(1).
+///
+/// Construct one per paint pass (cheap — three empty `Vec`s) and pass
+/// `&mut AtomScratch` to `paint_buffer_ref`. Do not hold across frames
+/// without considering peak buffer sizing.
+#[derive(Default)]
+pub struct AtomScratch {
+    /// TUI atom stream (post-`apply_inline_ops`).
+    pub decorated: Vec<crate::protocol::Atom>,
+    /// GPU atom stream (post-`apply_inline_ops_for_gpu`, InlineBox
+    /// placeholders stripped).
+    pub decorated_for_gpu: Vec<crate::protocol::Atom>,
+    /// Inline-box slot metadata for the GPU path.
+    pub inline_box_slots: Vec<inline_decoration::InlineBoxSlotMeta>,
+}
+
+impl AtomScratch {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 pub use pipeline_salsa::{
     RenderPipelineOptions, SceneRenderOptions, render_pipeline_cached, scene_render_pipeline_cached,
 };

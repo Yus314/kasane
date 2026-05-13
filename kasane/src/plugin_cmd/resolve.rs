@@ -6,6 +6,7 @@ use anyhow::{Result, bail};
 use kasane_core::config::{Config, PluginSelection};
 use kasane_plugin_package::manifest::{HOST_ABI_VERSION, abi_compatible};
 use kasane_plugin_package::package::{self, InspectedPackage};
+#[cfg(feature = "wasm-plugins")]
 use kasane_wasm::{BundledPluginArtifact, bundled_plugin_artifacts};
 use semver::Version;
 
@@ -80,7 +81,13 @@ pub(crate) enum ResolveReason {
     Updated,
     PinnedDigest,
     PinnedPackage,
+    /// Only constructed when `wasm-plugins` is enabled (bundled WASM
+    /// plugins are the only kind of bundled plugin today). The variant
+    /// is kept unconditionally so dependents that match exhaustively on
+    /// `ResolveReason` don't have to feature-gate the arm.
+    #[cfg_attr(not(feature = "wasm-plugins"), allow(dead_code))]
     BundledDefault,
+    #[cfg_attr(not(feature = "wasm-plugins"), allow(dead_code))]
     BundledEnabled,
 }
 
@@ -513,6 +520,7 @@ fn select_candidate(
     });
 }
 
+#[cfg(feature = "wasm-plugins")]
 fn append_bundled_fallbacks(
     config: &Config,
     lock: &mut PluginsLock,
@@ -561,6 +569,19 @@ fn append_bundled_fallbacks(
     Ok(())
 }
 
+/// No-op stub when WASM plugin support is compiled out — there are no
+/// bundled WASM plugins to fall back to.
+#[cfg(not(feature = "wasm-plugins"))]
+fn append_bundled_fallbacks(
+    _config: &Config,
+    _lock: &mut PluginsLock,
+    _selected: &mut Vec<ResolvedPlugin>,
+    _issue_ids: &BTreeSet<String>,
+) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(feature = "wasm-plugins")]
 fn should_enable_bundled(config: &Config, artifact: &BundledPluginArtifact) -> bool {
     let disabled = config.plugins.is_disabled(artifact.name)
         || config.plugins.is_disabled(&artifact.plugin_id);
@@ -896,29 +917,13 @@ flags = ["contributor"]
         assert_eq!(sel_badge.reason, ResolveReason::PinnedDigest);
     }
 
-    #[test]
-    fn reconcile_adds_default_enabled_bundled_plugin() {
-        let tmp = tempfile::tempdir().unwrap();
-        let data_home = tmp.path().join("data");
-        let config_home = tmp.path().join("config");
-        fs::create_dir_all(&data_home).unwrap();
-        fs::create_dir_all(&config_home).unwrap();
-
-        let config = config_with_paths(&data_home, &config_home);
-        let result =
-            resolve_with_existing_lock(&config, ResolveOptions::reconcile(), &PluginsLock::new())
-                .unwrap();
-
-        let pane_manager = result.lock.plugins.get("pane_manager").unwrap();
-        assert_eq!(pane_manager.source_kind, "bundled");
-        assert!(
-            result
-                .selected
-                .iter()
-                .any(|plugin| plugin.plugin_id == "pane_manager"
-                    && plugin.reason == ResolveReason::BundledDefault)
-        );
-    }
+    // The `reconcile_adds_default_enabled_bundled_plugin` test was retired
+    // in δ-3: no bundled plugin currently has `default_enabled = true` after
+    // the curation cleanup (`cursor_line` + `color_preview` both opt-in).
+    // The default-enabled reconciliation mechanism remains exercised by the
+    // `BundledDefault` enum variant + the bundled-plugin-spec configuration
+    // path in `kasane-wasm`; reintroduce a coverage test if a future bundled
+    // plugin is shipped with `default_enabled = true`.
 
     fn build_fixture_package_with_abi(
         root: &Path,

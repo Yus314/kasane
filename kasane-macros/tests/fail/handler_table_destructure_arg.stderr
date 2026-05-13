@@ -1,0 +1,5 @@
+error: handler arg patterns must be simple `name: Type` — destructuring patterns are not supported
+ --> tests/fail/handler_table_destructure_arg.rs:9:22
+  |
+9 |         handler init((_a, _b): (usize, usize)): Lifecycle<Effects>;
+  |                      ^^^^^^^^

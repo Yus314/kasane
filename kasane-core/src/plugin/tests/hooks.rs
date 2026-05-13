@@ -12,7 +12,7 @@ impl crate::plugin::Plugin for ObservingPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("observer".to_string())
+        PluginId::from("observer")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -44,7 +44,7 @@ impl crate::plugin::Plugin for IconPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("icons".to_string())
+        PluginId::from("icons")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
@@ -109,12 +109,12 @@ impl crate::plugin::Plugin for RenderOrnamentPlugin {
     type State = ();
 
     fn id(&self) -> PluginId {
-        PluginId("render-ornament-test".to_string())
+        PluginId::from("render-ornament-test")
     }
 
     fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
         let batch = self.batch.clone();
-        r.on_render_ornaments(move |_state, _app, _ctx| batch.clone());
+        r.on_render_ornament(move |_state, _app, _ctx| batch.clone());
     }
 }
 
@@ -207,11 +207,11 @@ fn test_cursor_effects_accumulate() {
     impl crate::plugin::Plugin for EffectPlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId(self.id.to_string())
+            PluginId::from(&*self.id)
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             let effect = self.effect;
-            r.on_render_ornaments(move |_state, _app, _ctx| OrnamentBatch {
+            r.on_render_ornament(move |_state, _app, _ctx| OrnamentBatch {
                 cursor_effects: vec![CursorEffectOrn {
                     kind: effect,
                     style: crate::protocol::Style::default(),
@@ -252,13 +252,13 @@ fn test_cursor_style_modality_wins_over_priority() {
     impl crate::plugin::Plugin for CursorStylePlugin {
         type State = ();
         fn id(&self) -> PluginId {
-            PluginId(self.id.to_string())
+            PluginId::from(&*self.id)
         }
         fn register(&self, r: &mut crate::plugin::HandlerRegistry<()>) {
             let style = self.style;
             let priority = self.priority;
             let modality = self.modality;
-            r.on_render_ornaments(move |_state, _app, _ctx| OrnamentBatch {
+            r.on_render_ornament(move |_state, _app, _ctx| OrnamentBatch {
                 cursor_style: Some(CursorStyleOrn {
                     hint: style.into(),
                     priority,

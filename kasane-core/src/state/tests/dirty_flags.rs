@@ -58,7 +58,7 @@ fn test_apply_set_setting_updates_plugin_settings() {
 
     let mut state = AppState::default();
     let mut dirty = DirtyFlags::empty();
-    let plugin_id = PluginId("smooth_scroll".to_string());
+    let plugin_id = PluginId::from("smooth_scroll");
 
     crate::state::apply_set_setting(
         &mut state,
