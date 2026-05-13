@@ -7,7 +7,7 @@ use compact_str::CompactString;
 
 use crate::plugin::{
     BackgroundLayer, BlendMode, Contribution, ElementPatch, HandlerRegistry, Plugin,
-    PluginDiagnostic, PluginId, PluginRuntime, VirtualTextItem, bridge::PluginBridge,
+    PluginDiagnostic, PluginId, PluginRuntime, VirtualTextItem, plugin_bridge::PluginBridge,
 };
 use crate::render::InlineDecoration;
 use crate::state::DirtyFlags;

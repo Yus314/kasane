@@ -19,9 +19,9 @@ use crate::workspace::Placement;
 use crate::workspace::WorkspaceQuery;
 
 use super::AppView;
-use super::bridge::PluginBridge;
 use super::effect::effects::{MouseHandleResult, PluginEffects, TextInputHandleResult};
 use super::inline_box::{InlineBoxStack, MAX_INLINE_BOX_DEPTH};
+use super::plugin_bridge::PluginBridge;
 use super::state::Plugin;
 use super::traits::MousePreDispatchResult;
 use super::{

@@ -15,7 +15,6 @@
 //! re-exports below).
 
 pub mod algebra;
-pub mod bridge;
 pub mod canvas;
 pub mod channel;
 pub mod debug_overlay;
@@ -27,6 +26,7 @@ pub mod host;
 pub(crate) mod inline_box;
 pub mod io;
 pub mod manager;
+pub mod plugin_bridge;
 pub mod process_task;
 pub mod projection_status;
 pub mod provider;
@@ -144,12 +144,12 @@ pub use algebra::compose::{
 // Re-export app_view, state, and bridge modules
 pub use crate::state::Truth;
 pub use algebra::element_patch::ElementPatch;
-pub use bridge::PluginBridge;
 pub use channel::ChannelValue;
 pub use handler_registry::HandlerRegistry;
 pub use handler_table::GutterSide;
 pub use host::app_view::{AppView, FrameworkAccess};
 pub use host::variable_store::PluginVariableStore;
+pub use plugin_bridge::PluginBridge;
 pub use process_task::{ProcessTaskResult, ProcessTaskSpec};
 pub use pubsub::{OscillationKind, Topic, TopicBus, TopicId};
 pub use render_ornament::{

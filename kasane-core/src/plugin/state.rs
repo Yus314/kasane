@@ -19,7 +19,7 @@ use dyn_clone::DynClone;
 /// blanket impl: any `T: Clone + PartialEq + Debug + Send + 'static`
 /// automatically satisfies this trait.
 ///
-/// Change detection in [`PluginBridge`](super::bridge::PluginBridge) uses
+/// Change detection in [`PluginBridge`](super::plugin_bridge::PluginBridge) uses
 /// [`dyn_eq`](Self::dyn_eq) against a clone of the previous state. There
 /// is no longer a hash-based fast path, so plugin-state types are free to
 /// contain `HashMap` or other non-`Hash` collections without boilerplate.
