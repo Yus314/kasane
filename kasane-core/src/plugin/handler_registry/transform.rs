@@ -2,7 +2,7 @@
 
 use crate::protocol::Atom;
 
-use super::super::element_patch::ElementPatch;
+use super::super::algebra::element_patch::ElementPatch;
 use super::super::handler_table::{ContributeAnyEntry, ContributeEntry, TransformEntry};
 use super::super::{
     AppView, ContributeContext, Contribution, PluginState, SlotId, TransformContext,

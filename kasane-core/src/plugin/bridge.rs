@@ -13,7 +13,7 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
 
-use super::error_attribution::PluginErrorEvent;
+use super::effect::error_attribution::PluginErrorEvent;
 use super::handler_registry::HandlerRegistry;
 use super::handler_table::HandlerTable;
 use super::io::ProcessEvent;
@@ -539,7 +539,7 @@ impl PluginBridge {
             key_pre_dispatch_handler,
             KeyPreDispatchResult::Pass {
                 commands: Vec::new(),
-                state_updates: super::effects::StateUpdates::default(),
+                state_updates: super::effect::effects::StateUpdates::default(),
             },
             key,
             app
@@ -556,7 +556,7 @@ impl PluginBridge {
             mouse_pre_dispatch_handler,
             MousePreDispatchResult::Pass {
                 commands: Vec::new(),
-                state_updates: super::effects::StateUpdates::default(),
+                state_updates: super::effect::effects::StateUpdates::default(),
             },
             event,
             app
@@ -1421,7 +1421,7 @@ mod tests {
     #[test]
     fn bridge_transform_patch_returns_raw_patch() {
         use crate::element::Element;
-        use crate::plugin::element_patch::ElementPatch;
+        use crate::plugin::algebra::element_patch::ElementPatch;
         use crate::plugin::{TransformContext, TransformTarget};
 
         struct AppendPlugin;
@@ -1476,7 +1476,7 @@ mod tests {
     #[test]
     fn transform_chain_algebraic_composition() {
         use crate::element::Element;
-        use crate::plugin::element_patch::ElementPatch;
+        use crate::plugin::algebra::element_patch::ElementPatch;
         use crate::plugin::{TransformSubject, TransformTarget};
 
         struct PrependPlugin;
@@ -1531,7 +1531,7 @@ mod tests {
     #[test]
     fn transform_chain_replace_absorbs_prior_patches() {
         use crate::element::Element;
-        use crate::plugin::element_patch::ElementPatch;
+        use crate::plugin::algebra::element_patch::ElementPatch;
         use crate::plugin::{TransformSubject, TransformTarget};
 
         struct ModifyPlugin;
@@ -1595,7 +1595,7 @@ mod tests {
 
         use crate::element::InteractiveId;
         use crate::input::{Key, Modifiers, MouseButton, MouseEvent, MouseEventKind};
-        use crate::plugin::element_patch::ElementPatch;
+        use crate::plugin::algebra::element_patch::ElementPatch;
         use crate::plugin::handler_table::GutterSide;
         use crate::plugin::pubsub::TopicId;
         use crate::plugin::{
@@ -1718,7 +1718,7 @@ mod tests {
                         *s,
                         KeyPreDispatchResult::Pass {
                             commands: Vec::new(),
-                            state_updates: super::super::effects::StateUpdates::default(),
+                            state_updates: super::super::effect::effects::StateUpdates::default(),
                         },
                     )
                 });
@@ -1766,7 +1766,7 @@ mod tests {
                         *s,
                         MousePreDispatchResult::Pass {
                             commands: Vec::new(),
-                            state_updates: super::super::effects::StateUpdates::default(),
+                            state_updates: super::super::effect::effects::StateUpdates::default(),
                         },
                     )
                 });
@@ -2030,7 +2030,7 @@ mod tests {
 
         // Command-error (ADR-044 A-3e): drive the new HandlerRegistry
         // setter via the trait method.
-        let probe_error = super::super::error_attribution::PluginErrorEvent {
+        let probe_error = super::super::effect::error_attribution::PluginErrorEvent {
             plugin_id: "test.all-handlers".to_string(),
             message: "1:1: 'noop': probe".to_string(),
         };

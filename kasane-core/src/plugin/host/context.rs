@@ -11,7 +11,7 @@ use crate::protocol::{Atom, Color, Coord, WireFace};
 use crate::render::InlineDecoration;
 use crate::surface::SurfaceId;
 
-use super::{AppView, PluginId};
+use super::super::{AppView, PluginId};
 
 /// Stable identifier for the subject a plugin transform is targeting.
 ///

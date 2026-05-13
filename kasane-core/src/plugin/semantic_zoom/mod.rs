@@ -12,8 +12,8 @@ use std::fmt;
 
 use crate::display::{DisplayDirective, ProjectionCategory, ProjectionDescriptor, ProjectionId};
 use crate::input::{Key, KeyEvent, KeyPattern, KeyResponse, Modifiers};
-use crate::plugin::app_view::AppView;
 use crate::plugin::handler_registry::HandlerRegistry;
+use crate::plugin::host::app_view::AppView;
 use crate::plugin::state::Plugin;
 use crate::plugin::{Command, PluginId};
 use crate::state::DirtyFlags;

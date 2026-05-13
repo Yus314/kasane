@@ -15,7 +15,7 @@
 
 use crate::element::{Element, OverlayAnchor};
 use crate::input::KeyEvent;
-use crate::plugin::context::{OverlayContext, OverlayContribution};
+use crate::plugin::host::context::{OverlayContext, OverlayContribution};
 use crate::plugin::{AppView, HandlerRegistry, KakouneSideCommand, Plugin, PluginId};
 use crate::protocol::{Atom, Color, NamedColor, Style, WireFace};
 use crate::state::DirtyFlags;

@@ -512,7 +512,7 @@ fn collect_locked_bundled_plugin(
 fn resolve_plugin_settings(
     manifest: &kasane_plugin_package::manifest::PluginManifest,
     config_settings: &HashMap<String, HashMap<String, kasane_core::plugin::SettingValue>>,
-) -> HashMap<String, kasane_core::plugin::setting::SettingValue> {
+) -> HashMap<String, kasane_core::plugin::host::setting::SettingValue> {
     let mut settings = manifest.resolve_setting_defaults();
     if let Some(plugin_settings) = config_settings.get(&manifest.plugin.id) {
         let (overrides, warnings) = manifest.validate_config_settings(plugin_settings);

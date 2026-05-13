@@ -115,7 +115,7 @@ impl KakouneSideCommand {
     pub fn schedule_timer(
         timer_id: u64,
         delay: std::time::Duration,
-        target: super::PluginId,
+        target: super::super::PluginId,
         payload: Box<dyn std::any::Any + Send>,
     ) -> Self {
         Self(Command::ScheduleTimer {
@@ -130,7 +130,10 @@ impl KakouneSideCommand {
         Self(Command::CancelTimer { timer_id })
     }
 
-    pub fn plugin_message(target: super::PluginId, payload: Box<dyn std::any::Any + Send>) -> Self {
+    pub fn plugin_message(
+        target: super::super::PluginId,
+        payload: Box<dyn std::any::Any + Send>,
+    ) -> Self {
         Self(Command::PluginMessage { target, payload })
     }
 
@@ -142,9 +145,9 @@ impl KakouneSideCommand {
     }
 
     pub fn set_setting(
-        plugin_id: super::PluginId,
+        plugin_id: super::super::PluginId,
         key: impl Into<String>,
-        value: super::setting::SettingValue,
+        value: super::super::host::setting::SettingValue,
     ) -> Self {
         Self(Command::SetSetting {
             plugin_id,
@@ -270,7 +273,7 @@ impl ProcessCommand {
         job_id: u64,
         program: impl Into<String>,
         args: Vec<String>,
-        stdin_mode: super::io::StdinMode,
+        stdin_mode: super::super::io::StdinMode,
     ) -> Self {
         Self(Command::SpawnProcess {
             job_id,
@@ -296,7 +299,7 @@ impl ProcessCommand {
         Self(Command::ResizePty { job_id, rows, cols })
     }
 
-    pub fn http_request(job_id: u64, config: super::io::HttpRequestConfig) -> Self {
+    pub fn http_request(job_id: u64, config: super::super::io::HttpRequestConfig) -> Self {
         Self(Command::HttpRequest { job_id, config })
     }
 
@@ -621,7 +624,7 @@ mod tests {
             42,
             "fd".to_string(),
             vec!["needle".to_string()],
-            super::super::io::StdinMode::Null,
+            super::super::super::io::StdinMode::Null,
         )
         .into();
         assert!(matches!(cmd, Command::SpawnProcess { job_id: 42, .. }));
@@ -666,7 +669,7 @@ mod tests {
             7,
             "ls".to_string(),
             vec![],
-            super::super::io::StdinMode::Null,
+            super::super::super::io::StdinMode::Null,
         ));
         let eff: Effects = p.into();
         assert_eq!(eff.commands.len(), 2);

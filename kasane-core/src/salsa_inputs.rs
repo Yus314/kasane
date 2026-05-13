@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use crate::config::MenuPosition;
-use crate::plugin::element_patch::ElementPatch;
+use crate::plugin::algebra::element_patch::ElementPatch;
 use crate::protocol::{Coord, CursorMode, Line, StatusStyle, Style};
 use crate::state::snapshot::{InfoSnapshot, MenuSnapshot};
 

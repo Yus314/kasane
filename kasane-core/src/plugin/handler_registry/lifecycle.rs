@@ -5,7 +5,7 @@ use std::any::Any;
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
 
-use super::super::error_attribution::PluginErrorEvent;
+use super::super::effect::error_attribution::PluginErrorEvent;
 use super::super::process_task::{ProcessTaskEntry, ProcessTaskResult, ProcessTaskSpec};
 use super::super::{
     AppView, ChannelValue, Effects, IoEvent, KakouneSideEffects, PluginState, ProcessCapableEffects,

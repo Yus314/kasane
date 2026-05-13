@@ -7,8 +7,8 @@ use anyhow::Result;
 
 use super::AppView;
 use super::diagnostics::{PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticTarget};
+use super::host::setting::SettingValue;
 use super::provider::{PluginRevision, ProviderConfigUpdate};
-use super::setting::SettingValue;
 use super::{Effects, PluginDescriptor, PluginFactory, PluginId, PluginProvider, PluginRuntime};
 
 /// Number of consecutive activation failures for the same

@@ -7,7 +7,7 @@
 //!
 //! # Monoid Laws
 //!
-//! `ElementPatch` satisfies the monoid laws via [`Composable`](super::Composable):
+//! `ElementPatch` satisfies the monoid laws via [`Composable`](super::super::Composable):
 //! - **Identity**: `Identity` (no-op)
 //! - **Composition**: `Compose(vec![a, b])` applies `a` then `b`
 //! - **Associativity**: guaranteed by sequential application
@@ -24,7 +24,7 @@ use crate::element::{Align, Direction, Element, ElementStyle, FlexChild, Overlay
 use crate::protocol::WireFace;
 use crate::widget::predicate::Predicate;
 
-use super::context::{FaceMerge, TransformContext, TransformScope, TransformSubject};
+use super::super::host::context::{FaceMerge, TransformContext, TransformScope, TransformSubject};
 
 /// Backward-compatible alias for the unified `Predicate` type.
 pub type PatchPredicate = Predicate;

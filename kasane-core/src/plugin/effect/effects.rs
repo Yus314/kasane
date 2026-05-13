@@ -6,9 +6,11 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPlan, ScrollPolicyResult};
 use crate::state::shadow_cursor::ShadowCursor;
 use crate::state::{DirtyFlags, DragState};
 
+use super::super::traits::{
+    KeyPreDispatchResult, MousePreDispatchResult, TextInputPreDispatchResult,
+};
+use super::super::{AppView, KeyDispatchResult, PluginId};
 use super::command::Command;
-use super::traits::{KeyPreDispatchResult, MousePreDispatchResult, TextInputPreDispatchResult};
-use super::{AppView, KeyDispatchResult, PluginId};
 
 /// Lifecycle phase for effect validation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

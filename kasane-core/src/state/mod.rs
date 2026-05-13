@@ -30,7 +30,7 @@ use bitflags::bitflags;
 
 use crate::config::{Config, StatusPosition};
 use crate::plugin::PluginId;
-use crate::plugin::setting::SettingValue;
+use crate::plugin::host::setting::SettingValue;
 use crate::protocol::CursorMode;
 use crate::render::theme::Theme;
 
@@ -146,7 +146,7 @@ pub struct AppState {
     /// [`drain_pending_plugin_errors`].
     ///
     /// [`drain_pending_plugin_errors`]: AppState::drain_pending_plugin_errors
-    pub pending_plugin_errors: Vec<crate::plugin::error_attribution::PluginErrorEvent>,
+    pub pending_plugin_errors: Vec<crate::plugin::effect::error_attribution::PluginErrorEvent>,
 }
 
 // ---------------------------------------------------------------------------

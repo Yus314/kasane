@@ -3,7 +3,7 @@ use kasane_core::input::{
     ChordBinding, CompiledKeyMap, DropEvent, Key, KeyBinding, KeyEvent, KeyGroup, KeyPattern,
     KeyResponse, Modifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use kasane_core::plugin::error_attribution::PluginErrorEvent;
+use kasane_core::plugin::effect::error_attribution::PluginErrorEvent;
 use kasane_core::plugin::{Command, HttpEvent, IoEvent, ProcessEvent};
 use kasane_core::scroll::{
     DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,

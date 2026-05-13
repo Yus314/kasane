@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use super::diagnostics::PluginDiagnostic;
-use super::setting::SettingValue;
+use super::host::setting::SettingValue;
 use super::{PluginBridge, PluginId};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

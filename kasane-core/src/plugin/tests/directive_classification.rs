@@ -7,8 +7,8 @@ use crate::display::{
     InlineBoxAlignment, InlineInteraction, VirtualTextPosition,
 };
 use crate::element::Element;
+use crate::plugin::algebra::safe_directive::SafeDisplayDirective;
 use crate::plugin::handler_registry::HandlerRegistry;
-use crate::plugin::safe_directive::SafeDisplayDirective;
 use crate::plugin::{RecoveryMechanism, RecoveryWitness};
 use crate::protocol::Atom;
 

@@ -1,6 +1,6 @@
 use super::*;
 use crate::plugin::PluginCapabilities;
-use crate::plugin::kakoune_transparent_command::KakouneTransparentCommand;
+use crate::plugin::effect::kakoune_transparent_command::KakouneTransparentCommand;
 
 use crate::state::DirtyFlags;
 
@@ -71,7 +71,7 @@ fn on_transform_has_empty_targets() {
 
 #[test]
 fn on_transform_for_populates_targets() {
-    use crate::plugin::context::TransformTarget;
+    use crate::plugin::host::context::TransformTarget;
     let mut registry = HandlerRegistry::<TestState>::new();
     let targets = [TransformTarget::BUFFER, TransformTarget::STATUS_BAR];
     registry.on_transform_for(5, &targets, |_state, _target, _app, _ctx| {
@@ -89,7 +89,7 @@ fn on_transform_for_populates_targets() {
 
 #[test]
 fn on_transform_for_sets_priority() {
-    use crate::plugin::context::TransformTarget;
+    use crate::plugin::host::context::TransformTarget;
     let mut registry = HandlerRegistry::<TestState>::new();
     registry.on_transform_for(
         42,
@@ -102,7 +102,7 @@ fn on_transform_for_sets_priority() {
 
 #[test]
 fn may_interfere_detects_transform_target_overlap() {
-    use crate::plugin::context::TransformTarget;
+    use crate::plugin::host::context::TransformTarget;
 
     let mut r1 = HandlerRegistry::<TestState>::new();
     r1.on_transform_for(
@@ -126,7 +126,7 @@ fn may_interfere_detects_transform_target_overlap() {
 
 #[test]
 fn may_interfere_no_overlap() {
-    use crate::plugin::context::TransformTarget;
+    use crate::plugin::host::context::TransformTarget;
 
     let mut r1 = HandlerRegistry::<TestState>::new();
     r1.on_transform_for(0, &[TransformTarget::BUFFER], |_s, _t, _a, _c| {

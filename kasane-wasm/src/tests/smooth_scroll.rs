@@ -40,7 +40,7 @@ fn returns_plan_when_enabled_via_settings() {
         .or_default()
         .insert(
             "enabled".into(),
-            kasane_core::plugin::setting::SettingValue::Bool(true),
+            kasane_core::plugin::host::setting::SettingValue::Bool(true),
         );
     let candidate = DefaultScrollCandidate::new(
         10,
@@ -75,7 +75,7 @@ fn returns_plan_when_enabled_via_settings_negative_amount() {
         .or_default()
         .insert(
             "enabled".into(),
-            kasane_core::plugin::setting::SettingValue::Bool(true),
+            kasane_core::plugin::host::setting::SettingValue::Bool(true),
         );
     let candidate = DefaultScrollCandidate::new(
         4,

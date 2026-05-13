@@ -31,7 +31,7 @@ use crate::config::MenuPosition;
 use crate::display::FoldToggleState;
 use crate::display::ProjectionPolicyState;
 use crate::plugin::PluginId;
-use crate::plugin::setting::SettingValue;
+use crate::plugin::host::setting::SettingValue;
 use crate::render::theme::Theme;
 use crate::state::{AppState, ConfigState};
 

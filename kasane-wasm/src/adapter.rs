@@ -246,10 +246,11 @@ impl WasmPluginShared {
             // back by `state/apply.rs` and routed to the plugin's
             // `on-command-error-effects` export (Step 2).
             wit::Command::EvalCommand(cmd) if self.command_error_observability => {
-                let wrapped = kasane_core::plugin::error_attribution::wrap_command_with_marker(
-                    cmd,
-                    self.plugin_id.0.as_str(),
-                );
+                let wrapped =
+                    kasane_core::plugin::effect::error_attribution::wrap_command_with_marker(
+                        cmd,
+                        self.plugin_id.0.as_str(),
+                    );
                 vec![Command::kakoune_command(&wrapped)]
             }
             _ => vec![convert::wit_command_to_command(command)],

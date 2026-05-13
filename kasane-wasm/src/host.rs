@@ -5,7 +5,7 @@ use kasane_core::element::{
     Overlay, PluginTag,
 };
 use kasane_core::plugin::PluginId;
-use kasane_core::plugin::setting::SettingValue;
+use kasane_core::plugin::host::setting::SettingValue;
 use kasane_core::protocol::{Coord, CursorMode, Line, Style};
 use kasane_core::state::{AppState, DirtyFlags, InfoState};
 use wasmtime_wasi::WasiCtxBuilder;

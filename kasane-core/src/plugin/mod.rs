@@ -1,38 +1,41 @@
 //! Plugin infrastructure: `Plugin` trait, `PluginBridge` adapter, registry, context, command, I/O.
+//!
+//! Sub-organisation (Phase γ-2.2):
+//!
+//! - [`algebra`] — pure value types (`element_patch`, `compose`,
+//!   `safe_directive`, `recovery_witness`).
+//! - [`host`] — host-side runtime context (`app_view`, `context`,
+//!   `variable_store`, `setting`).
+//! - [`effect`] — side-effecting outputs (`effects`, `effect_tiers`,
+//!   `command`, `error_attribution`, `kakoune_transparent_command`,
+//!   `kakoune_transparent_effects`).
+//!
+//! Items the rest of `kasane_core` historically reached via
+//! `crate::plugin::*` are still accessible there (see the `pub use`
+//! re-exports below).
 
-pub mod app_view;
+pub mod algebra;
 pub mod bridge;
 pub mod canvas;
 pub mod channel;
-pub mod command;
-pub mod compose;
-pub mod context;
 pub mod debug_overlay;
 pub mod diagnostics;
-pub mod effect_tiers;
-pub mod effects;
-pub mod element_patch;
-pub mod error_attribution;
+pub mod effect;
 pub mod handler_registry;
 pub(crate) mod handler_table;
+pub mod host;
 pub(crate) mod inline_box;
 pub mod io;
-pub mod kakoune_transparent_command;
-pub mod kakoune_transparent_effects;
 pub mod manager;
 pub mod process_task;
 pub mod projection_status;
 pub mod provider;
 pub mod pubsub;
-pub mod recovery_witness;
 pub mod registry;
 pub mod render_ornament;
-pub mod safe_directive;
 pub mod semantic_zoom;
-pub mod setting;
 pub mod state;
 pub mod traits;
-pub mod variable_store;
 
 #[cfg(test)]
 mod tests;
@@ -49,29 +52,29 @@ use serde::{Deserialize, Serialize};
 pub struct PluginId(pub String);
 
 // Re-export command module
-pub use command::{
-    BufferEdit, BufferPosition, Command, CommandResult, edits_to_keys, escape_kakoune_insert_text,
-    execute_commands, extract_redraw_flags, partition_commands,
-};
 pub use diagnostics::{
     PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticOverlayState, PluginDiagnosticSeverity,
     PluginDiagnosticTarget, ProviderArtifactStage, report_plugin_diagnostics,
 };
-pub use effect_tiers::{
+pub use effect::command::{
+    BufferEdit, BufferPosition, Command, CommandResult, edits_to_keys, escape_kakoune_insert_text,
+    execute_commands, extract_redraw_flags, partition_commands,
+};
+pub use effect::effect_tiers::{
     KakouneSideCommand, KakouneSideEffects, ObservationEffects, ProcessCapableEffects,
     ProcessCommand,
 };
-pub use effects::{
+pub use effect::effects::{
     Effects, EffectsBatch, LifecyclePhase, MouseHandleResult, NullEffects, PluginEffects,
     RecordingEffects, SourcedCommands, StateUpdates, TextInputHandleResult,
 };
+pub use host::setting::SettingValue;
 pub use manager::{AppliedWinnerDelta, PluginApplyResult, PluginManager, ResolvedPluginSnapshot};
 pub use provider::{
     CompositePluginProvider, PluginCollect, PluginDescriptor, PluginFactory, PluginProvider,
     PluginRank, PluginRevision, PluginSource, ProviderConfigUpdate, StaticPluginProvider,
     builtin_plugin, host_plugin, host_plugin_with_provider, plugin_factory,
 };
-pub use setting::SettingValue;
 
 // Re-export io module types
 pub use io::{
@@ -81,7 +84,7 @@ pub use io::{
 };
 
 // Re-export context module
-pub use context::{
+pub use host::context::{
     AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, CellDecoration, ContribSizeHint,
     ContributeContext, Contribution, DecorationTarget, FaceMerge, LineAnnotation, OverlayContext,
     OverlayContribution, PaneContext, SourcedContribution, TransformContext, TransformDescriptor,
@@ -119,31 +122,34 @@ pub use projection_status::ProjectionStatusPlugin;
 // `KakouneSafe*` per ADR-044 to free that namespace for the tier hierarchy
 // and to better name what these types actually witness — Kakoune
 // transparency).
-pub use kakoune_transparent_command::{KakouneTransparentCommand, KakouneTransparentKeyResult};
+pub use effect::kakoune_transparent_command::{
+    KakouneTransparentCommand, KakouneTransparentKeyResult,
+};
 
 // Re-export transparent effects types (ADR-030 Level 5)
-pub use kakoune_transparent_effects::KakouneTransparentEffects;
+pub use effect::kakoune_transparent_effects::KakouneTransparentEffects;
 
-pub use command::EffectCategory;
+pub use effect::command::EffectCategory;
 
 // Re-export recovery witness types (ADR-030 Level 4)
-pub use recovery_witness::{RecoveryMechanism, RecoveryWitness};
-pub use safe_directive::SafeDisplayDirective;
+pub use algebra::recovery_witness::{RecoveryMechanism, RecoveryWitness};
+pub use algebra::safe_directive::SafeDisplayDirective;
 
 // Re-export compose module
-pub use compose::{
+pub use algebra::compose::{
     CommutativeComposable, Composable, ContentAnnotationSet, ContributionSet, FirstWins,
     MenuTransformChain, OverlaySet, TransformChain, TransformChainEntry,
 };
 
 // Re-export app_view, state, and bridge modules
 pub use crate::state::Truth;
-pub use app_view::{AppView, FrameworkAccess};
+pub use algebra::element_patch::ElementPatch;
 pub use bridge::PluginBridge;
 pub use channel::ChannelValue;
-pub use element_patch::ElementPatch;
 pub use handler_registry::HandlerRegistry;
 pub use handler_table::GutterSide;
+pub use host::app_view::{AppView, FrameworkAccess};
+pub use host::variable_store::PluginVariableStore;
 pub use process_task::{ProcessTaskResult, ProcessTaskSpec};
 pub use pubsub::{OscillationKind, Topic, TopicBus, TopicId};
 pub use render_ornament::{
@@ -151,7 +157,6 @@ pub use render_ornament::{
     OrnamentModality, RenderOrnamentContext, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
 };
 pub use state::{Plugin, PluginState};
-pub use variable_store::PluginVariableStore;
 
 /// Identifies a built-in plugin feature that can be suppressed by user plugins.
 ///

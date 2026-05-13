@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use compact_str::CompactString;
 
-use super::PluginId;
+use super::super::PluginId;
 use crate::widget::types::Value;
 
 /// One entry in the store: a value plus the plugin that wrote it. The owner

@@ -15,11 +15,11 @@ use crate::state::DirtyFlags;
 use crate::surface::{Surface, SurfaceId, SurfacePlacementRequest};
 use crate::workspace::{Placement, WorkspaceCommand};
 
-use super::PluginId;
+use super::super::PluginId;
+use super::super::host::setting::SettingValue;
+use super::super::io::StdinMode;
+use super::super::traits::KeyHandleResult;
 use super::command::Command;
-use super::io::StdinMode;
-use super::setting::SettingValue;
-use super::traits::KeyHandleResult;
 
 /// A command guaranteed not to write to Kakoune.
 ///
@@ -227,7 +227,7 @@ impl KakouneTransparentCommand {
         Self(Command::ToggleAdditiveProjection(id))
     }
 
-    pub fn http_request(job_id: u64, config: super::io::HttpRequestConfig) -> Self {
+    pub fn http_request(job_id: u64, config: super::super::io::HttpRequestConfig) -> Self {
         Self(Command::HttpRequest { job_id, config })
     }
 

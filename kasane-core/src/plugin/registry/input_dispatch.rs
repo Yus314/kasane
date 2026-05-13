@@ -6,7 +6,7 @@ use crate::element::{InteractiveId, PluginTag};
 use crate::input::{DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::state::DirtyFlags;
 
-use crate::plugin::effects::{MouseHandleResult, StateUpdates, TextInputHandleResult};
+use crate::plugin::effect::effects::{MouseHandleResult, StateUpdates, TextInputHandleResult};
 use crate::plugin::traits::MousePreDispatchResult;
 use crate::plugin::{
     AppView, Command, KeyHandleResult, KeyPreDispatchResult, PluginCapabilities, PluginId,

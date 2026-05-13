@@ -59,14 +59,14 @@ use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
 
 #[allow(unused_imports)]
-use super::channel::ChannelValue;
+use super::algebra::element_patch::ElementPatch;
 #[allow(unused_imports)]
-use super::element_patch::ElementPatch;
+use super::channel::ChannelValue;
+use super::effect::kakoune_transparent_effects::KakouneTransparentEffects;
 #[allow(unused_imports)]
 use super::handler_table::{
     ContributeEntry, GutterHandlerEntry, GutterSide, HandlerTable, TransformEntry,
 };
-use super::kakoune_transparent_effects::KakouneTransparentEffects;
 #[allow(unused_imports)]
 use super::process_task::{ProcessTaskEntry, ProcessTaskResult, ProcessTaskSpec};
 #[allow(unused_imports)]

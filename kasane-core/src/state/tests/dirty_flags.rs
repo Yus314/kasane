@@ -54,7 +54,7 @@ fn test_menu_hide_returns_both_menu_flags() {
 #[test]
 fn test_apply_set_setting_updates_plugin_settings() {
     use crate::plugin::PluginId;
-    use crate::plugin::setting::SettingValue;
+    use crate::plugin::host::setting::SettingValue;
 
     let mut state = AppState::default();
     let mut dirty = DirtyFlags::empty();

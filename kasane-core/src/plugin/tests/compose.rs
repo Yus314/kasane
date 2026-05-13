@@ -5,11 +5,11 @@ use crate::display::{DirectiveSet, DisplayDirective, TaggedDirective};
 use crate::element::Element;
 use crate::element::OverlayAnchor;
 use crate::plugin::PluginId;
-use crate::plugin::compose::{
+use crate::plugin::algebra::compose::{
     Composable, ContentAnnotationSet, ContributionSet, FirstWins, MenuTransformChain, OverlaySet,
     TransformChain, TransformChainEntry,
 };
-use crate::plugin::context::{
+use crate::plugin::host::context::{
     ContribSizeHint, Contribution, OverlayContribution, SourcedContribution, TransformTarget,
 };
 use crate::protocol::Atom;
@@ -632,7 +632,7 @@ fn transform_target_buffer_line() {
 #[cfg(debug_assertions)]
 mod conflict_detection {
     use super::*;
-    use crate::plugin::context::{TransformDescriptor, TransformScope};
+    use crate::plugin::host::context::{TransformDescriptor, TransformScope};
     use crate::plugin::registry::check_transform_conflicts;
 
     #[test]

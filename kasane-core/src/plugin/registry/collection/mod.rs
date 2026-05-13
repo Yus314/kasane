@@ -20,7 +20,7 @@ mod overlays;
 mod transforms;
 
 use crate::element::OverlayAnchor;
-use crate::plugin::element_patch::ElementPatch;
+use crate::plugin::algebra::element_patch::ElementPatch;
 use crate::plugin::{GutterSide, PluginId, TransformTarget};
 
 use super::PluginSlot;
@@ -61,7 +61,7 @@ pub(super) fn detect_transform_conflicts_from_patches(
     slots: &[PluginSlot],
     target: &TransformTarget,
 ) {
-    use crate::plugin::context::TransformScope;
+    use crate::plugin::host::context::TransformScope;
 
     let mut replacement_count = 0;
     let mut replacement_plugin: Option<&PluginId> = None;
@@ -127,7 +127,7 @@ pub(crate) fn check_transform_conflicts(
     descriptors: &[(PluginId, Option<crate::plugin::TransformDescriptor>)],
     target: &TransformTarget,
 ) {
-    use crate::plugin::context::TransformScope;
+    use crate::plugin::host::context::TransformScope;
 
     let mut replacement_count = 0;
     let mut replacement_plugin: Option<&PluginId> = None;

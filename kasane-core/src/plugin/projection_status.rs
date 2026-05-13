@@ -5,7 +5,7 @@
 //! Examples: `[Outline]`, `[+ErrorLens]`, `[Outline +ErrorLens +DiffMarks]`.
 
 use crate::element::Element;
-use crate::plugin::context::{ContribSizeHint, Contribution};
+use crate::plugin::host::context::{ContribSizeHint, Contribution};
 use crate::plugin::state::Plugin;
 use crate::plugin::{HandlerRegistry, PluginId, SlotId};
 
@@ -93,8 +93,8 @@ pub fn format_projection_label(
 mod tests {
     use super::*;
     use crate::plugin::PluginBridge;
-    use crate::plugin::app_view::AppView;
-    use crate::plugin::context::ContributeContext;
+    use crate::plugin::host::app_view::AppView;
+    use crate::plugin::host::context::ContributeContext;
 
     #[test]
     fn format_none_active() {

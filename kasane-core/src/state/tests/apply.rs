@@ -196,7 +196,7 @@ fn test_apply_info_show_plugin_error_marker_suppressed() {
     let mut state = AppState::default();
 
     let flags = state.apply(KakouneRequest::InfoShow {
-        title: make_line(crate::plugin::error_attribution::PLUGIN_ERROR_MARKER),
+        title: make_line(crate::plugin::effect::error_attribution::PLUGIN_ERROR_MARKER),
         content: vec![
             make_line("sprout"),
             make_line("1:2: 'unknown-command': no such command"),

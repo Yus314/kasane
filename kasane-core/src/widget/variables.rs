@@ -3,7 +3,7 @@
 use compact_str::CompactString;
 
 use crate::plugin::AppView;
-use crate::plugin::variable_store::PluginVariableStore;
+use crate::plugin::host::variable_store::PluginVariableStore;
 use crate::protocol::{CursorMode, StatusStyle};
 use crate::state::DirtyFlags;
 use crate::state::derived::EditorMode;

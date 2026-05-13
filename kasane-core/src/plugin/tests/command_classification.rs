@@ -4,9 +4,9 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use crate::input::{InputEvent, Key, KeyEvent, Modifiers};
-use crate::plugin::command::Command;
+use crate::plugin::effect::command::Command;
+use crate::plugin::effect::kakoune_transparent_command::KakouneTransparentCommand;
 use crate::plugin::io::StdinMode;
-use crate::plugin::kakoune_transparent_command::KakouneTransparentCommand;
 use crate::plugin::{BufferEdit, BufferPosition, PluginId};
 use crate::protocol::KasaneRequest;
 use crate::session::SessionCommand;
@@ -43,7 +43,7 @@ pub(super) fn make_all_command_instances() -> Vec<Command> {
         Command::SetSetting {
             plugin_id: PluginId("test".into()),
             key: String::new(),
-            value: crate::plugin::setting::SettingValue::Bool(false),
+            value: crate::plugin::host::setting::SettingValue::Bool(false),
         },
         Command::Workspace(WorkspaceCommand::RemoveSurface(SurfaceId(0))),
         Command::RegisterSurface {

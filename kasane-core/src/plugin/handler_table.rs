@@ -23,7 +23,7 @@ use crate::display::unit::DisplayUnit;
 
 use crate::display::projection::ProjectionDescriptor;
 
-use super::element_patch::ElementPatch;
+use super::algebra::element_patch::ElementPatch;
 use super::process_task::ProcessTaskEntry;
 use super::pubsub::{PublishEntry, SubscribeEntry};
 use super::traits::{
@@ -93,12 +93,12 @@ pub(crate) type ErasedUpdateHandler = Box<
 
 /// HandlerRegistry-driven `on_command_error` (ADR-044). Fires when a
 /// Kakoune command attributed to this plugin fails. The handler receives
-/// the parsed [`super::error_attribution::PluginErrorEvent`] and returns
+/// the parsed [`super::effect::error_attribution::PluginErrorEvent`] and returns
 /// updated state + effects.
 pub(crate) type ErasedCommandErrorHandler = Box<
     dyn Fn(
             &dyn PluginState,
-            &super::error_attribution::PluginErrorEvent,
+            &super::effect::error_attribution::PluginErrorEvent,
             &AppView<'_>,
         ) -> (Box<dyn PluginState>, Effects)
         + Send
@@ -511,7 +511,7 @@ pub(crate) enum DisplayRecoveryStatus {
     NonDestructive,
     /// Handler may emit Hide, but recovery evidence was provided.
     #[allow(dead_code)] // witness value is stored for future diagnostic / introspection use
-    Witnessed(super::recovery_witness::RecoveryWitness),
+    Witnessed(super::algebra::recovery_witness::RecoveryWitness),
     /// Handler may emit Hide, no recovery evidence.
     Unwitnessed,
 }

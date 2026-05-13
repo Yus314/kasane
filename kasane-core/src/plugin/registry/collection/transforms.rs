@@ -1,6 +1,6 @@
 //! Transform chain dispatch (TRANSFORMER plugins) and menu-item transforms.
 
-use crate::plugin::element_patch::ElementPatch;
+use crate::plugin::algebra::element_patch::ElementPatch;
 use crate::plugin::{
     AppView, PaneContext, PluginCapabilities, PluginId, TransformContext, TransformSubject,
     TransformTarget,

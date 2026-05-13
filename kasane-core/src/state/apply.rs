@@ -1,4 +1,4 @@
-use crate::plugin::error_attribution::PluginErrorEvent;
+use crate::plugin::effect::error_attribution::PluginErrorEvent;
 use crate::protocol::KakouneRequest;
 use crate::render::color_context::ColorContext;
 
@@ -245,8 +245,10 @@ pub(crate) fn apply_protocol(
             // Intercept the plugin-error marker (ADR-042): log + suppress
             // the UI popup, and queue the parsed event for plugin-side
             // dispatch via `ConfigReactions::pending_plugin_errors`.
-            if crate::plugin::error_attribution::is_plugin_error_marker(&title) {
-                if let Some(ev) = crate::plugin::error_attribution::parse_plugin_error(&content) {
+            if crate::plugin::effect::error_attribution::is_plugin_error_marker(&title) {
+                if let Some(ev) =
+                    crate::plugin::effect::error_attribution::parse_plugin_error(&content)
+                {
                     tracing::warn!(
                         plugin_id = %ev.plugin_id,
                         message = %ev.message,

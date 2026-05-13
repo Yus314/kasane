@@ -179,7 +179,7 @@ pub(crate) fn wit_canvas_op_to_canvas_op(
 // ---------------------------------------------------------------------------
 
 use kasane_core::plugin::ElementPatch;
-use kasane_core::plugin::element_patch::PatchPredicate;
+use kasane_core::plugin::algebra::element_patch::PatchPredicate;
 use kasane_core::surface::SurfaceId;
 
 /// Convert a WIT `list<element-patch-op>` into a core `ElementPatch`.

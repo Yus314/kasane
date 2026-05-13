@@ -483,7 +483,7 @@ pub(crate) fn wit_channel_value_to_core(wv: &wit::ChannelValue) -> ChannelValue 
 // SettingValue conversions (WIT → native)
 // ---------------------------------------------------------------------------
 
-use kasane_core::plugin::setting::SettingValue;
+use kasane_core::plugin::host::setting::SettingValue;
 
 pub(crate) fn wit_setting_value_to_setting_value(wv: &wit::SettingValue) -> SettingValue {
     match wv {

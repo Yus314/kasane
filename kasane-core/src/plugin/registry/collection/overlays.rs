@@ -1,6 +1,6 @@
 //! Overlay collection and menu/info overlay resolution (OVERLAY plugins).
 
-use crate::plugin::compose::{Composable, OverlaySet};
+use crate::plugin::algebra::compose::{Composable, OverlaySet};
 use crate::plugin::{AppView, OverlayContext, OverlayContribution, PluginCapabilities};
 
 use super::super::PluginView;

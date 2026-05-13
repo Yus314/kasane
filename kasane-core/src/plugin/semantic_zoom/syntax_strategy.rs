@@ -4,7 +4,7 @@
 //! signature_summary) to generate display directives with AST awareness.
 
 use crate::display::DisplayDirective;
-use crate::plugin::app_view::AppView;
+use crate::plugin::host::app_view::AppView;
 use crate::protocol::{Atom, Style, WireFace};
 use crate::syntax::SyntaxProvider;
 

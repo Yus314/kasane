@@ -1,7 +1,7 @@
 //! Per-line annotation collection (ANNOTATOR plugins) and content annotations.
 
 use crate::element::{Element, FlexChild};
-use crate::plugin::compose::{Composable, ContentAnnotationSet};
+use crate::plugin::algebra::compose::{Composable, ContentAnnotationSet};
 use crate::plugin::{
     AnnotateContext, AnnotationResult, AppView, BackgroundLayer, GutterSide, PluginCapabilities,
     PluginId,
@@ -83,7 +83,7 @@ impl<'a> PluginView<'a> {
                             BackgroundLayer {
                                 style: style.clone(),
                                 z_order: *z_order,
-                                blend: crate::plugin::context::BlendMode::Opaque,
+                                blend: crate::plugin::host::context::BlendMode::Opaque,
                             },
                             pid.clone(),
                         ));

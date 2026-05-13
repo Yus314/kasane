@@ -9,7 +9,7 @@
 use crate::scroll::ScrollPlan;
 use crate::state::DirtyFlags;
 
-use super::Effects;
+use super::super::Effects;
 use super::kakoune_transparent_command::KakouneTransparentCommand;
 
 /// An effects value guaranteed not to contain Kakoune-writing commands.
@@ -88,7 +88,7 @@ impl From<KakouneTransparentEffects> for Effects {
             redraw: te.redraw,
             commands: te.commands.into_iter().map(Into::into).collect(),
             scroll_plans: te.scroll_plans,
-            state_updates: super::StateUpdates::default(),
+            state_updates: super::super::StateUpdates::default(),
         }
     }
 }

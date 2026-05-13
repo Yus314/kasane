@@ -20,7 +20,7 @@ use crate::workspace::WorkspaceQuery;
 
 use super::AppView;
 use super::bridge::PluginBridge;
-use super::effects::{MouseHandleResult, PluginEffects, TextInputHandleResult};
+use super::effect::effects::{MouseHandleResult, PluginEffects, TextInputHandleResult};
 use super::inline_box::{InlineBoxStack, MAX_INLINE_BOX_DEPTH};
 use super::state::Plugin;
 use super::traits::MousePreDispatchResult;
@@ -77,7 +77,7 @@ pub struct PluginRuntime {
     any_plugin_state_changed: bool,
     next_tag: u16,
     directive_stability: RefCell<DirectiveStabilityMonitor>,
-    variable_store: super::variable_store::PluginVariableStore,
+    variable_store: super::host::variable_store::PluginVariableStore,
     suppressed_builtins: std::collections::HashSet<super::BuiltinTarget>,
     /// Plugin IDs that were unloaded since the last drain. Used by the salsa
     /// sync path to clean up contribution caches.
@@ -123,7 +123,7 @@ impl PluginRuntime {
             any_plugin_state_changed: false,
             next_tag: 1,
             directive_stability: RefCell::new(DirectiveStabilityMonitor::new()),
-            variable_store: super::variable_store::PluginVariableStore::default(),
+            variable_store: super::host::variable_store::PluginVariableStore::default(),
             suppressed_builtins: std::collections::HashSet::new(),
             unloaded_ids: Vec::new(),
             topic_bus: super::pubsub::TopicBus::new(),
@@ -258,12 +258,12 @@ impl PluginRuntime {
     }
 
     /// Access the plugin variable store.
-    pub fn variable_store(&self) -> &super::variable_store::PluginVariableStore {
+    pub fn variable_store(&self) -> &super::host::variable_store::PluginVariableStore {
         &self.variable_store
     }
 
     /// Mutably access the plugin variable store.
-    pub fn variable_store_mut(&mut self) -> &mut super::variable_store::PluginVariableStore {
+    pub fn variable_store_mut(&mut self) -> &mut super::host::variable_store::PluginVariableStore {
         &mut self.variable_store
     }
 
@@ -796,7 +796,7 @@ impl PluginRuntime {
     pub fn deliver_command_error_batch(
         &mut self,
         target: &PluginId,
-        error: &super::error_attribution::PluginErrorEvent,
+        error: &super::effect::error_attribution::PluginErrorEvent,
         app: &AppView<'_>,
     ) -> EffectsBatch {
         for slot in &mut self.slots {
@@ -959,7 +959,7 @@ impl PluginEffects for PluginRuntime {
     fn dispatch_command_error(
         &mut self,
         target: &PluginId,
-        error: &super::error_attribution::PluginErrorEvent,
+        error: &super::effect::error_attribution::PluginErrorEvent,
         app: &AppView<'_>,
     ) -> EffectsBatch {
         self.deliver_command_error_batch(target, error, app)

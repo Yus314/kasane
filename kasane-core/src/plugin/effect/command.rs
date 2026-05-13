@@ -13,9 +13,9 @@ use crate::surface::SurfaceId;
 use crate::surface::SurfacePlacementRequest;
 use crate::workspace::{Placement, WorkspaceCommand};
 
-use super::PluginId;
-use super::io::{HttpRequestConfig, StdinMode};
-use super::setting::SettingValue;
+use super::super::PluginId;
+use super::super::host::setting::SettingValue;
+use super::super::io::{HttpRequestConfig, StdinMode};
 
 // =============================================================================
 // Effect categories (ADR-030 Level 5)

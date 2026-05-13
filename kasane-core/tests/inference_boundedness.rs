@@ -27,7 +27,7 @@ use kasane_core::config::MenuPosition;
 use kasane_core::display::FoldToggleState;
 use kasane_core::layout::HitMap;
 use kasane_core::plugin::PluginId;
-use kasane_core::plugin::setting::SettingValue;
+use kasane_core::plugin::host::setting::SettingValue;
 use kasane_core::protocol::{Coord, CursorMode, Line, StatusStyle, Style};
 use kasane_core::render::color_context::ColorContext;
 use kasane_core::render::theme::Theme;

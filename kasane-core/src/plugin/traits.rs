@@ -2,7 +2,7 @@ use crate::input::{KeyEvent, KeyResponse};
 use crate::state::{self, DirtyFlags};
 
 use super::Command;
-use super::effects::StateUpdates;
+use super::effect::effects::StateUpdates;
 
 /// Result of key middleware dispatch.
 #[derive(Default)]

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::display::{FoldToggleState, ProjectionPolicyState};
 use crate::plugin::PluginId;
-use crate::plugin::setting::SettingValue;
+use crate::plugin::host::setting::SettingValue;
 use crate::protocol::{Coord, CursorMode, Line, StatusStyle};
 use crate::session::SessionDescriptor;
 use crate::state::{AppState, Inference, InfoState, MenuState, Policy, Truth};
@@ -497,13 +497,13 @@ impl<'a> AppView<'a> {
 
     /// Check if a built-in target has been suppressed.
     #[inline]
-    pub fn is_builtin_suppressed(&self, target: super::BuiltinTarget) -> bool {
+    pub fn is_builtin_suppressed(&self, target: super::super::BuiltinTarget) -> bool {
         self.state.runtime.suppressed_builtins.contains(&target)
     }
 
     /// Plugin diagnostic overlay state.
     #[inline]
-    pub fn diagnostic_overlay(&self) -> &super::diagnostics::PluginDiagnosticOverlayState {
+    pub fn diagnostic_overlay(&self) -> &super::super::diagnostics::PluginDiagnosticOverlayState {
         &self.state.runtime.diagnostic_overlay
     }
 
@@ -513,7 +513,7 @@ impl<'a> AppView<'a> {
     /// stable plugin API; the shape may change.
     #[doc(hidden)]
     #[inline]
-    pub fn diagnostic_history(&self) -> &super::diagnostics::DiagnosticHistory {
+    pub fn diagnostic_history(&self) -> &super::super::diagnostics::DiagnosticHistory {
         &self.state.runtime.diagnostic_history
     }
 

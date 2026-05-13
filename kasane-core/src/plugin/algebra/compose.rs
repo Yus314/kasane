@@ -27,8 +27,8 @@
 //! Key middleware (`handle_key` → `KeyHandleResult` 3-variant threading) is an
 //! imperative Kleisli-style chain and is not modeled as `Composable`.
 
+use super::super::{OverlayContribution, PluginId, SourcedContribution};
 use super::element_patch::ElementPatch;
-use super::{OverlayContribution, PluginId, SourcedContribution};
 use crate::display::DirectiveSet;
 use crate::display::content_annotation::ContentAnnotation;
 
