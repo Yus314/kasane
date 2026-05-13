@@ -400,6 +400,12 @@ pub fn sync_salsa_for_render(
     handles: &mut crate::salsa_sync::SalsaInputHandles,
 ) {
     crate::salsa_sync::cleanup_unloaded_plugins(registry, handles);
+    // δ-2.2: mirror each plugin's revision onto its per-slot Salsa
+    // input. The input has no consumers yet (those land in δ-2.3),
+    // but maintaining the invariant from registration onward means the
+    // future tracked queries can be wired in without a separate
+    // backfill pass.
+    registry.sync_state_revisions(db);
     crate::salsa_sync::sync_inputs_from_state(db, state, handles);
     let view = registry.view();
     crate::salsa_sync::sync_unified_display(db, state, &view, handles);

@@ -70,6 +70,10 @@ pub(crate) struct PluginSlot {
     pub(crate) last_group_refresh_hash: u64,
     /// Structured capability descriptor for interference detection.
     pub(crate) descriptor: Option<super::CapabilityDescriptor>,
+    /// Per-plugin Salsa input mirroring `backend.state_hash()` (δ-2.2).
+    /// `None` until the first `sync_state_revisions(db)` call creates
+    /// the input; the input then persists for the slot's lifetime.
+    pub(crate) state_revision: Option<crate::salsa_inputs::PluginStateRevisionInput>,
 }
 
 pub struct PluginRuntime {
@@ -348,6 +352,7 @@ impl PluginRuntime {
                 chord_state: ChordState::default(),
                 last_group_refresh_hash: HASH_SENTINEL,
                 descriptor,
+                state_revision: None,
             });
         }
         self.suppressed_builtins.extend(new_suppressions);
@@ -435,6 +440,52 @@ impl PluginRuntime {
     /// Returns true if any plugin needs its view contributions re-collected.
     pub fn any_needs_recollect(&self) -> bool {
         self.slots.iter().any(|s| s.needs_recollect)
+    }
+
+    /// Mirror every plugin's current `state_hash()` onto its per-slot
+    /// [`PluginStateRevisionInput`](crate::salsa_inputs::PluginStateRevisionInput)
+    /// (δ-2.2 foundation).
+    ///
+    /// Lazily creates the input on first sync after a plugin registers;
+    /// subsequent syncs call `set_revision().to(current)` which Salsa
+    /// short-circuits via `PartialEq` when the value is unchanged. The
+    /// input is the canonical Salsa-side revision tracker for downstream
+    /// tracked queries (landing in δ-2.3); the imperative
+    /// `slot.last_state_hash` / `slot.needs_recollect` pair continues to
+    /// gate the existing imperative collection path until those queries
+    /// arrive.
+    pub fn sync_state_revisions(&mut self, db: &mut crate::salsa_db::KasaneDatabase) {
+        use salsa::Setter;
+        for slot in &mut self.slots {
+            let current = slot.backend.state_hash();
+            match slot.state_revision {
+                Some(input) => {
+                    if input.revision(db) != current {
+                        input.set_revision(db).to(current);
+                    }
+                }
+                None => {
+                    slot.state_revision = Some(crate::salsa_inputs::PluginStateRevisionInput::new(
+                        db, current,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Test-only: read the per-slot Salsa revision input value for the
+    /// plugin at `idx`. Returns `None` if `sync_state_revisions` has
+    /// not yet been called for this slot.
+    #[cfg(test)]
+    pub(crate) fn state_revision_at(
+        &self,
+        idx: usize,
+        db: &crate::salsa_db::KasaneDatabase,
+    ) -> Option<u64> {
+        self.slots
+            .get(idx)
+            .and_then(|s| s.state_revision)
+            .map(|input| input.revision(db))
     }
 
     /// Initialize all plugins and collect typed bootstrap effects.

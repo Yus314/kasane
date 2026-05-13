@@ -1372,6 +1372,32 @@ mod tests {
     }
 
     #[test]
+    fn sync_state_revisions_mirrors_bridge_state_hash() {
+        let mut registry = PluginRuntime::new();
+        registry.register(CursorLinePure);
+
+        let mut db = crate::salsa_db::KasaneDatabase::default();
+        let mut app = AppState::default();
+        app.observed.cursor_pos.line = 3;
+
+        // First sync — input is lazily created with the bridge's
+        // current state_hash (0, since no mutation has occurred).
+        registry.sync_state_revisions(&mut db);
+        assert_eq!(registry.state_revision_at(0, &db), Some(0));
+
+        // Mutate state via a plugin lifecycle hook; bridge.state_hash
+        // bumps to 1, sync mirrors that onto the Salsa input.
+        registry.notify_state_changed_batch(&AppView::new(&app), DirtyFlags::BUFFER);
+        registry.sync_state_revisions(&mut db);
+        assert_eq!(registry.state_revision_at(0, &db), Some(1));
+
+        // Idle sync (no mutation) — input revision stays at 1; Salsa's
+        // set_revision().to() short-circuits via PartialEq.
+        registry.sync_state_revisions(&mut db);
+        assert_eq!(registry.state_revision_at(0, &db), Some(1));
+    }
+
+    #[test]
     fn view_deps_exposed_through_plugin_view() {
         struct BufferOnlyPlugin;
         impl Plugin for BufferOnlyPlugin {
