@@ -2528,6 +2528,7 @@ dependencies = [
  "image",
  "itoa",
  "kasane-macros",
+ "kasane-protocol",
  "kdl",
  "postcard",
  "proptest",
@@ -2610,6 +2611,18 @@ dependencies = [
  "sha2 0.11.0",
  "thiserror 2.0.18",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "kasane-protocol"
+version = "0.7.0"
+dependencies = [
+ "bitflags 2.11.1",
+ "compact_str",
+ "serde",
+ "serde_json",
+ "simd-json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

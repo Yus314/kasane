@@ -630,7 +630,7 @@ fn test_atom_style_projection_final_flags() {
     let face = parse_face_json(
         r#"{"fg":"black","bg":"white","underline":"default","attributes":["final_fg","final_bg"]}"#,
     );
-    let unresolved = crate::protocol::style::UnresolvedStyle::from_face(&face);
+    let unresolved = crate::style::UnresolvedStyle::from_face(&face);
     assert!(unresolved.final_fg);
     assert!(unresolved.final_bg);
     assert!(!unresolved.final_style);
@@ -655,15 +655,13 @@ fn test_atom_style_round_trip_face() {
     let face = parse_face_json(
         r#"{"fg":"red","bg":"blue","underline":"green","attributes":["bold","italic","dim","curly_underline","final_fg"]}"#,
     );
-    let unresolved = crate::protocol::style::UnresolvedStyle::from_face(&face);
+    let unresolved = crate::style::UnresolvedStyle::from_face(&face);
     assert_eq!(unresolved.to_face(), face);
 
     // The post-resolve Style form drops `final_*`; round-trip works only on
     // faces without those flags.
     let mut face_no_final = face;
-    face_no_final
-        .attributes
-        .remove(crate::protocol::Attributes::FINAL_FG);
+    face_no_final.attributes.remove(crate::Attributes::FINAL_FG);
     let style = Style::from_face(&face_no_final);
     assert_eq!(style.to_face(), face_no_final);
 }
@@ -674,7 +672,7 @@ fn test_atom_style_round_trip_face() {
 /// migration can proceed import-only without behaviour changes.
 #[test]
 fn wire_submodule_reexports_match_protocol() {
-    use crate::protocol;
+    use crate as protocol;
 
     // Type identity check by round-trip — if `protocol::wire::WireFace` and
     // `protocol::WireFace` resolved to different items, the assignment

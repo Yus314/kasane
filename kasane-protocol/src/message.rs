@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 use super::color::WireFace;
 use super::style::{Style, UnresolvedStyle};
 
-// Post-resolve atom construction goes through `Atom::with_style`. The wire
-// parser interns `Arc<UnresolvedStyle>` directly via `from_style`. The
-// legacy `Atom::from_wire(WireFace, _)` public constructor was retired in
-// R2.x P9 (ADR-039); the `final_*`-preserving path is now `pub(crate)`
-// for the JSON parser and `test_support::wire`'s cursor fixtures only.
+// Post-resolve atom construction goes through `Atom::with_style`. The
+// `final_*`-preserving `Atom::from_wire` constructor stays `#[doc(hidden)]
+// pub` so the wire parser and `kasane_core::test_support::wire`'s cursor
+// fixtures can reach it across the crate boundary while staying out of the
+// rendered API surface.
 
 // ---------------------------------------------------------------------------
 // Atom / Line / Coord
@@ -21,7 +21,7 @@ use super::style::{Style, UnresolvedStyle};
 ///
 /// `style` is an `Arc<UnresolvedStyle>` so identical styles in the same
 /// frame can share the allocation. Parse-time interning lives in
-/// [`crate::protocol::parse`]; once an `Atom` exists, reading its style
+/// [`crate::parse`]; once an `Atom` exists, reading its style
 /// is a pointer dereference (no locks, no per-cell hashing).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Atom {
@@ -32,9 +32,10 @@ pub struct Atom {
 impl Atom {
     /// **Wire-format-aware** atom constructor that preserves Kakoune
     /// `final_*` resolution flags. Internal to the protocol parser and
-    /// `test_support::wire`'s cursor fixtures (`detect_cursors` keys on
-    /// `FINAL_FG | REVERSE`); not part of the public API.
-    pub(crate) fn from_wire(face: WireFace, contents: impl Into<CompactString>) -> Self {
+    /// `kasane_core::test_support::wire`'s cursor fixtures (`detect_cursors`
+    /// keys on `FINAL_FG | REVERSE`); not part of the public API.
+    #[doc(hidden)]
+    pub fn from_wire(face: WireFace, contents: impl Into<CompactString>) -> Self {
         Self {
             contents: contents.into(),
             style: Arc::new(UnresolvedStyle::from_face(&face)),

@@ -11,7 +11,7 @@ pub mod layout;
 pub mod lens;
 pub mod plugin;
 pub mod plugin_prelude;
-pub mod protocol;
+pub use kasane_protocol as protocol;
 pub mod render;
 pub mod salsa_db;
 pub(crate) mod salsa_inputs;

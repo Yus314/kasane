@@ -38,9 +38,10 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | Crate | Purpose |
 |---|---|
 | `kasane/` | Main binary + library — CLI parsing, Kakoune process management, `kasane::run()` entry point for custom plugin binaries |
-| `kasane-core/` | Core library — protocol, state (TEA), element tree, layout, rendering, plugin system |
+| `kasane-core/` | Core library — state (TEA), element tree, layout, rendering, plugin system |
 | `kasane-core-tests/` | Integration test surface for `kasane-core` — `tests/` tree split out of the library crate so `cargo test --lib -p kasane-core` is the fast inner loop (ε-3) |
 | `kasane-internal/` | Façade re-exporting `kasane-core`'s `#[doc(hidden)] pub` items (Salsa runtime + display algebra + WireFace + RecoveryWitness + SafeDisplayDirective). Internal consumers (`kasane-tui`, `kasane-gui`, future Salsa users) depend on this crate so plugin-author code only sees `kasane-core`'s prelude-shaped public API (ε-1) |
+| `kasane-protocol/` | Kakoune `kak -ui json` JSON-RPC parser + wire-format types (`WireFace`, `Atom`, `Style`, `UnresolvedStyle`, `KakouneRequest`). Re-exported by `kasane-core` as `kasane_core::protocol` for compatibility (ε-2) |
 | `kasane-tui/` | TUI backend — crossterm-based terminal rendering |
 | `kasane-gui/` | GPU backend — winit + wgpu + Parley + swash (feature-gated via `--features gui`) |
 | `kasane-macros/` | Proc macros — `#[kasane::plugin]` and `#[kasane::component]` |

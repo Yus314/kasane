@@ -724,7 +724,7 @@ pub fn default_unresolved_style() -> std::sync::Arc<UnresolvedStyle> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::color::{Attributes, Color, WireFace};
+    use crate::color::{Attributes, Color, WireFace};
 
     #[test]
     fn brush_default_is_inherit() {
