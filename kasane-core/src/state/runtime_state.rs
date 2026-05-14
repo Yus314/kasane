@@ -15,6 +15,20 @@ use crate::syntax::SyntaxProvider;
 use super::DragState;
 use super::derived::InferenceStrategy;
 
+/// Cell-grid metrics for the active GUI backend. `None` on TUI;
+/// `Some(metrics)` once the GUI backend has measured the active font face.
+///
+/// Plugins access these via WIT `host-state.get-cell-metrics` /
+/// `get-default-font-size-px` / `backend-supports-sub-cell-spacing`. The
+/// `Option` shape is the canonical "is the backend variable-pitch?" signal.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BackendCellMetrics {
+    pub cell_width_px: f32,
+    pub cell_height_px: f32,
+    pub baseline_px: f32,
+    pub font_size_px: f32,
+}
+
 /// Ephemeral runtime state.
 ///
 /// Every field here carries `#[epistemic(runtime)]` semantics.
@@ -65,6 +79,10 @@ pub struct RuntimeState {
     ///
     /// Set once at startup. Default: [`DefaultInferenceStrategy`](super::derived::DefaultInferenceStrategy).
     pub inference_strategy: Arc<dyn InferenceStrategy>,
+    /// Cell-grid metrics in physical pixels, populated by the GUI backend on
+    /// resize / font reload. `None` on TUI (cell grid is implicit at 1.0).
+    /// Surfaces via WIT `host-state.get-cell-metrics`.
+    pub backend_cell_metrics: Option<BackendCellMetrics>,
 }
 
 impl std::fmt::Debug for RuntimeState {
@@ -107,6 +125,7 @@ impl Default for RuntimeState {
             log_path: None,
             plugins_dir: None,
             inference_strategy: Arc::new(super::derived::DefaultInferenceStrategy),
+            backend_cell_metrics: None,
         }
     }
 }

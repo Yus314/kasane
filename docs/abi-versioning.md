@@ -8,7 +8,7 @@ the crate-level axis follows Rust semver and is enforced by Cargo.
 
 | Axis | Source of truth | Example |
 |---|---|---|
-| WIT ABI | `kasane-wit/wit/plugin.wit:1` | `package kasane:plugin@6.1.0;` |
+| WIT ABI | `kasane-wit/wit/plugin.wit:1` | `package kasane:plugin@6.2.0;` |
 | SDK crate semver | `kasane-plugin-sdk/Cargo.toml` | `version = "0.6.0"` |
 
 The two move together for major bumps that change the wire format. The
@@ -76,9 +76,18 @@ SDK that uses only existing WIT types is a *crate* minor bump but
 | 0.6.x | 3.0.0 | 0.6.x |
 | 0.7.x (early) | 5.0.0 | 0.7.x |
 | 0.7.x (Phase β-4) | 6.0.0 | 0.7.x |
-| 0.7.x (current) | 6.1.0 | 0.7.x |
+| 0.7.x | 6.1.0 | 0.7.x |
+| 0.7.x (current) | 6.2.0 | 0.7.x |
 
 Future entries land here as releases ship.
+
+ABI 6.2.0 ([#109](https://github.com/Yus314/kasane/issues/109)) adds a
+`cell-metrics` record and three accessors to `host-state` —
+`get-default-font-size-px`, `get-cell-metrics`,
+`backend-supports-sub-cell-spacing` — so plugins can compute pixel-unit
+values for the existing `style.letter-spacing: f32` field. Unblocks UTR
+#59 (CJK-Latin auto-spacing) on the GUI backend. TUI returns synthetic
+1.0 values and reports `false` from the capability accessor.
 
 ABI 6.1.0 ([#108](https://github.com/Yus314/kasane/issues/108)) adds
 `get-display-cells` to `host-state`: a `unicode-width`-backed cell

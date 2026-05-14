@@ -99,6 +99,9 @@ pub(crate) struct HostState {
     // --- Tier 11: Runtime state ---
     pub is_dragging: bool,
 
+    // --- WIT 6.2 (#109): GUI font / cell metrics. None on TUI. ---
+    pub backend_cell_metrics: Option<kasane_core::state::runtime_state::BackendCellMetrics>,
+
     // --- DU-4: Display unit map ---
     pub display_unit_map: Option<kasane_core::display::DisplayUnitMap>,
 
@@ -175,6 +178,7 @@ impl Default for HostState {
             theme: kasane_core::render::theme::Theme::default_theme(),
             is_dark: true,
             is_dragging: false,
+            backend_cell_metrics: None,
             display_unit_map: None,
             syntax_provider: None,
             elements: Vec::new(),
@@ -221,6 +225,30 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     }
     fn get_display_cells(&mut self, ch: char) -> u8 {
         unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0) as u8
+    }
+    fn get_default_font_size_px(&mut self) -> f32 {
+        self.backend_cell_metrics
+            .map(|m| m.font_size_px)
+            .unwrap_or(1.0)
+    }
+    fn get_cell_metrics(&mut self) -> bindings::kasane::plugin::types::CellMetrics {
+        let m = self.backend_cell_metrics.unwrap_or(
+            kasane_core::state::runtime_state::BackendCellMetrics {
+                cell_width_px: 1.0,
+                cell_height_px: 1.0,
+                baseline_px: 1.0,
+                font_size_px: 1.0,
+            },
+        );
+        bindings::kasane::plugin::types::CellMetrics {
+            cell_width_px: m.cell_width_px,
+            cell_height_px: m.cell_height_px,
+            baseline_px: m.baseline_px,
+            font_size_px: m.font_size_px,
+        }
+    }
+    fn backend_supports_sub_cell_spacing(&mut self) -> bool {
+        self.backend_cell_metrics.is_some()
     }
     fn get_line_text(&mut self, line: u32) -> Option<String> {
         let idx = line as usize;
@@ -1227,6 +1255,7 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
         CursorMode::Prompt => 1,
     };
     host.is_dragging = !matches!(state.runtime.drag, kasane_core::state::DragState::None);
+    host.backend_cell_metrics = state.runtime.backend_cell_metrics;
     host.editor_mode = match state.inference.editor_mode {
         kasane_core::state::derived::EditorMode::Normal => 0,
         kasane_core::state::derived::EditorMode::Insert => 1,
@@ -1423,5 +1452,57 @@ mod tests {
                 "per-char sum must equal UnicodeWidthStr::width for {s:?}",
             );
         }
+    }
+
+    // --- WIT 6.2 (#109) ---
+
+    #[test]
+    fn tui_font_metrics_are_synthetic() {
+        let mut host = HostState::default();
+        assert_eq!(host.get_default_font_size_px(), 1.0);
+        assert!(!host.backend_supports_sub_cell_spacing());
+        let m = host.get_cell_metrics();
+        assert_eq!(m.cell_width_px, 1.0);
+        assert_eq!(m.cell_height_px, 1.0);
+        assert_eq!(m.baseline_px, 1.0);
+        assert_eq!(m.font_size_px, 1.0);
+    }
+
+    #[test]
+    fn gui_font_metrics_round_trip_from_backend() {
+        let mut host = HostState::default();
+        host.backend_cell_metrics = Some(kasane_core::state::runtime_state::BackendCellMetrics {
+            cell_width_px: 8.4,
+            cell_height_px: 16.8,
+            baseline_px: 12.5,
+            font_size_px: 14.0,
+        });
+        assert_eq!(host.get_default_font_size_px(), 14.0);
+        assert!(host.backend_supports_sub_cell_spacing());
+        let m = host.get_cell_metrics();
+        assert_eq!(m.cell_width_px, 8.4);
+        assert_eq!(m.cell_height_px, 16.8);
+        assert_eq!(m.baseline_px, 12.5);
+        assert_eq!(m.font_size_px, 14.0);
+    }
+
+    #[test]
+    fn quarter_em_recipe_computes_letter_spacing_value() {
+        // Mirrors the UTR #59 cookbook recipe at docs/plugin-cookbook.md.
+        // Given a 14 px font on GUI, a plugin inserting a ¼em CJK-Latin
+        // gap should set letter_spacing = 3.5 px.
+        let mut host = HostState::default();
+        host.backend_cell_metrics = Some(kasane_core::state::runtime_state::BackendCellMetrics {
+            cell_width_px: 8.4,
+            cell_height_px: 16.8,
+            baseline_px: 12.5,
+            font_size_px: 14.0,
+        });
+        let quarter_em_px = if host.backend_supports_sub_cell_spacing() {
+            Some(host.get_default_font_size_px() * 0.25)
+        } else {
+            None
+        };
+        assert_eq!(quarter_em_px, Some(3.5));
     }
 }

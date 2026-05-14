@@ -367,6 +367,13 @@ where
                 // Setup state with measured dimensions
                 self.state.runtime.cols = metrics.cols;
                 self.state.runtime.rows = metrics.rows;
+                self.state.runtime.backend_cell_metrics =
+                    Some(kasane_core::state::runtime_state::BackendCellMetrics {
+                        cell_width_px: metrics.cell_width,
+                        cell_height_px: metrics.cell_height,
+                        baseline_px: metrics.baseline,
+                        font_size_px: self.config.font.size * scale_factor as f32,
+                    });
                 self.state.apply_config(&self.config);
 
                 // Setup backend
@@ -1210,6 +1217,13 @@ where
 
         self.state.runtime.cols = metrics.cols;
         self.state.runtime.rows = metrics.rows;
+        self.state.runtime.backend_cell_metrics =
+            Some(kasane_core::state::runtime_state::BackendCellMetrics {
+                cell_width_px: metrics.cell_width,
+                cell_height_px: metrics.cell_height,
+                baseline_px: metrics.baseline,
+                font_size_px: self.config.font.size * scale as f32,
+            });
         if let Some(ref mut backend) = self.backend {
             backend.update_metrics(metrics);
         }

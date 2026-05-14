@@ -531,6 +531,73 @@ For variable-pitch alignment (proportional fonts on the GUI backend),
 this primitive is not sufficient — see the WIT 2.x text-metrics bundle
 in `docs/roadmap.md`.
 
+## CJK-Latin Spacing (UTR #59)
+
+Insert a ¼em visual gap between a CJK glyph and an adjacent Latin word
+using the existing `style.letter-spacing: f32` (pixel-unit) field plus
+the `host-state.get-default-font-size-px` accessor introduced in WIT
+6.2. Branch on `backend-supports-sub-cell-spacing` so the spacing
+becomes a no-op on TUI rather than producing values the terminal cannot
+render.
+
+```rust
+use kasane_plugin_sdk::host_state;
+
+fn quarter_em_letter_spacing() -> Option<f32> {
+    if host_state::backend_supports_sub_cell_spacing() {
+        Some(host_state::get_default_font_size_px() * 0.25)
+    } else {
+        None
+    }
+}
+
+fn is_cjk(c: char) -> bool {
+    let cp = c as u32;
+    matches!(cp,
+        0x3040..=0x30FF |   // Hiragana + Katakana
+        0x4E00..=0x9FFF |   // CJK Unified Ideographs
+        0xAC00..=0xD7AF     // Hangul syllables
+    )
+}
+
+/// Split a line into atoms with ¼em spacing inserted at every
+/// kanji/Latin boundary. Returns the input unchanged on TUI.
+fn split_with_utr59_spacing(text: &str, base_style: Style) -> Vec<Atom> {
+    let Some(gap_px) = quarter_em_letter_spacing() else {
+        return vec![Atom { style: base_style, contents: text.into() }];
+    };
+    let mut out = Vec::new();
+    let mut buf = String::new();
+    let mut prev: Option<char> = None;
+    for c in text.chars() {
+        if let Some(p) = prev {
+            let boundary = is_cjk(p) ^ is_cjk(c);
+            if boundary {
+                out.push(Atom { style: base_style.clone(), contents: std::mem::take(&mut buf) });
+                let mut spaced = base_style.clone();
+                spaced.letter_spacing = gap_px;
+                // emit a zero-width gap-bearing atom carrying just `c`
+                out.push(Atom { style: spaced, contents: c.to_string() });
+                prev = Some(c);
+                continue;
+            }
+        }
+        buf.push(c);
+        prev = Some(c);
+    }
+    if !buf.is_empty() {
+        out.push(Atom { style: base_style, contents: buf });
+    }
+    out
+}
+```
+
+The cookbook's example deliberately keeps the boundary detection minimal
+— production plugins should consult Unicode's `East_Asian_Width`
+property for accurate classification. The host-call shape is the load-
+bearing part: query font-size in pixels, multiply by `0.25`, set on
+`letter-spacing`, let Parley apply.
+
 ## Testing with TestHarness
 
 Unit-test plugin logic without the full WASM runtime.

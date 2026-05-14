@@ -588,7 +588,7 @@ mod tests {
             r#"
 [plugin]
 id = "{plugin_id}"
-abi_version = "6.1.0"
+abi_version = "6.2.0"
 
 [handlers]
 flags = ["contributor"]

@@ -1,4 +1,4 @@
-package kasane:plugin@6.1.0;
+package kasane:plugin@6.2.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -68,6 +68,15 @@ package kasane:plugin@6.1.0;
 // Pure additive function; minor bump per docs/abi-versioning.md.
 // Companion font/cell metric accessors land in a follow-up minor
 // bump (#109).
+//
+// WIT 6.2 (#109): adds `cell-metrics` record + three host-state
+// accessors — `get-default-font-size-px`, `get-cell-metrics`,
+// `backend-supports-sub-cell-spacing` — so plugins can compute
+// pixel-unit values for the already-exposed `style.letter-spacing:
+// f32` field. Unblocks UTR #59 (CJK-Latin auto-spacing) without
+// requiring the cluster-advance API that the original #105 RFC
+// proposed (see docs/roadmap/wit-2.x-text-metrics.md for that
+// deferred bundle). Pure additive — minor bump.
 
 interface types {
     enum named-color {
@@ -148,6 +157,22 @@ interface types {
         style: decoration-style,
         color: brush,
         thickness: option<f32>,
+    }
+
+    /// Cell-grid metrics for the active backend, in physical pixels (GUI)
+    /// or synthetic 1.0 (TUI). Plugins computing sub-cell `letter-spacing`
+    /// values (e.g. UTR #59 ¼em CJK-Latin gaps) read these via
+    /// `host-state.get-cell-metrics`.
+    ///
+    /// On TUI all fields return 1.0 as a synthetic placeholder — plugins
+    /// must consult `backend-supports-sub-cell-spacing` and skip sub-cell
+    /// logic when it returns false. `font-size-px` is the post-DPI-scale
+    /// size and matches the unit of `style.letter-spacing: f32`.
+    record cell-metrics {
+        cell-width-px: f32,
+        cell-height-px: f32,
+        baseline-px: f32,
+        font-size-px: f32,
     }
 
     /// Render-ready text style. Replaces the legacy `face` record.
@@ -1506,7 +1531,7 @@ interface types {
 }
 
 interface host-state {
-    use types.{style, atom, coord, session-descriptor, display-unit-info, selection-set, selection-record, set-save-error, set-load-error};
+    use types.{style, atom, coord, session-descriptor, display-unit-info, selection-set, selection-record, set-save-error, set-load-error, cell-metrics};
 
     get-cursor-line: func() -> s32;
     get-cursor-col: func() -> s32;
@@ -1696,6 +1721,30 @@ interface host-state {
     /// combining sequences), call this per char and sum — the result
     /// matches `unicode_width::UnicodeWidthStr::width` of the cluster.
     get-display-cells: func(ch: char) -> u8;
+
+    // --- v0.7.x (WIT 6.2): Font / cell metric accessors ---
+
+    /// Default text face size in physical pixels (post-DPI-scale).
+    /// Matches the unit of the existing `style.letter-spacing: f32`
+    /// field — plugins emitting `letter-spacing = 0.25 * font_size_px`
+    /// get a ¼em gap on GUI.
+    ///
+    /// Returns 1.0 on TUI as a synthetic placeholder. Plugins must
+    /// consult `backend-supports-sub-cell-spacing` and skip sub-cell
+    /// logic when it returns false.
+    get-default-font-size-px: func() -> f32;
+
+    /// Cell-grid metrics for the active backend. See `cell-metrics`
+    /// record documentation for TUI semantics.
+    get-cell-metrics: func() -> cell-metrics;
+
+    /// True iff the backend renders fractional-pixel positioning
+    /// (sub-cell `letter-spacing`, variable-pitch glyph advances).
+    /// False on TUI — plugins doing sub-cell layout (UTR #59 spacing,
+    /// proportional alignment) should branch on this and treat the
+    /// false case as a no-op rather than emit values the backend
+    /// cannot render.
+    backend-supports-sub-cell-spacing: func() -> bool;
 }
 
 /// Host-provided functions for building Element trees.
