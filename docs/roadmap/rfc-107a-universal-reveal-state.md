@@ -10,6 +10,12 @@
 
 ADR-030 §Level 4 shipped the *infrastructure* (`DisplayRecoveryStatus`, `RecoveryWitness`, `is_visually_faithful`) but not the runtime enforcement. The `Hide` filter mechanism #107 cites does not exist.
 
+Empirically witnessed by `kasane-core-tests/tests/visual_faithfulness.rs`:
+
+- `unwitnessed_hide_inline_reaches_resolved_output` — `on_display`-registered plugin emitting `HideInline` lands in `collect_display_directives` output unchanged.
+- `unwitnessed_full_hide_reaches_resolved_output` — same for full-line `Hide`.
+- `cursor_safety_net_drops_full_hide_at_cursor_line_only` — the only production filter that touches destructive directives is the cursor safety net at `kasane-core/src/plugin/registry/collection/display.rs:53-58`, which drops any `Hide` whose range contains the cursor line. It is plugin-id-agnostic and does not touch `HideInline`.
+
 Consequently, the markdown-rich symptom that motivated #107 — `hide_inline()` not taking effect from WASM — is **not** caused by the recovery audit. It is either (a) caused by something else in the WASM→algebra translation path, or (b) a precaution shipped against an enforcement policy that has not yet landed.
 
 ## Proposal
@@ -107,7 +113,7 @@ This is acceptable because:
 ## Out of scope
 
 - **Per-plugin reveal keys:** deferred to RFC-107b (manifest-declared witnesses, optional refinement on top of universal).
-- **Per-range reveal:** "reveal only this Hide" requires cursor-aware suppression with no current precedent (see #107 deep analysis §9). Not motivated by markdown-rich.
+- **Per-range reveal:** "reveal only this Hide" would need byte-range-aware cursor suppression. The line-level analogue already exists — `kasane-core/src/plugin/registry/collection/display.rs:53-58` drops any `Hide` whose range contains the cursor line (plugin-id-agnostic, applied post-algebra). Extending this to `HideInline` byte ranges is feasible but unmotivated by markdown-rich.
 - **Enforcement of `Unwitnessed`:** the question of whether to drop destructive directives from non-faithful plugins becomes moot once UniversalReveal makes every plugin faithful. RFC-107c is preserved for completeness but its motivation weakens substantially.
 - **`SettingToggle` mechanism:** depends on RFC-107d (`kasane.kdl` hot-reload). Independent.
 
