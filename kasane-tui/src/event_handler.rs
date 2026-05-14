@@ -2,8 +2,6 @@
 
 use std::io::Write;
 
-use anyhow::Result;
-
 use kasane_core::clipboard::SystemClipboard;
 use kasane_core::event_loop::{
     DeferredContext, EventResult, ReloadOrchestrator, SessionReadyGate, TimerScheduler,
@@ -676,7 +674,7 @@ where
 
 fn handle_plugin_reload<R, W, C>(
     ctx: &mut EventProcessingContext<'_, R, W, C>,
-) -> Result<PluginReloadOutcome>
+) -> Result<PluginReloadOutcome, crate::error::TuiError>
 where
     R: std::io::BufRead + Send + 'static,
     W: Write + Send + 'static,
@@ -696,7 +694,7 @@ where
                 )
             },
         )
-        .map_err(anyhow::Error::from_boxed)?;
+        .map_err(crate::error::TuiError::PluginManager)?;
     reload.apply_settings(ctx.state);
     kasane_core::event_loop::sync_suppressed_builtins(ctx.state, ctx.registry);
     // Composable Lenses auto-wire: drop lens entries owned by

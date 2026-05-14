@@ -269,7 +269,8 @@ fn run_inner(
             plugin_manager,
             Box::new(orchestrator::DefaultReloadOrchestrator),
             log_path.clone(),
-        ),
+        )
+        .map_err(anyhow::Error::new),
         #[cfg(feature = "gui")]
         UiMode::Gui => {
             // Pre-flight check for display server on Linux

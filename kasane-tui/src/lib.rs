@@ -1,5 +1,6 @@
 mod backend;
 mod diagnostics_overlay;
+pub mod error;
 mod event_handler;
 mod input;
 pub mod kitty;
@@ -16,8 +17,9 @@ use std::io::Write;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use anyhow::{Result, anyhow};
 use crossbeam_channel::unbounded;
+
+use crate::error::TuiError;
 
 /// Global session name for panic hook reconnect message.
 static SESSION_NAME: OnceLock<String> = OnceLock::new();
@@ -102,7 +104,7 @@ pub fn run_tui<R, W, C>(
     mut plugin_manager: PluginManager,
     reload_orchestrator: Box<dyn kasane_core::event_loop::ReloadOrchestrator>,
     log_path: Option<std::path::PathBuf>,
-) -> Result<()>
+) -> Result<(), TuiError>
 where
     R: std::io::BufRead + Send + 'static,
     W: Write + Send + 'static,
@@ -121,10 +123,8 @@ where
 
     let active_session = session_manager
         .active_session_id()
-        .ok_or_else(|| anyhow!("missing primary session id"))?;
-    let kak_reader = session_manager
-        .take_active_reader()
-        .map_err(|err| anyhow!("failed to acquire primary session: {err:?}"))?;
+        .ok_or(TuiError::MissingPrimarySession)?;
+    let kak_reader = session_manager.take_active_reader()?;
 
     // Initialize TUI backend
     let mut backend = TuiBackend::new()?;
@@ -203,7 +203,7 @@ where
         .initialize(&mut registry, |_, registry| {
             kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
         })
-        .map_err(anyhow::Error::from_boxed)?;
+        .map_err(TuiError::PluginManager)?;
     initial_plugins.apply_settings(&mut state);
     kasane_core::event_loop::sync_suppressed_builtins(&mut state, &registry);
     // Composable Lenses auto-wire (Roadmap §2.2 follow-up): pull

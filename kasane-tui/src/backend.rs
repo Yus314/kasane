@@ -38,7 +38,7 @@ pub struct TuiBackend {
 }
 
 impl TuiBackend {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new() -> std::io::Result<Self> {
         let mut stdout = std::io::stdout();
         terminal::enable_raw_mode()?;
         execute!(
@@ -72,7 +72,7 @@ impl TuiBackend {
         grid: &mut CellGrid,
         result: &RenderResult,
         image_requests: &[ImageRequest],
-    ) -> anyhow::Result<()> {
+    ) -> std::io::Result<()> {
         // --- Kitty: reconcile and write uploads outside SyncUpdate ---
         let kitty_place_bytes = if let Some(ref mut kitty) = self.kitty {
             let reconciled = crate::kitty::reconcile(kitty, image_requests);

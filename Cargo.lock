@@ -2633,7 +2633,6 @@ dependencies = [
 name = "kasane-tui"
 version = "0.7.0"
 dependencies = [
- "anyhow",
  "base64",
  "criterion",
  "crossbeam-channel",
@@ -2645,6 +2644,7 @@ dependencies = [
  "notify",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
  "tracing",
 ]
 

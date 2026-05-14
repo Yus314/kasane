@@ -14,7 +14,7 @@ use kasane_core::protocol::{Color, NamedColor};
 use crate::terminal_style::{TerminalStyle, UnderlineKind};
 
 /// Emit a full reset followed by all colors and attributes for `style`.
-fn emit_full_style(buf: &mut Vec<u8>, style: &TerminalStyle) -> anyhow::Result<()> {
+fn emit_full_style(buf: &mut Vec<u8>, style: &TerminalStyle) -> std::io::Result<()> {
     queue!(buf, SetAttribute(CtAttribute::Reset))?;
     queue!(
         buf,
@@ -31,7 +31,7 @@ fn emit_full_style(buf: &mut Vec<u8>, style: &TerminalStyle) -> anyhow::Result<(
 /// Apply the attribute booleans of `style` as crossterm `SetAttribute`
 /// calls. Caller is responsible for resetting first when transitioning
 /// from a different attribute set.
-fn apply_style_attributes(buf: &mut Vec<u8>, style: &TerminalStyle) -> anyhow::Result<()> {
+fn apply_style_attributes(buf: &mut Vec<u8>, style: &TerminalStyle) -> std::io::Result<()> {
     if style.bold {
         queue!(buf, SetAttribute(CtAttribute::Bold))?;
     }
@@ -88,7 +88,7 @@ pub fn emit_sgr_diff_style(
     buf: &mut Vec<u8>,
     old: Option<&TerminalStyle>,
     new: &TerminalStyle,
-) -> anyhow::Result<()> {
+) -> std::io::Result<()> {
     match old {
         None => {
             emit_full_style(buf, new)?;
