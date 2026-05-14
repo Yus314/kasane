@@ -418,6 +418,55 @@ mod tests {
         ));
     }
 
+    /// η-sketch: the macro-generated `bridge_dispatch::dispatch_init`
+    /// round-trips a registered Lifecycle handler.
+    ///
+    /// Demonstrates that the spec entry
+    /// `handler init(_app: &AppView<'_>): Lifecycle<Effects>(tier1, transparent);`
+    /// can drive both the registry setter (via the manual wrapper's
+    /// `Deref` into `gen::HandlerRegistry`) and the bridge dispatch
+    /// helper, with no manual code in between. Once the analogous
+    /// helpers cover Observer / Dispatcher / View, `PluginBridge`'s
+    /// 60-method `pub fn on_<name>(...)` block can collapse to thin
+    /// wrappers around `bridge_dispatch::dispatch_<name>`.
+    #[test]
+    fn bridge_dispatch_init_round_trips() {
+        use crate::plugin::AppView;
+        use crate::plugin::effect::effect_tiers::KakouneSideEffects;
+        use crate::state::AppState;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        static CALLS: AtomicU32 = AtomicU32::new(0);
+        CALLS.store(0, Ordering::SeqCst);
+
+        // Register via the generated registry (state = ()).
+        let mut r: generated::HandlerRegistry<()> = generated::HandlerRegistry::new();
+        r.on_init_tier1(|_state, _app| {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+            ((), KakouneSideEffects::default())
+        });
+        let table = r.into_table();
+
+        // Dispatch via the macro-generated bridge helper.
+        let state = Arc::new(AppState::default());
+        let app = AppView::new(&state);
+        let result = generated::bridge_dispatch::dispatch_init(&table, &(), &app);
+
+        assert!(result.is_some(), "init handler should fire");
+        let (new_state, _effects) = result.unwrap();
+        // Pre-existing state was `()`; the closure returns `()` — the
+        // new state is also `()`. The check verifies the dispatch wrote
+        // back into a `Box<dyn PluginState>` of the right concrete shape.
+        assert!(new_state.as_any().downcast_ref::<()>().is_some());
+        assert_eq!(CALLS.load(Ordering::SeqCst), 1);
+
+        // Dispatch on an empty table returns None.
+        let empty = generated::HandlerTable::empty();
+        let result = generated::bridge_dispatch::dispatch_init(&empty, &(), &app);
+        assert!(result.is_none(), "empty table dispatches to None");
+    }
+
     /// γ-3.2.3b-4: config entries thread their declared defaults through
     /// `HandlerTable::empty()`. The macro generates a `<name>: <expr>`
     /// initializer for every `config <name>: <T> = <expr>;` line; entries

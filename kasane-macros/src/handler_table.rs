@@ -410,6 +410,7 @@ pub fn expand_handler_table(input: TokenStream) -> Result<TokenStream> {
     let mut name_table = TokenStream::new();
     let mut registry_setters = TokenStream::new();
     let mut transparency_fields = TokenStream::new();
+    let mut bridge_dispatch_fns = TokenStream::new();
 
     let transparent_lifecycle: Vec<&HandlerEntry> = handlers
         .iter()
@@ -435,6 +436,7 @@ pub fn expand_handler_table(input: TokenStream) -> Result<TokenStream> {
         table_inits.extend(handler_table_init(h));
         table_methods.extend(unified_predicate_method(h));
         registry_setters.extend(registry_setters_for_entry(h));
+        bridge_dispatch_fns.extend(bridge_dispatch_fn(h));
 
         let name_lit = h.name.to_string();
         name_table.extend(quote! { #name_lit, });
@@ -621,6 +623,26 @@ pub fn expand_handler_table(input: TokenStream) -> Result<TokenStream> {
                 }
 
                 #registry_setters
+            }
+
+            /// η-sketch: bridge dispatch helpers, generated from the spec.
+            ///
+            /// Each Lifecycle base-shape entry produces a free function
+            /// `dispatch_<name>(table, state, ...args) -> Option<(NewState, Effect)>`
+            /// mirroring the manual `dispatch_state_effect!` pattern in
+            /// `plugin_bridge.rs:238`. The manual `PluginBridge::on_<name>`
+            /// methods can call these to retire the macro_rules dispatch
+            /// layer once full coverage lands.
+            ///
+            /// Sketch scope: Lifecycle base shape only. Observer / Dispatcher
+            /// / View shapes follow the same template with different return
+            /// types and are mechanical to add. per_slot / metadata storage
+            /// entries are deferred — their dispatch shapes are not uniform
+            /// enough to template trivially.
+            #[allow(dead_code)]
+            pub(crate) mod bridge_dispatch {
+                use super::*;
+                #bridge_dispatch_fns
             }
         }
     })
@@ -1466,6 +1488,45 @@ fn default_fn_decl(entry: &HandlerEntry) -> TokenStream {
         #[allow(dead_code)]
         pub(crate) fn #fn_ident() -> #out {
             #expr
+        }
+    }
+}
+
+/// η-sketch: emit `pub(crate) fn dispatch_<name>(...)` for Lifecycle entries
+/// with base shape (no per_slot, no metadata). Returns
+/// `Option<(Box<dyn PluginState>, <Effect>)>` mirroring the manual
+/// `dispatch_state_effect!` pattern in `plugin_bridge.rs:238`.
+///
+/// Demonstrates that bridge-dispatch generation is structurally feasible
+/// from the existing spec. Full coverage of the other three dispatch shapes
+/// (Observer / Dispatcher / View) follows the same template with different
+/// return types and is mechanical to add — left as a follow-up so the
+/// sketch can be evaluated independently of the wider migration.
+fn bridge_dispatch_fn(entry: &HandlerEntry) -> TokenStream {
+    let Shape::Lifecycle { effect } = &entry.shape else {
+        return TokenStream::new();
+    };
+    if per_slot_key(entry).is_some() || has_metadata_storage(entry) {
+        return TokenStream::new();
+    }
+    let Ok(arg_pairs) = arg_idents_and_types(entry) else {
+        return TokenStream::new();
+    };
+    let fn_ident = format_ident!("dispatch_{}", entry.name);
+    let field_ident = format_ident!("{}_handler", entry.name);
+    let arg_decls: Vec<TokenStream> = arg_pairs
+        .iter()
+        .map(|(ident, ty)| quote! { #ident: #ty })
+        .collect();
+    let arg_idents: Vec<&Ident> = arg_pairs.iter().map(|(i, _)| i).collect();
+    quote! {
+        #[allow(dead_code)]
+        pub(crate) fn #fn_ident(
+            table: &super::HandlerTable,
+            state: &dyn PluginState,
+            #(#arg_decls,)*
+        ) -> ::core::option::Option<(::std::boxed::Box<dyn PluginState>, #effect)> {
+            table.#field_ident.as_ref().map(|h| h(state #(, #arg_idents)*))
         }
     }
 }
