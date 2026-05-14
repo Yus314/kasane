@@ -36,6 +36,18 @@ pub enum WasmPluginError {
     #[error("package error: {0}")]
     Package(#[from] kasane_plugin_package::package::PackageError),
 
+    #[error("manifest error: {0}")]
+    Manifest(#[from] kasane_plugin_package::manifest::ManifestError),
+
     #[error("{0}")]
-    Other(#[source] anyhow::Error),
+    Other(#[from] anyhow::Error),
+}
+
+/// `wasmtime::Error` is a distinct type (not a re-export of `anyhow::Error`)
+/// but is `Into<anyhow::Error>`; bridge it explicitly so `?` on wasmtime
+/// calls works against `Result<_, WasmPluginError>`.
+impl From<wasmtime::Error> for WasmPluginError {
+    fn from(err: wasmtime::Error) -> Self {
+        WasmPluginError::Other(err.into())
+    }
 }

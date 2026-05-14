@@ -471,8 +471,8 @@ pub fn bundled_plugin_manifest_by_plugin_id(
     plugin_id: &str,
 ) -> Result<Option<manifest::PluginManifest>, WasmPluginError> {
     for spec in bundled_plugin_specs() {
-        let manifest = manifest::PluginManifest::parse(spec.manifest_toml)
-            .map_err(|err| WasmPluginError::Other(anyhow::anyhow!(err)))?;
+        let manifest =
+            manifest::PluginManifest::parse(spec.manifest_toml).map_err(WasmPluginError::from)?;
         if manifest.plugin.id == plugin_id {
             return Ok(Some(manifest));
         }
@@ -487,12 +487,8 @@ pub fn load_bundled_plugin_by_plugin_id(
     let loader =
         WasmPluginLoader::new().map_err(|err| (ProviderArtifactStage::Instantiate, err))?;
     for spec in bundled_plugin_specs() {
-        let manifest = manifest::PluginManifest::parse(spec.manifest_toml).map_err(|err| {
-            (
-                ProviderArtifactStage::Manifest,
-                WasmPluginError::Other(anyhow::anyhow!(err)),
-            )
-        })?;
+        let manifest = manifest::PluginManifest::parse(spec.manifest_toml)
+            .map_err(|err| (ProviderArtifactStage::Manifest, err.into()))?;
         if manifest.plugin.id != plugin_id {
             continue;
         }
@@ -507,8 +503,8 @@ pub fn load_bundled_plugin_by_plugin_id(
 fn bundled_plugin_artifact_from_spec(
     spec: &BundledPluginSpec,
 ) -> Result<BundledPluginArtifact, WasmPluginError> {
-    let manifest = manifest::PluginManifest::parse(spec.manifest_toml)
-        .map_err(|err| WasmPluginError::Other(anyhow::anyhow!(err)))?;
+    let manifest =
+        manifest::PluginManifest::parse(spec.manifest_toml).map_err(WasmPluginError::from)?;
     Ok(BundledPluginArtifact {
         name: spec.name,
         plugin_id: manifest.plugin.id.clone(),
@@ -545,11 +541,11 @@ fn hex_encode(bytes: &[u8]) -> String {
 
 /// Load a pre-built .wasm file from the fixtures directory (for tests).
 #[doc(hidden)]
-pub fn load_wasm_fixture(name: &str) -> anyhow::Result<Vec<u8>> {
+pub fn load_wasm_fixture(name: &str) -> std::io::Result<Vec<u8>> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("fixtures")
         .join(name);
-    Ok(std::fs::read(path)?)
+    std::fs::read(path)
 }
 
 #[cfg(test)]

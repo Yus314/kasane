@@ -15,10 +15,21 @@
 //!
 //! - `kasane-core` and other library crates return typed errors (this
 //!   `CoreError`, or per-module `thiserror::Error` enums for leaf modules).
-//! - `anyhow` is allowed only at the **binary boundary** (`kasane` crate's
-//!   `run()` entry point) and inside `#[source]` slots of `thiserror`
-//!   variants that bridge external crates with opaque error surfaces
-//!   (e.g. wasmtime).
+//! - `anyhow` is allowed in three places:
+//!   1. The **binary boundary** (`kasane` crate's `run` entry point).
+//!   2. Inside `#[source]` slots of `thiserror` variants that bridge
+//!      external crates with opaque error surfaces (e.g. `WasmPluginError`'s
+//!      `EngineInit / ComponentLoad / Instantiate / WasiContext / Other`
+//!      slots which wrap `wasmtime::Error`).
+//!   3. **Crate-private helpers that bridge such external opaque errors
+//!      and feed (only) the `#[source]` slots above.** A typed
+//!      `Result<T, FooError>` would have to wrap every wasmtime call site
+//!      in an explicit `From<wasmtime::Error>` conversion that erases the
+//!      caller-side stage tagging (`ComponentLoad` vs `Instantiate` vs
+//!      `WasiContext`). Keeping these helpers as `anyhow::Result<T>` lets
+//!      the caller pick the right variant at the wrap site. The privacy
+//!      boundary contains the leak: no `pub` API in any kasane crate
+//!      returns `anyhow::Result`.
 
 use thiserror::Error;
 
