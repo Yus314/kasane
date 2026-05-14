@@ -20,7 +20,7 @@
 /// (`package kasane:plugin@X.Y.Z;`). The
 /// [`host_abi_version_matches_wit_package`](self::tests::host_abi_version_matches_wit_package)
 /// test enforces the link.
-pub const HOST_ABI_VERSION: &str = "6.2.0";
+pub const HOST_ABI_VERSION: &str = "6.3.0";
 
 /// Result of comparing a plugin's required ABI version against the host's.
 #[derive(Debug, Clone, PartialEq, Eq)]

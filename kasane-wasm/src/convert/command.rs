@@ -147,6 +147,30 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
                 })
             }
         },
+        wit::Command::EmitDiagnostic(config) => Command::EmitDiagnostic {
+            severity: match config.severity {
+                wit::DiagnosticSeverity::Info => {
+                    kasane_core::plugin::diagnostics::PluginDiagnosticSeverity::Info
+                }
+                wit::DiagnosticSeverity::Warning => {
+                    kasane_core::plugin::diagnostics::PluginDiagnosticSeverity::Warning
+                }
+                wit::DiagnosticSeverity::Error => {
+                    kasane_core::plugin::diagnostics::PluginDiagnosticSeverity::Error
+                }
+            },
+            title: config.title.clone(),
+            body: config.body.clone(),
+            range: config.range.as_ref().map(|r| {
+                kasane_core::plugin::diagnostics::DiagnosticSourceRange {
+                    line: r.line,
+                    byte_start: r.byte_start,
+                    byte_end: r.byte_end,
+                }
+            }),
+            dedup_key: config.dedup_key.clone(),
+            ttl_override: config.ttl_seconds.map(|s| Duration::from_secs(s as u64)),
+        },
     }
 }
 
@@ -216,6 +240,7 @@ pub(crate) fn wit_kakoune_side_command_to_wit_command(
         wit::KakouneSideCommand::RegisterThemeTokens(tokens) => {
             wit::Command::RegisterThemeTokens(tokens.clone())
         }
+        wit::KakouneSideCommand::EmitDiagnostic(cfg) => wit::Command::EmitDiagnostic(cfg.clone()),
     }
 }
 

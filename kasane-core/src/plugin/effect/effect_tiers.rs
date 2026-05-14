@@ -217,6 +217,24 @@ impl KakouneSideCommand {
         Self(Command::ToggleAdditiveProjection(id))
     }
 
+    pub fn emit_diagnostic(
+        severity: super::super::diagnostics::PluginDiagnosticSeverity,
+        title: impl Into<String>,
+        body: impl Into<String>,
+        range: Option<super::super::diagnostics::DiagnosticSourceRange>,
+        dedup_key: Option<String>,
+        ttl_override: Option<std::time::Duration>,
+    ) -> Self {
+        Self(Command::EmitDiagnostic {
+            severity,
+            title: title.into(),
+            body: body.into(),
+            range,
+            dedup_key,
+            ttl_override,
+        })
+    }
+
     pub fn projection_off() -> Self {
         Self(Command::ProjectionOff)
     }

@@ -1,4 +1,4 @@
-package kasane:plugin@6.2.0;
+package kasane:plugin@6.3.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -241,6 +241,52 @@ interface types {
         http-request(http-request-config),
         cancel-http-request(u64),
         cancel-timer(u64),
+        /// RFC-106a: Emit a plugin-authored diagnostic to the host's
+        /// diagnostic overlay and `<C-?>` panel. Source attribution is
+        /// inferred from the emitting plugin. Does NOT count toward
+        /// ADR-033 quarantine — quarantine is for activation failures
+        /// only.
+        emit-diagnostic(emit-diagnostic-config),
+    }
+
+    /// RFC-106a: plugin-emitted diagnostic.
+    record emit-diagnostic-config {
+        severity: diagnostic-severity,
+        /// Short title shown in popup and panel (~40 chars recommended).
+        title: string,
+        /// Long body shown in the panel only. Empty string collapses the
+        /// `title: body` separator on the popup line.
+        body: string,
+        /// Optional buffer-coordinate range for go-to-source affordance.
+        /// Currently rendered as `line:byte_start-byte_end` in the panel;
+        /// interactive navigation is deferred.
+        range: option<diagnostic-source-range>,
+        /// Dedup key. Emissions sharing `(plugin_id, severity, dedup_key)`
+        /// coalesce — later emission updates the existing entry in place.
+        dedup-key: option<string>,
+        /// Per-emission TTL override in seconds. `none` falls back to the
+        /// per-severity default (Info/Warning: 4s, Error: persist).
+        /// Plumbing through the auto-dismiss scheduler is deferred (RFC-
+        /// 106c); the host currently records the override but uses the
+        /// per-severity default for the timer.
+        ttl-seconds: option<u32>,
+    }
+
+    /// RFC-106a: severity for plugin-emitted diagnostics.
+    enum diagnostic-severity {
+        info,
+        warning,
+        error,
+    }
+
+    /// RFC-106a: buffer-coordinate range for plugin-emitted diagnostics.
+    record diagnostic-source-range {
+        /// 0-based line number.
+        line: u32,
+        /// Byte offset within the line, inclusive start.
+        byte-start: u32,
+        /// Byte offset within the line, exclusive end.
+        byte-end: u32,
     }
 
     record spawn-pane-client-config {
@@ -460,6 +506,9 @@ interface types {
         edit-buffer(list<buffer-edit>),
         inject-key(key-event),
         register-theme-tokens(list<theme-token-default>),
+        /// RFC-106a: Plugin-emitted diagnostic. Available at tier-1
+        /// because it does not spawn processes or write to Kakoune.
+        emit-diagnostic(emit-diagnostic-config),
     }
 
     record kakoune-side-effects {

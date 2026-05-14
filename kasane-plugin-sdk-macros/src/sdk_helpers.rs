@@ -1162,6 +1162,7 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                     Command::WorkspaceCommand(c) => process.push(ProcessCommand::WorkspaceCommand(c)),
                     Command::HttpRequest(c) => process.push(ProcessCommand::HttpRequest(c)),
                     Command::CancelHttpRequest(j) => process.push(ProcessCommand::CancelHttpRequest(j)),
+                    Command::EmitDiagnostic(c) => base.commands.push(KakouneSideCommand::EmitDiagnostic(c)),
                 }
             }
 
@@ -1218,6 +1219,48 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             pub fn nav_down(selected: &mut usize, len: usize) -> Option<Vec<Command>> {
                 if len > 0 && *selected < len - 1 { *selected += 1; }
                 consumed_redraw()
+            }
+
+            // ----- Plugin-emitted diagnostics (RFC-106a) -----
+
+            /// Build a `Command::EmitDiagnostic` for the diagnostic overlay and
+            /// `<C-?>` panel. Title shows in popup and panel; body in panel
+            /// only.
+            pub fn diagnostic_info(title: &str, body: &str) -> Command {
+                Command::EmitDiagnostic(EmitDiagnosticConfig {
+                    severity: DiagnosticSeverity::Info,
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    range: None,
+                    dedup_key: None,
+                    ttl_seconds: None,
+                })
+            }
+
+            /// Build a `Command::EmitDiagnostic` with `Warning` severity.
+            pub fn diagnostic_warn(title: &str, body: &str) -> Command {
+                Command::EmitDiagnostic(EmitDiagnosticConfig {
+                    severity: DiagnosticSeverity::Warning,
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    range: None,
+                    dedup_key: None,
+                    ttl_seconds: None,
+                })
+            }
+
+            /// Build a `Command::EmitDiagnostic` with `Error` severity. Error
+            /// diagnostics persist until the user dismisses them explicitly
+            /// via `<C-?>` panel or `Command::DismissDiagnosticOverlay`.
+            pub fn diagnostic_error(title: &str, body: &str) -> Command {
+                Command::EmitDiagnostic(EmitDiagnosticConfig {
+                    severity: DiagnosticSeverity::Error,
+                    title: title.to_string(),
+                    body: body.to_string(),
+                    range: None,
+                    dedup_key: None,
+                    ttl_seconds: None,
+                })
             }
 
             // ----- HTTP request helpers -----
