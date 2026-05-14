@@ -178,7 +178,8 @@ pub(super) fn handle_deferred_commands_inner(
             | Command::SetStructuralProjection(_)
             | Command::ToggleAdditiveProjection(_)
             | Command::ProjectionOff
-            | Command::ToggleUniversalReveal => {
+            | Command::ToggleUniversalReveal
+            | Command::EmitDiagnostic { .. } => {
                 handle_inter_plugin_command(cmd, ctx, command_source_plugin, depth)
             }
             Command::RegisterSurface { .. }
@@ -289,6 +290,39 @@ fn handle_inter_plugin_command(
         }
         Command::ToggleUniversalReveal => {
             ctx.state.config.universal_reveal_state.toggle();
+            *ctx.dirty |= DirtyFlags::BUFFER_CONTENT;
+        }
+        Command::EmitDiagnostic {
+            severity,
+            title,
+            body,
+            range,
+            dedup_key,
+            ttl_override: _,
+        } => {
+            // RFC-106a: plugin emits a diagnostic. Source attribution comes
+            // from the command_source_plugin set by the dispatcher. If the
+            // source is missing (out-of-band emission) we still record but
+            // attribute to a fallback "unknown-emitter" PluginId so the
+            // overlay never silently drops a diagnostic.
+            let plugin_id = command_source_plugin
+                .cloned()
+                .unwrap_or_else(|| super::super::plugin::PluginId::from("unknown-emitter"));
+            let diag = crate::plugin::diagnostics::PluginDiagnostic::plugin_emitted(
+                plugin_id, title, body, severity, range, dedup_key,
+                // ttl_override is reserved for the auto-dismiss timer path;
+                // for now the overlay relies on its per-severity default
+                // (Info/Warning: 4s, Error: persist).
+                None,
+            );
+            ctx.state
+                .runtime
+                .diagnostic_history
+                .record(std::slice::from_ref(&diag));
+            ctx.state
+                .runtime
+                .diagnostic_overlay
+                .record(std::slice::from_ref(&diag));
             *ctx.dirty |= DirtyFlags::BUFFER_CONTENT;
         }
         _ => unreachable!(),

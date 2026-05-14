@@ -43,6 +43,7 @@ impl KakouneTransparentCommand {
         "ClosePaneClient",
         "CloseProcessStdin",
         "DismissDiagnosticOverlay",
+        "EmitDiagnostic",
         "ExposeVariable",
         "HttpRequest",
         "InjectInput",
@@ -242,6 +243,24 @@ impl KakouneTransparentCommand {
 
     pub fn toggle_universal_reveal() -> Self {
         Self(Command::ToggleUniversalReveal)
+    }
+
+    pub fn emit_diagnostic(
+        severity: super::super::diagnostics::PluginDiagnosticSeverity,
+        title: String,
+        body: String,
+        range: Option<super::super::diagnostics::DiagnosticSourceRange>,
+        dedup_key: Option<String>,
+        ttl_override: Option<Duration>,
+    ) -> Self {
+        Self(Command::EmitDiagnostic {
+            severity,
+            title,
+            body,
+            range,
+            dedup_key,
+            ttl_override,
+        })
     }
 
     // =========================================================================

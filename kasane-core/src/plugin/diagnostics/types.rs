@@ -13,6 +13,7 @@ use super::{
 
 /// Suppress a new overlay generation if the previous one was shown within this window.
 pub(super) const PLUGIN_DIAGNOSTIC_OVERLAY_COALESCE_WINDOW: Duration = Duration::from_millis(750);
+pub(super) const INFO_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION: Duration = Duration::from_secs(4);
 pub(super) const WARNING_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION: Duration = Duration::from_secs(4);
 // Errors no longer auto-dismiss; see `dismiss_after()`. The previous
 // `ERROR_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION` constant has been retired.
@@ -138,11 +139,13 @@ impl PluginDiagnosticOverlayState {
             .iter()
             .map(|line| line.severity)
             .max_by_key(|severity| match severity {
-                PluginDiagnosticSeverity::Warning => 0,
-                PluginDiagnosticSeverity::Error => 1,
+                PluginDiagnosticSeverity::Info => 0,
+                PluginDiagnosticSeverity::Warning => 1,
+                PluginDiagnosticSeverity::Error => 2,
             })?;
 
         match severity {
+            PluginDiagnosticSeverity::Info => Some(INFO_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION),
             PluginDiagnosticSeverity::Warning => Some(WARNING_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION),
             // Error severity persists until the user dismisses it
             // explicitly (panel open, or `Command::DismissDiagnosticOverlay`).

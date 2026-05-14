@@ -281,6 +281,21 @@ pub enum Command {
     /// filtered pre-algebra, providing §10.2a-faithful recovery via a
     /// single host-owned toggle analogous to `FoldToggleState`.
     ToggleUniversalReveal,
+    /// Emit a plugin-authored diagnostic to the host's diagnostic
+    /// overlay and history (RFC-106a). Title is shown in popup and
+    /// panel; body in the panel only. `dedup_key` allows in-place
+    /// updates of repeated emissions. `ttl_override` overrides the
+    /// per-severity default (Info/Warning: 4s, Error: persist). Does
+    /// NOT count toward ADR-033 quarantine — quarantine is for
+    /// activation failures only.
+    EmitDiagnostic {
+        severity: super::super::diagnostics::PluginDiagnosticSeverity,
+        title: String,
+        body: String,
+        range: Option<super::super::diagnostics::DiagnosticSourceRange>,
+        dedup_key: Option<String>,
+        ttl_override: Option<Duration>,
+    },
 }
 
 impl Command {
@@ -365,6 +380,7 @@ impl Command {
             Command::ToggleAdditiveProjection(_) => false,
             Command::ProjectionOff => false,
             Command::ToggleUniversalReveal => false,
+            Command::EmitDiagnostic { .. } => false,
         }
     }
 
@@ -412,6 +428,7 @@ impl Command {
             Command::ToggleAdditiveProjection(_) => false,
             Command::ProjectionOff => false,
             Command::ToggleUniversalReveal => false,
+            Command::EmitDiagnostic { .. } => false,
         }
     }
 
@@ -461,6 +478,7 @@ impl Command {
             Command::ToggleAdditiveProjection(_) => true,
             Command::ProjectionOff => true,
             Command::ToggleUniversalReveal => false,
+            Command::EmitDiagnostic { .. } => false,
         }
     }
 
@@ -508,6 +526,7 @@ impl Command {
             Command::ToggleAdditiveProjection(_) => true,
             Command::ProjectionOff => true,
             Command::ToggleUniversalReveal => true,
+            Command::EmitDiagnostic { .. } => true,
         }
     }
 
@@ -556,6 +575,7 @@ impl Command {
             Command::ToggleAdditiveProjection(_) => EffectCategory::CONFIG_MUTATION,
             Command::ProjectionOff => EffectCategory::CONFIG_MUTATION,
             Command::ToggleUniversalReveal => EffectCategory::CONFIG_MUTATION,
+            Command::EmitDiagnostic { .. } => EffectCategory::REDRAW,
         }
     }
 }
@@ -646,7 +666,8 @@ pub fn execute_commands(
             | Command::SetStructuralProjection(_)
             | Command::ToggleAdditiveProjection(_)
             | Command::ProjectionOff
-            | Command::ToggleUniversalReveal => {}
+            | Command::ToggleUniversalReveal
+            | Command::EmitDiagnostic { .. } => {}
         }
     }
     CommandResult::Continue

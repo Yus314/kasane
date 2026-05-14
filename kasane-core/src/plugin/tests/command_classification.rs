@@ -128,6 +128,14 @@ pub(super) fn make_all_command_instances() -> Vec<Command> {
         Command::ToggleAdditiveProjection(crate::display::ProjectionId::new("test")),
         Command::ProjectionOff,
         Command::ToggleUniversalReveal,
+        Command::EmitDiagnostic {
+            severity: crate::plugin::diagnostics::PluginDiagnosticSeverity::Info,
+            title: "test".into(),
+            body: "test".into(),
+            range: None,
+            dedup_key: None,
+            ttl_override: None,
+        },
     ]
 }
 

@@ -292,6 +292,7 @@ pub fn paint_plugin_diagnostic_overlay<P: PluginDiagnosticOverlayPainter>(
 pub fn plugin_diagnostic_overlay_border_style(severity: PluginDiagnosticSeverity) -> Style {
     Style {
         fg: match severity {
+            PluginDiagnosticSeverity::Info => Brush::Named(NamedColor::BrightCyan),
             PluginDiagnosticSeverity::Warning => Brush::Named(NamedColor::BrightYellow),
             PluginDiagnosticSeverity::Error => Brush::Named(NamedColor::BrightRed),
         },
@@ -338,6 +339,7 @@ pub(super) fn plugin_diagnostic_overlay_header_style_with_tone(
             }
             (_, PluginDiagnosticSeverity::Warning) => Brush::rgb(96, 72, 12),
             (_, PluginDiagnosticSeverity::Error) => Brush::rgb(112, 24, 24),
+            (_, PluginDiagnosticSeverity::Info) => Brush::rgb(20, 60, 96),
         },
         font_weight: FontWeight::BOLD,
         ..Style::default()
@@ -400,6 +402,9 @@ pub fn plugin_diagnostic_overlay_text_style(
             (PluginDiagnosticOverlayTagKind::Activation, PluginDiagnosticSeverity::Warning) => {
                 Brush::Named(NamedColor::BrightYellow)
             }
+            (PluginDiagnosticOverlayTagKind::Activation, PluginDiagnosticSeverity::Info) => {
+                Brush::Named(NamedColor::BrightCyan)
+            }
             (PluginDiagnosticOverlayTagKind::Discovery, _) => Brush::rgb(245, 214, 168),
             (PluginDiagnosticOverlayTagKind::ArtifactManifest, _) => Brush::rgb(160, 180, 200),
             (PluginDiagnosticOverlayTagKind::ArtifactRead, _) => Brush::rgb(171, 212, 255),
@@ -407,11 +412,13 @@ pub fn plugin_diagnostic_overlay_text_style(
             (PluginDiagnosticOverlayTagKind::ArtifactInstantiate, _) => Brush::rgb(255, 194, 114),
             (PluginDiagnosticOverlayTagKind::Runtime, _) => Brush::Named(NamedColor::BrightRed),
             (PluginDiagnosticOverlayTagKind::Config, _) => Brush::rgb(140, 200, 220),
+            (PluginDiagnosticOverlayTagKind::PluginEmitted, _) => Brush::rgb(140, 200, 220),
         },
         bg: Brush::rgb(24, 24, 24),
         font_weight: match severity {
             PluginDiagnosticSeverity::Error => FontWeight::BOLD,
             PluginDiagnosticSeverity::Warning => FontWeight::NORMAL,
+            PluginDiagnosticSeverity::Info => FontWeight::NORMAL,
         },
         ..Style::default()
     }
@@ -433,6 +440,9 @@ pub fn plugin_diagnostic_overlay_tag_style(
             (PluginDiagnosticOverlayTagKind::Activation, PluginDiagnosticSeverity::Warning) => {
                 Brush::Named(NamedColor::BrightYellow)
             }
+            (PluginDiagnosticOverlayTagKind::Activation, PluginDiagnosticSeverity::Info) => {
+                Brush::Named(NamedColor::BrightCyan)
+            }
             (PluginDiagnosticOverlayTagKind::Discovery, _) => Brush::rgb(124, 54, 18),
             (PluginDiagnosticOverlayTagKind::ArtifactManifest, _) => Brush::rgb(90, 110, 130),
             (PluginDiagnosticOverlayTagKind::ArtifactRead, _) => Brush::rgb(78, 106, 158),
@@ -440,6 +450,7 @@ pub fn plugin_diagnostic_overlay_tag_style(
             (PluginDiagnosticOverlayTagKind::ArtifactInstantiate, _) => Brush::rgb(214, 126, 34),
             (PluginDiagnosticOverlayTagKind::Runtime, _) => Brush::Named(NamedColor::BrightRed),
             (PluginDiagnosticOverlayTagKind::Config, _) => Brush::rgb(60, 140, 160),
+            (PluginDiagnosticOverlayTagKind::PluginEmitted, _) => Brush::rgb(60, 140, 160),
         },
         font_weight: FontWeight::BOLD,
         ..Style::default()
@@ -455,6 +466,7 @@ pub fn plugin_diagnostic_overlay_tag_text(kind: PluginDiagnosticOverlayTagKind) 
         PluginDiagnosticOverlayTagKind::ArtifactLoad => "L",
         PluginDiagnosticOverlayTagKind::ArtifactInstantiate => "I",
         PluginDiagnosticOverlayTagKind::Runtime => "R!",
+        PluginDiagnosticOverlayTagKind::PluginEmitted => "E",
         PluginDiagnosticOverlayTagKind::Config => "C",
     }
 }

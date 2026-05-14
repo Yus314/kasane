@@ -31,6 +31,9 @@ pub(super) const MIN_PLUGIN_DIAGNOSTIC_OVERLAY_ROWS: u16 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PluginDiagnosticSeverity {
+    /// Plugin-emitted informational message (RFC-106a). Not used by
+    /// host-observed diagnostic kinds; reserved for plugin emissions.
+    Info,
     Warning,
     Error,
 }
@@ -101,6 +104,39 @@ pub enum PluginDiagnosticKind {
         /// Version the host provides (mirrors `wit/plugin.wit` line 1).
         host: String,
     },
+    /// A plugin emitted a soft-failure or informational diagnostic about
+    /// user content (RFC-106a). Severity, body, and TTL are carried by
+    /// the fields rather than auto-derived from the kind.
+    PluginEmitted {
+        /// Short title shown in popup and panel (~40 chars recommended).
+        title: String,
+        /// Long body shown in the panel only.
+        body: String,
+        /// Explicit severity (host-emitted kinds derive theirs from the
+        /// kind via `severity()`).
+        severity: PluginDiagnosticSeverity,
+        /// Source range for "go-to-source" affordance. Currently rendered
+        /// as `file:line:byte_start-byte_end` in the panel; interactive
+        /// navigation is deferred.
+        range: Option<DiagnosticSourceRange>,
+        /// Dedup key. Emissions sharing `(plugin_id, severity, dedup_key)`
+        /// coalesce — later emission updates the existing entry in place.
+        dedup_key: Option<String>,
+        /// Per-emission TTL override. `None` falls back to the per-severity
+        /// default (Info/Warning: 4s, Error: persist).
+        ttl_override: Option<std::time::Duration>,
+    },
+}
+
+/// Buffer-coordinate range for plugin-emitted diagnostics (RFC-106a).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiagnosticSourceRange {
+    /// 0-based line number.
+    pub line: u32,
+    /// Byte offset within the line, inclusive start.
+    pub byte_start: u32,
+    /// Byte offset within the line, exclusive end.
+    pub byte_end: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -268,6 +304,40 @@ impl PluginDiagnostic {
             | PluginDiagnosticKind::BackendCapabilityRejected { .. } => {
                 PluginDiagnosticSeverity::Warning
             }
+            PluginDiagnosticKind::PluginEmitted { severity, .. } => severity,
+        }
+    }
+
+    /// Construct a plugin-emitted diagnostic (RFC-106a).
+    pub fn plugin_emitted(
+        plugin_id: PluginId,
+        title: impl Into<String>,
+        body: impl Into<String>,
+        severity: PluginDiagnosticSeverity,
+        range: Option<DiagnosticSourceRange>,
+        dedup_key: Option<String>,
+        ttl_override: Option<std::time::Duration>,
+    ) -> Self {
+        let title = title.into();
+        let body = body.into();
+        let message = if body.is_empty() {
+            title.clone()
+        } else {
+            format!("{title}: {body}")
+        };
+        Self {
+            target: PluginDiagnosticTarget::Plugin(plugin_id),
+            kind: PluginDiagnosticKind::PluginEmitted {
+                title,
+                body,
+                severity,
+                range,
+                dedup_key,
+                ttl_override,
+            },
+            message,
+            previous: None,
+            attempted: None,
         }
     }
 }
@@ -300,6 +370,8 @@ pub enum PluginDiagnosticOverlayTagKind {
     ArtifactInstantiate,
     Runtime,
     Config,
+    /// Tag for plugin-emitted diagnostics (RFC-106a).
+    PluginEmitted,
 }
 
 pub fn summarize_plugin_diagnostic(diagnostic: &PluginDiagnostic) -> String {
@@ -341,6 +413,13 @@ pub fn summarize_plugin_diagnostic(diagnostic: &PluginDiagnostic) -> String {
         PluginDiagnosticKind::AbiVersionMismatch { required, host } => {
             format!("{target}: requires @{required}, host @{host}")
         }
+        PluginDiagnosticKind::PluginEmitted { title, range, .. } => match range {
+            Some(r) => format!(
+                "{target}: {title} ({}:{}-{})",
+                r.line, r.byte_start, r.byte_end
+            ),
+            None => format!("{target}: {title}"),
+        },
     }
 }
 
@@ -401,6 +480,10 @@ pub fn report_plugin_diagnostics(diagnostics: &[PluginDiagnostic]) {
                         attempted_revision = diagnostic.attempted.as_ref().map(|descriptor| descriptor.revision.0.as_str()).unwrap_or("none"),
                         "plugin activation failed"
                     ),
+                    // Host-emitted kinds never produce Info severity (see
+                    // `severity()` mapping); plugin-emitted Info is logged
+                    // via the PluginEmitted kind's own arm.
+                    PluginDiagnosticSeverity::Info => {}
                 };
             }
             PluginDiagnosticKind::InstantiationFailed => {
@@ -427,6 +510,10 @@ pub fn report_plugin_diagnostics(diagnostics: &[PluginDiagnostic]) {
                         attempted_revision = diagnostic.attempted.as_ref().map(|descriptor| descriptor.revision.0.as_str()).unwrap_or("none"),
                         "plugin activation failed"
                     ),
+                    // Host-emitted kinds never produce Info severity (see
+                    // `severity()` mapping); plugin-emitted Info is logged
+                    // via the PluginEmitted kind's own arm.
+                    PluginDiagnosticSeverity::Info => {}
                 };
             }
             PluginDiagnosticKind::ProviderCollectFailed => {
@@ -445,6 +532,10 @@ pub fn report_plugin_diagnostics(diagnostics: &[PluginDiagnostic]) {
                         message = %diagnostic.message,
                         "plugin discovery failed"
                     ),
+                    // Host-emitted kinds never produce Info severity (see
+                    // `severity()` mapping); plugin-emitted Info is logged
+                    // via the PluginEmitted kind's own arm.
+                    PluginDiagnosticSeverity::Info => {}
                 };
             }
             PluginDiagnosticKind::ProviderArtifactFailed {
@@ -470,6 +561,10 @@ pub fn report_plugin_diagnostics(diagnostics: &[PluginDiagnostic]) {
                         message = %diagnostic.message,
                         "plugin artifact preparation failed"
                     ),
+                    // Host-emitted kinds never produce Info severity (see
+                    // `severity()` mapping); plugin-emitted Info is logged
+                    // via the PluginEmitted kind's own arm.
+                    PluginDiagnosticSeverity::Info => {}
                 };
             }
             PluginDiagnosticKind::RuntimeError { ref method } => {
@@ -517,6 +612,29 @@ pub fn report_plugin_diagnostics(diagnostics: &[PluginDiagnostic]) {
                     "plugin ABI version mismatch"
                 );
             }
+            PluginDiagnosticKind::PluginEmitted { ref title, .. } => match severity {
+                PluginDiagnosticSeverity::Info => tracing::info!(
+                    plugin_id = plugin_id.unwrap_or("none"),
+                    kind = "plugin_emitted",
+                    title = %title,
+                    message = %diagnostic.message,
+                    "plugin emitted diagnostic"
+                ),
+                PluginDiagnosticSeverity::Warning => tracing::warn!(
+                    plugin_id = plugin_id.unwrap_or("none"),
+                    kind = "plugin_emitted",
+                    title = %title,
+                    message = %diagnostic.message,
+                    "plugin emitted diagnostic"
+                ),
+                PluginDiagnosticSeverity::Error => tracing::error!(
+                    plugin_id = plugin_id.unwrap_or("none"),
+                    kind = "plugin_emitted",
+                    title = %title,
+                    message = %diagnostic.message,
+                    "plugin emitted diagnostic"
+                ),
+            },
         }
     }
 }

@@ -513,6 +513,7 @@ fn kind_short_label(kind: &PluginDiagnosticKind) -> &'static str {
         PluginDiagnosticKind::RuntimeError { .. } => "runtime",
         PluginDiagnosticKind::ConfigError { .. } => "config",
         PluginDiagnosticKind::BackendCapabilityRejected { .. } => "backend",
+        PluginDiagnosticKind::PluginEmitted { .. } => "emit",
     }
 }
 
@@ -566,6 +567,7 @@ fn format_diagnostic_for_yank(d: &PluginDiagnostic, log_path: Option<&Path>) -> 
     let sev = match d.severity() {
         PluginDiagnosticSeverity::Error => "ERROR",
         PluginDiagnosticSeverity::Warning => "warn",
+        PluginDiagnosticSeverity::Info => "info",
     };
     let target = match &d.target {
         PluginDiagnosticTarget::Plugin(id) => format!("plugin {}", id.0),
@@ -688,6 +690,7 @@ fn severity_glyph(d: &PluginDiagnostic) -> &'static str {
     match d.severity() {
         PluginDiagnosticSeverity::Error => "E",
         PluginDiagnosticSeverity::Warning => "w",
+        PluginDiagnosticSeverity::Info => "i",
     }
 }
 

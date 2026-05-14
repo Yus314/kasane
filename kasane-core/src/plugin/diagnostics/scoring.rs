@@ -11,6 +11,7 @@ use super::{
 // "activation" (plugin errors dominate), "discovery" (provider errors dominate),
 // or "neutral" (mixed). Errors weigh 3x more than warnings so a single error
 // outweighs a warning even when the warning has a tag bonus.
+const OVERLAY_INFO_SCORE: u32 = 1;
 const OVERLAY_WARNING_SCORE: u32 = 2;
 const OVERLAY_ERROR_SCORE: u32 = 6;
 /// Minimum score gap to declare one target category dominant for backdrop tone.
@@ -99,6 +100,7 @@ fn overlay_line_score(line: &PluginDiagnosticOverlayLine) -> u32 {
 
 fn overlay_severity_weight(severity: PluginDiagnosticSeverity) -> u32 {
     match severity {
+        PluginDiagnosticSeverity::Info => OVERLAY_INFO_SCORE,
         PluginDiagnosticSeverity::Warning => OVERLAY_WARNING_SCORE,
         PluginDiagnosticSeverity::Error => OVERLAY_ERROR_SCORE,
     }
@@ -113,7 +115,8 @@ fn overlay_tag_score_bonus(kind: PluginDiagnosticOverlayTagKind) -> u32 {
         PluginDiagnosticOverlayTagKind::Activation
         | PluginDiagnosticOverlayTagKind::Discovery
         | PluginDiagnosticOverlayTagKind::Runtime
-        | PluginDiagnosticOverlayTagKind::Config => 0,
+        | PluginDiagnosticOverlayTagKind::Config
+        | PluginDiagnosticOverlayTagKind::PluginEmitted => 0,
     }
 }
 
@@ -577,8 +580,9 @@ fn sort_overlay_buckets(buckets: &mut [OverlayBucket]) {
 
 fn diagnostic_overlay_priority(diagnostic: &PluginDiagnostic) -> (u8, u8, u8, u8) {
     let severity = match diagnostic.severity() {
-        PluginDiagnosticSeverity::Error => 2,
-        PluginDiagnosticSeverity::Warning => 1,
+        PluginDiagnosticSeverity::Error => 3,
+        PluginDiagnosticSeverity::Warning => 2,
+        PluginDiagnosticSeverity::Info => 1,
     };
     let target = match diagnostic.target {
         PluginDiagnosticTarget::Plugin(_) => 2,
@@ -593,6 +597,7 @@ fn diagnostic_overlay_priority(diagnostic: &PluginDiagnostic) -> (u8, u8, u8, u8
         PluginDiagnosticKind::ConfigError { .. } => 1,
         PluginDiagnosticKind::BackendCapabilityRejected { .. } => 1,
         PluginDiagnosticKind::ProviderArtifactFailed { .. } => 0,
+        PluginDiagnosticKind::PluginEmitted { .. } => 1,
     };
     let stage = match diagnostic.kind {
         PluginDiagnosticKind::ProviderArtifactFailed { stage, .. } => {
@@ -633,5 +638,6 @@ fn diagnostic_overlay_tag_kind(diagnostic: &PluginDiagnostic) -> PluginDiagnosti
         PluginDiagnosticKind::BackendCapabilityRejected { .. } => {
             PluginDiagnosticOverlayTagKind::Runtime
         }
+        PluginDiagnosticKind::PluginEmitted { .. } => PluginDiagnosticOverlayTagKind::PluginEmitted,
     }
 }
