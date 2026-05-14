@@ -108,6 +108,11 @@ The **Display Transform API** (`display_directives()`) provides the first concre
 - Kakoune controls the viewport and cursor movement, so true code folding (where folded lines are skipped during navigation) is not possible; `Fold` is best suited for read-only summaries
 - `InsertAfter`/`InsertBefore` (virtual text) are the primary practical use cases; `InsertBefore` enables Gap 0 (before the first buffer line)
 
+**Destructive directives and recovery (ADR-030 §Level 4 + RFC-107a):**
+- `Hide` and `HideInline` are classified as Destructive. They are recoverable §10.2a-faithfully because the host maintains `UniversalRevealState`: pressing `<a-r>` toggles a flag that drops every destructive directive *pre-algebra* in `collect_tagged_display_directives`. Decorations that would have been displaced by a destructive winner survive on reveal.
+- Plugins do not need to declare a `RecoveryWitness` for §10.2a anymore; raw `on_display` registration is sufficient. The `on_display_safe` / `on_display_witnessed` / `SafeDisplayDirective` surface remains for plugins that want compile-time guarantees or per-plugin recovery semantics, but is no longer required for faithfulness.
+- See `docs/roadmap/rfc-107a-universal-reveal-state.md` for the design discussion and `kasane-core-tests/tests/visual_faithfulness.rs` for the witnessed properties.
+
 See the previous `examples/virtual-text-demo/` artifact (moved to the future external `kasane-plugin-gallery` per δ-3 cleanup; recover from this repo's git history).
 
 For mechanisms not covered by DisplayDirective (overlay composition, element-level restructuring), plugins should use the existing combination of `contribute_to()`, `transform()`, `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, and `Surface`.

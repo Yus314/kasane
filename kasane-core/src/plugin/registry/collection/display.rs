@@ -101,6 +101,11 @@ impl<'a> PluginView<'a> {
         let mut set = DirectiveSet::default();
         let projection_policy = state.projection_policy();
 
+        // RFC-107a: when universal reveal is on, drop destructive directives
+        // *before* they enter the algebra so decorations that would have
+        // been displaced by them survive on reveal.
+        let reveal_all = state.universal_reveal_state().is_revealed();
+
         // Composable Lenses (Roadmap §Backlog): enabled lenses
         // contribute their directives onto the same set as plugin
         // display handlers, so the algebra resolves both streams
@@ -111,6 +116,9 @@ impl<'a> PluginView<'a> {
         for (directive, priority, plugin_id) in
             state.as_app_state().lens_registry.collect_directives(state)
         {
+            if reveal_all && directive.is_destructive() {
+                continue;
+            }
             set.push(directive, priority, plugin_id);
         }
 
@@ -127,6 +135,9 @@ impl<'a> PluginView<'a> {
                 let cache = self.unified_cache.borrow();
                 if let Some(cat) = &cache[idx] {
                     for td in &cat.spatial {
+                        if reveal_all && td.directive.is_destructive() {
+                            continue;
+                        }
                         set.push(td.directive.clone(), td.priority, td.plugin_id.clone());
                     }
                 }
@@ -145,6 +156,9 @@ impl<'a> PluginView<'a> {
                 let priority = slot.backend.display_directive_priority();
                 let plugin_id = slot.backend.id();
                 for d in directives {
+                    if reveal_all && d.is_destructive() {
+                        continue;
+                    }
                     set.push(d, priority, plugin_id.clone());
                 }
             }
@@ -160,6 +174,9 @@ impl<'a> PluginView<'a> {
                 }
                 let plugin_id = slot.backend.id();
                 for d in directives {
+                    if reveal_all && d.is_destructive() {
+                        continue;
+                    }
                     set.push(d, desc.priority, plugin_id.clone());
                 }
             }

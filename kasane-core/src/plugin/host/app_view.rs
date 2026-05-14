@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::display::{FoldToggleState, ProjectionPolicyState};
+use crate::display::{FoldToggleState, ProjectionPolicyState, UniversalRevealState};
 use crate::plugin::PluginId;
 use crate::plugin::host::setting::SettingValue;
 use crate::protocol::{Coord, CursorMode, Line, StatusStyle};
@@ -471,6 +471,13 @@ impl<'a> AppView<'a> {
     #[inline]
     pub fn fold_toggle_state(&self) -> &FoldToggleState {
         &self.state.config.fold_toggle_state
+    }
+
+    /// Universal reveal state (RFC-107a): when enabled, all destructive
+    /// display directives are filtered out pre-algebra.
+    #[inline]
+    pub fn universal_reveal_state(&self) -> &UniversalRevealState {
+        &self.state.config.universal_reveal_state
     }
 
     /// Projection mode policy — active projections and per-projection fold state.

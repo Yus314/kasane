@@ -66,6 +66,7 @@ impl KakouneTransparentCommand {
         "SpawnProcess",
         "StartProcessTask",
         "ToggleAdditiveProjection",
+        "ToggleUniversalReveal",
         "TriggerPluginReload",
         "UnbindSurfaceSession",
         "UnregisterSurface",
@@ -237,6 +238,10 @@ impl KakouneTransparentCommand {
 
     pub fn projection_off() -> Self {
         Self(Command::ProjectionOff)
+    }
+
+    pub fn toggle_universal_reveal() -> Self {
+        Self(Command::ToggleUniversalReveal)
     }
 
     // =========================================================================

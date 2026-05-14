@@ -177,7 +177,8 @@ pub(super) fn handle_deferred_commands_inner(
             | Command::SetSetting { .. }
             | Command::SetStructuralProjection(_)
             | Command::ToggleAdditiveProjection(_)
-            | Command::ProjectionOff => {
+            | Command::ProjectionOff
+            | Command::ToggleUniversalReveal => {
                 handle_inter_plugin_command(cmd, ctx, command_source_plugin, depth)
             }
             Command::RegisterSurface { .. }
@@ -284,6 +285,10 @@ fn handle_inter_plugin_command(
         }
         Command::ProjectionOff => {
             ctx.state.config.projection_policy.clear_all();
+            *ctx.dirty |= DirtyFlags::BUFFER_CONTENT;
+        }
+        Command::ToggleUniversalReveal => {
+            ctx.state.config.universal_reveal_state.toggle();
             *ctx.dirty |= DirtyFlags::BUFFER_CONTENT;
         }
         _ => unreachable!(),

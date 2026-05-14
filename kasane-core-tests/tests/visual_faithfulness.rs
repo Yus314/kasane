@@ -217,3 +217,203 @@ fn cursor_safety_net_drops_full_hide_at_cursor_line_only() {
          even when an Unwitnessed plugin emits Hide over it"
     );
 }
+
+// ---------------------------------------------------------------------------
+// RFC-107a — UniversalRevealState pre-algebra filter tests
+//
+// When `state.config.universal_reveal_state.is_revealed()` is true,
+// `collect_tagged_display_directives` drops every directive whose
+// `is_destructive()` is true *before* the algebra normalizes them.
+// Pre-algebra positioning is the key invariant: decorations that would
+// have been displaced by a destructive winner survive on reveal.
+// ---------------------------------------------------------------------------
+
+struct WitnessedStyleLinePlugin {
+    priority: i16,
+}
+
+impl Plugin for WitnessedStyleLinePlugin {
+    type State = ();
+
+    fn id(&self) -> PluginId {
+        PluginId::from("witnessed-style-line")
+    }
+
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_display_safe(|_state, _app| {
+            vec![
+                kasane_core::plugin::algebra::safe_directive::SafeDisplayDirective::style_inline(
+                    0,
+                    0..5,
+                    kasane_core::protocol::Style::default(),
+                ),
+            ]
+        });
+        r.declare_display_priority(self.priority);
+    }
+}
+
+#[test]
+fn universal_reveal_off_by_default_lets_hide_take_effect() {
+    let mut registry = PluginRuntime::new();
+    registry.register(UnwitnessedHidePlugin);
+
+    let mut state = AppState::default();
+    state.observed.lines = vec![vec![], vec![], vec![], vec![]].into();
+    state.observed.cursor_pos.line = 0; // outside Hide range
+
+    assert!(!state.config.universal_reveal_state.is_revealed());
+
+    let directives = registry
+        .view()
+        .collect_display_directives(&AppView::new(&state));
+    assert!(
+        directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::Hide { .. })),
+        "Hide must take effect when reveal is off; got {:?}",
+        directives
+    );
+}
+
+#[test]
+fn universal_reveal_on_drops_full_hide() {
+    let mut registry = PluginRuntime::new();
+    registry.register(UnwitnessedHidePlugin);
+
+    let mut state = AppState::default();
+    state.observed.lines = vec![vec![], vec![], vec![], vec![]].into();
+    state.config.universal_reveal_state.set(true);
+
+    let directives = registry
+        .view()
+        .collect_display_directives(&AppView::new(&state));
+    assert!(
+        !directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::Hide { .. })),
+        "Hide must be filtered when reveal is on; got {:?}",
+        directives
+    );
+}
+
+#[test]
+fn universal_reveal_on_drops_hide_inline() {
+    let mut registry = PluginRuntime::new();
+    registry.register(UnwitnessedHideInlinePlugin);
+
+    let mut state = AppState::default();
+    state.observed.lines = vec![vec![Atom::plain("hello world")], vec![]].into();
+    state.config.universal_reveal_state.set(true);
+
+    let directives = registry
+        .view()
+        .collect_display_directives(&AppView::new(&state));
+    assert!(
+        !directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::HideInline { .. })),
+        "HideInline must be filtered when reveal is on; got {:?}",
+        directives
+    );
+}
+
+#[test]
+fn universal_reveal_on_drops_overlapping_hide_from_multiple_plugins() {
+    let mut registry = PluginRuntime::new();
+    registry.register(UnwitnessedHidePlugin); // Hide { range: 1..3 }
+    // Second plugin emitting overlapping Hide on a separate range.
+    struct SecondHidePlugin;
+    impl Plugin for SecondHidePlugin {
+        type State = ();
+        fn id(&self) -> PluginId {
+            PluginId::from("second-hide-probe")
+        }
+        fn register(&self, r: &mut HandlerRegistry<()>) {
+            r.on_display(|_state, _app| vec![DisplayDirective::Hide { range: 2..4 }]);
+        }
+    }
+    registry.register(SecondHidePlugin);
+
+    let mut state = AppState::default();
+    state.observed.lines = vec![vec![], vec![], vec![], vec![], vec![]].into();
+    state.config.universal_reveal_state.set(true);
+
+    let directives = registry
+        .view()
+        .collect_display_directives(&AppView::new(&state));
+    assert!(
+        !directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::Hide { .. })),
+        "All overlapping Hides from both plugins must be revealed by single toggle; got {:?}",
+        directives
+    );
+}
+
+#[test]
+fn universal_reveal_pre_algebra_preserves_decoration_displaced_by_hide() {
+    // The defining property of pre-algebra filtering:
+    // A low-priority decoration on a range that would have been displaced
+    // by a high-priority Hide remains visible on reveal.
+
+    let mut registry = PluginRuntime::new();
+    registry.register(WitnessedStyleLinePlugin { priority: 0 }); // StyleInline 0..5
+    struct HighPriorityHidePlugin;
+    impl Plugin for HighPriorityHidePlugin {
+        type State = ();
+        fn id(&self) -> PluginId {
+            PluginId::from("high-prio-hide")
+        }
+        fn register(&self, r: &mut HandlerRegistry<()>) {
+            r.on_display(|_state, _app| vec![DisplayDirective::Hide { range: 0..1 }]);
+            r.declare_display_priority(100);
+        }
+    }
+    registry.register(HighPriorityHidePlugin);
+
+    let mut state = AppState::default();
+    state.observed.lines = vec![vec![Atom::plain("hello")], vec![]].into();
+    state.observed.cursor_pos.line = 1; // off the Hide line
+
+    // With reveal OFF: Hide wins, decoration is displaced.
+    let with_hide = registry
+        .view()
+        .collect_display_directives(&AppView::new(&state));
+    let hide_present = with_hide
+        .iter()
+        .any(|d| matches!(d, DisplayDirective::Hide { .. }));
+    assert!(hide_present, "Hide must be present when reveal is off");
+
+    // With reveal ON: Hide is dropped pre-algebra, decoration survives.
+    state.config.universal_reveal_state.set(true);
+    let revealed = registry
+        .view()
+        .collect_display_directives(&AppView::new(&state));
+    assert!(
+        !revealed
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::Hide { .. })),
+        "Hide must be filtered on reveal"
+    );
+    assert!(
+        revealed
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::StyleInline { line: 0, .. })),
+        "StyleInline that would have been displaced must survive on reveal (pre-algebra property); got {:?}",
+        revealed
+    );
+}
+
+#[test]
+fn universal_reveal_toggle_is_idempotent() {
+    let mut state = AppState::default();
+    let initial = state.config.universal_reveal_state.is_revealed();
+    state.config.universal_reveal_state.toggle();
+    state.config.universal_reveal_state.toggle();
+    assert_eq!(
+        state.config.universal_reveal_state.is_revealed(),
+        initial,
+        "two toggles must restore the original state"
+    );
+}

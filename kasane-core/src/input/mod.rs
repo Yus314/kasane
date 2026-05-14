@@ -4,11 +4,13 @@ pub mod builtin;
 pub mod builtin_drag;
 pub mod builtin_fold;
 pub mod builtin_mouse;
+pub mod builtin_reveal;
 pub mod key_map;
 pub use builtin::BuiltinInputPlugin;
 pub use builtin_drag::BuiltinDragPlugin;
 pub use builtin_fold::BuiltinFoldPlugin;
 pub use builtin_mouse::BuiltinMouseFallbackPlugin;
+pub use builtin_reveal::BuiltinRevealPlugin;
 pub use key_map::{ChordBinding, ChordState, CompiledKeyMap, KeyBinding, KeyGroup};
 
 use std::path::{Path, PathBuf};

@@ -373,6 +373,9 @@ fn build_plugin_manager(
         builtin_plugin("builtin-drag", "kasane.builtin.drag", || {
             kasane_core::plugin::PluginBridge::new(kasane_core::input::BuiltinDragPlugin)
         }),
+        builtin_plugin("builtin-reveal", "kasane.builtin.reveal", || {
+            kasane_core::plugin::PluginBridge::new(kasane_core::input::BuiltinRevealPlugin)
+        }),
         builtin_plugin(
             "builtin-mouse-fallback",
             "kasane.builtin.mouse_fallback",

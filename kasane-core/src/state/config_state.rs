@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use crate::config::MenuPosition;
 use crate::display::FoldToggleState;
 use crate::display::ProjectionPolicyState;
+use crate::display::UniversalRevealState;
 use crate::plugin::PluginId;
 use crate::plugin::host::setting::SettingValue;
 use crate::render::theme::Theme;
@@ -46,6 +47,10 @@ pub struct ConfigState {
     pub theme: Theme,
     /// Core fold toggle state: tracks which fold ranges are currently expanded.
     pub fold_toggle_state: FoldToggleState,
+    /// Universal reveal state (RFC-107a): when enabled, all destructive
+    /// display directives (`Hide`, `HideInline`) are filtered out pre-algebra,
+    /// providing §10.2a-faithful recovery analogous to `FoldToggleState`.
+    pub universal_reveal_state: UniversalRevealState,
     /// Projection mode policy: which projections are active and per-projection fold state.
     pub projection_policy: ProjectionPolicyState,
 }
@@ -73,6 +78,7 @@ impl Default for ConfigState {
             truncation_char: "\u{2026}".to_string(), // …
             theme: Theme::default_theme(),
             fold_toggle_state: FoldToggleState::default(),
+            universal_reveal_state: UniversalRevealState::default(),
             projection_policy: ProjectionPolicyState::default(),
         }
     }

@@ -181,9 +181,16 @@ Introduce a staged enforcement model for the observed/policy split.
   that `FoldToggleState::toggle` recovers all folded lines in a single
   interaction, confirming Fold's Preserving classification.
 - Note: `Fold` is classified as Preserving (not Destructive) because
-  `FoldToggleState` provides framework-maintained recovery. `Hide` is
-  the sole Destructive variant; plugin-side recovery requires explicit
-  `RecoveryWitness` evidence.
+  `FoldToggleState` provides framework-maintained recovery. `Hide` /
+  `HideInline` are Destructive variants; per-plugin recovery via
+  explicit `RecoveryWitness` evidence remains supported, but is no
+  longer required for §10.2a faithfulness — RFC-107a (see
+  `docs/roadmap/rfc-107a-universal-reveal-state.md`) adds
+  `UniversalRevealState` as a framework-maintained recovery analogous
+  to `FoldToggleState`. Every plugin's destructive directives become
+  recoverable in σ = `[<a-r>]` (|σ| = 1) regardless of registration
+  path; `is_display_recoverable()` becomes redundant under this
+  policy and is flagged for retirement.
 
 **Level 5 — Effect Footprint (implemented).**
 

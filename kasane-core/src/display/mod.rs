@@ -16,6 +16,7 @@ pub mod stability;
 #[cfg(test)]
 mod tests;
 pub mod unit;
+pub mod universal_reveal_state;
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -36,6 +37,7 @@ pub struct DisplayLine(pub usize);
 
 pub use content_annotation::{ContentAnchor, ContentAnnotation};
 pub use fold_state::FoldToggleState;
+pub use universal_reveal_state::UniversalRevealState;
 // SegmentMap is not re-exported at the display level to avoid API surface bloat;
 // access via `display::segment_map::SegmentMap` when needed.
 pub use navigation::{ActionResult, NavigationAction, NavigationDirection, NavigationPolicy};

@@ -276,6 +276,11 @@ pub enum Command {
     ToggleAdditiveProjection(crate::display::ProjectionId),
     /// Deactivate all projections (preserves fold states).
     ProjectionOff,
+    /// Toggle universal reveal of destructive display directives
+    /// (RFC-107a). When enabled, all `Hide` / `HideInline` directives are
+    /// filtered pre-algebra, providing §10.2a-faithful recovery via a
+    /// single host-owned toggle analogous to `FoldToggleState`.
+    ToggleUniversalReveal,
 }
 
 impl Command {
@@ -359,6 +364,7 @@ impl Command {
             Command::SetStructuralProjection(_) => false,
             Command::ToggleAdditiveProjection(_) => false,
             Command::ProjectionOff => false,
+            Command::ToggleUniversalReveal => false,
         }
     }
 
@@ -405,6 +411,7 @@ impl Command {
             Command::SetStructuralProjection(_) => false,
             Command::ToggleAdditiveProjection(_) => false,
             Command::ProjectionOff => false,
+            Command::ToggleUniversalReveal => false,
         }
     }
 
@@ -453,6 +460,7 @@ impl Command {
             Command::SetStructuralProjection(_) => true,
             Command::ToggleAdditiveProjection(_) => true,
             Command::ProjectionOff => true,
+            Command::ToggleUniversalReveal => false,
         }
     }
 
@@ -499,6 +507,7 @@ impl Command {
             Command::SetStructuralProjection(_) => true,
             Command::ToggleAdditiveProjection(_) => true,
             Command::ProjectionOff => true,
+            Command::ToggleUniversalReveal => true,
         }
     }
 
@@ -546,6 +555,7 @@ impl Command {
             Command::SetStructuralProjection(_) => EffectCategory::CONFIG_MUTATION,
             Command::ToggleAdditiveProjection(_) => EffectCategory::CONFIG_MUTATION,
             Command::ProjectionOff => EffectCategory::CONFIG_MUTATION,
+            Command::ToggleUniversalReveal => EffectCategory::CONFIG_MUTATION,
         }
     }
 }
@@ -635,7 +645,8 @@ pub fn execute_commands(
             | Command::ExposeVariable { .. }
             | Command::SetStructuralProjection(_)
             | Command::ToggleAdditiveProjection(_)
-            | Command::ProjectionOff => {}
+            | Command::ProjectionOff
+            | Command::ToggleUniversalReveal => {}
         }
     }
     CommandResult::Continue
