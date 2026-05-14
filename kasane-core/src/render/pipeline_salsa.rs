@@ -963,20 +963,23 @@ fn compose_base_from_salsa(
         },
     );
 
-    // Apply buffer transform chain: use Salsa-cached patch when available
-    let transformed_buffer = match handles.transform_patches.buffer(db) {
-        Some(patch) => patch
-            .clone()
-            .apply(TransformSubject::Element(segmented_buffer))
-            .into_element(),
-        None => registry
-            .apply_transform_chain(
-                TransformTarget::BUFFER,
-                TransformSubject::Element(segmented_buffer),
-                &AppView::new(state),
-            )
-            .into_element(),
-    };
+    // Apply buffer transform chain: use the pure-patch fast path when
+    // every TRANSFORMER plugin returns a pure ElementPatch; otherwise
+    // fall back to imperative `apply_transform_chain`. Collected inline
+    // (θ.4: no Salsa intermediate; no tracked-query consumer existed).
+    let transformed_buffer =
+        match registry.collect_transform_patches(TransformTarget::BUFFER, &AppView::new(state)) {
+            Some(patch) => patch
+                .apply(TransformSubject::Element(segmented_buffer))
+                .into_element(),
+            None => registry
+                .apply_transform_chain(
+                    TransformTarget::BUFFER,
+                    TransformSubject::Element(segmented_buffer),
+                    &AppView::new(state),
+                )
+                .into_element(),
+        };
 
     // Read buffer slot contributions from Salsa input
     let buffer_left = handles.slot_contributions.buffer_left(db).clone();
@@ -1008,10 +1011,11 @@ fn compose_base_from_salsa(
         Element::column(children)
     };
 
-    // Apply status transform chain: use Salsa-cached patch when available
-    let transformed_status = match handles.transform_patches.status_bar(db) {
+    // Apply status transform chain: same shape as buffer above (θ.4).
+    let transformed_status = match registry
+        .collect_transform_patches(TransformTarget::STATUS_BAR, &AppView::new(state))
+    {
         Some(patch) => patch
-            .clone()
             .apply(TransformSubject::Element(status_el))
             .into_element(),
         None => registry

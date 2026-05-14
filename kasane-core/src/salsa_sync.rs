@@ -28,7 +28,6 @@ pub struct SalsaInputHandles {
     pub display_directives: DisplayDirectivesInput,
     pub slot_contributions: SlotContributionsInput,
     pub annotations: AnnotationResultInput,
-    pub transform_patches: TransformPatchesInput,
     /// ADR-035 §2 — handle to the configured `HistoryBackend`.
     /// Synced from `AppState::history` each frame; backs the
     /// Time-aware Salsa queries (`text_at_time`, `selection_at_time`,
@@ -88,7 +87,6 @@ impl SalsaInputHandles {
                 vec![],
             ),
             annotations: AnnotationResultInput::new(db, None, None, None, None, None),
-            transform_patches: TransformPatchesInput::new(db, None, None),
             history: HistoryInput::new(
                 db,
                 std::sync::Arc::new(crate::history::InMemoryRing::new()),
@@ -467,28 +465,4 @@ pub fn sync_unified_display(
 
     // Step 2: Annotations (depends on display map from step 1)
     sync_plugin_contributions(db, state, registry, inputs, dirty);
-}
-
-/// Synchronize transform patches from TRANSFORMER plugins into Salsa.
-///
-/// Collects patches for Buffer and StatusBar targets. When all patches for a
-/// target are pure, stores the composed result as a Salsa input (enabling
-/// PartialEq-based memoization). When any patch is impure or legacy, stores
-/// `None` to signal that the render pipeline should fall back to imperative
-/// `apply_transform_chain()`.
-pub fn sync_transform_patches(
-    db: &mut KasaneDatabase,
-    state: &AppState,
-    registry: &PluginView<'_>,
-    inputs: &SalsaInputHandles,
-) {
-    use crate::plugin::TransformTarget;
-
-    let app_view = AppView::new(state);
-
-    let buffer = registry.collect_transform_patches(TransformTarget::BUFFER, &app_view);
-    inputs.transform_patches.set_buffer(db).to(buffer);
-
-    let status_bar = registry.collect_transform_patches(TransformTarget::STATUS_BAR, &app_view);
-    inputs.transform_patches.set_status_bar(db).to(status_bar);
 }

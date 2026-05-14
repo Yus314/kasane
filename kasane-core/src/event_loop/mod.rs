@@ -409,7 +409,6 @@ pub fn sync_salsa_for_render(
     crate::salsa_sync::sync_inputs_from_state(db, state, handles);
     let view = registry.view();
     crate::salsa_sync::sync_unified_display(db, state, &view, handles, dirty);
-    crate::salsa_sync::sync_transform_patches(db, state, &view, handles);
 }
 
 /// Trait for pre-render hooks that need mutable state access.
