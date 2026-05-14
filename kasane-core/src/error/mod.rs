@@ -22,6 +22,7 @@
 
 use thiserror::Error;
 
+use crate::config::ConfigLoadError;
 use crate::config::kdl_parser::ConfigError;
 use crate::config::unified::UnifiedParseError;
 use crate::history::HistoryError;
@@ -47,6 +48,10 @@ pub enum CoreError {
     /// Unified config (`kasane.kdl`) parse failure (fatal).
     #[error(transparent)]
     Config(#[from] UnifiedParseError),
+
+    /// Config file load / save IO failure.
+    #[error(transparent)]
+    ConfigLoad(#[from] ConfigLoadError),
 
     /// Field-level config parse error (per-section, recoverable when
     /// emitted as a diagnostic but surfaced here for callers that prefer

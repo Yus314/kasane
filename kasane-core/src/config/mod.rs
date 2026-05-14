@@ -3,7 +3,50 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::plugin::SettingValue;
-use anyhow::{Context, Result};
+
+/// Errors raised by `Config` load / save IO paths.
+///
+/// Each variant pins the offending filesystem path next to the
+/// underlying `std::io::Error` (or `kdl::KdlError` for serialization),
+/// preserving the same diagnostic surface the previous `anyhow::Context`
+/// chain produced.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigLoadError {
+    #[error("failed to read {path}: {source}", path = path.display())]
+    ReadFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to create {path}: {source}", path = path.display())]
+    CreateDir {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to write {path}: {source}", path = path.display())]
+    WriteFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error(
+        "failed to atomically replace {dst} with {src}: {source}",
+        dst = dst.display(),
+        src = src.display(),
+    )]
+    AtomicRename {
+        src: PathBuf,
+        dst: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to serialize config: {source}")]
+    KdlSerialize {
+        #[source]
+        source: kdl::KdlError,
+    },
+}
 
 pub mod colors;
 pub mod effects;
@@ -260,56 +303,59 @@ impl Config {
         }
     }
 
-    pub fn try_load() -> Result<Self> {
+    pub fn try_load() -> Result<Self, crate::error::CoreError> {
         Self::try_load_from_path(config_path())
     }
 
-    pub fn try_load_from_path(path: impl AsRef<Path>) -> Result<Self> {
+    pub fn try_load_from_path(path: impl AsRef<Path>) -> Result<Self, crate::error::CoreError> {
         let path = path.as_ref();
         let contents = match fs::read_to_string(path) {
             Ok(contents) => contents,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
-            Err(err) => {
-                return Err(err).with_context(|| format!("failed to read {}", path.display()));
+            Err(source) => {
+                return Err(ConfigLoadError::ReadFile {
+                    path: path.to_path_buf(),
+                    source,
+                }
+                .into());
             }
         };
         let (config, _config_errors, _widget_file, _widget_errors) =
-            self::unified::parse_unified(&contents)
-                .map_err(|e| anyhow::anyhow!("{e}"))
-                .with_context(|| format!("failed to parse {}", path.display()))?;
+            self::unified::parse_unified(&contents)?;
         Ok(config)
     }
 
-    pub fn save(&self) -> Result<PathBuf> {
+    pub fn save(&self) -> Result<PathBuf, ConfigLoadError> {
         let path = config_path();
         self.save_to_path(&path)?;
         Ok(path)
     }
 
-    pub fn save_to_path(&self, path: impl AsRef<Path>) -> Result<()> {
+    pub fn save_to_path(&self, path: impl AsRef<Path>) -> Result<(), ConfigLoadError> {
         let path = path.as_ref();
         if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
         {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
+            fs::create_dir_all(parent).map_err(|source| ConfigLoadError::CreateDir {
+                path: parent.to_path_buf(),
+                source,
+            })?;
         }
 
         // Read existing file to preserve widget definitions and comments
         let existing = fs::read_to_string(path).unwrap_or_default();
         let contents = kdl_writer::patch_config_in_document(&existing, self)
-            .map_err(|e| anyhow::anyhow!("KDL error: {e}"))
-            .context("failed to serialize config")?;
+            .map_err(|source| ConfigLoadError::KdlSerialize { source })?;
 
         let temp_path = temp_config_path(path);
-        fs::write(&temp_path, contents)
-            .with_context(|| format!("failed to write {}", temp_path.display()))?;
-        fs::rename(&temp_path, path).with_context(|| {
-            format!(
-                "failed to atomically replace {} with {}",
-                path.display(),
-                temp_path.display()
-            )
+        fs::write(&temp_path, contents).map_err(|source| ConfigLoadError::WriteFile {
+            path: temp_path.clone(),
+            source,
+        })?;
+        fs::rename(&temp_path, path).map_err(|source| ConfigLoadError::AtomicRename {
+            src: temp_path.clone(),
+            dst: path.to_path_buf(),
+            source,
         })?;
         Ok(())
     }
