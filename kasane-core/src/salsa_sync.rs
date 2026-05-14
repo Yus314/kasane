@@ -29,7 +29,6 @@ pub struct SalsaInputHandles {
     pub slot_contributions: SlotContributionsInput,
     pub annotations: AnnotationResultInput,
     pub transform_patches: TransformPatchesInput,
-    pub content_annotations: ContentAnnotationsInput,
     /// ADR-035 §2 — handle to the configured `HistoryBackend`.
     /// Synced from `AppState::history` each frame; backs the
     /// Time-aware Salsa queries (`text_at_time`, `selection_at_time`,
@@ -90,7 +89,6 @@ impl SalsaInputHandles {
             ),
             annotations: AnnotationResultInput::new(db, None, None, None, None, None),
             transform_patches: TransformPatchesInput::new(db, None, None),
-            content_annotations: ContentAnnotationsInput::new(db, vec![]),
             history: HistoryInput::new(
                 db,
                 std::sync::Arc::new(crate::history::InMemoryRing::new()),
@@ -445,51 +443,18 @@ pub fn sync_display_directives(
         .to(line_count);
 }
 
-/// Synchronize content annotations from plugins into Salsa.
-///
-/// Call this after `sync_plugin_contributions()` (which sets up the display map
-/// and annotations). Only re-collects if any CONTENT_ANNOTATOR plugin needs
-/// recollection.
-pub fn sync_content_annotations(
-    db: &mut KasaneDatabase,
-    state: &AppState,
-    registry: &PluginView<'_>,
-    inputs: &SalsaInputHandles,
-) {
-    use crate::display::DisplayMapRef;
-    use crate::plugin::AnnotateContext;
-    use std::sync::Arc;
-
-    if !registry.has_capability(crate::plugin::PluginCapabilities::CONTENT_ANNOTATOR) {
-        return;
-    }
-
-    let display_map: DisplayMapRef =
-        crate::salsa_views::display_map_query(db, inputs.display_directives);
-    let annotate_ctx = AnnotateContext {
-        line_width: state.runtime.cols,
-        gutter_width: 0,
-        display_map: Some(Arc::clone(&display_map)),
-        pane_surface_id: None,
-        pane_focused: true,
-    };
-    let annotations = registry.collect_content_annotations(&AppView::new(state), &annotate_ctx);
-    inputs
-        .content_annotations
-        .set_annotations(db)
-        .to(annotations);
-}
-
-/// Unified display synchronization: collects spatial directives, annotations,
-/// and content annotations in a single coordinated pass.
+/// Unified display synchronization: collects spatial directives and
+/// annotations in a single coordinated pass.
 ///
 /// For plugins that use `has_unified_display()`, this ensures `unified_display()`
 /// is called only once (via lazy caching in `PluginView`), with the result
-/// partitioned across the spatial, annotation, and content annotation Salsa inputs.
+/// partitioned across the spatial and annotation Salsa inputs.
+///
+/// Content annotations are collected inline at render time (θ.3); no
+/// sync step needed.
 ///
 /// Call this after `prepare_plugin_cache()` instead of calling
-/// `sync_display_directives()`, `sync_plugin_contributions()`, and
-/// `sync_content_annotations()` separately.
+/// `sync_display_directives()` and `sync_plugin_contributions()` separately.
 pub fn sync_unified_display(
     db: &mut KasaneDatabase,
     state: &AppState,
@@ -502,9 +467,6 @@ pub fn sync_unified_display(
 
     // Step 2: Annotations (depends on display map from step 1)
     sync_plugin_contributions(db, state, registry, inputs, dirty);
-
-    // Step 3: Content annotations (depends on display map)
-    sync_content_annotations(db, state, registry, inputs);
 }
 
 /// Synchronize transform patches from TRANSFORMER plugins into Salsa.

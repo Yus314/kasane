@@ -934,11 +934,28 @@ fn compose_base_from_salsa(
         buffer_el
     };
 
-    // Segment buffer with content annotations.
-    let content_annotations = handles.content_annotations.annotations(db);
+    // Segment buffer with content annotations — collected inline (θ.3:
+    // no Salsa intermediate). The previous `ContentAnnotationsInput` was
+    // a Salsa input with no `#[salsa::tracked]` consumer; the wrapper
+    // added a `db` thread without semantics. Skipped when no
+    // CONTENT_ANNOTATOR plugin is registered to preserve the original
+    // early-return shape.
+    let content_annotations: Vec<crate::display::ContentAnnotation> =
+        if registry.has_capability(crate::plugin::PluginCapabilities::CONTENT_ANNOTATOR) {
+            let annotate_ctx = crate::plugin::AnnotateContext {
+                line_width: state.runtime.cols,
+                gutter_width: 0,
+                display_map: Some(Arc::clone(display_map)),
+                pane_surface_id: None,
+                pane_focused: true,
+            };
+            registry.collect_content_annotations(&crate::plugin::AppView::new(state), &annotate_ctx)
+        } else {
+            Vec::new()
+        };
     let segmented_buffer = view::segment_buffer(
         buffer_with_bg,
-        content_annotations,
+        &content_annotations,
         if display_map.is_identity() {
             None
         } else {
