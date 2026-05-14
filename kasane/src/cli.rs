@@ -87,106 +87,46 @@ pub enum PluginTemplate {
     Process,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CliError {
+    #[error("unknown --ui mode: {0}. Use 'tui' or 'gui'.")]
     UnknownUiMode(String),
+    #[error("--ui requires an argument (tui or gui)")]
     MissingUiArg,
+    #[error("cannot combine kasane flag {kasane_flag} with non-UI kak flags")]
     ConflictingFlags { kasane_flag: &'static str },
+    #[error(
+        "missing subcommand. Usage: kasane plugin <new|build|install|list|gc|doctor|dev|resolve|rollback|pin|unpin|update>"
+    )]
     PluginMissingSubcommand,
+    #[error(
+        "unknown plugin subcommand: {0}. Use new, build, install, list, gc, doctor, dev, resolve, rollback, pin, unpin, or update."
+    )]
     PluginUnknownSubcommand(String),
+    #[error("missing plugin name. Usage: kasane plugin new <name>")]
     PluginMissingName,
+    #[error(
+        "unknown template: {0}. Use hello, contribution, annotation, transform, overlay, or process."
+    )]
     PluginUnknownTemplate(String),
+    #[error(
+        "missing plugin id. Usage: kasane plugin pin <plugin-id> (--digest DIGEST | --package NAME [--version VERSION])"
+    )]
     PluginPinMissingPluginId,
+    #[error("pin requires --digest DIGEST or --package NAME [--version VERSION]")]
     PluginPinMissingSelector,
+    #[error("invalid pin argument: {0}")]
     PluginPinInvalidArgs(String),
+    #[error("invalid gc argument: {0}. Usage: kasane plugin gc [--prune-history] [--keep N]")]
     PluginGcInvalidArgs(String),
+    #[error("invalid rollback argument: {0}. Usage: kasane plugin rollback [--list]")]
     PluginRollbackInvalidArgs(String),
+    #[error("missing plugin id. Usage: kasane plugin unpin <plugin-id>")]
     PluginUnpinMissingPluginId,
+    #[error("missing subcommand. Usage: kasane widget <check|variables|slots>")]
     WidgetMissingSubcommand,
+    #[error("unknown widget subcommand: {0}. Use check, variables, or slots.")]
     WidgetUnknownSubcommand(String),
-}
-
-impl std::fmt::Display for CliError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CliError::UnknownUiMode(mode) => {
-                write!(f, "unknown --ui mode: {mode}. Use 'tui' or 'gui'.")
-            }
-            CliError::MissingUiArg => write!(f, "--ui requires an argument (tui or gui)"),
-            CliError::ConflictingFlags { kasane_flag } => {
-                write!(
-                    f,
-                    "cannot combine kasane flag {kasane_flag} with non-UI kak flags"
-                )
-            }
-            CliError::PluginMissingSubcommand => {
-                write!(
-                    f,
-                    "missing subcommand. Usage: kasane plugin <new|build|install|list|gc|doctor|dev|resolve|rollback|pin|unpin|update>"
-                )
-            }
-            CliError::PluginUnknownSubcommand(s) => {
-                write!(
-                    f,
-                    "unknown plugin subcommand: {s}. Use new, build, install, list, gc, doctor, dev, resolve, rollback, pin, unpin, or update."
-                )
-            }
-            CliError::PluginMissingName => {
-                write!(f, "missing plugin name. Usage: kasane plugin new <name>")
-            }
-            CliError::PluginUnknownTemplate(t) => {
-                write!(
-                    f,
-                    "unknown template: {t}. Use hello, contribution, annotation, transform, overlay, or process."
-                )
-            }
-            CliError::PluginPinMissingPluginId => {
-                write!(
-                    f,
-                    "missing plugin id. Usage: kasane plugin pin <plugin-id> (--digest DIGEST | --package NAME [--version VERSION])"
-                )
-            }
-            CliError::PluginPinMissingSelector => {
-                write!(
-                    f,
-                    "pin requires --digest DIGEST or --package NAME [--version VERSION]"
-                )
-            }
-            CliError::PluginPinInvalidArgs(arg) => {
-                write!(f, "invalid pin argument: {arg}")
-            }
-            CliError::PluginGcInvalidArgs(arg) => {
-                write!(
-                    f,
-                    "invalid gc argument: {arg}. Usage: kasane plugin gc [--prune-history] [--keep N]"
-                )
-            }
-            CliError::PluginRollbackInvalidArgs(arg) => {
-                write!(
-                    f,
-                    "invalid rollback argument: {arg}. Usage: kasane plugin rollback [--list]"
-                )
-            }
-            CliError::PluginUnpinMissingPluginId => {
-                write!(
-                    f,
-                    "missing plugin id. Usage: kasane plugin unpin <plugin-id>"
-                )
-            }
-            CliError::WidgetMissingSubcommand => {
-                write!(
-                    f,
-                    "missing subcommand. Usage: kasane widget <check|variables|slots>"
-                )
-            }
-            CliError::WidgetUnknownSubcommand(s) => {
-                write!(
-                    f,
-                    "unknown widget subcommand: {s}. Use check, variables, or slots."
-                )
-            }
-        }
-    }
 }
 
 pub fn parse_cli_args(args: &[String]) -> Result<CliAction, CliError> {

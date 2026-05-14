@@ -99,16 +99,15 @@ fn setup_logging(config: &Config) -> LoggingHandles {
 }
 
 /// Run kasane with plugins collected from a provider.
-pub fn run(provider: impl PluginProvider + 'static) {
+///
+/// Returns `Ok(())` on graceful exit (including version / help requests
+/// and successful `init` / `plugin` / `widget` subcommands). Returns
+/// `Err` for CLI argument parsing failures, subcommand errors, and any
+/// TUI / GUI runtime failure. Callers (typically `main`) are expected
+/// to log the error and exit non-zero.
+pub fn run(provider: impl PluginProvider + 'static) -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-
-    let action = match cli::parse_cli_args(&args) {
-        Ok(action) => action,
-        Err(e) => {
-            eprintln!("error: {e}");
-            std::process::exit(1);
-        }
-    };
+    let action = cli::parse_cli_args(&args)?;
 
     match action {
         cli::CliAction::ShowVersion => {
@@ -119,50 +118,36 @@ pub fn run(provider: impl PluginProvider + 'static) {
         cli::CliAction::ShowHelp => {
             cli::print_help();
         }
-        cli::CliAction::Init => {
-            if let Err(e) = init_cmd::execute() {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
-        }
+        cli::CliAction::Init => init_cmd::execute()?,
         cli::CliAction::DelegateToKak(args) => {
+            // `exec_kak` replaces the current process via execvp and
+            // does not return on success; on failure it `exit`s
+            // internally with the kak status code.
             process::exec_kak(&args);
         }
-        cli::CliAction::Plugin(subcmd) => {
-            if let Err(e) = plugin_cmd::execute(subcmd) {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
-        }
-        cli::CliAction::Widget(subcmd) => {
-            if let Err(e) = widget_cmd::execute(subcmd) {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
-        }
+        cli::CliAction::Plugin(subcmd) => plugin_cmd::execute(subcmd)?,
+        cli::CliAction::Widget(subcmd) => widget_cmd::execute(subcmd)?,
         cli::CliAction::RunKasane {
             session,
             ui_mode,
             kak_args,
-        } => {
-            if let Err(e) = run_inner(session, ui_mode, kak_args, provider) {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
-        }
+        } => run_inner(session, ui_mode, kak_args, provider)?,
     }
+    Ok(())
 }
 
 /// Run kasane with a fixed set of host plugin factories.
-pub fn run_with_factories(factories: impl IntoIterator<Item = Arc<dyn PluginFactory>>) {
-    run(StaticPluginProvider::new(factories));
+pub fn run_with_factories(
+    factories: impl IntoIterator<Item = Arc<dyn PluginFactory>>,
+) -> Result<()> {
+    run(StaticPluginProvider::new(factories))
 }
 
 /// Run kasane without additional host plugins.
-pub fn run_without_plugins() {
+pub fn run_without_plugins() -> Result<()> {
     run(StaticPluginProvider::new(
         Vec::<Arc<dyn PluginFactory>>::new(),
-    ));
+    ))
 }
 
 fn run_inner(
