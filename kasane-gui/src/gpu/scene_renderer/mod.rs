@@ -52,7 +52,7 @@ impl<'a> FrameTarget<'a> {
     /// Acquire a frame from the target. Returns `Ok(None)` when the frame
     /// should be skipped (Surface variant only — Timeout/Occluded). Returns
     /// `Err` on unrecoverable surface errors.
-    pub fn acquire(&self, gpu: &super::GpuState) -> anyhow::Result<Option<AcquiredFrame>> {
+    pub fn acquire(&self, gpu: &super::GpuState) -> Result<Option<AcquiredFrame>, super::GpuError> {
         match self {
             FrameTarget::Surface(surface) => {
                 let frame = match surface.get_current_texture() {
@@ -66,15 +66,17 @@ impl<'a> FrameTarget<'a> {
                         match surface.get_current_texture() {
                             wgpu::CurrentSurfaceTexture::Success(f)
                             | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
-                            other => anyhow::bail!(
-                                "failed to acquire surface texture after reconfigure: {other:?}"
-                            ),
+                            other => {
+                                return Err(super::GpuError::SurfaceAcquire {
+                                    state: format!("{other:?}"),
+                                });
+                            }
                         }
                     }
                     wgpu::CurrentSurfaceTexture::Timeout
                     | wgpu::CurrentSurfaceTexture::Occluded => return Ok(None),
                     wgpu::CurrentSurfaceTexture::Validation => {
-                        anyhow::bail!("surface texture validation error");
+                        return Err(super::GpuError::SurfaceValidation);
                     }
                 };
                 let view = frame.texture.create_view(&Default::default());
@@ -718,7 +720,7 @@ impl SceneRenderer {
         cursor_color: kasane_core::protocol::Color,
         overlay_opacities: &[f32],
         visual_hints: &kasane_core::render::VisualHints,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), super::backend::BackendError> {
         self.render_inner(
             gpu,
             FrameTarget::Surface(
@@ -751,7 +753,7 @@ impl SceneRenderer {
         commands: &[DrawCommand],
         color_resolver: &ColorResolver,
         cursor: Option<(u16, u16, CursorStyle)>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), super::backend::BackendError> {
         let animated = cursor.map(|(cx, cy, style)| {
             let cell_w = self.metrics.cell_width;
             let cell_h = self.metrics.cell_height;
@@ -781,7 +783,7 @@ impl SceneRenderer {
         commands: &[DrawCommand],
         color_resolver: &ColorResolver,
         cursor: Option<(u16, u16, CursorStyle)>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), super::backend::BackendError> {
         let animated = cursor.map(|(cx, cy, style)| {
             let cell_w = self.metrics.cell_width;
             let cell_h = self.metrics.cell_height;
@@ -823,7 +825,7 @@ impl SceneRenderer {
         cursor: Option<(f32, f32, f32, CursorStyle, kasane_core::protocol::Color)>,
         overlay_opacities: &[f32],
         visual_hints: &kasane_core::render::VisualHints,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), super::backend::BackendError> {
         let _frame_span = tracing::info_span!("gpu_frame", commands = commands.len()).entered();
         let acquired = match target.acquire(gpu)? {
             Some(f) => f,
@@ -1265,7 +1267,6 @@ impl super::backend::GpuBackend for SceneRenderer {
             overlay_opacities,
             visual_hints,
         )
-        .map_err(super::backend::BackendError::from)
     }
 
     fn resize(

@@ -16,7 +16,7 @@ etagere = { workspace = true }
 lru = { workspace = true }
 rustc-hash = { workspace = true }
 pollster = { workspace = true }
-anyhow = { workspace = true }
+thiserror = { workspace = true }
 notify = { workspace = true }
 tracing = { workspace = true }
 bytemuck = { workspace = true }

@@ -114,41 +114,27 @@ pub enum DegradationPolicy {
 }
 
 /// Error returned by a [`GpuBackend`] operation.
-#[derive(Debug)]
+///
+/// `Render` carries the user-extensible boundary alias
+/// [`kasane_core::error::DynError`]; concrete sources (wgpu surface
+/// errors, shader compilation, etc.) wrap themselves through
+/// `From<E> for Box<dyn Error + Send + Sync + 'static>` at the
+/// construction site (typically `e.into()`).
+#[derive(Debug, thiserror::Error)]
 pub enum BackendError {
     /// The backend does not support the requested feature
     /// (e.g. a `Path` primitive submitted to `WgpuBackend`).
     /// The argument is a short human-readable feature name.
+    #[error("backend does not support {0}")]
     Unsupported(&'static str),
     /// An underlying renderer error (wgpu surface lost, allocation
     /// failure, shader compilation, etc.).
-    Render(anyhow::Error),
-}
-
-impl std::fmt::Display for BackendError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BackendError::Unsupported(feature) => {
-                write!(f, "backend does not support {feature}")
-            }
-            BackendError::Render(e) => write!(f, "{e}"),
-        }
-    }
-}
-
-impl std::error::Error for BackendError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            BackendError::Unsupported(_) => None,
-            BackendError::Render(e) => Some(e.as_ref()),
-        }
-    }
-}
-
-impl From<anyhow::Error> for BackendError {
-    fn from(e: anyhow::Error) -> Self {
-        BackendError::Render(e)
-    }
+    #[error("renderer error: {0}")]
+    Render(#[from] kasane_core::error::DynError),
+    /// A wgpu/GPU initialization or per-frame failure surfaced through
+    /// [`super::GpuError`].
+    #[error(transparent)]
+    Gpu(#[from] super::GpuError),
 }
 
 /// A GPU rendering backend.

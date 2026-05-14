@@ -2554,7 +2554,6 @@ dependencies = [
 name = "kasane-gui"
 version = "0.7.0"
 dependencies = [
- "anyhow",
  "bytemuck",
  "compact_str",
  "criterion",
@@ -2569,6 +2568,7 @@ dependencies = [
  "pollster",
  "rustc-hash 2.1.2",
  "swash",
+ "thiserror 2.0.18",
  "tracing",
  "wgpu 29.0.2",
  "winit",

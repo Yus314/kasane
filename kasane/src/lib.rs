@@ -297,6 +297,7 @@ fn run_inner(
                 Box::new(orchestrator::DefaultReloadOrchestrator),
                 log_path,
             )
+            .map_err(anyhow::Error::new)
         }
         #[cfg(not(feature = "gui"))]
         UiMode::Gui => {

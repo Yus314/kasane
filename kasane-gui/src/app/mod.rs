@@ -6,7 +6,6 @@ mod render;
 use std::io::Write;
 use std::sync::Arc;
 
-use anyhow::Result;
 use winit::dpi::LogicalSize;
 use winit::event::Ime;
 use winit::event_loop::ActiveEventLoop;
@@ -148,7 +147,7 @@ where
         http_dispatcher: Box<dyn HttpDispatcher>,
         reload_orchestrator: Box<dyn kasane_core::event_loop::ReloadOrchestrator>,
         log_path: Option<std::path::PathBuf>,
-    ) -> Result<(Self, Vec<std::path::PathBuf>)> {
+    ) -> Result<(Self, Vec<std::path::PathBuf>), crate::error::GuiError> {
         let scroll_amount = config.scroll.lines_per_scroll;
 
         let mut state = Box::new(AppState::default());
@@ -213,7 +212,7 @@ where
                     &state,
                 )
             })
-            .map_err(anyhow::Error::from_boxed)?;
+            .map_err(crate::error::GuiError::PluginManager)?;
         initial_plugins.apply_settings(&mut state);
         kasane_core::event_loop::sync_suppressed_builtins(&mut state, &registry);
         // Composable Lenses auto-wire (Roadmap §2.2 follow-up).

@@ -3,6 +3,7 @@ mod app;
 pub(crate) mod backend;
 pub mod colors;
 mod diagnostics_overlay;
+pub mod error;
 pub mod gpu;
 mod ime;
 pub(crate) mod input;
@@ -10,7 +11,7 @@ pub(crate) mod input;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use anyhow::Result;
+use crate::error::GuiError;
 
 /// Global session name for panic hook reconnect message.
 static SESSION_NAME: OnceLock<String> = OnceLock::new();
@@ -112,7 +113,7 @@ pub fn run_gui<R, W, C>(
     plugin_manager: PluginManager,
     reload_orchestrator: Box<dyn kasane_core::event_loop::ReloadOrchestrator>,
     log_path: Option<std::path::PathBuf>,
-) -> Result<()>
+) -> Result<(), GuiError>
 where
     R: std::io::BufRead + Send + 'static,
     W: std::io::Write + Send + 'static,
@@ -132,10 +133,8 @@ where
 
     let active_session = session_manager
         .active_session_id()
-        .ok_or_else(|| anyhow::anyhow!("missing primary session id"))?;
-    let kak_reader = session_manager
-        .take_active_reader()
-        .map_err(|err| anyhow::anyhow!("failed to acquire primary session: {err:?}"))?;
+        .ok_or(GuiError::MissingPrimarySession)?;
+    let kak_reader = session_manager.take_active_reader()?;
 
     // Build plugin registry
     let registry = kasane_core::plugin::PluginRuntime::new();

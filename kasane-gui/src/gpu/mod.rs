@@ -40,6 +40,23 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use winit::window::Window;
 
+/// Errors raised by GPU initialization and per-frame acquisition.
+#[derive(Debug, thiserror::Error)]
+pub enum GpuError {
+    #[error("failed to create wgpu surface: {0}")]
+    CreateSurface(#[from] wgpu::CreateSurfaceError),
+    #[error("failed to request adapter: {0}")]
+    RequestAdapter(#[from] wgpu::RequestAdapterError),
+    #[error("failed to request device: {0}")]
+    RequestDevice(#[from] wgpu::RequestDeviceError),
+    #[error("no compatible surface format")]
+    NoCompatibleFormat,
+    #[error("failed to acquire surface texture after reconfigure: {state}")]
+    SurfaceAcquire { state: String },
+    #[error("surface texture validation error")]
+    SurfaceValidation,
+}
+
 /// Holds all wgpu state: instance, adapter, device, queue, surface.
 ///
 /// `surface` is `None` in headless contexts (the golden-image regression
@@ -59,11 +76,11 @@ pub struct GpuState {
 
 impl GpuState {
     /// Synchronously initialize the GPU. Called from `ApplicationHandler::resumed()`.
-    pub fn new(window: Arc<Window>, present_mode: Option<&str>) -> anyhow::Result<Self> {
+    pub fn new(window: Arc<Window>, present_mode: Option<&str>) -> Result<Self, GpuError> {
         pollster::block_on(Self::new_async(window, present_mode))
     }
 
-    async fn new_async(window: Arc<Window>, present_mode: Option<&str>) -> anyhow::Result<Self> {
+    async fn new_async(window: Arc<Window>, present_mode: Option<&str>) -> Result<Self, GpuError> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle(
             Box::new(window.clone()),
         ));
@@ -109,7 +126,7 @@ impl GpuState {
         let size = window.inner_size();
         let mut config = surface
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
-            .ok_or_else(|| anyhow::anyhow!("no compatible surface format"))?;
+            .ok_or(GpuError::NoCompatibleFormat)?;
         if let Some(mode) = present_mode {
             config.present_mode = match mode {
                 "Fifo" => wgpu::PresentMode::Fifo,
