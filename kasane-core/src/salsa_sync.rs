@@ -14,10 +14,33 @@ use crate::salsa_inputs::*;
 use crate::state::AppState;
 use crate::state::snapshot::{InfoSnapshot, MenuSnapshot};
 
+/// Plain-Rust slot-contribution buffer (θ.6 replacement for the
+/// retired `SlotContributionsInput` Salsa input).
+///
+/// Holds the per-slot `FlexChild` vectors that the previous
+/// `SlotContributionsInput` stored. `sync_plugin_contributions()` writes
+/// each field; `compose_base_from_salsa()` reads via `Vec::clone`.
+/// Persisting across frames preserves the cache behaviour that the
+/// `any_contributor_needs_recollect()` gate relied on — the writer
+/// skips the block when no contributor is stale, leaving the previous
+/// frame's vectors in place.
+#[derive(Default)]
+pub struct SlotContributions {
+    pub buffer_left: Vec<crate::element::FlexChild>,
+    pub buffer_right: Vec<crate::element::FlexChild>,
+    pub above_buffer: Vec<crate::element::FlexChild>,
+    pub below_buffer: Vec<crate::element::FlexChild>,
+    pub status_left: Vec<crate::element::FlexChild>,
+    pub status_right: Vec<crate::element::FlexChild>,
+    pub above_status: Vec<crate::element::FlexChild>,
+}
+
 /// Handles to Salsa input instances, created once at startup and reused across frames.
 ///
 /// Also owns the [`ContributionCache`] used by `sync_plugin_contributions()`
-/// to avoid redundant `contribute_to()` calls for non-stale plugins.
+/// to avoid redundant `contribute_to()` calls for non-stale plugins, and the
+/// `SlotContributions` POD that replaced the `SlotContributionsInput` Salsa
+/// input in θ.6.
 pub struct SalsaInputHandles {
     pub buffer: BufferInput,
     pub cursor: CursorInput,
@@ -26,7 +49,7 @@ pub struct SalsaInputHandles {
     pub info: InfoInput,
     pub config: ConfigInput,
     pub display_directives: DisplayDirectivesInput,
-    pub slot_contributions: SlotContributionsInput,
+    pub slot_contributions: SlotContributions,
     /// ADR-035 §2 — handle to the configured `HistoryBackend`.
     /// Synced from `AppState::history` each frame; backs the
     /// Time-aware Salsa queries (`text_at_time`, `selection_at_time`,
@@ -75,16 +98,7 @@ impl SalsaInputHandles {
                 None,
             ),
             display_directives: DisplayDirectivesInput::new(db, vec![], 0),
-            slot_contributions: SlotContributionsInput::new(
-                db,
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-            ),
+            slot_contributions: SlotContributions::default(),
             history: HistoryInput::new(
                 db,
                 std::sync::Arc::new(crate::history::InMemoryRing::new()),
@@ -277,7 +291,6 @@ pub fn sync_inputs_from_state(
 /// the frame's `DirtyFlags ∩ view_deps()` — replacing the gate previously
 /// pre-computed into `slot.needs_recollect`.
 pub fn sync_plugin_contributions(
-    db: &mut KasaneDatabase,
     state: &AppState,
     registry: &PluginView<'_>,
     inputs: &mut SalsaInputHandles,
@@ -339,34 +352,13 @@ pub fn sync_plugin_contributions(
                 collect_slot_cached(&SlotId::ABOVE_STATUS, state, registry, &ctx, cache, dirty),
             )
         };
-        inputs
-            .slot_contributions
-            .set_buffer_left(db)
-            .to(buffer_left);
-        inputs
-            .slot_contributions
-            .set_buffer_right(db)
-            .to(buffer_right);
-        inputs
-            .slot_contributions
-            .set_above_buffer(db)
-            .to(above_buffer);
-        inputs
-            .slot_contributions
-            .set_below_buffer(db)
-            .to(below_buffer);
-        inputs
-            .slot_contributions
-            .set_status_left(db)
-            .to(status_left);
-        inputs
-            .slot_contributions
-            .set_status_right(db)
-            .to(status_right);
-        inputs
-            .slot_contributions
-            .set_above_status(db)
-            .to(above_status);
+        inputs.slot_contributions.buffer_left = buffer_left;
+        inputs.slot_contributions.buffer_right = buffer_right;
+        inputs.slot_contributions.above_buffer = above_buffer;
+        inputs.slot_contributions.below_buffer = below_buffer;
+        inputs.slot_contributions.status_left = status_left;
+        inputs.slot_contributions.status_right = status_right;
+        inputs.slot_contributions.above_status = above_status;
     }
 
     // Annotations: moved inline into pipeline_salsa.rs (θ.5). No
@@ -425,5 +417,5 @@ pub fn sync_unified_display(
     sync_display_directives(db, state, registry, inputs);
 
     // Step 2: Annotations (depends on display map from step 1)
-    sync_plugin_contributions(db, state, registry, inputs, dirty);
+    sync_plugin_contributions(state, registry, inputs, dirty);
 }

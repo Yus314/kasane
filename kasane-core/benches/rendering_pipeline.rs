@@ -36,13 +36,7 @@ fn render_pipeline_via_salsa(
     let mut handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, state, &handles);
     sync_display_directives(&mut db, state, &registry.view(), &handles);
-    sync_plugin_contributions(
-        &mut db,
-        state,
-        &registry.view(),
-        &mut handles,
-        DirtyFlags::ALL,
-    );
+    sync_plugin_contributions(state, &registry.view(), &mut handles, DirtyFlags::ALL);
     render_pipeline_cached(
         &db,
         &handles,
@@ -63,13 +57,7 @@ fn scene_render_via_salsa(
     let mut handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, state, &handles);
     sync_display_directives(&mut db, state, &registry.view(), &handles);
-    sync_plugin_contributions(
-        &mut db,
-        state,
-        &registry.view(),
-        &mut handles,
-        DirtyFlags::ALL,
-    );
+    sync_plugin_contributions(state, &registry.view(), &mut handles, DirtyFlags::ALL);
     let mut scene_cache = SceneCache::new();
     let (cmds, result, _) = scene_render_pipeline_cached(
         &db,

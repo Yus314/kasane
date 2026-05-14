@@ -18,13 +18,7 @@ fn render_scene_full(
     let mut handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, state, &handles);
     sync_display_directives(&mut db, state, &registry.view(), &handles);
-    sync_plugin_contributions(
-        &mut db,
-        state,
-        &registry.view(),
-        &mut handles,
-        DirtyFlags::ALL,
-    );
+    sync_plugin_contributions(state, &registry.view(), &mut handles, DirtyFlags::ALL);
     let mut cache = SceneCache::new();
     let (cmds, _, _) = scene_render_pipeline_cached(
         &db,

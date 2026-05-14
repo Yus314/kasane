@@ -90,28 +90,6 @@ pub struct ConfigInput {
     pub assistant_art: Option<Vec<String>>,
 }
 
-/// Plugin slot contributions snapshot.
-///
-/// Stores the FlexChild vectors for each slot, collected from plugins
-/// during the sync phase.
-#[salsa::input]
-pub struct SlotContributionsInput {
-    #[returns(ref)]
-    pub buffer_left: Vec<crate::element::FlexChild>,
-    #[returns(ref)]
-    pub buffer_right: Vec<crate::element::FlexChild>,
-    #[returns(ref)]
-    pub above_buffer: Vec<crate::element::FlexChild>,
-    #[returns(ref)]
-    pub below_buffer: Vec<crate::element::FlexChild>,
-    #[returns(ref)]
-    pub status_left: Vec<crate::element::FlexChild>,
-    #[returns(ref)]
-    pub status_right: Vec<crate::element::FlexChild>,
-    #[returns(ref)]
-    pub above_status: Vec<crate::element::FlexChild>,
-}
-
 /// Display transformation directives from plugins.
 ///
 /// Contains the raw directives and buffer line count needed to build a `DisplayMap`.

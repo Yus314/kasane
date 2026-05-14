@@ -80,13 +80,7 @@ fn render_full(state: &AppState) -> (CellGrid, RenderResult, DisplayMapRef) {
     let mut handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, state, &handles);
     sync_display_directives(&mut db, state, &registry.view(), &handles);
-    sync_plugin_contributions(
-        &mut db,
-        state,
-        &registry.view(),
-        &mut handles,
-        DirtyFlags::ALL,
-    );
+    sync_plugin_contributions(state, &registry.view(), &mut handles, DirtyFlags::ALL);
     let (result, dm) = render_pipeline_cached(
         &db,
         &handles,
@@ -401,13 +395,7 @@ fn tui_gpu_cursor_position_consistent() {
     let mut handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, &state, &handles);
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
-    sync_plugin_contributions(
-        &mut db,
-        &state,
-        &registry.view(),
-        &mut handles,
-        DirtyFlags::ALL,
-    );
+    sync_plugin_contributions(&state, &registry.view(), &mut handles, DirtyFlags::ALL);
     let cell_size = scene::CellSize {
         width: 10.0,
         height: 20.0,

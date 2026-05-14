@@ -126,15 +126,8 @@ impl SalsaViewSource<'_> {
             let status_el = salsa_views::pure_status_element(db, h.status);
             let buffer_el = salsa_views::pure_buffer_element(db, h.config);
             let display_map_ref = salsa_views::display_map_query(db, h.display_directives);
-            let (base, salsa_display_scroll_offset) = compose_base_from_salsa(
-                buffer_el,
-                status_el,
-                state,
-                registry,
-                &display_map_ref,
-                db,
-                h,
-            );
+            let (base, salsa_display_scroll_offset) =
+                compose_base_from_salsa(buffer_el, status_el, state, registry, &display_map_ref, h);
             (base, vec![], None, None, salsa_display_scroll_offset)
         };
 
@@ -880,7 +873,6 @@ fn compose_base_from_salsa(
     state: &AppState,
     registry: &PluginView<'_>,
     display_map: &crate::display::DisplayMapRef,
-    db: &KasaneDatabase,
     handles: &SalsaInputHandles,
 ) -> (Element, usize) {
     use std::sync::Arc;
@@ -992,11 +984,13 @@ fn compose_base_from_salsa(
                 .into_element(),
         };
 
-    // Read buffer slot contributions from Salsa input
-    let buffer_left = handles.slot_contributions.buffer_left(db).clone();
-    let buffer_right = handles.slot_contributions.buffer_right(db).clone();
-    let above_buffer = handles.slot_contributions.above_buffer(db).clone();
-    let below_buffer = handles.slot_contributions.below_buffer(db).clone();
+    // Read buffer slot contributions from the SlotContributions POD
+    // (θ.6: previously a Salsa input; no `#[salsa::tracked]` consumer
+    // existed, so the wrapper added a `db` thread without semantics).
+    let buffer_left = handles.slot_contributions.buffer_left.clone();
+    let buffer_right = handles.slot_contributions.buffer_right.clone();
+    let above_buffer = handles.slot_contributions.above_buffer.clone();
+    let below_buffer = handles.slot_contributions.below_buffer.clone();
 
     // Build buffer row: [left_gutter] [slot:left] [buffer] [slot:right] [right_gutter]
     let mut row_children = Vec::new();
@@ -1039,9 +1033,9 @@ fn compose_base_from_salsa(
     };
 
     // Read status slot contributions from Salsa input
-    let status_left = handles.slot_contributions.status_left(db).clone();
-    let status_right = handles.slot_contributions.status_right(db).clone();
-    let above_status = handles.slot_contributions.above_status(db).clone();
+    let status_left = handles.slot_contributions.status_left.clone();
+    let status_right = handles.slot_contributions.status_right.clone();
+    let above_status = handles.slot_contributions.above_status.clone();
 
     // Build status row: [slot:left] [status_core] [slot:right]
     // Wrap left/right contributions in ResolvedSlot so tree-walking helpers

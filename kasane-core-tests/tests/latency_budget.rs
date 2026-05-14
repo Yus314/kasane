@@ -255,7 +255,7 @@ fn salsa_full_frame_under_2ms() {
     for _ in 0..20 {
         sync_inputs_from_state(&mut db, &state, &handles);
         sync_display_directives(&mut db, &state, &registry.view(), &handles);
-        sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles, dirty);
+        sync_plugin_contributions(&state, &registry.view(), &mut handles, dirty);
         let (_result, _) = render_pipeline_cached(
             &db,
             &handles,
@@ -274,7 +274,7 @@ fn salsa_full_frame_under_2ms() {
             let start = Instant::now();
             sync_inputs_from_state(&mut db, &state, &handles);
             sync_display_directives(&mut db, &state, &registry.view(), &handles);
-            sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles, dirty);
+            sync_plugin_contributions(&state, &registry.view(), &mut handles, dirty);
             let (_result, _) = render_pipeline_cached(
                 &db,
                 &handles,
