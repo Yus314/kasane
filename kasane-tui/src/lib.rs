@@ -580,6 +580,7 @@ where
                 &state,
                 &mut registry,
                 &mut salsa_handles,
+                dirty,
             );
             let view = registry.view();
 

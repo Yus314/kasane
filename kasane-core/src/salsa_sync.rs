@@ -279,11 +279,17 @@ pub fn sync_inputs_from_state(
 /// Uses per-extension-point granularity: only re-collects extension points
 /// where at least one participating plugin needs recollection. The
 /// [`ContributionCache`] inside `inputs` provides per-plugin caching across frames.
+///
+/// `dirty` is forwarded to `collect_contributions_cached` so per-slot
+/// freshness can be evaluated against both the plugin's revision input and
+/// the frame's `DirtyFlags ∩ view_deps()` — replacing the gate previously
+/// pre-computed into `slot.needs_recollect`.
 pub fn sync_plugin_contributions(
     db: &mut KasaneDatabase,
     state: &AppState,
     registry: &PluginView<'_>,
     inputs: &mut SalsaInputHandles,
+    dirty: crate::state::DirtyFlags,
 ) {
     use crate::display::DisplayMapRef;
     use crate::element::Overlay;
@@ -311,9 +317,11 @@ pub fn sync_plugin_contributions(
         registry: &PluginView<'_>,
         ctx: &ContributeContext,
         cache: &mut ContributionCache,
+        db: &dyn crate::salsa_db::KasaneDb,
+        dirty: crate::state::DirtyFlags,
     ) -> Vec<crate::element::FlexChild> {
         registry
-            .collect_contributions_cached(slot, &AppView::new(state), ctx, cache)
+            .collect_contributions_cached(slot, &AppView::new(state), ctx, cache, db, dirty)
             .into_iter()
             .map(contribution_to_flex_child)
             .collect()
@@ -321,16 +329,87 @@ pub fn sync_plugin_contributions(
 
     // Slot contributions: only re-collect if any contributor is stale
     if registry.any_contributor_needs_recollect() {
-        let view = AppView::new(state);
-        let ctx = ContributeContext::new(&view, None);
-        let cache = &mut inputs.contribution_cache;
-        let buffer_left = collect_slot_cached(&SlotId::BUFFER_LEFT, state, registry, &ctx, cache);
-        let buffer_right = collect_slot_cached(&SlotId::BUFFER_RIGHT, state, registry, &ctx, cache);
-        let above_buffer = collect_slot_cached(&SlotId::ABOVE_BUFFER, state, registry, &ctx, cache);
-        let below_buffer = collect_slot_cached(&SlotId::BELOW_BUFFER, state, registry, &ctx, cache);
-        let status_left = collect_slot_cached(&SlotId::STATUS_LEFT, state, registry, &ctx, cache);
-        let status_right = collect_slot_cached(&SlotId::STATUS_RIGHT, state, registry, &ctx, cache);
-        let above_status = collect_slot_cached(&SlotId::ABOVE_STATUS, state, registry, &ctx, cache);
+        // Collect with an immutable view of `db`; switch to `&mut db` after
+        // the borrow scope to write the resulting Salsa inputs.
+        let (
+            buffer_left,
+            buffer_right,
+            above_buffer,
+            below_buffer,
+            status_left,
+            status_right,
+            above_status,
+        ) = {
+            let db_ref: &dyn crate::salsa_db::KasaneDb = db;
+            let view = AppView::new(state);
+            let ctx = ContributeContext::new(&view, None);
+            let cache = &mut inputs.contribution_cache;
+            (
+                collect_slot_cached(
+                    &SlotId::BUFFER_LEFT,
+                    state,
+                    registry,
+                    &ctx,
+                    cache,
+                    db_ref,
+                    dirty,
+                ),
+                collect_slot_cached(
+                    &SlotId::BUFFER_RIGHT,
+                    state,
+                    registry,
+                    &ctx,
+                    cache,
+                    db_ref,
+                    dirty,
+                ),
+                collect_slot_cached(
+                    &SlotId::ABOVE_BUFFER,
+                    state,
+                    registry,
+                    &ctx,
+                    cache,
+                    db_ref,
+                    dirty,
+                ),
+                collect_slot_cached(
+                    &SlotId::BELOW_BUFFER,
+                    state,
+                    registry,
+                    &ctx,
+                    cache,
+                    db_ref,
+                    dirty,
+                ),
+                collect_slot_cached(
+                    &SlotId::STATUS_LEFT,
+                    state,
+                    registry,
+                    &ctx,
+                    cache,
+                    db_ref,
+                    dirty,
+                ),
+                collect_slot_cached(
+                    &SlotId::STATUS_RIGHT,
+                    state,
+                    registry,
+                    &ctx,
+                    cache,
+                    db_ref,
+                    dirty,
+                ),
+                collect_slot_cached(
+                    &SlotId::ABOVE_STATUS,
+                    state,
+                    registry,
+                    &ctx,
+                    cache,
+                    db_ref,
+                    dirty,
+                ),
+            )
+        };
         inputs
             .slot_contributions
             .set_buffer_left(db)
@@ -493,12 +572,13 @@ pub fn sync_unified_display(
     state: &AppState,
     registry: &PluginView<'_>,
     inputs: &mut SalsaInputHandles,
+    dirty: crate::state::DirtyFlags,
 ) {
     // Step 1: Spatial directives (display map depends on these)
     sync_display_directives(db, state, registry, inputs);
 
     // Step 2: Annotations (depends on display map from step 1)
-    sync_plugin_contributions(db, state, registry, inputs);
+    sync_plugin_contributions(db, state, registry, inputs, dirty);
 
     // Step 3: Content annotations (depends on display map)
     sync_content_annotations(db, state, registry, inputs);

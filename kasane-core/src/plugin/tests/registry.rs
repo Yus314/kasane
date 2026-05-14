@@ -836,14 +836,28 @@ fn test_contribution_cache_reuses_non_stale_plugin() {
     // First prepare: plugin is stale (hash changed 0→1)
     registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
     let view = registry.view();
-    let contribs = view.collect_contributions_cached(&SlotId::STATUS_LEFT, &app, &ctx, &mut cache);
+    let contribs = view.collect_contributions_cached(
+        &SlotId::STATUS_LEFT,
+        &app,
+        &ctx,
+        &mut cache,
+        &db,
+        DirtyFlags::ALL,
+    );
     assert_eq!(contribs.len(), 1);
 
-    // Second prepare: plugin NOT stale (hash unchanged)
+    // Second prepare: plugin NOT stale (hash unchanged) and no AppState dirty
+    // intersect — the rev-keyed cache must hit.
     registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
     let view = registry.view();
-    // Should return cached result without re-collecting
-    let contribs2 = view.collect_contributions_cached(&SlotId::STATUS_LEFT, &app, &ctx, &mut cache);
+    let contribs2 = view.collect_contributions_cached(
+        &SlotId::STATUS_LEFT,
+        &app,
+        &ctx,
+        &mut cache,
+        &db,
+        DirtyFlags::empty(),
+    );
     assert_eq!(contribs2.len(), 1);
 }
 

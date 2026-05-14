@@ -1037,14 +1037,27 @@ impl PluginEffects for PluginRuntime {
     }
 }
 
-/// Per-plugin contribution cache for incremental recollection (Phase 5).
+/// Cached entry: contribution paired with the plugin's
+/// [`PluginStateRevisionInput`](crate::salsa_inputs::PluginStateRevisionInput)
+/// revision at collection time. The cache is fresh for a `(plugin, slot)`
+/// pair iff the plugin's current revision equals `rev_at_collection` and
+/// no `DirtyFlags` bit relevant to the plugin's `view_deps()` is set.
+pub(crate) struct ContributionEntry {
+    pub(crate) rev_at_collection: u64,
+    pub(crate) sourced: Option<SourcedContribution>,
+}
+
+/// Per-plugin contribution cache for incremental recollection.
 ///
-/// Stores the last-known contribution from each plugin for each slot.
-/// When a plugin's `needs_recollect` is false, its cached contribution is
-/// reused instead of calling `contribute_to()` again.
+/// Stores `(plugin, slot) → (revision, contribution)` pairs. Collectors
+/// compare each plugin's current
+/// [`PluginStateRevisionInput`](crate::salsa_inputs::PluginStateRevisionInput)
+/// revision against the cached `rev_at_collection`; on mismatch (or if the
+/// frame's `DirtyFlags` intersect the plugin's `view_deps()`) the entry is
+/// recomputed and the new revision stored.
 #[derive(Default)]
 pub struct ContributionCache {
-    contributions: std::collections::HashMap<(PluginId, SlotId), Option<SourcedContribution>>,
+    pub(crate) contributions: std::collections::HashMap<(PluginId, SlotId), ContributionEntry>,
 }
 
 impl ContributionCache {

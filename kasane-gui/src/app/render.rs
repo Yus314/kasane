@@ -99,6 +99,7 @@ where
                 &self.state,
                 &mut self.registry,
                 &mut self.salsa_handles,
+                self.dirty,
             );
             let view = self.registry.view();
 

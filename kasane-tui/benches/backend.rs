@@ -643,7 +643,13 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
                     let mut handles = SalsaInputHandles::new(&mut db);
                     sync_inputs_from_state(&mut db, &state, &handles);
                     sync_display_directives(&mut db, &state, &registry.view(), &handles);
-                    sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
+                    sync_plugin_contributions(
+                        &mut db,
+                        &state,
+                        &registry.view(),
+                        &mut handles,
+                        DirtyFlags::ALL,
+                    );
                     let (result, _) = render_pipeline_cached(
                         &db,
                         &handles,
@@ -680,7 +686,13 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
                     let mut handles = SalsaInputHandles::new(&mut db);
                     sync_inputs_from_state(&mut db, &state, &handles);
                     sync_display_directives(&mut db, &state, &registry.view(), &handles);
-                    sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
+                    sync_plugin_contributions(
+                        &mut db,
+                        &state,
+                        &registry.view(),
+                        &mut handles,
+                        DirtyFlags::ALL,
+                    );
                     let (result, _) = render_pipeline_cached(
                         &db,
                         &handles,

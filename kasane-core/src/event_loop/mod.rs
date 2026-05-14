@@ -393,16 +393,22 @@ pub fn schedule_diagnostic_overlay(
 /// Synchronize all Salsa inputs for a render frame.
 ///
 /// Shared sequence used by both TUI and GUI backends before rendering.
+///
+/// `dirty` is forwarded to the contribution-collection path so per-slot
+/// freshness can intersect each plugin's `view_deps()` with the frame's
+/// dirty flags (replacing the gate previously pre-computed into
+/// `slot.needs_recollect`).
 pub fn sync_salsa_for_render(
     db: &mut crate::salsa_db::KasaneDatabase,
     state: &AppState,
     registry: &mut PluginRuntime,
     handles: &mut crate::salsa_sync::SalsaInputHandles,
+    dirty: crate::state::DirtyFlags,
 ) {
     crate::salsa_sync::cleanup_unloaded_plugins(registry, handles);
     crate::salsa_sync::sync_inputs_from_state(db, state, handles);
     let view = registry.view();
-    crate::salsa_sync::sync_unified_display(db, state, &view, handles);
+    crate::salsa_sync::sync_unified_display(db, state, &view, handles, dirty);
     crate::salsa_sync::sync_transform_patches(db, state, &view, handles);
 }
 
@@ -425,11 +431,12 @@ pub fn sync_salsa_for_render_with_hooks(
     registry: &mut PluginRuntime,
     handles: &mut crate::salsa_sync::SalsaInputHandles,
     hooks: &mut [&mut dyn PreRenderHook],
+    dirty: crate::state::DirtyFlags,
 ) {
     for hook in hooks.iter_mut() {
         hook.pre_render(state);
     }
-    sync_salsa_for_render(db, state, registry, handles);
+    sync_salsa_for_render(db, state, registry, handles, dirty);
 }
 
 /// Print a hint about reconnecting to a running Kakoune session.
