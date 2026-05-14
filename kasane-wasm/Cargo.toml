@@ -17,6 +17,7 @@ toml = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
+unicode-width = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

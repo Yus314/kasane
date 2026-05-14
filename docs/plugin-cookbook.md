@@ -492,6 +492,45 @@ kasane_plugin_sdk::define_plugin! {
 }
 ```
 
+## Column Alignment (Cell-Grid Width)
+
+Compute visual cell widths for column alignment, table border placement, or
+any layout that must match the host's cell-grid pipeline. Use
+`host_state::get_display_cells` — it delegates to `unicode-width`, the same
+crate the host's `line_display_width_str` ground truth uses, so plugin and
+host coordinate math agree by contract.
+
+```rust
+kasane_plugin_sdk::define_plugin! {
+    id: "table_border",
+
+    slots {
+        STATUS_RIGHT => |_ctx| {
+            let label = "日本語 row | abc";
+            let cells: usize = label
+                .chars()
+                .map(|c| host_state::get_display_cells(c) as usize)
+                .sum();
+            let pad = " ".repeat(40usize.saturating_sub(cells));
+            plain(&format!("{label}{pad}|"))
+        },
+    },
+}
+```
+
+Combining marks (`'\u{0301}'`), control characters (`'\t'`, `'\n'`), and
+other zero-width codepoints return `0`. Latin and most BMP characters
+return `1`; CJK fullwidth, fullwidth punctuation, and most emoji return
+`2`. The per-char sum matches `unicode_width::UnicodeWidthStr::width(s)`
+when called over the same string — see
+`kasane-wasm/src/host.rs` test
+`display_cells_matches_unicode_width_str_when_summed_per_char` for the
+contract test.
+
+For variable-pitch alignment (proportional fonts on the GUI backend),
+this primitive is not sufficient — see the WIT 2.x text-metrics bundle
+in `docs/roadmap.md`.
+
 ## Testing with TestHarness
 
 Unit-test plugin logic without the full WASM runtime.

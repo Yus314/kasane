@@ -219,6 +219,9 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     fn is_focused(&mut self) -> bool {
         self.focused
     }
+    fn get_display_cells(&mut self, ch: char) -> u8 {
+        unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0) as u8
+    }
     fn get_line_text(&mut self, line: u32) -> Option<String> {
         let idx = line as usize;
         if idx < self.lines.len() {
@@ -1369,5 +1372,56 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
     // changes — every commit advances `current_version`)
     if view_deps.intersects(DirtyFlags::BUFFER_CONTENT) {
         host.history = Some(std::sync::Arc::clone(&state.history));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bindings::kasane::plugin::host_state::Host as HostStateTrait;
+
+    #[test]
+    fn display_cells_ascii_is_one() {
+        let mut host = HostState::default();
+        assert_eq!(host.get_display_cells('a'), 1);
+        assert_eq!(host.get_display_cells('Z'), 1);
+        assert_eq!(host.get_display_cells('0'), 1);
+    }
+
+    #[test]
+    fn display_cells_cjk_fullwidth_is_two() {
+        let mut host = HostState::default();
+        assert_eq!(host.get_display_cells('あ'), 2);
+        assert_eq!(host.get_display_cells('日'), 2);
+        assert_eq!(host.get_display_cells('한'), 2);
+    }
+
+    #[test]
+    fn display_cells_combining_mark_is_zero() {
+        let mut host = HostState::default();
+        assert_eq!(host.get_display_cells('\u{0301}'), 0);
+        assert_eq!(host.get_display_cells('\u{0300}'), 0);
+    }
+
+    #[test]
+    fn display_cells_control_is_zero() {
+        let mut host = HostState::default();
+        assert_eq!(host.get_display_cells('\t'), 0);
+        assert_eq!(host.get_display_cells('\n'), 0);
+        assert_eq!(host.get_display_cells('\0'), 0);
+    }
+
+    #[test]
+    fn display_cells_matches_unicode_width_str_when_summed_per_char() {
+        let mut host = HostState::default();
+        let cases = ["hello", "こんにちは", "日本語abc", ""];
+        for s in cases {
+            let summed: usize = s.chars().map(|c| host.get_display_cells(c) as usize).sum();
+            let canonical = unicode_width::UnicodeWidthStr::width(s);
+            assert_eq!(
+                summed, canonical,
+                "per-char sum must equal UnicodeWidthStr::width for {s:?}",
+            );
+        }
     }
 }

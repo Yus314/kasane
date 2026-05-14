@@ -1,4 +1,4 @@
-package kasane:plugin@6.0.0;
+package kasane:plugin@6.1.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -60,6 +60,14 @@ package kasane:plugin@6.0.0;
 // `on-state-changed-effects`. The `runtime-effects` record itself is
 // removed. ABI 4.x plugins are rejected at load time with a pointer
 // to the migration guide (`docs/migration/0.6-to-0.7.md` §ADR-044).
+//
+// WIT 6.1 (#108): adds `get-display-cells` to `host-state` — a
+// `unicode-width`-backed cell count primitive for plugins doing
+// column alignment, table border placement, or any computation that
+// must match the host's `line_display_width_str` ground truth.
+// Pure additive function; minor bump per docs/abi-versioning.md.
+// Companion font/cell metric accessors land in a follow-up minor
+// bump (#109).
 
 interface types {
     enum named-color {
@@ -1670,6 +1678,24 @@ interface host-state {
 
     /// Whether the user is currently performing a mouse drag.
     is-dragging: func() -> bool;
+
+    // --- v0.7.x (WIT 6.1): Cell-grid layout primitives ---
+
+    /// Visual cell count for a single character under monospaced
+    /// cell-grid layout, matching `unicode_width::UnicodeWidthChar::width`.
+    /// Returns 0 for zero-width characters (combining marks, control
+    /// chars), 1 for Latin, 2 for CJK fullwidth.
+    ///
+    /// This is the canonical width primitive for plugins emitting
+    /// content into the host's cell-grid layout pipeline. The same
+    /// function backs the host's own `line_display_width_str` /
+    /// `line_display_width` used across the rendering pipeline, so
+    /// plugin and host coordinate math agree by contract.
+    ///
+    /// For multi-codepoint cluster widths (emoji ZWJ sequences,
+    /// combining sequences), call this per char and sum — the result
+    /// matches `unicode_width::UnicodeWidthStr::width` of the cluster.
+    get-display-cells: func(ch: char) -> u8;
 }
 
 /// Host-provided functions for building Element trees.

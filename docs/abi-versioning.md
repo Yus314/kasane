@@ -8,7 +8,7 @@ the crate-level axis follows Rust semver and is enforced by Cargo.
 
 | Axis | Source of truth | Example |
 |---|---|---|
-| WIT ABI | `kasane-wit/wit/plugin.wit:1` | `package kasane:plugin@6.0.0;` |
+| WIT ABI | `kasane-wit/wit/plugin.wit:1` | `package kasane:plugin@6.1.0;` |
 | SDK crate semver | `kasane-plugin-sdk/Cargo.toml` | `version = "0.6.0"` |
 
 The two move together for major bumps that change the wire format. The
@@ -76,8 +76,15 @@ SDK that uses only existing WIT types is a *crate* minor bump but
 | 0.6.x | 3.0.0 | 0.6.x |
 | 0.7.x (early) | 5.0.0 | 0.7.x |
 | 0.7.x (Phase β-4) | 6.0.0 | 0.7.x |
+| 0.7.x (current) | 6.1.0 | 0.7.x |
 
 Future entries land here as releases ship.
+
+ABI 6.1.0 ([#108](https://github.com/Yus314/kasane/issues/108)) adds
+`get-display-cells` to `host-state`: a `unicode-width`-backed cell
+count primitive for plugins doing column alignment or any computation
+that must match the host's `line_display_width_str` ground truth. Pure
+additive function; 6.0.0 plugins continue to load.
 
 ABI 6.0.0 (Phase β-4) removes the retired `evaluate-extension` export
 (no producers since [ADR-045](decisions/adr-045-retire-the-extension-point-dispatch-path.md);

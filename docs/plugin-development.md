@@ -331,14 +331,16 @@ kasane plugin dev --release      # Same, but release builds
 `kasane plugin dev` does the same as `install`, then watches `src/`, `Cargo.toml`, and `kasane-plugin.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
 WASM plugin ABI note: current Kasane releases expect
-`kasane:plugin@6.0.0` (Phase β-4 — removes the retired
-`evaluate-extension` export per
-[ADR-045](decisions/adr-045-retire-the-extension-point-dispatch-path.md)).
+`kasane:plugin@6.1.0` (adds `get-display-cells` per
+[#108](https://github.com/Yus314/kasane/issues/108)). ABI 6.0.0 was
+Phase β-4 — removing the retired `evaluate-extension` export per
+[ADR-045](decisions/adr-045-retire-the-extension-point-dispatch-path.md).
 ABI 5.0.0 is the [ADR-044](decisions/adr-044-handler-effect-tier-hierarchy.md)
-tier-hierarchy split. Rebuild and reinstall any plugin that was built
-against an older version; ABI 5.x and earlier binaries are rejected at
-load time. See [`docs/migration/0.6-to-0.7.md` §8.3](migration/0.6-to-0.7.md)
-for the per-handler tier mapping.
+tier-hierarchy split. 6.0.0 plugins continue to load against 6.1.0
+hosts (additive bump). Rebuild and reinstall any plugin built against
+5.x or earlier; those binaries are rejected at load time. See
+[`docs/migration/0.6-to-0.7.md` §8.3](migration/0.6-to-0.7.md) for the
+per-handler tier mapping.
 
 ### Migrating to ABI 1.0.0
 
@@ -360,7 +362,7 @@ If you are upgrading a plugin from `0.25.0`, the required changes are:
    `theme_face_or` → `theme_style_or`, `get_theme_face` → `get_theme_style`,
    `face_merge::*` → `style_merge::*`.
 5. Rebuild and reinstall the `.wasm`. Existing artifacts built against
-   `0.25.0` are rejected at load time by `kasane:plugin@6.0.0` hosts.
+   `0.25.0` are rejected at load time by `kasane:plugin@6.1.0` hosts.
 
 The `style` record exposes `font_weight: u16`, `font_slant`,
 `font_features`, `font_variations`, `letter_spacing`, `underline` /

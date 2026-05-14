@@ -461,7 +461,7 @@ mod tests {
             r#"
 [plugin]
 id = "demo_plugin"
-abi_version = "6.0.0"
+abi_version = "6.1.0"
 
 [capabilities]
 wasi = ["filesystem", "process"]
