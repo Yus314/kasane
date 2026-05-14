@@ -3,7 +3,37 @@
 use crate::cli::WidgetSubcommand;
 use kasane_core::config::config_path;
 
-pub fn execute(subcmd: WidgetSubcommand) -> Result<(), String> {
+/// Errors raised by `kasane widget` subcommands.
+#[derive(Debug, thiserror::Error)]
+pub enum WidgetCmdError {
+    #[error("cannot read {path}: {source}")]
+    Read {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{path}: {source}")]
+    Parse {
+        path: std::path::PathBuf,
+        #[source]
+        source: kasane_core::config::unified::UnifiedParseError,
+    },
+    #[cfg(feature = "wasm-plugins")]
+    #[error("failed to create file watcher: {0}")]
+    WatcherCreate(#[source] notify::Error),
+    #[cfg(feature = "wasm-plugins")]
+    #[error("failed to watch {path}: {source}")]
+    WatcherWatch {
+        path: std::path::PathBuf,
+        #[source]
+        source: notify::Error,
+    },
+    #[cfg(not(feature = "wasm-plugins"))]
+    #[error("--watch requires the 'wasm-plugins' feature (for the notify crate)")]
+    WatchUnsupported,
+}
+
+pub fn execute(subcmd: WidgetSubcommand) -> Result<(), WidgetCmdError> {
     match subcmd {
         WidgetSubcommand::Check {
             path,
@@ -121,9 +151,11 @@ fn print_slots() {
     println!("  status-bar is an alias for status.");
 }
 
-fn check_file(file_path: &std::path::Path, verbose: bool) -> Result<(), String> {
-    let source = std::fs::read_to_string(file_path)
-        .map_err(|e| format!("cannot read {}: {e}", file_path.display()))?;
+fn check_file(file_path: &std::path::Path, verbose: bool) -> Result<(), WidgetCmdError> {
+    let source = std::fs::read_to_string(file_path).map_err(|source| WidgetCmdError::Read {
+        path: file_path.to_path_buf(),
+        source,
+    })?;
 
     match kasane_core::config::unified::parse_unified(&source) {
         Ok((config, config_errors, widget_file, errors)) => {
@@ -179,7 +211,10 @@ fn check_file(file_path: &std::path::Path, verbose: bool) -> Result<(), String> 
             }
             Ok(())
         }
-        Err(e) => Err(format!("{}: {e}", file_path.display())),
+        Err(e) => Err(WidgetCmdError::Parse {
+            path: file_path.to_path_buf(),
+            source: e,
+        }),
     }
 }
 
@@ -318,7 +353,7 @@ fn collect_face_tokens(widget: &kasane_core::widget::types::WidgetDef) -> Vec<St
 }
 
 #[cfg(feature = "wasm-plugins")]
-fn run_watch_loop(file_path: &std::path::Path, verbose: bool) -> Result<(), String> {
+fn run_watch_loop(file_path: &std::path::Path, verbose: bool) -> Result<(), WidgetCmdError> {
     use notify::Watcher;
 
     let (tx, rx) = std::sync::mpsc::channel();
@@ -329,14 +364,17 @@ fn run_watch_loop(file_path: &std::path::Path, verbose: bool) -> Result<(), Stri
             let _ = tx.send(());
         }
     })
-    .map_err(|e| format!("failed to create file watcher: {e}"))?;
+    .map_err(WidgetCmdError::WatcherCreate)?;
 
     let watch_path = file_path
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."));
     watcher
         .watch(watch_path, notify::RecursiveMode::NonRecursive)
-        .map_err(|e| format!("failed to watch {}: {e}", watch_path.display()))?;
+        .map_err(|source| WidgetCmdError::WatcherWatch {
+            path: watch_path.to_path_buf(),
+            source,
+        })?;
 
     println!("watching {} for changes...", file_path.display());
     while rx.recv().is_ok() {
@@ -354,6 +392,6 @@ fn run_watch_loop(file_path: &std::path::Path, verbose: bool) -> Result<(), Stri
 }
 
 #[cfg(not(feature = "wasm-plugins"))]
-fn run_watch_loop(_file_path: &std::path::Path, _verbose: bool) -> Result<(), String> {
-    Err("--watch requires the 'wasm-plugins' feature (for the notify crate)".to_string())
+fn run_watch_loop(_file_path: &std::path::Path, _verbose: bool) -> Result<(), WidgetCmdError> {
+    Err(WidgetCmdError::WatchUnsupported)
 }

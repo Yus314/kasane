@@ -19,6 +19,7 @@ kasane-wasm = { workspace = true, optional = true }
 kasane-syntax = { workspace = true, optional = true }
 notify = { workspace = true, optional = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 fs2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -115,7 +115,18 @@ pub(crate) fn key_event_to_wit(event: &KeyEvent) -> wit::KeyEvent {
     }
 }
 
-pub(crate) fn wit_key_event_to_key_event(event: &wit::KeyEvent) -> Result<KeyEvent, String> {
+/// Errors raised when decoding a WIT key/key-map declaration coming out of a
+/// guest plugin into the host's native `kasane_core::input` types.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum KeyConvertError {
+    /// `KeyCode::Char` carried a `u32` that is not a valid Unicode scalar.
+    #[error("invalid Unicode codepoint: {codepoint}")]
+    InvalidCodepoint { codepoint: u32 },
+}
+
+pub(crate) fn wit_key_event_to_key_event(
+    event: &wit::KeyEvent,
+) -> Result<KeyEvent, KeyConvertError> {
     Ok(KeyEvent {
         key: wit_key_code_to_key(&event.key)?,
         modifiers: Modifiers::from_bits_truncate(event.modifiers),
@@ -170,11 +181,12 @@ fn key_to_wit(key: &Key) -> wit::KeyCode {
     }
 }
 
-fn wit_key_code_to_key(key: &wit::KeyCode) -> Result<Key, String> {
+fn wit_key_code_to_key(key: &wit::KeyCode) -> Result<Key, KeyConvertError> {
     match key {
         wit::KeyCode::Char(codepoint) => {
-            let ch = char::from_u32(*codepoint)
-                .ok_or_else(|| format!("invalid Unicode codepoint: {codepoint}"))?;
+            let ch = char::from_u32(*codepoint).ok_or(KeyConvertError::InvalidCodepoint {
+                codepoint: *codepoint,
+            })?;
             Ok(Key::Char(ch))
         }
         wit::KeyCode::Backspace => Ok(Key::Backspace),
@@ -216,7 +228,7 @@ pub(crate) fn wit_key_response_to_key_response(
 
 pub(crate) fn wit_key_group_decls_to_compiled_key_map(
     decls: &[wit::KeyGroupDecl],
-) -> Result<CompiledKeyMap, String> {
+) -> Result<CompiledKeyMap, KeyConvertError> {
     let mut groups = Vec::with_capacity(decls.len());
     for decl in decls {
         let mut bindings = Vec::with_capacity(decl.bindings.len());
@@ -247,7 +259,9 @@ pub(crate) fn wit_key_group_decls_to_compiled_key_map(
     })
 }
 
-fn wit_key_pattern_to_key_pattern(pattern: &wit::KeyPattern) -> Result<KeyPattern, String> {
+fn wit_key_pattern_to_key_pattern(
+    pattern: &wit::KeyPattern,
+) -> Result<KeyPattern, KeyConvertError> {
     match &pattern.kind {
         wit::KeyPatternKind::Exact(event) => {
             Ok(KeyPattern::Exact(wit_key_event_to_key_event(event)?))

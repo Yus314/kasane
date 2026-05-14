@@ -195,13 +195,30 @@ impl Default for GrammarRegistry {
     }
 }
 
+/// Errors raised when loading a tree-sitter grammar from a shared library.
+#[derive(Debug, thiserror::Error)]
+pub enum GrammarLoadError {
+    #[error("failed to load {path}: {source}")]
+    LibraryOpen {
+        path: std::path::PathBuf,
+        #[source]
+        source: libloading::Error,
+    },
+    #[error("symbol {symbol} not found: {source}")]
+    SymbolMissing {
+        symbol: String,
+        #[source]
+        source: libloading::Error,
+    },
+}
+
 /// Load a tree-sitter language from a shared library.
 ///
 /// Looks for a function named `tree_sitter_{lang_name}` in the .so file.
 fn load_language_from_so(
     path: &std::path::Path,
     lang_name: &str,
-) -> Result<tree_sitter::Language, String> {
+) -> Result<tree_sitter::Language, GrammarLoadError> {
     // The function name in the .so follows tree-sitter convention:
     // tree_sitter_{name} where hyphens become underscores.
     let func_name = format!("tree_sitter_{}", lang_name.replace('-', "_"));
@@ -209,11 +226,17 @@ fn load_language_from_so(
     // SAFETY: We are loading a shared library that follows the tree-sitter ABI.
     // This is the standard mechanism used by tree-sitter CLI and editors.
     unsafe {
-        let lib = libloading::Library::new(path)
-            .map_err(|e| format!("failed to load {}: {e}", path.display()))?;
+        let lib =
+            libloading::Library::new(path).map_err(|source| GrammarLoadError::LibraryOpen {
+                path: path.to_path_buf(),
+                source,
+            })?;
         let func: libloading::Symbol<unsafe extern "C" fn() -> *const ()> = lib
             .get(func_name.as_bytes())
-            .map_err(|e| format!("symbol {func_name} not found: {e}"))?;
+            .map_err(|source| GrammarLoadError::SymbolMissing {
+                symbol: func_name.clone(),
+                source,
+            })?;
         let raw_fn = *func;
         // Leak the library handle — grammars are loaded for the process lifetime.
         std::mem::forget(lib);

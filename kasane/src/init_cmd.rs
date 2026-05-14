@@ -32,20 +32,43 @@ widgets {
 }
 "#;
 
-pub fn execute() -> Result<(), String> {
+/// Errors raised by `kasane init`.
+#[derive(Debug, thiserror::Error)]
+pub enum InitError {
+    #[error("{path} already exists")]
+    AlreadyExists { path: std::path::PathBuf },
+    #[error("failed to create {path}: {source}")]
+    CreateDir {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to write {path}: {source}")]
+    Write {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+pub fn execute() -> Result<(), InitError> {
     let path = config_path();
 
     if path.exists() {
-        return Err(format!("{} already exists", path.display()));
+        return Err(InitError::AlreadyExists { path });
     }
 
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|source| InitError::CreateDir {
+            path: parent.to_path_buf(),
+            source,
+        })?;
     }
 
-    std::fs::write(&path, STARTER_CONFIG)
-        .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+    std::fs::write(&path, STARTER_CONFIG).map_err(|source| InitError::Write {
+        path: path.clone(),
+        source,
+    })?;
 
     println!("created {}", path.display());
     Ok(())

@@ -90,7 +90,7 @@ impl HttpManager {
 
         // URL security check
         if let Err(e) = validate_url(&config.url) {
-            self.send_error(plugin_id, job_id, e);
+            self.send_error(plugin_id, job_id, e.to_string());
             return;
         }
 
@@ -278,6 +278,28 @@ impl HttpDispatcher for HttpManager {
     }
 }
 
+/// Errors raised by plugin-HTTP URL safety validation.
+///
+/// The `Display` impl is the wire-format error string surfaced to plugins
+/// through `HttpEvent::Error::error`; wording is preserved verbatim from
+/// the prior `Result<(), String>` formulation so plugin-side matching
+/// against the message text continues to work.
+#[derive(Debug, thiserror::Error)]
+enum UrlValidationError {
+    #[error("invalid URL: {0}")]
+    Parse(#[from] url::ParseError),
+    #[error("unsupported scheme: {scheme} (only http/https allowed)")]
+    UnsupportedScheme { scheme: String },
+    #[error("requests to localhost are not allowed")]
+    Localhost,
+    #[error("requests to loopback addresses are not allowed")]
+    Loopback,
+    #[error("requests to link-local addresses are not allowed")]
+    LinkLocal,
+    #[error("requests to private network addresses are not allowed")]
+    PrivateNetwork,
+}
+
 /// Validate that a URL is safe for plugin HTTP requests.
 ///
 /// Rejects:
@@ -285,53 +307,47 @@ impl HttpDispatcher for HttpManager {
 /// - Localhost/loopback addresses
 /// - Link-local addresses (169.254.x.x)
 /// - Private network addresses (10.x.x.x, 172.16-31.x.x, 192.168.x.x)
-fn validate_url(url: &str) -> Result<(), String> {
-    let parsed = url::Url::parse(url).map_err(|e| format!("invalid URL: {e}"))?;
+fn validate_url(url: &str) -> Result<(), UrlValidationError> {
+    let parsed = url::Url::parse(url)?;
 
     match parsed.scheme() {
         "http" | "https" => {}
         scheme => {
-            return Err(format!(
-                "unsupported scheme: {scheme} (only http/https allowed)"
-            ));
+            return Err(UrlValidationError::UnsupportedScheme {
+                scheme: scheme.to_string(),
+            });
         }
     }
 
     if let Some(host) = parsed.host_str() {
         // Check for localhost aliases
         if host == "localhost" || host == "[::1]" {
-            return Err("requests to localhost are not allowed".to_string());
+            return Err(UrlValidationError::Localhost);
         }
 
         // Parse as IP address and check ranges
         if let Ok(ip) = host.parse::<IpAddr>() {
             if ip.is_loopback() {
-                return Err("requests to loopback addresses are not allowed".to_string());
+                return Err(UrlValidationError::Loopback);
             }
             match ip {
                 IpAddr::V4(v4) => {
                     let octets = v4.octets();
                     // Link-local: 169.254.x.x
                     if octets[0] == 169 && octets[1] == 254 {
-                        return Err("requests to link-local addresses are not allowed".to_string());
+                        return Err(UrlValidationError::LinkLocal);
                     }
                     // Private: 10.x.x.x
                     if octets[0] == 10 {
-                        return Err(
-                            "requests to private network addresses are not allowed".to_string()
-                        );
+                        return Err(UrlValidationError::PrivateNetwork);
                     }
                     // Private: 172.16.0.0 - 172.31.255.255
                     if octets[0] == 172 && (16..=31).contains(&octets[1]) {
-                        return Err(
-                            "requests to private network addresses are not allowed".to_string()
-                        );
+                        return Err(UrlValidationError::PrivateNetwork);
                     }
                     // Private: 192.168.x.x
                     if octets[0] == 192 && octets[1] == 168 {
-                        return Err(
-                            "requests to private network addresses are not allowed".to_string()
-                        );
+                        return Err(UrlValidationError::PrivateNetwork);
                     }
                 }
                 IpAddr::V6(_) => {

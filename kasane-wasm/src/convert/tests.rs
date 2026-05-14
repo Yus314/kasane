@@ -584,7 +584,7 @@ fn convert_key_event_rejects_invalid_codepoint() {
     })
     .expect_err("invalid codepoint should be rejected");
 
-    assert!(err.contains("invalid Unicode codepoint"));
+    assert!(err.to_string().contains("invalid Unicode codepoint"));
 }
 
 #[test]
