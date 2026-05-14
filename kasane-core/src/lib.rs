@@ -14,10 +14,12 @@ pub mod plugin;
 pub mod plugin_prelude;
 pub use kasane_protocol as protocol;
 pub mod render;
+#[doc(hidden)]
 pub mod salsa_db;
 pub(crate) mod salsa_inputs;
 #[doc(hidden)]
 pub mod salsa_queries;
+#[doc(hidden)]
 pub mod salsa_sync;
 #[doc(hidden)]
 pub mod salsa_views;
