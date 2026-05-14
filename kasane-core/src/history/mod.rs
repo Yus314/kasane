@@ -98,12 +98,14 @@ impl Snapshot {
 }
 
 /// Errors a history backend may surface.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum HistoryError {
     /// The requested version exists in the canonical timeline but the
     /// backend has evicted it (e.g. ring buffer rolled over).
+    #[error("version evicted from history backend")]
     Evicted,
     /// The requested version was never observed.
+    #[error("unknown version requested from history backend")]
     Unknown,
 }
 

@@ -39,16 +39,19 @@ pub struct SelectionSet {
 }
 
 /// Errors returned by named-set persistence.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SaveError {
     /// The supplied name is empty or contains a `:` (reserved for
     /// scoping by `(plugin_id, name)`).
+    #[error("invalid selection-set name (empty or contains ':')")]
     InvalidName,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LoadError {
+    #[error("selection set not found")]
     NotFound,
+    #[error("selection-set buffer mismatch: saved in {saved_in:?}, requested {requested:?}")]
     BufferMismatch {
         saved_in: BufferId,
         requested: BufferId,

@@ -34,21 +34,14 @@ use super::variables::{edit_distance, validate_variable, variable_dirty_flag};
 use super::visitor::{WidgetVisitor, walk_widget_kind};
 
 /// Errors during widget file parsing.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum WidgetParseError {
     /// KDL syntax error.
+    #[error("KDL syntax error: {0}")]
     Syntax(String),
     /// Too many widget definitions.
+    #[error("too many widgets (max 64)")]
     TooManyWidgets,
-}
-
-impl std::fmt::Display for WidgetParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Syntax(msg) => write!(f, "KDL syntax error: {msg}"),
-            Self::TooManyWidgets => write!(f, "too many widgets (max 64)"),
-        }
-    }
 }
 
 /// Semantic error for a single widget node (skipped, not fatal).

@@ -87,10 +87,13 @@ pub enum SessionCommand {
     },
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SessionManagerError {
+    #[error("duplicate session key: {0:?}")]
     DuplicateSessionKey(String),
+    #[error("missing session: {0:?}")]
     MissingSession(SessionId),
+    #[error("no active session")]
     NoActiveSession,
 }
 

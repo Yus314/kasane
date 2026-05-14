@@ -7,27 +7,18 @@ use super::types::{Template, TemplateAlign, TemplateFmt, TemplateSegment};
 use super::variables::VariableResolver;
 
 /// Error from parsing a template string.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TemplateParseError {
+    #[error("unclosed '{{' in template")]
     UnclosedBrace,
+    #[error("empty variable name in template")]
     EmptyVariable,
     /// Error parsing inline conditional predicate.
-    ConditionalError(CondParseError),
+    #[error("inline conditional: {0}")]
+    ConditionalError(#[from] CondParseError),
     /// Missing `then` branch after `?condition =>`.
+    #[error("inline conditional: missing '=>' after condition")]
     ConditionalMissingThen,
-}
-
-impl std::fmt::Display for TemplateParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnclosedBrace => write!(f, "unclosed '{{' in template"),
-            Self::EmptyVariable => write!(f, "empty variable name in template"),
-            Self::ConditionalError(e) => write!(f, "inline conditional: {e}"),
-            Self::ConditionalMissingThen => {
-                write!(f, "inline conditional: missing '=>' after condition")
-            }
-        }
-    }
 }
 
 impl Template {

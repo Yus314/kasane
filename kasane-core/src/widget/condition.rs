@@ -6,32 +6,25 @@ use super::predicate::Predicate;
 use super::types::{CmpOp, Value};
 
 /// Error from parsing a condition expression.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CondParseError {
+    #[error("unexpected end of condition expression")]
     UnexpectedEnd,
+    #[error("unexpected token in condition: '{0}'")]
     UnexpectedToken(String),
+    #[error("condition expression too complex (max 16 nodes)")]
     TooManyNodes,
     /// Condition expression exceeds the maximum length.
+    #[error("condition expression too long (max 256 characters)")]
     TooLong,
+    #[error("unclosed '(' in condition expression")]
     UnclosedParen,
     /// Invalid regex pattern in `=~` operator.
+    #[error("invalid regex in '=~': {0}")]
     InvalidRegex(String),
     /// Missing parenthesized value list after `in`.
+    #[error("invalid 'in' syntax: {0}")]
     InvalidInSyntax(String),
-}
-
-impl std::fmt::Display for CondParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnexpectedEnd => write!(f, "unexpected end of condition expression"),
-            Self::UnexpectedToken(t) => write!(f, "unexpected token in condition: '{t}'"),
-            Self::TooManyNodes => write!(f, "condition expression too complex (max 16 nodes)"),
-            Self::TooLong => write!(f, "condition expression too long (max 256 characters)"),
-            Self::UnclosedParen => write!(f, "unclosed '(' in condition expression"),
-            Self::InvalidRegex(e) => write!(f, "invalid regex in '=~': {e}"),
-            Self::InvalidInSyntax(e) => write!(f, "invalid 'in' syntax: {e}"),
-        }
-    }
 }
 
 const MAX_NODES: usize = 16;

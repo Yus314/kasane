@@ -249,28 +249,16 @@ fn resolve_include(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum UnifiedParseError {
+    #[error("KDL syntax error: {0}")]
     Syntax(String),
-    Widget(WidgetParseError),
+    #[error("widget error: {0}")]
+    Widget(#[from] WidgetParseError),
     /// Top-level nodes that are not recognized config sections.
+    #[error(
+        "unknown top-level node(s): {names}; widgets must be inside a `widgets {{ }}` block",
+        names = .0.join(", ")
+    )]
     UnknownTopLevel(Vec<String>),
 }
-
-impl std::fmt::Display for UnifiedParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Syntax(msg) => write!(f, "KDL syntax error: {msg}"),
-            Self::Widget(e) => write!(f, "widget error: {e}"),
-            Self::UnknownTopLevel(names) => {
-                write!(
-                    f,
-                    "unknown top-level node(s): {}; widgets must be inside a `widgets {{ }}` block",
-                    names.join(", ")
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for UnifiedParseError {}

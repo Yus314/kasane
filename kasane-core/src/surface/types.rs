@@ -253,21 +253,27 @@ impl SurfaceDescriptor {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SurfaceRegistrationError {
+    #[error(
+        "duplicate surface id {surface_id:?}: existing key '{existing_surface_key}', new key '{new_surface_key}'"
+    )]
     DuplicateSurfaceId {
         surface_id: SurfaceId,
         existing_surface_key: CompactString,
         new_surface_key: CompactString,
     },
-    DuplicateSurfaceKey {
-        surface_key: CompactString,
-    },
+    #[error("duplicate surface key '{surface_key}'")]
+    DuplicateSurfaceKey { surface_key: CompactString },
+    #[error(
+        "duplicate declared slot '{slot_name}': existing surface '{existing_surface_key}', new surface '{new_surface_key}'"
+    )]
     DuplicateDeclaredSlot {
         slot_name: CompactString,
         existing_surface_key: CompactString,
         new_surface_key: CompactString,
     },
+    #[error("duplicate declared slot '{slot_name}' within surface '{surface_key}'")]
     DuplicateDeclaredSlotInSurface {
         surface_key: CompactString,
         slot_name: CompactString,

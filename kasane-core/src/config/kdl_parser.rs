@@ -13,7 +13,8 @@ use super::{
 };
 
 /// A recoverable config parse error (field-level, not fatal).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("{section}.{field}: {message}")]
 pub struct ConfigError {
     /// Config section name (e.g. "ui", "scroll").
     pub section: String,
@@ -21,12 +22,6 @@ pub struct ConfigError {
     pub field: String,
     /// Human-readable error message.
     pub message: String,
-}
-
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}: {}", self.section, self.field, self.message)
-    }
 }
 
 /// Parse config sections from pre-filtered KDL nodes.

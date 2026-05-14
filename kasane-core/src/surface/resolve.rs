@@ -37,7 +37,17 @@ pub enum OwnerValidationErrorKind {
     UnresolvedSlotPlaceholder,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl std::fmt::Display for OwnerValidationErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnexpectedResolvedSlot => write!(f, "unexpected resolved slot"),
+            Self::UnresolvedSlotPlaceholder => write!(f, "unresolved slot placeholder"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("surface owner validation failed on '{surface_key}': {kind} ({detail})")]
 pub struct OwnerValidationError {
     pub surface_key: CompactString,
     pub kind: OwnerValidationErrorKind,
