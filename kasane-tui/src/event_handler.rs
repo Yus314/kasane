@@ -23,7 +23,7 @@ use kasane_core::plugin::{
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::CellGrid;
 use kasane_core::scroll::ScrollRuntime;
-use kasane_core::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
+use kasane_core::session::{SessionId, SessionManager, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
 
@@ -90,7 +90,7 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub session_manager: &'a mut SessionManager<R, W, C>,
     pub session_states: &'a mut SessionStateStore,
     pub session_tx: &'a crossbeam_channel::Sender<Event>,
-    pub spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
+    pub spawn_session: kasane_core::event_loop::SpawnSessionFn<R, W, C>,
     pub grid: &'a mut CellGrid,
     pub scroll_amount: i32,
     pub clipboard: &'a mut SystemClipboard,
@@ -682,18 +682,21 @@ where
     W: Write + Send + 'static,
     C: Send + 'static,
 {
-    let reload = ctx.plugin_manager.reload(
-        ctx.registry,
-        &AppView::new(ctx.state),
-        |result, registry| {
-            reconcile_reloaded_plugin_resources(
-                registry,
-                ctx.surface_registry,
-                ctx.state,
-                result.deltas.as_slice(),
-            )
-        },
-    )?;
+    let reload = ctx
+        .plugin_manager
+        .reload(
+            ctx.registry,
+            &AppView::new(ctx.state),
+            |result, registry| {
+                reconcile_reloaded_plugin_resources(
+                    registry,
+                    ctx.surface_registry,
+                    ctx.state,
+                    result.deltas.as_slice(),
+                )
+            },
+        )
+        .map_err(anyhow::Error::from_boxed)?;
     reload.apply_settings(ctx.state);
     kasane_core::event_loop::sync_suppressed_builtins(ctx.state, ctx.registry);
     // Composable Lenses auto-wire: drop lens entries owned by

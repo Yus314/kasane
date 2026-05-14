@@ -2,6 +2,7 @@
 //!
 //! Session spawn, close, switch, pane death, ready gate, and ready batch handling.
 
+use crate::error::DynError;
 use crate::layout::Rect;
 use crate::plugin::{AppView, Command, CommandResult, EffectsBatch, execute_commands};
 use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
@@ -11,6 +12,16 @@ use crate::surface::{SurfaceId, SurfaceRegistry};
 use super::SessionHost;
 use super::context::{DeferredContext, focused_writer};
 use super::dispatch::{apply_runtime_batch, dispatch_input_event};
+
+/// Function-pointer type for the binary's session-spawner callback.
+///
+/// `R` / `W` / `C` are the binary's reader / writer / child handles
+/// (e.g. `KakouneReader`, `KakouneWriter`, `KakouneChild` in the
+/// default `kasane` binary). The error type is the user-extensible
+/// trait-surface boundary alias [`crate::error::DynError`] so the
+/// binary can bridge its own internal error chain (typically
+/// `anyhow::Error`) via `.map_err(Into::into)`.
+pub type SpawnSessionFn<R, W, C> = fn(&SessionSpec) -> Result<(R, W, C), DynError>;
 
 /// Send resize commands to all pane clients so each knows its allocated area.
 ///
@@ -121,7 +132,7 @@ pub fn spawn_session_core<R, W, C>(
     spec: &SessionSpec,
     activate: bool,
     ctx: &mut SessionMutContext<'_, R, W, C>,
-    spawn_fn: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
+    spawn_fn: SpawnSessionFn<R, W, C>,
 ) -> Option<(SessionId, R)> {
     // Deduplicate the session key before spawning the process to avoid
     // orphaning a Kakoune process when insert() rejects a duplicate key.
@@ -379,7 +390,7 @@ pub struct SharedSessionRuntime<'a, R, W, C, E: EventSink> {
     pub session_manager: &'a mut SessionManager<R, W, C>,
     pub session_states: &'a mut SessionStateStore,
     pub sink: E,
-    pub spawn_session: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
+    pub spawn_session: SpawnSessionFn<R, W, C>,
 }
 
 impl<'a, R, W, C, E: EventSink> super::SessionRuntime for SharedSessionRuntime<'a, R, W, C, E>
@@ -479,7 +490,7 @@ pub fn restore_panes<R, W, C, E: EventSink>(
     session_states: &mut SessionStateStore,
     state: &mut AppState,
     initial_resize_sent: &mut bool,
-    spawn_fn: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
+    spawn_fn: SpawnSessionFn<R, W, C>,
     sink: &E,
 ) where
     R: std::io::BufRead + Send + 'static,

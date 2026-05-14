@@ -101,6 +101,24 @@ pub enum CoreError {
     SurfaceRegistration(#[from] SurfaceRegistrationError),
 }
 
+/// Type alias used as the error parameter on `kasane-core` trait
+/// surfaces whose implementors are user-defined and may surface
+/// arbitrary error sources.
+///
+/// `DynError` is the standard "any error" boundary that lets a plugin
+/// host crate (e.g. `kasane-wasm`) or a binary-side orchestrator (e.g.
+/// `DefaultReloadOrchestrator` in the `kasane` crate) `Box`-wrap its
+/// own internal error chain without forcing `kasane-core` to enumerate
+/// every possible source. The boundary is intentionally `Send + Sync +
+/// 'static` so the returned error can cross thread boundaries inside the
+/// event loop.
+///
+/// **Boundary policy**: trait methods that hand control to user-defined
+/// implementors take `DynError` (this alias). Concrete library
+/// internals — purely first-party error paths owned by `kasane-core` —
+/// continue to use `CoreError` (or a per-module typed enum) instead.
+pub type DynError = Box<dyn core::error::Error + Send + Sync + 'static>;
+
 /// Convenience alias: `core::result::Result<T, CoreError>`.
 ///
 /// Imported via `use kasane_core::error::Result;` (intentionally **not**

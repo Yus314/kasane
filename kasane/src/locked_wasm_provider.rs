@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use anyhow::Result;
+use kasane_core::error::DynError;
 use kasane_core::plugin::{
     PluginCollect, PluginDescriptor, PluginDiagnostic, PluginFactory, PluginId, PluginProvider,
     PluginRank, PluginRevision, PluginSource, ProviderArtifactStage, ProviderConfigUpdate,
@@ -94,7 +94,7 @@ impl PluginProvider for LockedWasmPluginProvider {
         LOCKED_WASM_PROVIDER_NAME
     }
 
-    fn collect(&self) -> Result<PluginCollect> {
+    fn collect(&self) -> Result<PluginCollect, DynError> {
         let mut resolved = PluginCollect::default();
 
         let lock = match PluginsLock::load_from_path(&self.lock_path) {
@@ -131,12 +131,12 @@ impl PluginProvider for LockedWasmPluginProvider {
         let plugins_config = self
             .plugins_config
             .read()
-            .map_err(|_| anyhow::anyhow!("plugins_config rwlock poisoned"))?
+            .map_err(|_| -> DynError { "plugins_config rwlock poisoned".into() })?
             .clone();
         let config_settings = self
             .config_settings
             .read()
-            .map_err(|_| anyhow::anyhow!("config_settings rwlock poisoned"))?
+            .map_err(|_| -> DynError { "config_settings rwlock poisoned".into() })?
             .clone();
         let wasi_config = WasiCapabilityConfig::from_plugins_config(&plugins_config);
 
@@ -168,16 +168,16 @@ impl PluginProvider for LockedWasmPluginProvider {
         Ok(resolved)
     }
 
-    fn update_config(&self, update: ProviderConfigUpdate<'_>) -> Result<()> {
+    fn update_config(&self, update: ProviderConfigUpdate<'_>) -> Result<(), DynError> {
         *self
             .plugins_config
             .write()
-            .map_err(|_| anyhow::anyhow!("plugins_config rwlock poisoned"))? =
+            .map_err(|_| -> DynError { "plugins_config rwlock poisoned".into() })? =
             update.plugins.clone();
         *self
             .config_settings
             .write()
-            .map_err(|_| anyhow::anyhow!("config_settings rwlock poisoned"))? =
+            .map_err(|_| -> DynError { "config_settings rwlock poisoned".into() })? =
             update.settings.clone();
         Ok(())
     }

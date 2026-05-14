@@ -239,6 +239,22 @@ fn run_inner(
     let mut session_manager = SessionManager::new();
     let primary_session = SessionSpec::primary(session, kak_args);
     let (reader, writer, child) = process::spawn_kakoune_for_spec(&primary_session)?;
+
+    /// Adapter that converts the binary-side `spawn_kakoune_for_spec`
+    /// (`anyhow::Result`) into the `kasane-core`-style trait-surface
+    /// `Result<_, DynError>` expected by `run_tui` / `run_gui`.
+    fn spawn_session_adapter(
+        spec: &SessionSpec,
+    ) -> Result<
+        (
+            process::KakouneReader,
+            process::KakouneWriter,
+            process::KakouneChild,
+        ),
+        kasane_core::error::DynError,
+    > {
+        process::spawn_kakoune_for_spec(spec).map_err(Into::into)
+    }
     session_manager
         .insert(primary_session, reader, writer, child)
         .expect("primary session key should be unique");
@@ -247,7 +263,7 @@ fn run_inner(
         UiMode::Tui => kasane_tui::run_tui(
             config,
             session_manager,
-            process::spawn_kakoune_for_spec,
+            spawn_session_adapter,
             make_dispatcher,
             make_http_dispatcher,
             plugin_manager,
@@ -273,7 +289,7 @@ fn run_inner(
             kasane_gui::run_gui(
                 config,
                 session_manager,
-                process::spawn_kakoune_for_spec,
+                spawn_session_adapter,
                 make_dispatcher,
                 make_http_dispatcher,
                 plugin_manager,
@@ -410,8 +426,8 @@ mod tests {
     use std::sync::Arc;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use anyhow::Result as AnyResult;
     use kasane_core::config::PluginsConfig;
+    use kasane_core::error::DynError as AnyResultErr;
     use kasane_core::event_loop::{
         reconcile_plugin_surfaces, register_builtin_surfaces, setup_plugin_surfaces,
     };
@@ -647,7 +663,7 @@ mod tests {
     }
 
     impl PluginProvider for ReloadChainProvider {
-        fn collect(&self) -> AnyResult<PluginCollect> {
+        fn collect(&self) -> Result<PluginCollect, AnyResultErr> {
             let variant = *self.variant.lock().expect("poisoned reload variant");
             let descriptor = PluginDescriptor {
                 id: PluginId::from("reload_owner"),
@@ -717,7 +733,7 @@ mod tests {
     }
 
     impl PluginProvider for DiagnosticProvider {
-        fn collect(&self) -> AnyResult<PluginCollect> {
+        fn collect(&self) -> Result<PluginCollect, AnyResultErr> {
             let variant = *self.variant.lock().expect("poisoned diagnostic variant");
             let revision = match variant {
                 DiagnosticVariant::Valid => "valid",

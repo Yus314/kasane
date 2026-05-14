@@ -39,7 +39,7 @@ use kasane_core::plugin::{
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::{RenderResult, SceneCache};
 use kasane_core::scroll::ScrollRuntime;
-use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
+use kasane_core::session::{SessionManager, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
 use kasane_internal::salsa_db::KasaneDatabase;
@@ -68,7 +68,7 @@ where
     // Kakoune communication
     session_manager: SessionManager<R, W, C>,
     session_states: SessionStateStore,
-    session_spawner: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
+    session_spawner: kasane_core::event_loop::SpawnSessionFn<R, W, C>,
 
     // Event state
     pending_events: Vec<GuiEvent>,
@@ -140,7 +140,7 @@ where
     pub fn new(
         config: Config,
         mut session_manager: SessionManager<R, W, C>,
-        session_spawner: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
+        session_spawner: kasane_core::event_loop::SpawnSessionFn<R, W, C>,
         event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
         mut plugin_manager: PluginManager,
         registry: PluginRuntime,
@@ -205,9 +205,15 @@ where
 
         // Collect plugin-owned surfaces before plugin init so invalid surface
         // contracts do not get a chance to produce side effects.
-        let initial_plugins = plugin_manager.initialize(&mut registry, |_, registry| {
-            kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
-        })?;
+        let initial_plugins = plugin_manager
+            .initialize(&mut registry, |_, registry| {
+                kasane_core::event_loop::setup_plugin_surfaces(
+                    registry,
+                    &mut surface_registry,
+                    &state,
+                )
+            })
+            .map_err(anyhow::Error::from_boxed)?;
         initial_plugins.apply_settings(&mut state);
         kasane_core::event_loop::sync_suppressed_builtins(&mut state, &registry);
         // Composable Lenses auto-wire (Roadmap §2.2 follow-up).

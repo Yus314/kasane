@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use crate::error::DynError;
 
 use super::AppView;
 use super::diagnostics::{PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticTarget};
@@ -262,7 +262,7 @@ impl PluginManager {
         }
     }
 
-    fn plan_initial(&self) -> Result<PluginApplyPlan> {
+    fn plan_initial(&self) -> Result<PluginApplyPlan, DynError> {
         let catalog = self.collect_and_resolve()?;
         let next_snapshot = catalog.snapshot();
         let initial_settings = catalog.initial_settings;
@@ -284,7 +284,7 @@ impl PluginManager {
         })
     }
 
-    fn plan_reload(&self) -> Result<PluginApplyPlan> {
+    fn plan_reload(&self) -> Result<PluginApplyPlan, DynError> {
         let catalog = self.collect_and_resolve()?;
         let new_snapshot = catalog.snapshot();
         let old_snapshot = self.previous.clone();
@@ -330,7 +330,7 @@ impl PluginManager {
         registry: &mut PluginRuntime,
         plan: PluginApplyPlan,
         mode: PluginApplyMode<'_>,
-    ) -> Result<PendingPluginCommit> {
+    ) -> Result<PendingPluginCommit, DynError> {
         let PluginApplyPlan {
             removals,
             upserts,
@@ -446,7 +446,7 @@ impl PluginManager {
         &mut self,
         registry: &mut PluginRuntime,
         collect_diagnostics: F,
-    ) -> Result<PluginApplyResult>
+    ) -> Result<PluginApplyResult, DynError>
     where
         F: FnOnce(&PluginApplyResult, &mut PluginRuntime) -> Vec<PluginDiagnostic>,
     {
@@ -464,7 +464,7 @@ impl PluginManager {
         registry: &mut PluginRuntime,
         state: &AppView<'_>,
         collect_diagnostics: F,
-    ) -> Result<PluginApplyResult>
+    ) -> Result<PluginApplyResult, DynError>
     where
         F: FnOnce(&PluginApplyResult, &mut PluginRuntime) -> Vec<PluginDiagnostic>,
     {
@@ -477,7 +477,7 @@ impl PluginManager {
         Ok(result)
     }
 
-    fn collect_and_resolve(&self) -> Result<ResolvedCatalog> {
+    fn collect_and_resolve(&self) -> Result<ResolvedCatalog, DynError> {
         let mut winners: BTreeMap<PluginId, ResolvedWinner> = BTreeMap::new();
         let mut diagnostics = Vec::new();
         let mut initial_settings: HashMap<PluginId, HashMap<String, SettingValue>> = HashMap::new();
@@ -533,7 +533,6 @@ mod tests {
     use crate::plugin::{PluginCollect, PluginRank, PluginRevision, PluginSource, plugin_factory};
     use crate::state::AppState;
     use crate::surface::SurfaceRegistrationError;
-    use anyhow::anyhow;
     use std::sync::{Arc, Mutex};
 
     fn host_descriptor(id: &str, revision: &str) -> PluginDescriptor {
@@ -564,8 +563,8 @@ mod tests {
             "failing-provider"
         }
 
-        fn collect(&self) -> Result<PluginCollect> {
-            Err(anyhow!("provider collect exploded"))
+        fn collect(&self) -> Result<PluginCollect, DynError> {
+            Err("provider collect exploded".into())
         }
     }
 
@@ -596,7 +595,7 @@ mod tests {
     }
 
     impl PluginProvider for DemoFactoryProvider {
-        fn collect(&self) -> Result<PluginCollect> {
+        fn collect(&self) -> Result<PluginCollect, DynError> {
             let variant = *self.variant.lock().expect("poisoned factory variant");
             let revision = *self.revision.lock().expect("poisoned factory revision");
             let descriptor = host_descriptor("demo", revision);
@@ -605,7 +604,7 @@ mod tests {
                     FactoryVariant::Ok => {
                         Ok(Box::new(crate::plugin::PluginBridge::new(DemoPlugin)))
                     }
-                    FactoryVariant::Err => Err(anyhow!("factory exploded")),
+                    FactoryVariant::Err => Err("factory exploded".into()),
                 })],
                 diagnostics: vec![],
                 initial_settings: HashMap::new(),
@@ -845,13 +844,13 @@ mod tests {
             "config-capturing"
         }
 
-        fn collect(&self) -> Result<PluginCollect> {
+        fn collect(&self) -> Result<PluginCollect, DynError> {
             Ok(PluginCollect::default())
         }
 
-        fn update_config(&self, update: ProviderConfigUpdate<'_>) -> Result<()> {
+        fn update_config(&self, update: ProviderConfigUpdate<'_>) -> Result<(), DynError> {
             if self.fail {
-                return Err(anyhow!("update_config refused"));
+                return Err("update_config refused".into());
             }
             *self.captured.lock().unwrap() = Some(update.plugins.clone());
             *self.captured_settings.lock().unwrap() = update.settings.clone();

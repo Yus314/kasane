@@ -32,7 +32,7 @@ pub use dispatch::{
 };
 pub use reload_orchestrator::{NoopReloadOrchestrator, ReloadOrchestrator, ResolveOutcome};
 pub use session::{
-    SessionMutContext, SessionReadyGate, SharedSessionRuntime, apply_ready_batch,
+    SessionMutContext, SessionReadyGate, SharedSessionRuntime, SpawnSessionFn, apply_ready_batch,
     close_session_core, handle_pane_death, restore_panes, send_pane_resizes, spawn_session_core,
     spawn_session_reader, switch_session_core, sync_session_metadata,
 };

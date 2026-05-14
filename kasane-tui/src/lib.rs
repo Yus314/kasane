@@ -35,7 +35,7 @@ use kasane_core::plugin::{
 use kasane_core::render::{CellGrid, ImageProtocol, ImageRequest};
 use kasane_core::render::{RenderPipelineOptions, render_pipeline_cached};
 use kasane_core::scroll::ScrollRuntime;
-use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
+use kasane_core::session::{SessionManager, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::pane_map::PaneStates;
@@ -96,7 +96,7 @@ fn spawn_input_thread(tx: crossbeam_channel::Sender<Event>) {
 pub fn run_tui<R, W, C>(
     config: Config,
     mut session_manager: SessionManager<R, W, C>,
-    spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
+    spawn_session: kasane_core::event_loop::SpawnSessionFn<R, W, C>,
     create_process_dispatcher: impl FnOnce(Arc<dyn ProcessEventSink>) -> Box<dyn ProcessDispatcher>,
     create_http_dispatcher: impl FnOnce(Arc<dyn ProcessEventSink>) -> Box<dyn HttpDispatcher>,
     mut plugin_manager: PluginManager,
@@ -199,9 +199,11 @@ where
 
     // Collect plugin-owned surfaces before plugin init so invalid surface contracts
     // do not get a chance to produce side effects.
-    let initial_plugins = plugin_manager.initialize(&mut registry, |_, registry| {
-        kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
-    })?;
+    let initial_plugins = plugin_manager
+        .initialize(&mut registry, |_, registry| {
+            kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
+        })
+        .map_err(anyhow::Error::from_boxed)?;
     initial_plugins.apply_settings(&mut state);
     kasane_core::event_loop::sync_suppressed_builtins(&mut state, &registry);
     // Composable Lenses auto-wire (Roadmap §2.2 follow-up): pull

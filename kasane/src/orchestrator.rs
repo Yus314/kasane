@@ -4,8 +4,8 @@
 //! Lives in the binary crate so `kasane-core` doesn't have to depend on
 //! `kasane_wasm` or `kasane_plugin_package`.
 
-use anyhow::Result;
 use kasane_core::config::Config;
+use kasane_core::error::DynError;
 use kasane_core::event_loop::{ReloadOrchestrator, ResolveOutcome};
 
 #[cfg(feature = "wasm-plugins")]
@@ -18,8 +18,9 @@ pub struct DefaultReloadOrchestrator;
 
 #[cfg(feature = "wasm-plugins")]
 impl ReloadOrchestrator for DefaultReloadOrchestrator {
-    fn resolve_and_signal_reload(&self, config: &Config) -> Result<ResolveOutcome> {
-        let saved = resolve_and_save(config, ResolveOptions::reconcile())?;
+    fn resolve_and_signal_reload(&self, config: &Config) -> Result<ResolveOutcome, DynError> {
+        let saved = resolve_and_save(config, ResolveOptions::reconcile())
+            .map_err(|e| -> DynError { e.into() })?;
         let diagnostics = saved
             .result
             .issues
@@ -44,7 +45,7 @@ impl ReloadOrchestrator for DefaultReloadOrchestrator {
 
 #[cfg(not(feature = "wasm-plugins"))]
 impl ReloadOrchestrator for DefaultReloadOrchestrator {
-    fn resolve_and_signal_reload(&self, _config: &Config) -> Result<ResolveOutcome> {
+    fn resolve_and_signal_reload(&self, _config: &Config) -> Result<ResolveOutcome, DynError> {
         // Without WASM plugin support there's nothing to resolve.
         Ok(ResolveOutcome::default())
     }

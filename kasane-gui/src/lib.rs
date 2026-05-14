@@ -30,7 +30,7 @@ use std::time::Duration;
 use kasane_core::config::Config;
 use kasane_core::plugin::{IoEvent, PluginId, PluginManager, ProcessEventSink};
 use kasane_core::protocol::KakouneRequest;
-use kasane_core::session::{SessionId, SessionManager, SessionSpec};
+use kasane_core::session::{SessionId, SessionManager};
 use winit::event_loop::EventLoop;
 
 /// Wrapper for plugin timer payloads (Any + Send, no Debug).
@@ -102,7 +102,7 @@ impl ProcessEventSink for GuiProcessEventSink {
 pub fn run_gui<R, W, C>(
     config: Config,
     mut session_manager: SessionManager<R, W, C>,
-    spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
+    spawn_session: kasane_core::event_loop::SpawnSessionFn<R, W, C>,
     create_process_dispatcher: impl FnOnce(
         Arc<dyn ProcessEventSink>,
     ) -> Box<dyn kasane_core::plugin::ProcessDispatcher>,

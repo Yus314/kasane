@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Result;
+use crate::error::DynError;
 
 use super::diagnostics::PluginDiagnostic;
 use super::host::setting::SettingValue;
@@ -58,7 +58,7 @@ pub trait PluginFactory: Send + Sync {
     /// ownership and stores it directly in a `PluginSlot` (no trait
     /// erasure — every plugin in the runtime is a `PluginBridge` as of
     /// Phase β-3.3c).
-    fn create(&self) -> Result<Box<PluginBridge>>;
+    fn create(&self) -> Result<Box<PluginBridge>, DynError>;
 }
 
 #[derive(Default)]
@@ -94,7 +94,7 @@ pub trait PluginProvider: Send + Sync {
         std::any::type_name::<Self>()
     }
 
-    fn collect(&self) -> Result<PluginCollect>;
+    fn collect(&self) -> Result<PluginCollect, DynError>;
 
     /// Refresh the provider's view of dynamic configuration.
     ///
@@ -103,7 +103,7 @@ pub trait PluginProvider: Send + Sync {
     /// Providers that read from the configuration at collection time should
     /// override and update their internal cache so that the next call to
     /// [`PluginProvider::collect`] reflects the new configuration.
-    fn update_config(&self, _update: ProviderConfigUpdate<'_>) -> Result<()> {
+    fn update_config(&self, _update: ProviderConfigUpdate<'_>) -> Result<(), DynError> {
         Ok(())
     }
 }
@@ -115,20 +115,20 @@ struct ClosurePluginFactory<F> {
 
 impl<F> PluginFactory for ClosurePluginFactory<F>
 where
-    F: Fn() -> Result<Box<PluginBridge>> + Send + Sync + 'static,
+    F: Fn() -> Result<Box<PluginBridge>, DynError> + Send + Sync + 'static,
 {
     fn descriptor(&self) -> &PluginDescriptor {
         &self.descriptor
     }
 
-    fn create(&self) -> Result<Box<PluginBridge>> {
+    fn create(&self) -> Result<Box<PluginBridge>, DynError> {
         (self.create)()
     }
 }
 
 pub fn plugin_factory(
     descriptor: PluginDescriptor,
-    create: impl Fn() -> Result<Box<PluginBridge>> + Send + Sync + 'static,
+    create: impl Fn() -> Result<Box<PluginBridge>, DynError> + Send + Sync + 'static,
 ) -> Arc<dyn PluginFactory> {
     Arc::new(ClosurePluginFactory { descriptor, create })
 }
@@ -189,7 +189,7 @@ impl StaticPluginProvider {
 }
 
 impl PluginProvider for StaticPluginProvider {
-    fn collect(&self) -> Result<PluginCollect> {
+    fn collect(&self) -> Result<PluginCollect, DynError> {
         Ok(PluginCollect {
             factories: self.factories.clone(),
             diagnostics: vec![],
@@ -224,7 +224,7 @@ impl Default for CompositePluginProvider {
 }
 
 impl PluginProvider for CompositePluginProvider {
-    fn collect(&self) -> Result<PluginCollect> {
+    fn collect(&self) -> Result<PluginCollect, DynError> {
         let mut collect = PluginCollect::default();
         for provider in &self.providers {
             match provider.collect() {
@@ -240,7 +240,7 @@ impl PluginProvider for CompositePluginProvider {
         Ok(collect)
     }
 
-    fn update_config(&self, update: ProviderConfigUpdate<'_>) -> Result<()> {
+    fn update_config(&self, update: ProviderConfigUpdate<'_>) -> Result<(), DynError> {
         for provider in &self.providers {
             provider.update_config(update)?;
         }

@@ -7,6 +7,7 @@
 //! sides without forcing `kasane-core` to depend on the package layer.
 
 use crate::config::Config;
+use crate::error::DynError;
 use crate::plugin::PluginDiagnostic;
 
 /// Outcome of an attempted resolve + lock-update + sentinel touch.
@@ -32,7 +33,7 @@ pub trait ReloadOrchestrator: Send {
     /// Implementations should be idempotent and safe to call frequently
     /// (the watcher already debounces, but a no-op when nothing changed
     /// keeps the cost low).
-    fn resolve_and_signal_reload(&self, config: &Config) -> anyhow::Result<ResolveOutcome>;
+    fn resolve_and_signal_reload(&self, config: &Config) -> Result<ResolveOutcome, DynError>;
 }
 
 /// No-op orchestrator. Used by backends that don't ship the WASM resolve
@@ -40,7 +41,7 @@ pub trait ReloadOrchestrator: Send {
 pub struct NoopReloadOrchestrator;
 
 impl ReloadOrchestrator for NoopReloadOrchestrator {
-    fn resolve_and_signal_reload(&self, _config: &Config) -> anyhow::Result<ResolveOutcome> {
+    fn resolve_and_signal_reload(&self, _config: &Config) -> Result<ResolveOutcome, DynError> {
         Ok(ResolveOutcome::default())
     }
 }

@@ -2512,7 +2512,6 @@ dependencies = [
 name = "kasane-core"
 version = "0.7.0"
 dependencies = [
- "anyhow",
  "arboard",
  "bitflags 2.11.1",
  "compact_str",

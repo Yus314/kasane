@@ -12,7 +12,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 simd-json = { workspace = true }
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 unicode-width = { workspace = true }
 unicode-segmentation = { workspace = true }
 bitflags = { workspace = true }
