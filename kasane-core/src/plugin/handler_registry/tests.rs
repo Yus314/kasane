@@ -595,17 +595,3 @@ fn on_unified_display_sets_content_annotator_capability() {
             .contains(PluginCapabilities::CONTENT_ANNOTATOR)
     );
 }
-
-#[test]
-fn on_unified_display_safe_is_recoverable() {
-    let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_unified_display_safe(|_state, _app| vec![]);
-    assert!(registry.is_display_recoverable());
-}
-
-#[test]
-fn on_unified_display_is_not_recoverable() {
-    let mut registry = HandlerRegistry::<TestState>::new();
-    registry.on_unified_display(|_state, _app| vec![]);
-    assert!(!registry.is_display_recoverable());
-}

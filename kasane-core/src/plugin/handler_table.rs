@@ -71,14 +71,6 @@ pub(crate) use crate::plugin::handler_table_spec::generated::{
     TransparencyFlags,
 };
 
-/// Free-function counterpart to the previously-method-form
-/// `DisplayRecoveryStatus::is_visually_faithful`. Cannot live as an
-/// `impl` block because the enum is now imported from the generated
-/// module (orphan rule blocks adding a new method on a foreign type).
-pub(crate) fn is_visually_faithful(status: &DisplayRecoveryStatus) -> bool {
-    !matches!(status, DisplayRecoveryStatus::Unwitnessed)
-}
-
 // =============================================================================
 // HandlerTable
 // =============================================================================

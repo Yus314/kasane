@@ -1,35 +1,22 @@
 //! Carve-outs on the decoration / display axis.
 //!
-//! γ-3.3c-5b: the redundant manual `on_gutter` / `on_background` /
-//! `on_inline` / `on_virtual_text` / `on_annotate_line` / `on_overlay` /
+//! The manual `on_gutter` / `on_background` / `on_inline` /
+//! `on_virtual_text` / `on_annotate_line` / `on_overlay` /
 //! `on_display{,_safe,_witnessed}` / `on_unified_display{,_safe}` /
-//! `on_content_annotation` / `on_render_ornament` setters were retired —
-//! plugin code now invokes the macro-generated counterparts via `Deref`
-//! from `HandlerRegistry` to `gen::HandlerRegistry`. The carve-out
-//! `define_projection` / `define_additive_projection` setters (spec §9.1)
-//! stay manual: they take both a [`ProjectionDescriptor`](crate::display::ProjectionDescriptor)
+//! `on_content_annotation` / `on_render_ornament` setters are macro-
+//! generated; plugin code invokes them via `Deref` from `HandlerRegistry`
+//! to `gen::HandlerRegistry`. The carve-out `define_projection` /
+//! `define_additive_projection` setters (spec §9.1) stay manual: they
+//! take both a [`ProjectionDescriptor`](crate::display::ProjectionDescriptor)
 //! and a handler closure, and derive [`DisplayRecoveryStatus`] from the
 //! descriptor's `Structural` / `Additive` category — the bespoke
-//! recovery-inference is the carve-out point. The
-//! [`is_display_recoverable`](HandlerRegistry::is_display_recoverable)
-//! query method also stays here.
+//! recovery-inference is the carve-out point.
 
 use super::super::{AppView, DisplayDirective, PluginState};
 
 use super::HandlerRegistry;
 
 impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
-    /// Whether this plugin's display directives satisfy Visual Faithfulness (§10.2a).
-    ///
-    /// Both the singleton `display` and `unified_display` slots must be
-    /// recoverable (or unregistered).
-    pub fn is_display_recoverable(&self) -> bool {
-        super::super::handler_table::is_visually_faithful(&self.inner.table.display_recovery)
-            && super::super::handler_table::is_visually_faithful(
-                &self.inner.table.unified_display_recovery,
-            )
-    }
-
     /// Define a named projection mode.
     ///
     /// - **Structural** projections auto-create a `RecoveryWitness::Declared` since

@@ -183,14 +183,18 @@ Introduce a staged enforcement model for the observed/policy split.
 - Note: `Fold` is classified as Preserving (not Destructive) because
   `FoldToggleState` provides framework-maintained recovery. `Hide` /
   `HideInline` are Destructive variants; per-plugin recovery via
-  explicit `RecoveryWitness` evidence remains supported, but is no
-  longer required for §10.2a faithfulness — RFC-107a (see
-  `docs/roadmap/rfc-107a-universal-reveal-state.md`) adds
-  `UniversalRevealState` as a framework-maintained recovery analogous
-  to `FoldToggleState`. Every plugin's destructive directives become
-  recoverable in σ = `[<a-r>]` (|σ| = 1) regardless of registration
-  path; `is_display_recoverable()` becomes redundant under this
-  policy and is flagged for retirement.
+  explicit `RecoveryWitness` evidence remains supported as type-level
+  documentation, but is no longer required for §10.2a faithfulness.
+  RFC-107a (see `docs/roadmap/rfc-107a-universal-reveal-state.md`)
+  adds `UniversalRevealState` as a framework-maintained recovery
+  analogous to `FoldToggleState`. Every plugin's destructive
+  directives are recoverable in σ = `[<a-r>]` (|σ| = 1) regardless
+  of registration path. `HandlerRegistry::is_display_recoverable()`
+  and `is_visually_faithful()` were retired because no production
+  path read them after RFC-107a closed the §10.2a contract framework-
+  side; `DisplayRecoveryStatus` storage and `RecoveryWitness` types
+  remain as opt-in documentation for plugins that want to declare
+  per-plugin recovery semantics.
 
 **Level 5 — Effect Footprint (implemented).**
 
