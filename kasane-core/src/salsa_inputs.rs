@@ -133,15 +133,6 @@ pub struct AnnotationResultInput {
     pub virtual_text: Option<Arc<Vec<Option<Vec<crate::protocol::Atom>>>>>,
 }
 
-/// Plugin overlay contributions.
-///
-/// Stores overlay elements collected from plugins during the sync phase.
-#[salsa::input]
-pub struct PluginOverlaysInput {
-    #[returns(ref)]
-    pub overlays: Vec<crate::element::Overlay>,
-}
-
 /// Display transformation directives from plugins.
 ///
 /// Contains the raw directives and buffer line count needed to build a `DisplayMap`.

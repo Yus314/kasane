@@ -29,11 +29,15 @@ use super::scene::{self, DrawCommand, SceneCache};
 use super::view;
 use super::walk;
 use crate::display::{DisplayMap, DisplayMapRef};
-use crate::element::{Direction, Element, ElementStyle, FlexChild, ResolvedSlotInstanceId};
+use crate::element::{
+    Direction, Element, ElementStyle, FlexChild, Overlay, ResolvedSlotInstanceId,
+};
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::layout::line_display_width;
-use crate::plugin::{AppView, PluginCapabilities, PluginView, TransformSubject, TransformTarget};
+use crate::plugin::{
+    AppView, OverlayContext, PluginCapabilities, PluginView, TransformSubject, TransformTarget,
+};
 use crate::protocol::{CursorMode, MenuStyle};
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_sync::SalsaInputHandles;
@@ -225,7 +229,31 @@ impl SalsaViewSource<'_> {
         if let Some(menu) = menu_overlay {
             overlays.push(menu);
         }
-        overlays.extend(h.plugin_overlays.overlays(db).clone());
+        // Plugin overlays — collected inline (θ-spike: no Salsa intermediate).
+        // The previous `PluginOverlaysInput` did two jobs: (1) pipe the value
+        // from sync_plugin_contributions to here, and (2) skip recollection
+        // when `any_overlay_needs_recollect()` reported stale-free state. No
+        // `#[salsa::tracked]` query depends on the value, so the Salsa
+        // wrapper provided nothing structural — only a cache. The spike
+        // drops the cache entirely (always recollect) to measure whether the
+        // cache is justified for the typical overlay workload. If the bench
+        // shows meaningful regression, the follow-up adds a non-Salsa cache.
+        let overlay_ctx = OverlayContext {
+            screen_cols: state.runtime.cols,
+            screen_rows: state.runtime.rows,
+            menu_rect: crate::layout::get_menu_rect(state),
+            existing_overlays: vec![],
+            focused_surface_id: None,
+        };
+        overlays.extend(
+            registry
+                .collect_overlays_with_ctx(&AppView::new(state), &overlay_ctx)
+                .into_iter()
+                .map(|oc| Overlay {
+                    element: oc.element,
+                    anchor: oc.anchor,
+                }),
+        );
         overlays.extend(info_overlays);
 
         let display_map = salsa_views::display_map_query(db, h.display_directives);

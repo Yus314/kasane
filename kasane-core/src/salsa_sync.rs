@@ -28,7 +28,6 @@ pub struct SalsaInputHandles {
     pub display_directives: DisplayDirectivesInput,
     pub slot_contributions: SlotContributionsInput,
     pub annotations: AnnotationResultInput,
-    pub plugin_overlays: PluginOverlaysInput,
     pub transform_patches: TransformPatchesInput,
     pub content_annotations: ContentAnnotationsInput,
     /// ADR-035 §2 — handle to the configured `HistoryBackend`.
@@ -90,7 +89,6 @@ impl SalsaInputHandles {
                 vec![],
             ),
             annotations: AnnotationResultInput::new(db, None, None, None, None, None),
-            plugin_overlays: PluginOverlaysInput::new(db, vec![]),
             transform_patches: TransformPatchesInput::new(db, None, None),
             content_annotations: ContentAnnotationsInput::new(db, vec![]),
             history: HistoryInput::new(
@@ -292,9 +290,8 @@ pub fn sync_plugin_contributions(
     dirty: crate::state::DirtyFlags,
 ) {
     use crate::display::DisplayMapRef;
-    use crate::element::Overlay;
     use crate::plugin::{
-        AnnotateContext, ContribSizeHint, ContributeContext, Contribution, OverlayContext, SlotId,
+        AnnotateContext, ContribSizeHint, ContributeContext, Contribution, SlotId,
     };
     use std::sync::Arc;
 
@@ -477,25 +474,9 @@ pub fn sync_plugin_contributions(
             .to(result.virtual_text.map(Arc::new));
     }
 
-    // Plugin overlays: only re-collect if any overlay provider is stale
-    if registry.any_overlay_needs_recollect() {
-        let overlay_ctx = OverlayContext {
-            screen_cols: state.runtime.cols,
-            screen_rows: state.runtime.rows,
-            menu_rect: crate::layout::get_menu_rect(state),
-            existing_overlays: vec![],
-            focused_surface_id: None,
-        };
-        let overlays: Vec<Overlay> = registry
-            .collect_overlays_with_ctx(&AppView::new(state), &overlay_ctx)
-            .into_iter()
-            .map(|oc| Overlay {
-                element: oc.element,
-                anchor: oc.anchor,
-            })
-            .collect();
-        inputs.plugin_overlays.set_overlays(db).to(overlays);
-    }
+    // Plugin overlays: moved inline into pipeline_salsa.rs (θ-spike). The
+    // Salsa input wrapper provided no structural value because no tracked
+    // query depended on it.
 }
 
 /// Synchronize display directives from plugins into Salsa.
