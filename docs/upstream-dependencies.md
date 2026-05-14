@@ -34,6 +34,7 @@ Items that cannot be fully implemented without upstream changes.
 |----|------|-------------------------------------|---------------------------------|----------|----------------------|
 | D-004 | Completeness of right-side navigation UI | Information needed for scroll position, total line count, and handle ratio | Estimation from cursor position breaks down when the viewport does not follow | [PR #5304](https://github.com/mawww/kakoune/pull/5304), [#165](https://github.com/mawww/kakoune/issues/165) | `P-012`, right-side UI use cases |
 | D-002 | Auxiliary display for off-screen cursors / selections | Number and positions of cursors outside the viewport | Only cursors visible within the view can be detected | [#2727](https://github.com/mawww/kakoune/issues/2727), [#5425](https://github.com/mawww/kakoune/issues/5425) | `D-002` reintegration |
+| D-005 | Plugin access to Kakoune face values | Face name → resolved style mapping (stripped by `kak -ui json`; atoms carry resolved RGB only with no back-reference to originating face) | Kakoune script lacks `get-face` introspection, so a bridge script cannot publish face values via `ui_options`. Theme-author cooperation and pre-baked `.kdl` wrappers were rejected as ecosystem fragmentation; side-channel `:echo` introspection was rejected as too fragile | [PR #4707](https://github.com/mawww/kakoune/pull/4707) | Issue #104 / plugin theme integration |
 
 ## 4. Items with Quality-Limited Workarounds Only
 
@@ -51,7 +52,7 @@ Upstream items being tracked as of 2026-03-22:
 
 | Upstream ID | Description | Affected Items | Status |
 |-------------|-------------|----------------|--------|
-| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | Addition of face / semantic type equivalent to JSON UI | P-001, P-010, P-011, C-008 family | Open |
+| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | Addition of face / semantic type equivalent to JSON UI | P-001, P-010, P-011, C-008 family, D-005 | Open |
 | [PR #5455](https://github.com/mawww/kakoune/pull/5455) | Addition of `widget_columns` to `draw` | P-001, P-010, P-011 | Merged (2026-03-11) |
 | [PR #5304](https://github.com/mawww/kakoune/pull/5304) | Scroll position protocol | D-004, P-012 | Open |
 | [PR #5458](https://github.com/mawww/kakoune/pull/5458) | `draw_status` style parameter | D-003 | Merged (2026-03-21) |

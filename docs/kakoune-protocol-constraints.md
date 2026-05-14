@@ -75,7 +75,7 @@ The simultaneous presence of `FINAL_FG` + `REVERSE` attributes is used as the cu
 - R-050 (multi-cursor rendering) — Cannot distinguish Primary/Secondary
 - R-064 (cursor count badge) — Functions visually but without guarantees
 
-**Upstream resolution:** [PR #4707](https://github.com/mawww/kakoune/pull/4707) (adding semantic Face names to Atoms). However, mawww recommends the DisplayAtom flag approach in [PR #4737](https://github.com/mawww/kakoune/pull/4737), and the prospect of #4707 itself being merged is unclear.
+**Upstream resolution:** [PR #4707](https://github.com/mawww/kakoune/pull/4707) (adding semantic Face names to Atoms). Status per [upstream-dependencies.md §2](./upstream-dependencies.md#2-current-snapshot) (2026-03-22): Open, merge prospect unclear. PR #4737 was absorbed into PR #5455 and no longer represents an alternative path.
 
 ---
 
@@ -138,6 +138,26 @@ The tuple `(InfoStyle, anchor_line)` is used as an approximate ID; info with the
 - Multiple `Modal` style infos (when anchor_line is the same)
 
 **Upstream:** [#1516](https://github.com/mawww/kakoune/issues/1516) — Simultaneous display of multiple info boxes. A fundamental fix requires the introduction of info IDs on the Kakoune side.
+
+---
+
+### 4.5 Face Name Stripping (Plugin Theme Integration)
+
+**Constraint:** Kakoune's JSON UI protocol does not propagate face *names* (e.g., `keyword`, `string`, `type`) to clients. The `set-face` command modifies Kakoune's internal face registry; atoms in `draw` messages carry already-resolved `WireFace` values (concrete RGB + attributes) with no back-reference to the originating face name.
+
+**Implementation distortion:** Plugins that emit their own overlay text (text not present in the Kakoune buffer) and want to colour it consistently with the user's active Kakoune colorscheme — e.g., a Markdown overlay rendering its heading marker in the same colour as the `keyword` face — cannot. The host has no name → style mapping to query, so the WASM SDK helper `theme_style_or("keyword", fallback)` always returns `fallback`.
+
+**Local workaround:** None feasible.
+- Kakoune script lacks a `get-face` introspection primitive, so a bridge script cannot read face values to publish them via `ui_options`.
+- Wrapping `set-face` via command override fragments the theme ecosystem and creates perpetual upstream-coordination burden.
+- Pre-baked `.kdl` snippets per theme duplicate face data and do not follow `:colorscheme` switches.
+- Side-channel `:echo -markup` introspection compounds the heuristic dependency described in §4.2 and breaks under common usage.
+
+**Impact scope:**
+- Plugin theme integration (overlay-emitting plugins that want to match Kakoune colours)
+- Issue #104 (markdown-rich dogfooding); workaround at markdown-rich commit `576ca05` (dim markers) is the expected long-term state until upstream lands
+
+**Upstream resolution:** [PR #4707](https://github.com/mawww/kakoune/pull/4707). Tracked as `D-005` in [upstream-dependencies.md §3](./upstream-dependencies.md#3-fully-blocked).
 
 ---
 

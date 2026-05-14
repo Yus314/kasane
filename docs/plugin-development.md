@@ -479,6 +479,37 @@ exists in the manifest's `[settings.*]` and types match.
 - **Return `None`** to let the next scroll-policy plugin decide. For exact `None` / `Pass` / `Suppress` / `Immediate` semantics, see [`plugin-api.md`](./plugin-api.md#34-input-handling).
 - The source example was previously at `examples/wasm/smooth-scroll/`; it moved to the future external `kasane-plugin-gallery` (δ-3 cleanup). Recover from this repo's git history before that commit.
 
+## Theme Integration with Kakoune
+
+Plugins that emit their own overlay text (markers, virtual lines, status badges) often want to colour-match the user's active Kakoune colorscheme — e.g., rendering Markdown heading markers in the same colour as Kakoune's `keyword` face.
+
+**This is not currently possible.** The Kakoune `kak -ui json` protocol strips face names at the wire boundary: `set-face keyword rgb:...` modifies Kakoune's internal face registry, but atoms in `draw` messages carry already-resolved `WireFace` values with no back-reference. The host has no `face_name → style` lookup to expose.
+
+See [kakoune-protocol-constraints.md §4.5](./kakoune-protocol-constraints.md#45-face-name-stripping-plugin-theme-integration) for the constraint analysis and [upstream-dependencies.md §3 (D-005)](./upstream-dependencies.md#3-fully-blocked) for the tracker. Resolution depends on upstream [PR #4707](https://github.com/mawww/kakoune/pull/4707) merging.
+
+### Interim guidance
+
+Until upstream changes land, plugins should:
+
+1. **Define plugin-specific token names** (e.g., `markdown_rich.h1_marker`, `myplugin.callout.note`) rather than referencing Kakoune face names directly.
+2. **Query with a plugin-supplied fallback**:
+
+   ```rust
+   let h1 = theme_style_or("markdown_rich.h1_marker", style_fg(named(Blue)));
+   ```
+
+3. **Document the user override path** in your plugin's README — users who want colorscheme-matched output add corresponding `theme { }` entries to their `kasane.kdl`:
+
+   ```kdl
+   theme {
+       markdown_rich.h1_marker "rgb:093060,default+b"
+   }
+   ```
+
+4. **Optionally ship example `kasane.kdl` snippets** for popular themes in *your plugin's* repository (not in Kasane). One file per theme; document them in your plugin's README.
+
+This shifts the colour-matching responsibility to the user as a one-time configuration step, keeps Kasane's host surface small, and avoids fragmenting the Kakoune theme ecosystem with Kasane-specific patches. When upstream PR #4707 lands, plugin authors can switch from token names like `markdown_rich.h1_marker` to direct Kakoune face references without breaking existing user `kasane.kdl` files.
+
 ## Testing
 
 Unit tests can be written using `PluginRuntime` directly.
