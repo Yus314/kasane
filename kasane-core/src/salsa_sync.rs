@@ -314,11 +314,10 @@ pub fn sync_plugin_contributions(
         registry: &PluginView<'_>,
         ctx: &ContributeContext,
         cache: &mut ContributionCache,
-        db: &dyn crate::salsa_db::KasaneDb,
         dirty: crate::state::DirtyFlags,
     ) -> Vec<crate::element::FlexChild> {
         registry
-            .collect_contributions_cached(slot, &AppView::new(state), ctx, cache, db, dirty)
+            .collect_contributions_cached(slot, &AppView::new(state), ctx, cache, dirty)
             .into_iter()
             .map(contribution_to_flex_child)
             .collect()
@@ -326,8 +325,8 @@ pub fn sync_plugin_contributions(
 
     // Slot contributions: only re-collect if any contributor is stale
     if registry.any_contributor_needs_recollect() {
-        // Collect with an immutable view of `db`; switch to `&mut db` after
-        // the borrow scope to write the resulting Salsa inputs.
+        // Collect with a fresh inner scope so the contribution-cache mut
+        // borrow ends before the surrounding Salsa input setter calls.
         let (
             buffer_left,
             buffer_right,
@@ -337,74 +336,17 @@ pub fn sync_plugin_contributions(
             status_right,
             above_status,
         ) = {
-            let db_ref: &dyn crate::salsa_db::KasaneDb = db;
             let view = AppView::new(state);
             let ctx = ContributeContext::new(&view, None);
             let cache = &mut inputs.contribution_cache;
             (
-                collect_slot_cached(
-                    &SlotId::BUFFER_LEFT,
-                    state,
-                    registry,
-                    &ctx,
-                    cache,
-                    db_ref,
-                    dirty,
-                ),
-                collect_slot_cached(
-                    &SlotId::BUFFER_RIGHT,
-                    state,
-                    registry,
-                    &ctx,
-                    cache,
-                    db_ref,
-                    dirty,
-                ),
-                collect_slot_cached(
-                    &SlotId::ABOVE_BUFFER,
-                    state,
-                    registry,
-                    &ctx,
-                    cache,
-                    db_ref,
-                    dirty,
-                ),
-                collect_slot_cached(
-                    &SlotId::BELOW_BUFFER,
-                    state,
-                    registry,
-                    &ctx,
-                    cache,
-                    db_ref,
-                    dirty,
-                ),
-                collect_slot_cached(
-                    &SlotId::STATUS_LEFT,
-                    state,
-                    registry,
-                    &ctx,
-                    cache,
-                    db_ref,
-                    dirty,
-                ),
-                collect_slot_cached(
-                    &SlotId::STATUS_RIGHT,
-                    state,
-                    registry,
-                    &ctx,
-                    cache,
-                    db_ref,
-                    dirty,
-                ),
-                collect_slot_cached(
-                    &SlotId::ABOVE_STATUS,
-                    state,
-                    registry,
-                    &ctx,
-                    cache,
-                    db_ref,
-                    dirty,
-                ),
+                collect_slot_cached(&SlotId::BUFFER_LEFT, state, registry, &ctx, cache, dirty),
+                collect_slot_cached(&SlotId::BUFFER_RIGHT, state, registry, &ctx, cache, dirty),
+                collect_slot_cached(&SlotId::ABOVE_BUFFER, state, registry, &ctx, cache, dirty),
+                collect_slot_cached(&SlotId::BELOW_BUFFER, state, registry, &ctx, cache, dirty),
+                collect_slot_cached(&SlotId::STATUS_LEFT, state, registry, &ctx, cache, dirty),
+                collect_slot_cached(&SlotId::STATUS_RIGHT, state, registry, &ctx, cache, dirty),
+                collect_slot_cached(&SlotId::ABOVE_STATUS, state, registry, &ctx, cache, dirty),
             )
         };
         inputs

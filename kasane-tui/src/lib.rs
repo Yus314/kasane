@@ -572,7 +572,7 @@ where
 
             surface_registry.sync_ephemeral_surfaces(&state);
             plugin_manager.run_pre_render_hooks(&mut state);
-            registry.prepare_plugin_cache(dirty, &mut salsa_db);
+            registry.prepare_plugin_cache(dirty);
 
             // Sync Salsa inputs from updated state
             kasane_core::event_loop::sync_salsa_for_render(

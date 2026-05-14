@@ -4,7 +4,6 @@ use crate::plugin::algebra::compose::{Composable, ContributionSet};
 use crate::plugin::{
     AppView, ContributeContext, Contribution, PluginCapabilities, SlotId, SourcedContribution,
 };
-use crate::salsa_db::KasaneDb;
 use crate::state::DirtyFlags;
 
 use super::super::{ContributionCache, ContributionEntry, PluginView};
@@ -48,8 +47,8 @@ impl<'a> PluginView<'a> {
     }
 
     /// Collect contributions with per-plugin caching, gated by per-plugin
-    /// [`PluginStateRevisionInput`](crate::salsa_inputs::PluginStateRevisionInput)
-    /// revisions plus the current frame's [`DirtyFlags`].
+    /// `slot.state_revision` (u64 mirror of the bridge's `state_hash()`)
+    /// plus the current frame's [`DirtyFlags`].
     ///
     /// Reuses the cached contribution when both (a) the plugin's revision
     /// matches the cached `rev_at_collection`, and (b) no dirty bit
@@ -60,10 +59,9 @@ impl<'a> PluginView<'a> {
         state: &AppView<'_>,
         ctx: &ContributeContext,
         cache: &mut ContributionCache,
-        db: &dyn KasaneDb,
         dirty: DirtyFlags,
     ) -> Vec<Contribution> {
-        self.collect_contributions_with_sources_cached(region, state, ctx, cache, db, dirty)
+        self.collect_contributions_with_sources_cached(region, state, ctx, cache, dirty)
             .into_iter()
             .map(|sc| sc.contribution)
             .collect()
@@ -76,7 +74,6 @@ impl<'a> PluginView<'a> {
         state: &AppView<'_>,
         ctx: &ContributeContext,
         cache: &mut ContributionCache,
-        db: &dyn KasaneDb,
         dirty: DirtyFlags,
     ) -> Vec<SourcedContribution> {
         self.slots
@@ -88,10 +85,7 @@ impl<'a> PluginView<'a> {
 
                 let plugin_id = slot.backend.id();
                 let cache_key = (plugin_id.clone(), region.clone());
-                let current_rev = slot
-                    .state_revision
-                    .map(|input| input.revision(db))
-                    .unwrap_or(0);
+                let current_rev = slot.state_revision.unwrap_or(0);
                 let view_deps = slot.backend.view_deps();
                 let appstate_dirty = dirty.intersects(view_deps);
                 let cached_fresh = !appstate_dirty

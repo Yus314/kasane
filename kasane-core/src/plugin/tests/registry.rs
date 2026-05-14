@@ -706,14 +706,13 @@ fn test_reload_plugin_batch_collects_bootstrap_effects() {
 fn test_any_plugin_state_changed_flag() {
     let mut registry = PluginRuntime::new();
     registry.register(StatefulPlugin);
-    let mut db = crate::salsa_db::KasaneDatabase::default();
 
     // Initial prepare: hash differs from default 0 → changed
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     assert!(registry.any_plugin_state_changed());
 
     // Second prepare with same hash → no change
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     assert!(!registry.any_plugin_state_changed());
 }
 
@@ -778,17 +777,16 @@ fn test_per_extension_point_stale_contributor_only() {
     let mut registry = PluginRuntime::new();
     registry.register(ContributorPlugin);
     registry.register(AnnotatorPlugin);
-    let mut db = crate::salsa_db::KasaneDatabase::default();
 
     // First prepare: both stale (hash changed from default 0)
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
     assert!(view.any_contributor_needs_recollect());
     assert!(view.any_annotator_needs_recollect());
 
     // Second prepare with same hashes → neither stale (no dirty flags intersect
     // because both plugins declare specific caps, not ALL view_deps)
-    registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::empty());
     let view = registry.view();
     assert!(!view.any_contributor_needs_recollect());
     assert!(!view.any_annotator_needs_recollect());
@@ -799,20 +797,19 @@ fn test_per_extension_point_stale_only_annotator_changes() {
     let mut registry = PluginRuntime::new();
     registry.register(ContributorPlugin);
     registry.register(AnnotatorPlugin);
-    let mut db = crate::salsa_db::KasaneDatabase::default();
 
     // First prepare: both become stale
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
 
     // Stabilize both
-    registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::empty());
     let view = registry.view();
     assert!(!view.any_contributor_needs_recollect());
     assert!(!view.any_annotator_needs_recollect());
 
     // Now change only the annotator's hash — mutate via re-register
     registry.register(AnnotatorPlugin);
-    registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::empty());
     let view = registry.view();
 
     // Contributor is NOT stale, annotator IS stale
@@ -826,7 +823,6 @@ fn test_contribution_cache_reuses_non_stale_plugin() {
 
     let mut registry = PluginRuntime::new();
     registry.register(ContributorPlugin);
-    let mut db = crate::salsa_db::KasaneDatabase::default();
 
     let state = AppState::default();
     let app = AppView::new(&state);
@@ -834,28 +830,26 @@ fn test_contribution_cache_reuses_non_stale_plugin() {
     let mut cache = ContributionCache::default();
 
     // First prepare: plugin is stale (hash changed 0→1)
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
     let contribs = view.collect_contributions_cached(
         &SlotId::STATUS_LEFT,
         &app,
         &ctx,
         &mut cache,
-        &db,
         DirtyFlags::ALL,
     );
     assert_eq!(contribs.len(), 1);
 
     // Second prepare: plugin NOT stale (hash unchanged) and no AppState dirty
     // intersect — the rev-keyed cache must hit.
-    registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::empty());
     let view = registry.view();
     let contribs2 = view.collect_contributions_cached(
         &SlotId::STATUS_LEFT,
         &app,
         &ctx,
         &mut cache,
-        &db,
         DirtyFlags::empty(),
     );
     assert_eq!(contribs2.len(), 1);
@@ -870,20 +864,19 @@ fn test_display_transform_stale_independent_of_annotator() {
         directives: vec![],
         priority: 0,
     });
-    let mut db = crate::salsa_db::KasaneDatabase::default();
 
     // Both stale initially
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
     assert!(view.any_annotator_needs_recollect());
     assert!(view.any_display_transform_needs_recollect());
 
     // Stabilize both
-    registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::empty());
 
     // Change only annotator
     registry.register(AnnotatorPlugin);
-    registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::empty());
     let view = registry.view();
     assert!(view.any_annotator_needs_recollect());
     assert!(!view.any_display_transform_needs_recollect());
@@ -962,8 +955,7 @@ fn test_decomposed_annotator_produces_gutter_and_background() {
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 
-    let mut db = crate::salsa_db::KasaneDatabase::default();
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
     let ctx = AnnotateContext {
         line_width: 80,
@@ -995,8 +987,7 @@ fn test_mixed_decomposed_and_legacy_annotators() {
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 
-    let mut db = crate::salsa_db::KasaneDatabase::default();
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
     let ctx = AnnotateContext {
         line_width: 80,
@@ -1092,8 +1083,7 @@ fn test_pubsub_publisher_delivers_to_subscriber() {
 
     // Subscriber should now have received the published counter.
     // Verify via prepare_plugin_cache detecting the state change.
-    let mut db = crate::salsa_db::KasaneDatabase::default();
-    runtime.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+    runtime.prepare_plugin_cache(DirtyFlags::empty());
     assert!(runtime.any_plugin_state_changed());
 }
 
@@ -1113,8 +1103,7 @@ fn test_pubsub_no_subscribers_is_noop() {
     let _batch = runtime.evaluate_pubsub(&mut bus, &app);
 
     // No subscriber → only publisher state changed.
-    let mut db = crate::salsa_db::KasaneDatabase::default();
-    runtime.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+    runtime.prepare_plugin_cache(DirtyFlags::empty());
     assert!(runtime.any_plugin_state_changed());
 }
 
@@ -1527,8 +1516,7 @@ fn unified_display_spatial_routed_to_display_directives() {
     let mut state = AppState::default();
     state.observed.lines = (vec![vec![], vec![], vec![], vec![]]).into();
 
-    let mut db = crate::salsa_db::KasaneDatabase::default();
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
     let directives = view.collect_display_directives(&AppView::new(&state));
 
@@ -1556,8 +1544,7 @@ fn unified_display_decoration_routed_to_annotations() {
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 
-    let mut db = crate::salsa_db::KasaneDatabase::default();
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
     let ctx = AnnotateContext {
         line_width: 80,
@@ -1599,8 +1586,7 @@ fn unified_display_interline_routed_to_content_annotations() {
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 
-    let mut db = crate::salsa_db::KasaneDatabase::default();
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
     let ctx = AnnotateContext {
         line_width: 80,
@@ -1633,8 +1619,7 @@ fn unified_display_cache_called_once() {
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 
-    let mut db = crate::salsa_db::KasaneDatabase::default();
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
     let app_view = AppView::new(&state);
     let ctx = AnnotateContext {
@@ -1667,8 +1652,7 @@ fn unified_and_legacy_annotators_coexist() {
     state.runtime.rows = 24;
     state.runtime.cols = 80;
 
-    let mut db = crate::salsa_db::KasaneDatabase::default();
-    registry.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
     let ctx = AnnotateContext {
         line_width: 80,

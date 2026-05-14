@@ -197,23 +197,3 @@ pub struct HistoryInput {
     pub backend: Arc<crate::history::InMemoryRing>,
     pub current_version: crate::history::VersionId,
 }
-
-/// Per-plugin state revision counter.
-///
-/// One instance per registered plugin slot; created lazily by
-/// `PluginRuntime::prepare_plugin_cache(dirty, db)` on the first call
-/// after registration. The `revision` field mirrors the bridge's
-/// `state_hash()` and is updated in-place on subsequent calls. Salsa's
-/// `set_revision().to()` compares via `PartialEq` so unchanged
-/// revisions don't fan out as dependency invalidations.
-///
-/// The input doubles as the imperative driver's "last collected hash":
-/// comparing `input.revision(db)` against the bridge's current
-/// `state_hash()` is how `prepare_plugin_cache` decides whether a slot
-/// is stale. Tracked-query consumers that depend on this input arrive
-/// in a follow-up stage (requires `KasaneDb` plugin-runtime accessor
-/// extension).
-#[salsa::input]
-pub struct PluginStateRevisionInput {
-    pub revision: u64,
-}

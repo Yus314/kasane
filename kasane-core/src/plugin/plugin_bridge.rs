@@ -1244,7 +1244,6 @@ mod tests {
         let mut registry = PluginRuntime::new();
         registry.register(CursorLinePure);
 
-        let mut db = crate::salsa_db::KasaneDatabase::default();
         let mut app = AppState::default();
         app.observed.cursor_pos.line = 2;
         app.observed.lines = (vec![vec![], vec![], vec![], vec![], vec![]]).into();
@@ -1258,11 +1257,11 @@ mod tests {
         assert!(batch.per_plugin_commands.is_empty());
 
         // Prepare cache — should detect state change
-        registry.prepare_plugin_cache(DirtyFlags::BUFFER, &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::BUFFER);
         assert!(registry.any_plugin_state_changed());
 
         // Second prepare with no further changes
-        registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::empty());
         assert!(!registry.any_plugin_state_changed());
     }
 
@@ -1330,22 +1329,21 @@ mod tests {
 
         let mut registry = PluginRuntime::new();
         registry.register(BufferOnlyPlugin);
-        let mut db = crate::salsa_db::KasaneDatabase::default();
 
         // First prepare: always needs recollect (first frame)
-        registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::empty());
         assert!(registry.any_needs_recollect());
 
         // After first frame, no dirty flags and no state change → skip
-        registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::empty());
         assert!(!registry.any_needs_recollect());
 
         // STATUS dirty is disjoint from BUFFER view_deps → still skip
-        registry.prepare_plugin_cache(DirtyFlags::STATUS, &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::STATUS);
         assert!(!registry.any_needs_recollect());
 
         // BUFFER dirty intersects view_deps → needs recollect
-        registry.prepare_plugin_cache(DirtyFlags::BUFFER, &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::BUFFER);
         assert!(registry.any_needs_recollect());
     }
 
@@ -1353,24 +1351,23 @@ mod tests {
     fn needs_recollect_true_when_state_hash_changes() {
         let mut registry = PluginRuntime::new();
         registry.register(CursorLinePure);
-        let mut db = crate::salsa_db::KasaneDatabase::default();
 
         let mut app = AppState::default();
         app.observed.cursor_pos.line = 5;
 
         // First frame
-        registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::empty());
         assert!(registry.any_needs_recollect());
 
         // Mutate plugin state
         registry.notify_state_changed_batch(&AppView::new(&app), DirtyFlags::BUFFER);
 
         // State hash changed → needs recollect even without matching dirty
-        registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::empty());
         assert!(registry.any_needs_recollect());
 
         // No further state change, no matching dirty → skip
-        registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::empty());
         assert!(!registry.any_needs_recollect());
     }
 
@@ -1382,25 +1379,24 @@ mod tests {
         let mut registry = PluginRuntime::new();
         registry.register(CursorLinePure);
 
-        let mut db = crate::salsa_db::KasaneDatabase::default();
         let mut app = AppState::default();
         app.observed.cursor_pos.line = 3;
 
         // First prepare — input is lazily created with the bridge's
         // current state_hash (0, since no mutation has occurred).
-        registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
-        assert_eq!(registry.state_revision_at(0, &db), Some(0));
+        registry.prepare_plugin_cache(DirtyFlags::empty());
+        assert_eq!(registry.state_revision_at(0), Some(0));
 
         // Mutate state via a plugin lifecycle hook; bridge.state_hash
         // bumps to 1; the next prepare call mirrors that onto the input.
         registry.notify_state_changed_batch(&AppView::new(&app), DirtyFlags::BUFFER);
-        registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
-        assert_eq!(registry.state_revision_at(0, &db), Some(1));
+        registry.prepare_plugin_cache(DirtyFlags::empty());
+        assert_eq!(registry.state_revision_at(0), Some(1));
 
         // Idle prepare (no mutation) — input stays at 1; Salsa's
         // `set_revision().to()` short-circuits via PartialEq.
-        registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
-        assert_eq!(registry.state_revision_at(0, &db), Some(1));
+        registry.prepare_plugin_cache(DirtyFlags::empty());
+        assert_eq!(registry.state_revision_at(0), Some(1));
     }
 
     #[test]
@@ -1418,18 +1414,17 @@ mod tests {
 
         let mut registry = PluginRuntime::new();
         registry.register(BufferOnlyPlugin);
-        let mut db = crate::salsa_db::KasaneDatabase::default();
 
         // First frame
-        registry.prepare_plugin_cache(DirtyFlags::empty(), &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::empty());
         assert!(registry.view().any_needs_recollect());
 
         // Second frame, STATUS only → skip
-        registry.prepare_plugin_cache(DirtyFlags::STATUS, &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::STATUS);
         assert!(!registry.view().any_needs_recollect());
 
         // BUFFER dirty → recollect
-        registry.prepare_plugin_cache(DirtyFlags::BUFFER, &mut db);
+        registry.prepare_plugin_cache(DirtyFlags::BUFFER);
         assert!(registry.view().any_needs_recollect());
     }
 

@@ -69,15 +69,16 @@ pub(crate) struct PluginSlot {
     pub(crate) last_group_refresh_hash: u64,
     /// Structured capability descriptor for interference detection.
     pub(crate) descriptor: Option<super::CapabilityDescriptor>,
-    /// Per-plugin Salsa input mirroring `backend.state_hash()`. The input
-    /// doubles as the "last collected hash" used by `prepare_plugin_cache`
-    /// to set `needs_recollect`: the imperative driver reads the input's
-    /// previous value, compares with the bridge's current `state_hash()`,
-    /// updates the input on change, and uses the comparison result to
-    /// gate per-plugin recollection. `None` until the first
-    /// `prepare_plugin_cache(dirty, db)` call after registration creates
-    /// the input; the input then persists for the slot's lifetime.
-    pub(crate) state_revision: Option<crate::salsa_inputs::PluginStateRevisionInput>,
+    /// Last `backend.state_hash()` value seen by `prepare_plugin_cache`.
+    /// Drives the `needs_recollect` decision: the imperative driver reads
+    /// this prior value, compares with the bridge's current `state_hash()`,
+    /// updates on change. `None` until the first `prepare_plugin_cache`
+    /// call after registration seeds it.
+    ///
+    /// Originally a `PluginStateRevisionInput` Salsa input (δ-2.2); demoted
+    /// to a plain `u64` after ADR-050 found the Salsa wrapper added nothing
+    /// — no `#[salsa::tracked]` query depends on this value.
+    pub(crate) state_revision: Option<u64>,
 }
 
 pub struct PluginRuntime {
@@ -427,46 +428,31 @@ impl PluginRuntime {
     /// and compute per-plugin `needs_recollect` based on state hash changes
     /// and the intersection of `dirty` flags with each plugin's `view_deps()`.
     ///
-    /// Also mirrors each plugin's current `state_hash()` onto its
-    /// [`PluginStateRevisionInput`](crate::salsa_inputs::PluginStateRevisionInput)
-    /// Salsa input, lazily creating the input on the first call after
-    /// registration. The input doubles as the canonical "last collected
-    /// hash" — comparing the input's prior value against the bridge's
-    /// current `state_hash()` is what drives the `needs_recollect`
-    /// decision, so the slot no longer has to carry a separate
-    /// `last_state_hash` field.
+    /// Compares `backend.state_hash()` against the slot's previously
+    /// recorded value (`slot.state_revision`). On change, updates the
+    /// recorded value and flags `needs_recollect`. Freshly registered
+    /// plugins (`state_revision: None`) always need their first
+    /// collection; the field is then seeded with the current hash so
+    /// subsequent frames compare against a real baseline.
     ///
     /// Native (PluginBridge-backed) plugins read `state_hash` and `view_deps`
     /// via direct field access; External implementers fall through the
     /// vtable. Called every frame in the salsa sync path.
-    pub fn prepare_plugin_cache(
-        &mut self,
-        dirty: DirtyFlags,
-        db: &mut crate::salsa_db::KasaneDatabase,
-    ) {
-        use salsa::Setter;
+    pub fn prepare_plugin_cache(&mut self, dirty: DirtyFlags) {
         self.any_plugin_state_changed = false;
         for slot in &mut self.slots {
             let (current_hash, view_deps) = (slot.backend.state_hash(), slot.backend.view_deps());
             let hash_changed = match slot.state_revision {
-                Some(input) => {
-                    let prev = input.revision(db);
+                Some(prev) => {
                     if prev != current_hash {
-                        input.set_revision(db).to(current_hash);
+                        slot.state_revision = Some(current_hash);
                         true
                     } else {
                         false
                     }
                 }
                 None => {
-                    // Freshly registered plugins always need their first
-                    // collection; the input is seeded with the current
-                    // hash so subsequent frames compare against a real
-                    // baseline rather than a sentinel.
-                    slot.state_revision = Some(crate::salsa_inputs::PluginStateRevisionInput::new(
-                        db,
-                        current_hash,
-                    ));
+                    slot.state_revision = Some(current_hash);
                     true
                 }
             };
@@ -482,19 +468,12 @@ impl PluginRuntime {
         self.slots.iter().any(|s| s.needs_recollect)
     }
 
-    /// Test-only: read the per-slot Salsa revision input value for the
-    /// plugin at `idx`. Returns `None` if `prepare_plugin_cache` has
-    /// not yet been called for this slot.
+    /// Test-only: read the per-slot revision value for the plugin at
+    /// `idx`. Returns `None` if `prepare_plugin_cache` has not yet been
+    /// called for this slot.
     #[cfg(test)]
-    pub(crate) fn state_revision_at(
-        &self,
-        idx: usize,
-        db: &crate::salsa_db::KasaneDatabase,
-    ) -> Option<u64> {
-        self.slots
-            .get(idx)
-            .and_then(|s| s.state_revision)
-            .map(|input| input.revision(db))
+    pub(crate) fn state_revision_at(&self, idx: usize) -> Option<u64> {
+        self.slots.get(idx).and_then(|s| s.state_revision)
     }
 
     /// Initialize all plugins and collect typed bootstrap effects.

@@ -37,7 +37,7 @@ fn register_zoom_plugin(
     runtime.register_backend(Box::new(PluginBridge::new(SemanticZoomPlugin)));
     let _ = runtime.init_all_batch(&AppView::new(state));
     let mut db = kasane_core::salsa_db::KasaneDatabase::default();
-    runtime.prepare_plugin_cache(DirtyFlags::ALL, &mut db);
+    runtime.prepare_plugin_cache(DirtyFlags::ALL);
     (runtime, db)
 }
 
@@ -79,7 +79,7 @@ fn dispatch_key(
         }
     }
 
-    runtime.prepare_plugin_cache(DirtyFlags::PLUGIN_STATE, db);
+    runtime.prepare_plugin_cache(DirtyFlags::PLUGIN_STATE);
 }
 
 /// Collect resolved directives from the plugin runtime for the given state.
