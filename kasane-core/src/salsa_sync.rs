@@ -27,7 +27,6 @@ pub struct SalsaInputHandles {
     pub config: ConfigInput,
     pub display_directives: DisplayDirectivesInput,
     pub slot_contributions: SlotContributionsInput,
-    pub annotations: AnnotationResultInput,
     /// ADR-035 §2 — handle to the configured `HistoryBackend`.
     /// Synced from `AppState::history` each frame; backs the
     /// Time-aware Salsa queries (`text_at_time`, `selection_at_time`,
@@ -86,7 +85,6 @@ impl SalsaInputHandles {
                 vec![],
                 vec![],
             ),
-            annotations: AnnotationResultInput::new(db, None, None, None, None, None),
             history: HistoryInput::new(
                 db,
                 std::sync::Arc::new(crate::history::InMemoryRing::new()),
@@ -285,11 +283,7 @@ pub fn sync_plugin_contributions(
     inputs: &mut SalsaInputHandles,
     dirty: crate::state::DirtyFlags,
 ) {
-    use crate::display::DisplayMapRef;
-    use crate::plugin::{
-        AnnotateContext, ContribSizeHint, ContributeContext, Contribution, SlotId,
-    };
-    use std::sync::Arc;
+    use crate::plugin::{ContribSizeHint, ContributeContext, Contribution, SlotId};
 
     fn contribution_to_flex_child(c: Contribution) -> crate::element::FlexChild {
         match c.size_hint {
@@ -375,42 +369,9 @@ pub fn sync_plugin_contributions(
             .to(above_status);
     }
 
-    // Annotations: only re-collect if any annotator is stale
-    if registry.any_annotator_needs_recollect() {
-        let display_map: DisplayMapRef =
-            crate::salsa_views::display_map_query(db, inputs.display_directives);
-        let annotate_ctx = AnnotateContext {
-            line_width: state.runtime.cols,
-            gutter_width: 0,
-            display_map: Some(Arc::clone(&display_map)),
-            pane_surface_id: None,
-            pane_focused: true,
-        };
-        let result = registry.collect_annotations(&AppView::new(state), &annotate_ctx);
-        // Wrap per-line lists in `Arc` so the pipeline reader can share the
-        // allocation across frames with `Arc::clone` instead of paying for a
-        // fresh `Vec` deep-clone every frame (`pipeline_salsa.rs`).
-        inputs
-            .annotations
-            .set_line_backgrounds(db)
-            .to(result.line_backgrounds.map(Arc::new));
-        inputs
-            .annotations
-            .set_left_gutter(db)
-            .to(result.left_gutter);
-        inputs
-            .annotations
-            .set_right_gutter(db)
-            .to(result.right_gutter);
-        inputs
-            .annotations
-            .set_inline_decorations(db)
-            .to(result.inline_decorations.map(Arc::new));
-        inputs
-            .annotations
-            .set_virtual_text(db)
-            .to(result.virtual_text.map(Arc::new));
-    }
+    // Annotations: moved inline into pipeline_salsa.rs (θ.5). No
+    // `#[salsa::tracked]` query depended on the Salsa input, so the
+    // wrapper added a `db` thread without semantics.
 
     // Plugin overlays: moved inline into pipeline_salsa.rs (θ-spike). The
     // Salsa input wrapper provided no structural value because no tracked

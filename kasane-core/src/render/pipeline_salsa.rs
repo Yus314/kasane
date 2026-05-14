@@ -892,14 +892,25 @@ fn compose_base_from_salsa(
         Some(Arc::clone(display_map))
     };
 
-    // Read annotations from Salsa input (set by sync_plugin_contributions).
-    // Per-line lists are stored as `Option<Arc<Vec<…>>>`, so the clones below
-    // are O(1) reference bumps rather than per-frame Vec deep-clones.
-    let line_backgrounds = handles.annotations.line_backgrounds(db).clone();
-    let left_gutter = handles.annotations.left_gutter(db).clone();
-    let right_gutter = handles.annotations.right_gutter(db).clone();
-    let inline_decorations = handles.annotations.inline_decorations(db).clone();
-    let virtual_text = handles.annotations.virtual_text(db).clone();
+    // Collect annotations inline (θ.5: no Salsa intermediate). The
+    // `collect_annotations` early-return on `!has_capability(ANNOTATOR)`
+    // keeps the cost bounded for plugin-less configurations; per-line
+    // result vecs get Arc-wrapped here so the downstream
+    // `Element::BufferRef` still gets O(1)-cloneable slices.
+    let display_map_ref = Arc::clone(display_map);
+    let annotate_ctx = crate::plugin::AnnotateContext {
+        line_width: state.runtime.cols,
+        gutter_width: 0,
+        display_map: Some(display_map_ref),
+        pane_surface_id: None,
+        pane_focused: true,
+    };
+    let ann = registry.collect_annotations(&crate::plugin::AppView::new(state), &annotate_ctx);
+    let line_backgrounds = ann.line_backgrounds.map(Arc::new);
+    let left_gutter = ann.left_gutter;
+    let right_gutter = ann.right_gutter;
+    let inline_decorations = ann.inline_decorations.map(Arc::new);
+    let virtual_text = ann.virtual_text.map(Arc::new);
 
     // When a non-identity DisplayMap is active, compute scroll offset so
     // the cursor stays visible, then use offset-based line_range.
