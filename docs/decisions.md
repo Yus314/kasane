@@ -114,3 +114,4 @@ Per-ADR files live under [`docs/decisions/`](./decisions/). Click an entry to op
 | ADR-047 | Salsa Render Path Strategy — Salsa Remains Canonical | [`adr-047-salsa-render-path-strategy-salsa-remains-canonical.md`](./decisions/adr-047-salsa-render-path-strategy-salsa-remains-canonical.md) |
 | ADR-048 | Plugin Backend Trait Extinction (Phase β) | [`adr-048-plugin-backend-trait-extinction-phase.md`](./decisions/adr-048-plugin-backend-trait-extinction-phase.md) |
 | ADR-049 | `PluginEntry` Shape and β-3.3 Staging | [`adr-049-pluginentry-shape-and-33-staging.md`](./decisions/adr-049-pluginentry-shape-and-33-staging.md) |
+| ADR-050 | Salsa Scope Policy — Observed Inputs Only | [`adr-050-salsa-scope-policy-observed-inputs-only.md`](./decisions/adr-050-salsa-scope-policy-observed-inputs-only.md) |
