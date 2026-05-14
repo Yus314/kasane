@@ -1,35 +1,54 @@
-# ADR-050: Salsa Scope Policy — Observed Inputs Only
+# ADR-050: Salsa Scope Policy — Tracked-Query-Backed Inputs Only
 
-**Status:** Accepted (2026-05-14). Refines [ADR-047](./adr-047-salsa-render-path-strategy-salsa-remains-canonical.md)
-by drawing an explicit boundary inside the Salsa input surface. Closes the
-δ-2.3b-iii reopening that
+**Status:** Accepted (2026-05-14). Amended (2026-05-14) to correct an
+input classification — see "Amendment 1" below. Refines
+[ADR-047](./adr-047-salsa-render-path-strategy-salsa-remains-canonical.md)
+by drawing an explicit boundary inside the Salsa input surface. Closes
+the δ-2.3b-iii reopening that
 [`docs/roadmap/phase-gamma-delta-epsilon.md`](../roadmap/phase-gamma-delta-epsilon.md)
 deferred to a "future architectural ADR".
+
+**Amendment 1 (2026-05-14)**: the initial draft mis-classified
+`DisplayDirectivesInput` as Category II based on its producer
+(`sync_plugin_contributions` is the writer). Post-merge audit found
+that `display_map_query` in `salsa_views/display_map.rs` is
+`#[salsa::tracked]` and reads `DisplayDirectivesInput` — so the input
+HAS a tracked-query consumer and is Category I per the policy. The
+authoritative category boundary is **the consumer side** (does any
+`#[salsa::tracked]` query depend on this input?), not the producer
+side (whether the writer is observed-projection or plugin-collection).
+The retirement list shrinks from 6 to 5 (see "Migration plan" below).
 
 ### Context
 
 `kasane-core/src/salsa_inputs.rs` declared 14 `#[salsa::input]` structs.
 Auditing their producers and consumers split the set into two categories:
 
-**Category I — Kakoune observed inputs (7 inputs).**
+**Category I — Tracked-query-backed inputs (8 inputs).**
 `BufferInput`, `CursorInput`, `StatusInput`, `MenuInput`, `InfoInput`,
-`ConfigInput`, `HistoryInput`. Producer: `sync_inputs_from_state()`
-projects from `AppState::observed` once per frame. Consumers: Salsa
-`#[salsa::tracked]` queries in `salsa_views/{buffer,status,menu,info}.rs`
-derive Element trees from these inputs. **The canonical Salsa shape**:
-inputs are user / Kakoune edits, queries are pure derivations, the
-cache catches identical Kakoune frames.
+`ConfigInput`, `HistoryInput`, **`DisplayDirectivesInput`**. Consumers:
+Salsa `#[salsa::tracked]` queries in `salsa_views/{buffer,status,menu,
+info,display_map}.rs` derive Element trees / DisplayMap from these
+inputs. **The canonical Salsa shape**: queries are pure derivations
+over the input, the cache catches identical input values.
 
-**Category II — Plugin contribution inputs (7 inputs).**
+Producer split: the first seven are projected from `AppState::observed`
+by `sync_inputs_from_state()`; `DisplayDirectivesInput` is imperatively
+written by `sync_plugin_contributions()`. **Producer origin does not
+determine category** — the consumer side does. A plugin-derived input
+whose downstream is a `#[salsa::tracked]` query is still Category I
+because Salsa's memoization fires on the consumer side.
+
+**Category II — Plugin contribution inputs with no tracked consumer (6 inputs).**
 `SlotContributionsInput`, `AnnotationResultInput`, `PluginOverlaysInput`,
-`DisplayDirectivesInput`, `ContentAnnotationsInput`,
-`TransformPatchesInput`, `PluginStateRevisionInput`. Producer:
-`sync_plugin_contributions()` imperatively collects from the plugin
-runtime each frame. Consumers: read directly from
-`pipeline_salsa.rs::view_sections` and friends — **no `#[salsa::tracked]`
-query depends on them**. The Salsa wrapper provided only the
-`PartialEq` short-circuit on `set_*.to(value)`, which is unused because
-nothing downstream re-runs from these inputs.
+`ContentAnnotationsInput`, `TransformPatchesInput`,
+`PluginStateRevisionInput`. Producer: `sync_plugin_contributions()`
+imperatively collects from the plugin runtime each frame. Consumers:
+read directly from `pipeline_salsa.rs::view_sections` and the
+`ContributionCache` rev-keying logic — **no `#[salsa::tracked]` query
+depends on them**. The Salsa wrapper provided only the `PartialEq`
+short-circuit on `set_*.to(value)`, which is unused because nothing
+downstream re-runs from these inputs.
 
 The δ-2.3b-i closure note (`ad12fa31`) recorded that the granularity
 gain from extending Salsa into plugin contributions is "structurally
@@ -42,13 +61,16 @@ iai_pipeline `iai_full_frame` +0.00163% — 12 instructions out of 738066).
 
 ### Decision
 
-Salsa applies to Category I (Kakoune observed inputs) only.
-Plugin-contribution data passes through **revision-keyed manual caches**
-(the pattern already established by `ContributionCache` after δ-2.3b-i)
-or via direct parameter passing at the read site.
+Salsa applies to Category I inputs only — those with at least one
+`#[salsa::tracked]` query consumer. Inputs whose consumers are
+exclusively non-tracked code pass through **revision-keyed manual
+caches** (the pattern already established by `ContributionCache` after
+δ-2.3b-i) or via direct parameter passing at the read site.
 
-The remaining six Category II inputs are scheduled for retirement
-following the θ-spike template, each behind its own measurement gate.
+The five remaining Category II inputs (`PluginOverlaysInput` was
+retired by `3b0ac72b` ahead of this decision) are scheduled for
+retirement following the θ-spike template, each behind its own
+measurement gate.
 
 ### Rationale
 
@@ -143,12 +165,19 @@ strategy chosen for the spike (drops the
 data shows the gate was not justified for the overlay-light bundled
 workload.
 
-Phase θ proper (post-1-use-cycle freeze): retire the remaining six
-inputs in dependency order — leaves first (`PluginStateRevisionInput`
-is read by `ContributionCache`; `ContributionCache` becomes the
-direct revision-counter owner), then siblings. Each input's
-retirement is a separate commit; each measures against `delta-24`
-and `delta_24`. Net LoC: estimated -300 to -600 across
-`salsa_inputs.rs`, `salsa_sync.rs`, and the pipeline read sites.
+Phase θ proper: retire the remaining five inputs in dependency order
+— leaves first (`PluginStateRevisionInput` is read by
+`ContributionCache`; `ContributionCache` becomes the direct
+revision-counter owner), then siblings (`SlotContributionsInput`,
+`AnnotationResultInput`, `ContentAnnotationsInput`,
+`TransformPatchesInput`). Each input's retirement is a separate
+commit; each measures against `delta-24` and `delta_24`. Net LoC:
+estimated -250 to -500 across `salsa_inputs.rs`, `salsa_sync.rs`,
+and the pipeline read sites.
+
+`DisplayDirectivesInput` stays. The `display_map_query` tracked query
+catches identical-directive frames at the boundary — a real cache hit
+worth keeping (DisplayMap construction is O(N) in directive count, and
+a stable buffer with stable plugin directives is the common case).
 
 ---
