@@ -3,6 +3,7 @@ pub mod config;
 pub mod display;
 #[doc(hidden)]
 pub mod element;
+pub mod error;
 pub mod event_loop;
 pub mod history;
 pub mod input;
