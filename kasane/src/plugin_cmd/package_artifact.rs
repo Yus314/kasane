@@ -175,7 +175,7 @@ pub(crate) fn touch_reload_sentinel(plugins_dir: &Path) {
 }
 
 fn discover_package_paths(root: &Path) -> Result<Vec<PathBuf>> {
-    kasane_plugin_package::fs_util::collect_kpk_paths(root)
+    Ok(kasane_plugin_package::fs_util::collect_kpk_paths(root)?)
 }
 
 #[cfg(test)]
