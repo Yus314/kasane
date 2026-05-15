@@ -1,4 +1,4 @@
-package kasane:plugin@6.3.0;
+package kasane:plugin@6.4.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -77,6 +77,15 @@ package kasane:plugin@6.3.0;
 // requiring the cluster-advance API that the original #105 RFC
 // proposed (see docs/roadmap/wit-2.x-text-metrics.md for that
 // deferred bundle). Pure additive — minor bump.
+//
+// WIT 6.4 (#111): adds `get-display-cells-str` to `host-state` — a
+// cluster-aware batch primitive that delegates to the host's
+// `line_display_width_str` directly (segment-wise `Str::width`).
+// Per-char `get-display-cells` summation diverges from host column
+// math on emoji ZWJ sequences and skin-tone modifiers under
+// `unicode-width` 0.2; plugins doing column alignment over arbitrary
+// user content must use the batch primitive to match host layout.
+// Pure additive — minor bump.
 
 interface types {
     enum named-color {
@@ -1776,9 +1785,22 @@ interface host-state {
     ///
     /// Plugins doing column alignment over arbitrary user content
     /// (Markdown buffers, table cells, status text) need cluster-
-    /// aware totals; a `get-display-cells-str` batch primitive is
-    /// tracked at `docs/roadmap/wit-2.x-text-metrics.md`.
+    /// aware totals — call `get-display-cells-str` (below) instead.
     get-display-cells: func(ch: char) -> u8;
+
+    /// Total cell width of a string under monospaced cell-grid layout,
+    /// computed exactly as the host's `line_display_width_str`: split
+    /// on control chars, sum `UnicodeWidthStr::width` per segment.
+    /// Cluster-aware — emoji ZWJ sequences (`"👨‍👩‍👧"` = 2),
+    /// skin-tone modifiers (`"👍🏽"` = 2), and other grapheme clusters
+    /// that `unicode-width` 0.2 collapses to a single 2-cell unit are
+    /// billed correctly. This is the primitive to use for column
+    /// alignment, table border placement, and any layout math that
+    /// must match the host's atom placement over arbitrary user
+    /// content. Per-codepoint `get-display-cells` summation does NOT
+    /// reproduce this on emoji clusters; prefer this batch form for
+    /// any user-content scan.
+    get-display-cells-str: func(s: string) -> u32;
 
     // --- v0.7.x (WIT 6.2): Font / cell metric accessors ---
 

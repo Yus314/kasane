@@ -226,6 +226,9 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     fn get_display_cells(&mut self, ch: char) -> u8 {
         unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0) as u8
     }
+    fn get_display_cells_str(&mut self, s: String) -> u32 {
+        kasane_core::render::scene::line_display_width_str(&s) as u32
+    }
     fn get_default_font_size_px(&mut self) -> f32 {
         self.backend_cell_metrics
             .map(|m| m.font_size_px)
@@ -1489,6 +1492,57 @@ mod tests {
                  unicode-width semantics changed and the cluster-equality \
                  doc claim may need revisiting",
             );
+        }
+    }
+
+    // --- WIT 6.4 (#111) ---
+
+    #[test]
+    fn display_cells_str_matches_line_display_width_str_on_mixed_corpus() {
+        let mut host = HostState::default();
+        let cases = [
+            "",
+            "hello",
+            "こんにちは",
+            "日本語abc",
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+            "\u{1F44D}\u{1F3FD}",
+            "\u{1F1EF}\u{1F1F5}",
+            "a\tb",
+            "x\u{0301}y",
+            "table | col1 | col2",
+        ];
+        for s in cases {
+            let via_host = kasane_core::render::scene::line_display_width_str(s) as u32;
+            let via_export = host.get_display_cells_str(s.to_string());
+            assert_eq!(
+                via_export, via_host,
+                "get_display_cells_str must equal line_display_width_str for {s:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn display_cells_str_cluster_aware_emoji_widths() {
+        let mut host = HostState::default();
+        assert_eq!(
+            host.get_display_cells_str("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}".to_string()),
+            2,
+            "ZWJ family must be billed as a single 2-cell cluster",
+        );
+        assert_eq!(
+            host.get_display_cells_str("\u{1F44D}\u{1F3FD}".to_string()),
+            2,
+            "thumbs-up + skin tone must be billed as a single 2-cell cluster",
+        );
+    }
+
+    #[test]
+    fn display_cells_str_matches_per_char_sum_on_non_cluster_strings() {
+        let mut host = HostState::default();
+        for s in ["hello", "日本語abc", ""] {
+            let summed: u32 = s.chars().map(|c| host.get_display_cells(c) as u32).sum();
+            assert_eq!(host.get_display_cells_str(s.to_string()), summed);
         }
     }
 

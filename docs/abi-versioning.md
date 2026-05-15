@@ -8,7 +8,7 @@ the crate-level axis follows Rust semver and is enforced by Cargo.
 
 | Axis | Source of truth | Example |
 |---|---|---|
-| WIT ABI | `kasane-wit/wit/plugin.wit:1` | `package kasane:plugin@6.3.0;` |
+| WIT ABI | `kasane-wit/wit/plugin.wit:1` | `package kasane:plugin@6.4.0;` |
 | SDK crate semver | `kasane-plugin-sdk/Cargo.toml` | `version = "0.6.0"` |
 
 The two move together for major bumps that change the wire format. The
@@ -77,9 +77,27 @@ SDK that uses only existing WIT types is a *crate* minor bump but
 | 0.7.x (early) | 5.0.0 | 0.7.x |
 | 0.7.x (Phase β-4) | 6.0.0 | 0.7.x |
 | 0.7.x | 6.1.0 | 0.7.x |
-| 0.7.x (current) | 6.2.0 | 0.7.x |
+| 0.7.x | 6.2.0 | 0.7.x |
+| 0.7.x | 6.3.0 | 0.7.x |
+| 0.7.x (current) | 6.4.0 | 0.7.x |
 
 Future entries land here as releases ship.
+
+ABI 6.4.0 ([#111](https://github.com/Yus314/kasane/issues/111)) adds
+`get-display-cells-str` to `host-state`: a cluster-aware batch primitive
+that delegates to the host's `line_display_width_str` directly
+(segment-wise `Str::width`). Plugins doing column alignment over
+arbitrary user content (emoji-bearing Markdown, table cells) must use
+the batch form — per-codepoint `get-display-cells` summation diverges
+on emoji ZWJ sequences and skin-tone modifiers under `unicode-width`
+0.2. Pure additive function; 6.x plugins continue to load.
+
+ABI 6.3.0 ([#106](https://github.com/Yus314/kasane/issues/106)) adds
+the `emit-diagnostic` plugin-emitted diagnostic command and the
+`plugin-diagnostic` record to the `command` variant, so plugins can
+surface soft failures (e.g. "LaTeX expression X failed to render") to
+the host's diagnostic panel without triggering ADR-033 quarantine.
+Pure additive; 6.x plugins continue to load.
 
 ABI 6.2.0 ([#109](https://github.com/Yus314/kasane/issues/109)) adds a
 `cell-metrics` record and three accessors to `host-state` —

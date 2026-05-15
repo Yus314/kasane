@@ -496,8 +496,9 @@ kasane_plugin_sdk::define_plugin! {
 
 Compute visual cell widths for column alignment, table border placement, or
 any layout that must match the host's cell-grid pipeline. Use
-`host_state::get_display_cells` — it delegates to `unicode-width`, the same
-crate that backs the host's `line_display_width_str`.
+`host_state::get_display_cells_str` — it delegates to the host's
+`line_display_width_str` directly, so the result is bit-for-bit equal to
+the column position the host will assign:
 
 ```rust
 kasane_plugin_sdk::define_plugin! {
@@ -505,11 +506,8 @@ kasane_plugin_sdk::define_plugin! {
 
     slots {
         STATUS_RIGHT => |_ctx| {
-            let label = "日本語 row | abc";
-            let cells: usize = label
-                .chars()
-                .map(|c| host_state::get_display_cells(c) as usize)
-                .sum();
+            let label = "日本語 row | abc 👍🏽";
+            let cells = host_state::get_display_cells_str(label) as usize;
             let pad = " ".repeat(40usize.saturating_sub(cells));
             plain(&format!("{label}{pad}|"))
         },
@@ -517,46 +515,41 @@ kasane_plugin_sdk::define_plugin! {
 }
 ```
 
-Combining marks (`'\u{0301}'`), control characters (`'\t'`, `'\n'`), and
-other zero-width codepoints return `0`. Latin and most BMP characters
-return `1`; CJK fullwidth and fullwidth punctuation return `2`.
+The batch primitive is cluster-aware: emoji ZWJ sequences (`👨‍👩‍👧` =
+2 cells), skin-tone modifiers (`👍🏽` = 2 cells), and other grapheme
+clusters that `unicode-width` 0.2 collapses are billed correctly.
 
-### Cluster-aware totals — not provided by per-char summation
+### When to use the per-codepoint form
 
-`unicode-width` 0.2 treats some grapheme clusters as a single 2-cell unit
-in `UnicodeWidthStr::width`, while per-codepoint `UnicodeWidthChar::width`
-sees each component separately. Per-char summation **diverges** from the
-host's column model on these strings:
+`host_state::get_display_cells(ch)` exists for queries about a single
+codepoint — cursor advance, gutter width per character, IME composition
+position. Do **not** sum it over a string: per-codepoint summation
+diverges from the host's column model on grapheme clusters.
 
-| String | `Str::width` (host) | per-char sum (`get_display_cells`) |
+| String | host `Str::width` / `get_display_cells_str` | per-char sum (`get_display_cells`) |
 |---|---|---|
 | `"👨‍👩‍👧"` (ZWJ family) | 2 | 6 |
 | `"👍🏽"` (skin-tone modifier) | 2 | 4 |
 | `"🇯🇵"` (regional flag) | 2 | 2 |
 | `"日本語"` | 6 | 6 |
 
-If your plugin scans arbitrary user content (Markdown buffers, file
-contents, table cells the user types into), `get_display_cells.sum()`
-will mis-align on any line containing ZWJ emoji or skin-tone modifiers.
-The recipe above is safe for ASCII / pure CJK / BMP-only labels emitted
-by the plugin itself; it is **not** safe for arbitrary text.
-
-A cluster-aware string primitive (`get-display-cells-str`) is tracked at
-[docs/roadmap/wit-2.x-text-metrics.md](roadmap/wit-2.x-text-metrics.md).
-Until it ships, plugins that must handle emoji clusters should bundle
-`unicode-width` and call `UnicodeWidthStr::width(s)` directly.
+Per-codepoint behaviour: combining marks (`'\u{0301}'`), control
+characters (`'\t'`, `'\n'`), and other zero-width codepoints return
+`0`; Latin and most BMP characters return `1`; CJK fullwidth and
+fullwidth punctuation return `2`.
 
 ### Frame budget
 
-A per-codepoint host call crosses the WASM Component Model boundary at
-roughly 440 ns. Scanning the full visible viewport (80×24 ≈ 1920
-codepoints) every frame costs ~0.85 ms — well over the ~57 μs/frame CPU
-envelope. Call this primitive on dirty lines only, or cache per-line
-widths in plugin-side state keyed by buffer version.
+Both primitives cross the WASM Component Model boundary at roughly
+440 ns per call. `get_display_cells_str` amortises this across a whole
+string — a 1920-codepoint viewport resolves in a single host call,
+well inside the ~57 μs/frame CPU envelope. `get_display_cells` called
+1920 times per frame would cost ~0.85 ms, over budget. Prefer the
+batch form for any scan over more than a handful of codepoints.
 
 For variable-pitch alignment (proportional fonts on the GUI backend),
-this primitive is not sufficient — see the WIT 2.x text-metrics bundle
-in `docs/roadmap.md`.
+these primitives are not sufficient — see the WIT 2.x text-metrics
+bundle in `docs/roadmap.md`.
 
 ## CJK-Latin Spacing (UTR #59)
 
