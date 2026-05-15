@@ -147,54 +147,72 @@ Introduce a staged enforcement model for the observed/policy split.
   session switching is a framework-internal operation. A future Level 5
   (free monad) analysis could track transitive writing paths.
 
-**Level 4 — `RecoveryWitness` for Destructive Display Directives (shipped).**
+**Level 4 — Visual Faithfulness for Display Directives (shipped).**
 
-- Add `DisplayDirective::is_destructive()`: exhaustive match (no `_`
-  wildcard) classifying every variant as destructive or non-destructive.
-  `Hide` is the sole destructive variant. New variants cause a compile
-  error until explicitly classified.
-- Add `DisplayDirective::variant_name()`, `ALL_VARIANT_NAMES`,
-  `DESTRUCTIVE_VARIANTS`, `PRESERVING_VARIANTS`, and
-  `ADDITIVE_VARIANTS` constants for structural witness tests.
-- Add `SafeDisplayDirective`: a newtype wrapping `DisplayDirective` that
-  exposes named constructors only for the 3 non-destructive variants
-  (`fold`, `insert_after`, `insert_before`). There is no constructor for
-  `Hide`, making non-destructiveness a compile-time property.
-- Add `RecoveryWitness` and `RecoveryMechanism`: registration-time
-  evidence that a plugin's destructive directives are user-recoverable.
-- Add `DisplayRecoveryStatus` and `RecoveryFlags` on `HandlerTable` for
-  per-plugin Visual Faithfulness auto-derivation.
-- Add 3 display handler registration methods on `HandlerRegistry`:
-  `on_display` (unwitnessed — marks plugin as non-faithful),
-  `on_display_safe` (compile-time non-destructive via
-  `SafeDisplayDirective`), `on_display_witnessed` (destructive with
-  recovery evidence).
-- Add `HandlerRegistry::is_display_recoverable()` for per-plugin §10.2a
-  auto-derivation: returns true unless the plugin registered a raw
-  `on_display` handler without recovery evidence.
-- 8 structural witness tests
-  (`kasane-core/src/plugin/tests/directive_classification.rs`) pin the
-  classification constants and cross-check the three classification axes.
-- 4 recovery flag auto-derivation tests verify the `NotRegistered`,
-  `NonDestructive`, `Witnessed`, and `Unwitnessed` status paths.
-- 2 property tests (`kasane-core/tests/visual_faithfulness.rs`) witness
-  that `FoldToggleState::toggle` recovers all folded lines in a single
-  interaction, confirming Fold's Preserving classification.
-- Note: `Fold` is classified as Preserving (not Destructive) because
-  `FoldToggleState` provides framework-maintained recovery. `Hide` /
-  `HideInline` are Destructive variants; per-plugin recovery via
-  explicit `RecoveryWitness` evidence remains supported as type-level
-  documentation, but is no longer required for §10.2a faithfulness.
-  RFC-107a (see `docs/roadmap/rfc-107a-universal-reveal-state.md`)
-  adds `UniversalRevealState` as a framework-maintained recovery
-  analogous to `FoldToggleState`. Every plugin's destructive
-  directives are recoverable in σ = `[<a-r>]` (|σ| = 1) regardless
-  of registration path. `HandlerRegistry::is_display_recoverable()`
-  and `is_visually_faithful()` were retired because no production
-  path read them after RFC-107a closed the §10.2a contract framework-
-  side; `DisplayRecoveryStatus` storage and `RecoveryWitness` types
-  remain as opt-in documentation for plugins that want to declare
-  per-plugin recovery semantics.
+§10.2a faithfulness is **framework-maintained**, not plugin-declared.
+Every plugin's destructive directives (`Hide`, `HideInline`) are
+recoverable in σ = `[<a-r>]` (|σ| = 1) regardless of registration
+path. Plugins do not need to opt into any witness API to ship
+faithful behaviour.
+
+The framework provides two host-owned recovery surfaces:
+
+- `FoldToggleState` (`kasane-core/src/display/fold_state.rs`) — recovery
+  for `Fold` directives. `Fold` is classified as Preserving (not
+  Destructive) on this basis.
+- `UniversalRevealState`
+  (`kasane-core/src/display/universal_reveal_state.rs`) — recovery for
+  every other Destructive directive. Pre-algebra filter in
+  `collect_tagged_display_directives` drops `Hide` / `HideInline` leaves
+  when the user toggles reveal (default `<a-r>`, configurable). The
+  pre-algebra position is required so decorations (`StyleInline`, etc.)
+  that would otherwise be displaced by a destructive winner survive on
+  reveal. See `docs/roadmap/rfc-107a-universal-reveal-state.md` for the
+  design rationale.
+
+Structural classification of directives is still exposed for plugins
+that want compile-time guarantees:
+
+- `DisplayDirective::is_destructive()` — exhaustive match (no `_`
+  wildcard) classifying every variant. `Hide` and `HideInline` are
+  destructive; everything else preserves observed state. New variants
+  cause a compile error until explicitly classified.
+- `DisplayDirective::variant_name()`, `ALL_VARIANT_NAMES`,
+  `DESTRUCTIVE_VARIANTS`, `PRESERVING_VARIANTS`, `ADDITIVE_VARIANTS` —
+  constants used by structural witness tests
+  (`kasane-core/src/plugin/tests/directive_classification.rs`, 8 tests).
+- `SafeDisplayDirective` — newtype wrapping `DisplayDirective` that
+  exposes named constructors only for the non-destructive variants.
+  Plugins constructing only `SafeDisplayDirective` are statically
+  guaranteed not to emit Destructive content.
+
+Opt-in per-plugin recovery declaration (no runtime effect post-107a):
+
+- `RecoveryWitness` and `RecoveryMechanism` — registration-time
+  evidence that a plugin's destructive directives are user-recoverable
+  via plugin-specific affordances. Three registration methods on
+  `HandlerRegistry` consume the witness:
+  - `on_display` — raw registration; no per-plugin witness recorded.
+  - `on_display_safe` — guarantees the handler emits only
+    `SafeDisplayDirective`.
+  - `on_display_witnessed` — records a plugin-supplied `RecoveryWitness`
+    alongside the handler.
+- `DisplayRecoveryStatus` and `RecoveryFlags` on `HandlerTable` store
+  the witness for plugins that opt in. Currently unused by any
+  production path; reserved for future per-plugin discoverability UI
+  (no consumer; see `docs/roadmap/rfc-107a-universal-reveal-state.md`
+  §"Discoverability"). Plugins that want per-plugin recovery semantics
+  (e.g. for documentation tooling, future UI panels) may use these;
+  plugins that don't may register raw `on_display` without harm.
+
+Witnessed properties:
+
+- 11 visual_faithfulness tests
+  (`kasane-core-tests/tests/visual_faithfulness.rs`) pin the
+  framework-maintained recovery property for both `FoldToggleState`
+  and `UniversalRevealState` paths.
+- 8 unit tests across `fold_state.rs` and `universal_reveal_state.rs`
+  pin the toggle / set / clear semantics.
 
 **Level 5 — Effect Footprint (implemented).**
 
