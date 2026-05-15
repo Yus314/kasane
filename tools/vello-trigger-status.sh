@@ -5,16 +5,27 @@ set -euo pipefail
 # crates.io. Phase 1.2 (Trigger監視) automation: replace manual quarterly
 # crate polling with a script that reports gate state on demand.
 #
-# ADR-032 §Decision lists three external triggers for re-opening the
-# adoption decision:
+# ADR-032 records three external triggers for re-opening the adoption
+# decision (see §Implications "externalised triggers" bullet and the
+# §Spike Findings field 2 / §Decision Gates W5 Day-2 rows). For
+# operational purposes this script labels them (a)–(c):
 #
 #   (a) Vello ≥ 1.0 stable release
+#       — Source: §Context blocker 3, §Risks "API still pre-1.0", and
+#         §Implications externalised-triggers bullet.
 #   (b) Glifo published to crates.io ≥ 0.2
+#       — Source: §Implications externalised-triggers bullet and §Risks
+#         "Glifo not yet on crates.io". `scene_translate.rs` Finding 3
+#         identifies a candidate alternative path (vello_common::glyph)
+#         but the compatibility verdict is unverified; gate (b) stays
+#         hard until that verdict lands.
 #   (c) Spike `frame_warm_24_lines` ≤ 70 µs at 80×24
+#       — Source: §Spike Measurement Matrix first row.
 #
-# Implementation work (`kasane-vello-spike/src/scene_translate.rs`)
-# surfaced a fourth de-facto blocker that does not appear in
-# §Decision but blocks runtime W5 even with (a) and (b) clear:
+# Implementation work (`kasane-vello-spike/src/scene_translate.rs`
+# Finding 1) surfaced a fourth de-facto blocker that the ADR does not
+# yet record. Until ADR-032 is amended, this script tracks it as gate
+# (d) for operational continuity:
 #
 #   (d) wgpu version alignment between vello_hybrid and the kasane
 #       workspace. Until vello_hybrid bumps to wgpu 29 (or the
@@ -51,7 +62,7 @@ while [[ $# -gt 0 ]]; do
     --quiet) FORMAT="quiet"; shift ;;
     --human) FORMAT="human"; shift ;;
     -h|--help)
-      sed -n '5,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '5,51p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) echo "Unknown flag: $1" >&2; exit 1 ;;
@@ -74,14 +85,20 @@ extract_field() {
 # fields are empty.
 fetch_crate() {
   local crate="$1"
-  local resp
+  local resp_file
+  resp_file="$(mktemp)"
+  # Clean up the temp file on any exit path within this function — guards
+  # against `set -e` aborts after `curl` or `jq` failures, and against
+  # parallel invocations from cron / CI that would otherwise trample a
+  # shared `/tmp` path.
+  trap 'rm -f "$resp_file"' RETURN
   local http_status
-  http_status="$(curl -s -A "$USER_AGENT" -o /tmp/kasane-crates-resp -w '%{http_code}' \
+  http_status="$(curl -s -A "$USER_AGENT" -o "$resp_file" -w '%{http_code}' \
     "https://crates.io/api/v1/crates/$crate" 2>/dev/null || echo "000")"
   case "$http_status" in
     200)
-      resp="$(cat /tmp/kasane-crates-resp)"
-      local stable max updated
+      local resp stable max updated
+      resp="$(cat "$resp_file")"
       stable="$(printf '%s' "$resp" | jq -r '.crate.max_stable_version // ""' 2>/dev/null || echo "")"
       max="$(printf '%s' "$resp" | jq -r '.crate.max_version // ""' 2>/dev/null || echo "")"
       updated="$(printf '%s' "$resp" | jq -r '.crate.updated_at // ""' 2>/dev/null || echo "")"
@@ -94,7 +111,6 @@ fetch_crate() {
       printf '|||error\n'
       ;;
   esac
-  rm -f /tmp/kasane-crates-resp
 }
 
 # Compare a semver string ($1) against `major.minor` ($2). Echoes 1 iff

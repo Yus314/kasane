@@ -288,7 +288,20 @@ impl GpuBackend for VelloBackend {
             // and `GpuState::device` is `wgpu_29::Device`
             // (`scene_translate.rs` Finding 1). Until that resolves,
             // even a Day-1-only command list cannot be presented.
-            let mut scene = vello_hybrid::Scene::new(self.width as u16, self.height as u16);
+            // `vello_hybrid::Scene::new` takes u16. Saturate at u16::MAX
+            // rather than silently wrapping — HiDPI scaling on 8K+ monitors
+            // can theoretically exceed 65535 px even though typical
+            // monitor sizes do not. A debug assertion surfaces the case
+            // during tests; release builds clamp to keep the spike alive.
+            debug_assert!(
+                self.width <= u16::MAX as u32 && self.height <= u16::MAX as u32,
+                "VelloBackend surface > 65535 px on a side ({}×{}) — vello_hybrid::Scene cannot represent it",
+                self.width,
+                self.height,
+            );
+            let scene_w = u16::try_from(self.width).unwrap_or(u16::MAX);
+            let scene_h = u16::try_from(self.height).unwrap_or(u16::MAX);
+            let mut scene = vello_hybrid::Scene::new(scene_w, scene_h);
             for cmd in commands {
                 match cmd {
                     DrawCommand::FillRect {

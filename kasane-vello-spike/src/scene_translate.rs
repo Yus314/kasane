@@ -64,18 +64,23 @@
 //! entry. The font abstraction is `peniko::FontData` (peniko 0.6.0 is
 //! on crates.io today), not Glifo.
 //!
-//! This means a spike that uses `vello_hybrid` + `vello_common::glyph`
-//! avoids the Glifo crates.io dependency entirely — gate (b) is then
-//! moot. The substantive question shifts from "is Glifo available?"
-//! to "does `vello_common::glyph::GlyphCaches` meet Kasane's atlas
-//! invariants (font_id keying, subpixel quantisation, color-emoji
-//! priority)?" — which is a *different* halt-trigger than the one
-//! ADR-032 §Spike Findings field 2 currently records.
+//! A spike that uses `vello_hybrid` + `vello_common::glyph` may avoid
+//! the Glifo crates.io dependency entirely. Whether gate (b) is still
+//! required at adoption time depends on the eventual
+//! `vello_common::glyph::GlyphCaches` *compatibility verdict* (font_id
+//! keying, subpixel quantisation, color-emoji priority) against
+//! Kasane's atlas invariants — a verdict that the spike has not yet
+//! produced. Until that verdict lands, gate (b) remains a hard
+//! requirement: the alternative path is theoretically open but
+//! unverified.
 //!
-//! Resolution: ADR-032 §Decision gate (b) and §Spike Findings field 2
-//! should be reframed as "vello_common::glyph compatibility verdict",
-//! with Glifo treated as one of multiple satisfying dependencies
-//! rather than the single gating one.
+//! Resolution: keep gate (b) in `tools/vello-trigger-status.sh` as a
+//! hard requirement; record the compatibility verdict as an additional
+//! spike-required halt-trigger alongside the §Spike Measurement Matrix
+//! rows (subpixel positioning, color emoji DSSIM, variable font axis
+//! cost — all of which exercise `GlyphCaches` indirectly). A future
+//! revision of ADR-032 may downgrade gate (b) to "informational" once
+//! the verdict is positive.
 //!
 //! ### Finding 4 — DrawImage API shape divergence
 //!
@@ -117,7 +122,7 @@
 //! Day-2 cost-class rows (text fast path, raw + parley adapter):
 //!
 //! - `translate_glyph_run_raw`   → `Scene::set_paint` + `glyph_run` +
-//!                                 `font_size` + `fill_glyphs`
+//!   `font_size` + `fill_glyphs`
 //! - `translate_parley_glyph_run` → above, sourced from `parley::GlyphRun`
 //!
 //! Day-3+ rows (image via `Brush::Image`, blur, decorations,
@@ -125,8 +130,6 @@
 //! constraint analogous to Day-2's font-blob requirement and is
 //! gated on resolving Finding 1 (wgpu version) before runtime
 //! verification.
-
-#![cfg(feature = "with-vello")]
 
 use kasane_core::render::{DrawCommand, PixelRect};
 use kasane_gui::colors::ColorResolver;
@@ -175,12 +178,14 @@ fn linear_rgba_to_peniko(color: [f32; 4]) -> PenikoColor {
 
 /// Draw a single `FillRect` command into the scene.
 ///
-/// `elevated` is the WgpuBackend's "lift the bg colour by ~5%" hint
-/// used for hover / focus states. `peniko` has no native concept of
-/// elevation, so we apply the same lightening at the colour level.
-/// The lightening factor matches `kasane-gui/src/gpu/quad.wgsl`'s
-/// elevated path so DSSIM against the WgpuBackend golden stays under
-/// the byte-stable threshold.
+/// `elevated` is the WgpuBackend's "subtle bg lift" hint used for
+/// hover / focus / floating-window backgrounds. `peniko` has no
+/// native concept of elevation, so we apply the same lightening at
+/// the colour level. The lift factor matches the production path
+/// in `kasane-gui/src/gpu/scene_renderer/draw_commands.rs` (see the
+/// `elevated` branch in the FillRect arm: "~10/255 in sRGB ≈ VS Code's
+/// floating window offset"). Note that elevation lives in Rust, not
+/// in `quad.wgsl` — the shader receives the already-lifted colour.
 pub fn translate_fill_rect(
     scene: &mut Scene,
     rect: &PixelRect,
@@ -190,11 +195,9 @@ pub fn translate_fill_rect(
 ) {
     let (_, mut bg_linear, _) = color_resolver.resolve_style_colors_linear(face);
     if elevated {
-        // Keep parity with `quad.wgsl`'s elevated path; concrete
-        // factor pinned by W2 golden DSSIM, not by aesthetic choice.
-        const ELEVATED_LIFT: f32 = 0.05;
+        const ELEVATED_LIFT: f32 = 0.003;
         for c in bg_linear.iter_mut().take(3) {
-            *c = (*c + ELEVATED_LIFT).clamp(0.0, 1.0);
+            *c = (*c + ELEVATED_LIFT).min(1.0);
         }
     }
     let paint = linear_rgba_to_peniko(bg_linear);
@@ -308,6 +311,12 @@ pub fn translate_parley_glyph_run<B: parley::Brush>(
     paint: PenikoColor,
 ) {
     let run = glyph_run.run();
+    debug_assert!(
+        run.normalized_coords().is_empty(),
+        "variable-font axes are not yet wired through translate_parley_glyph_run; \
+         the `normalized_coords` boundary cast needs a fixture before the silent \
+         default-axis path becomes load-bearing",
+    );
     let glyphs = glyph_run
         .positioned_glyphs()
         .map(|g| vello_common::glyph::Glyph {
@@ -320,16 +329,21 @@ pub fn translate_parley_glyph_run<B: parley::Brush>(
 
 /// Day-1 dispatch: route a single `DrawCommand` to the appropriate
 /// arm if it falls within the rect-coarse + clip cost classes.
-/// Returns `Ok(true)` if the command was handled, `Ok(false)` if the
-/// variant is out of Day-1 scope (caller should leave the spike's
-/// Unsupported error in place), or `Err` if the translation itself
-/// failed (currently unreachable; reserved for future arms that may
-/// validate inputs).
-pub fn try_translate_day1(
+/// Returns `true` if the command was handled, `false` if the variant
+/// is out of Day-1 scope (caller should leave the spike's Unsupported
+/// error in place).
+///
+/// `render_with_cursor` does not currently route through this
+/// dispatcher — it inlines the per-variant match so the
+/// `BackendError::Unsupported` strings stay per-arm. The function
+/// exists for test ergonomics; gated `#[cfg(test)]` to keep the
+/// release build free of dead code.
+#[cfg(test)]
+fn try_translate_day1(
     scene: &mut Scene,
     cmd: &DrawCommand,
     color_resolver: &ColorResolver,
-) -> Result<bool, &'static str> {
+) -> bool {
     match cmd {
         DrawCommand::FillRect {
             rect,
@@ -337,26 +351,26 @@ pub fn try_translate_day1(
             elevated,
         } => {
             translate_fill_rect(scene, rect, face, *elevated, color_resolver);
-            Ok(true)
+            true
         }
         DrawCommand::PushClip(rect) => {
             translate_push_clip(scene, rect);
-            Ok(true)
+            true
         }
         DrawCommand::PopClip => {
             translate_pop_clip(scene);
-            Ok(true)
+            true
         }
         DrawCommand::BeginOverlay => {
             translate_begin_overlay(scene);
-            Ok(true)
+            true
         }
         // All other variants are out of Day-1 scope. The match is
         // intentionally non-exhaustive on the false branch — the
         // exhaustive variant walk lives in `lib.rs::render_with_cursor`
         // where the per-variant `BackendError::Unsupported` messages
         // are the authoritative deferred-work record.
-        _ => Ok(false),
+        _ => false,
     }
 }
 
@@ -385,8 +399,10 @@ mod tests {
             face: Style::default(),
             elevated: false,
         };
-        let handled = try_translate_day1(&mut scene, &cmd, &resolver).expect("translate");
-        assert!(handled, "FillRect should be Day-1 handled");
+        assert!(
+            try_translate_day1(&mut scene, &cmd, &resolver),
+            "FillRect should be Day-1 handled"
+        );
     }
 
     #[test]
@@ -399,9 +415,8 @@ mod tests {
             face: Style::default(),
             max_width: 80.0,
         };
-        let handled = try_translate_day1(&mut scene, &cmd, &resolver).expect("translate");
         assert!(
-            !handled,
+            !try_translate_day1(&mut scene, &cmd, &resolver),
             "DrawText is Day-2 (text fast path), out of Day-1 scope"
         );
     }
@@ -417,8 +432,8 @@ mod tests {
             h: 4.0,
         });
         let pop = DrawCommand::PopClip;
-        assert!(try_translate_day1(&mut scene, &push, &resolver).expect("push"));
-        assert!(try_translate_day1(&mut scene, &pop, &resolver).expect("pop"));
+        assert!(try_translate_day1(&mut scene, &push, &resolver));
+        assert!(try_translate_day1(&mut scene, &pop, &resolver));
     }
 
     /// Day-2 raw primitive runtime smoke. Disabled by default: real
@@ -470,11 +485,14 @@ mod tests {
     fn linear_to_srgb_matches_known_pair() {
         // Linear 0.5 → sRGB ≈ 188 (vs the naive *255 = 128). This is
         // the gamma round-trip that DSSIM relies on; if it drifts the
-        // golden harness flags it via the rect-coarse fixture.
+        // golden harness flags it via the rect-coarse fixture. Asserted
+        // here so the regression surfaces at `cargo test` rather than at
+        // first golden run (which only happens after Finding 1 resolves).
         let color = linear_rgba_to_peniko([0.5, 0.0, 0.0, 1.0]);
-        // peniko::Color exposes its components — exact API varies by
-        // version; we round-trip via a paint set instead of poking the
-        // private state. Smoke check: ensure the call doesn't panic.
-        let _ = color;
+        let rgba = color.to_rgba8();
+        assert_eq!(rgba.r, 188, "linear 0.5 should round-trip to sRGB 188");
+        assert_eq!(rgba.g, 0);
+        assert_eq!(rgba.b, 0);
+        assert_eq!(rgba.a, 255);
     }
 }

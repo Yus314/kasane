@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Requires bash 4+ for `declare -A`. macOS ships bash 3.2 by default —
+# install bash via Homebrew (`brew install bash`) and invoke explicitly.
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "ERROR: bash 4+ required (uses associative arrays); detected ${BASH_VERSION}" >&2
+  exit 1
+fi
+
 # gpu-bugfix-rate.sh — Classify commits touching the GPU layer and report
 # bug-fix percentage per quarter. Feeds ADR-032 §Context's "16 of 25
 # GPU-layer commits were bug fixes" claim into a continuous measurement
@@ -66,7 +73,9 @@ quarter_of() {
 classify() {
   local subject="$1"
   local prefix
-  prefix="$(printf '%s' "$subject" | sed -E 's/^([a-zA-Z]+)(\([^)]*\))?:.*/\1/' | tr '[:upper:]' '[:lower:]')"
+  # Match `type[(scope)][!]:` — Conventional Commits' breaking-change `!`
+  # marker is optional between the scope and the colon.
+  prefix="$(printf '%s' "$subject" | sed -E 's/^([a-zA-Z]+)(\([^)]*\))?!?:.*/\1/' | tr '[:upper:]' '[:lower:]')"
   case "$prefix" in
     fix|bug) echo "fix" ;;
     feat|feature) echo "feat" ;;

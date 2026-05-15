@@ -100,6 +100,7 @@ The **LOC rows** make the §Context "11.5 K LOC + 8 WGSL" framing falsifiable. R
 | W5 Day 2 | Frame ≤ 100 µs **and** Glifo accepts Kasane `font_id` keys | If 100 < frame ≤ 200 µs, reserve Day 4 for a `vello` (compute) retry against the same matrix before final halt — the hybrid-path failure does not entail compute-path failure (see §Non-Spike Decision Factors / Hybrid vs compute strategic position). Otherwise **halt spike**, write findings, re-evaluate in 6 months |
 | W5 Day 4 | ≤ 2 matrix rows in red | Write `§Spike Findings — Stop`; exit timebox |
 | W5 Day 5 | (regardless) | Finalise `§Spike Findings` — Accepted with adoption plan / Accepted as deferred / Rejected. **No production code change.** |
+| W5 pre-runtime | **wgpu version alignment** between `vello_hybrid` and the kasane workspace. `vello_hybrid` 0.0.7 pins `wgpu = "28"`; the workspace pins `wgpu = "29"`. `kasane_gui::gpu::GpuState::device` (wgpu_29) cannot be passed to `vello_hybrid::Renderer::new(device: &wgpu_28::Device, ...)`. | Discovered during `kasane-vello-spike` Day-1 work (see `kasane-vello-spike/src/scene_translate.rs` Finding 1). Tracked by `tools/vello-trigger-status.sh` as gate (d). Wait for `vello_hybrid` to bump to wgpu 29 (natural path), or — if waiting is unacceptable — stand up an independent wgpu_28 device for the spike at the cost of losing GpuState cache parity for `frame_warm_*` measurements. |
 
 ### Non-Spike Decision Factors
 
