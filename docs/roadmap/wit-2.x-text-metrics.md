@@ -11,6 +11,7 @@ prevent.
 
 | Item | Source | Notes |
 |---|---|---|
+| `get-display-cells-str(s: string) -> u32` | #108 follow-up | Cluster-aware cell-grid width matching host `line_display_width_str`. Independent of the Parley-accurate ADR — ships any time as a minor bump. Drives the divergence noted in [§Why deferred](#why-deferred). |
 | `get-cluster-advance-em(text, byte-index) -> f32` | [#105](https://github.com/Yus314/kasane/issues/105) (closed) | Parley `Cluster::visual_offset`-derived, per-cluster, RTL/ligature-aware |
 | `get-string-advance-em(text) -> f32` | #105 (closed) | Sum-with-kerning over a string |
 | `letter-spacing` per-cluster writeback | ADR-031 §"WIT 2.0 Wire Shape" candidate list | Currently per-style only (`style.letter-spacing: f32`) |
@@ -33,11 +34,16 @@ with the host's column model. Plugins would compute a "true" px position
 that doesn't match where the host actually lays the next atom — silent
 misalignment.
 
-The cell-grid alternatives already cover the cases that motivated #105:
+The cell-grid alternatives partially cover the cases that motivated #105:
 
-- **GFM table border alignment**: solved by [#108](https://github.com/Yus314/kasane/issues/108)
-  `get-display-cells` — host and plugin agree by sharing the same
-  `unicode-width` function.
+- **GFM table border alignment**: partially solved by [#108](https://github.com/Yus314/kasane/issues/108)
+  `get-display-cells` for ASCII / pure-CJK / BMP content. The primitive
+  is per-codepoint (`Char::width`); the host's `line_display_width_str`
+  uses `Str::width`. These agree on non-cluster strings but diverge on
+  emoji ZWJ sequences (`👨‍👩‍👧`: 2 vs 6) and skin-tone modifiers
+  (`👍🏽`: 2 vs 4) under `unicode-width` 0.2. Cluster-aware totals over
+  arbitrary user content need `get-display-cells-str` (below) —
+  promoted from "deferred for performance" to "candidate for correctness".
 - **UTR #59 ¼em CJK-Latin spacing**: solved by
   [#109](https://github.com/Yus314/kasane/issues/109)
   `get-default-font-size-px` plus the existing `style.letter-spacing:

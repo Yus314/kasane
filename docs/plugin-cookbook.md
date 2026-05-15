@@ -497,8 +497,7 @@ kasane_plugin_sdk::define_plugin! {
 Compute visual cell widths for column alignment, table border placement, or
 any layout that must match the host's cell-grid pipeline. Use
 `host_state::get_display_cells` — it delegates to `unicode-width`, the same
-crate the host's `line_display_width_str` ground truth uses, so plugin and
-host coordinate math agree by contract.
+crate that backs the host's `line_display_width_str`.
 
 ```rust
 kasane_plugin_sdk::define_plugin! {
@@ -520,12 +519,40 @@ kasane_plugin_sdk::define_plugin! {
 
 Combining marks (`'\u{0301}'`), control characters (`'\t'`, `'\n'`), and
 other zero-width codepoints return `0`. Latin and most BMP characters
-return `1`; CJK fullwidth, fullwidth punctuation, and most emoji return
-`2`. The per-char sum matches `unicode_width::UnicodeWidthStr::width(s)`
-when called over the same string — see
-`kasane-wasm/src/host.rs` test
-`display_cells_matches_unicode_width_str_when_summed_per_char` for the
-contract test.
+return `1`; CJK fullwidth and fullwidth punctuation return `2`.
+
+### Cluster-aware totals — not provided by per-char summation
+
+`unicode-width` 0.2 treats some grapheme clusters as a single 2-cell unit
+in `UnicodeWidthStr::width`, while per-codepoint `UnicodeWidthChar::width`
+sees each component separately. Per-char summation **diverges** from the
+host's column model on these strings:
+
+| String | `Str::width` (host) | per-char sum (`get_display_cells`) |
+|---|---|---|
+| `"👨‍👩‍👧"` (ZWJ family) | 2 | 6 |
+| `"👍🏽"` (skin-tone modifier) | 2 | 4 |
+| `"🇯🇵"` (regional flag) | 2 | 2 |
+| `"日本語"` | 6 | 6 |
+
+If your plugin scans arbitrary user content (Markdown buffers, file
+contents, table cells the user types into), `get_display_cells.sum()`
+will mis-align on any line containing ZWJ emoji or skin-tone modifiers.
+The recipe above is safe for ASCII / pure CJK / BMP-only labels emitted
+by the plugin itself; it is **not** safe for arbitrary text.
+
+A cluster-aware string primitive (`get-display-cells-str`) is tracked at
+[docs/roadmap/wit-2.x-text-metrics.md](roadmap/wit-2.x-text-metrics.md).
+Until it ships, plugins that must handle emoji clusters should bundle
+`unicode-width` and call `UnicodeWidthStr::width(s)` directly.
+
+### Frame budget
+
+A per-codepoint host call crosses the WASM Component Model boundary at
+roughly 440 ns. Scanning the full visible viewport (80×24 ≈ 1920
+codepoints) every frame costs ~0.85 ms — well over the ~57 μs/frame CPU
+envelope. Call this primitive on dirty lines only, or cache per-line
+widths in plugin-side state keyed by buffer version.
 
 For variable-pitch alignment (proportional fonts on the GUI backend),
 this primitive is not sufficient — see the WIT 2.x text-metrics bundle

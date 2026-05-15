@@ -1441,7 +1441,11 @@ mod tests {
     }
 
     #[test]
-    fn display_cells_matches_unicode_width_str_when_summed_per_char() {
+    fn display_cells_per_char_sum_matches_str_width_on_non_cluster_strings() {
+        // For strings without grapheme clusters (no ZWJ, no skin-tone modifiers,
+        // no flag regionals), `Char::width` summed per-codepoint equals
+        // `Str::width`. The host uses `Str::width` in `line_display_width_str`,
+        // so this is the regime where plugin and host column math agree.
         let mut host = HostState::default();
         let cases = ["hello", "こんにちは", "日本語abc", ""];
         for s in cases {
@@ -1450,6 +1454,40 @@ mod tests {
             assert_eq!(
                 summed, canonical,
                 "per-char sum must equal UnicodeWidthStr::width for {s:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn display_cells_per_char_sum_diverges_from_str_width_on_emoji_clusters() {
+        // unicode-width 0.2 collapses ZWJ sequences and skin-tone-modified
+        // emoji to a single 2-cell unit in `Str::width`, while per-codepoint
+        // `Char::width` continues to bill each component. The host's
+        // `line_display_width_str` uses `Str::width`, so `get_display_cells`
+        // summed per-codepoint over arbitrary user content does NOT reproduce
+        // host column math. Tracks the gap until `get-display-cells-str` ships
+        // (see docs/roadmap/wit-2.x-text-metrics.md).
+        let mut host = HostState::default();
+        let cases: &[(&str, usize, usize)] = &[
+            ("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", 2, 6), // ZWJ family
+            ("\u{1F44D}\u{1F3FD}", 2, 4),                          // thumbs + skin tone
+        ];
+        for (s, expected_str_width, expected_per_char_sum) in cases {
+            let summed: usize = s.chars().map(|c| host.get_display_cells(c) as usize).sum();
+            let canonical = unicode_width::UnicodeWidthStr::width(*s);
+            assert_eq!(
+                canonical, *expected_str_width,
+                "Str::width baseline shifted for {s:?}",
+            );
+            assert_eq!(
+                summed, *expected_per_char_sum,
+                "per-char sum baseline shifted for {s:?}",
+            );
+            assert_ne!(
+                summed, canonical,
+                "expected divergence for {s:?}; if this now agrees, \
+                 unicode-width semantics changed and the cluster-equality \
+                 doc claim may need revisiting",
             );
         }
     }
