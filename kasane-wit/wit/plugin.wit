@@ -194,6 +194,13 @@ interface types {
         font-slant: font-slant,
         font-features: font-feature-flags,
         font-variations: list<font-variation>,
+        /// Extra inter-glyph spacing in **physical pixels (post-DPI
+        /// scale)** — the same unit `host-state.get-default-font-size-px`
+        /// returns. Plugins computing a ¼em CJK-Latin gap on GUI set
+        /// `letter-spacing = 0.25 * get-default-font-size-px()`. `0.0`
+        /// means "no extra spacing" (font-default). Negative values
+        /// tighten the run. Ignored on TUI (cell grid is integer-cell);
+        /// gate sub-cell emission on `backend-supports-sub-cell-spacing`.
         letter-spacing: f32,
         underline: option<text-decoration>,
         strikethrough: option<text-decoration>,
