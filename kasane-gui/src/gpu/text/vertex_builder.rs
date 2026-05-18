@@ -12,9 +12,9 @@
 //! +0   pos             [i32; 2]   top-left in physical pixels
 //! +8   dim             [u16; 2]   width, height in pixels
 //! +12  uv              [u16; 2]   atlas top-left in atlas pixels
-//! +16  color           u32        packed linear RGBA8 (LE: R, G, B, A)
+//! +16  color           u32        packed linear RGBA8, wire layout 0xAARRGGBB
 //! +20  content_type    u16        0 = Color (RGBA atlas), 1 = Mask (R8)
-//! +22  srgb            u16        0 = ConvertToLinear, 1 = None (web)
+//! +22  srgb            u16        shader branch select (see [`SRGB_FLAG`])
 //! +24  depth           f32        z layer for clip stencil
 //! +28  (sizeof = 28)
 //! ```
@@ -25,10 +25,11 @@
 //! reverse order (Mask declared first), so the converter explicitly maps
 //! the values.
 //!
-//! The `srgb` flag is the per-vertex sRGB-conversion toggle the
-//! shader honours (1 = no conversion). The Parley path passes
-//! already-linear colours; if a future framebuffer change
-//! reintroduces sRGB conversion, [`SRGB_FLAG`] is the single knob.
+//! The `srgb` flag picks one of two shader branches in `shader.wgsl`:
+//! `case 0u` is the pass-through path used for already-linear brushes,
+//! `case 1u` applies `srgb_to_linear` for sRGB-encoded brushes. Kasane
+//! always sends linear brushes, so [`SRGB_FLAG`] selects the
+//! pass-through branch.
 
 use bytemuck::{Pod, Zeroable};
 
@@ -55,9 +56,21 @@ pub const CONTENT_TYPE_COLOR: u16 = 0;
 /// Discriminant the shader expects for mask glyphs (R8 atlas, tinted).
 pub const CONTENT_TYPE_MASK: u16 = 1;
 
-/// `srgb` flag value for the production render path (matches
-/// `ColorMode::Web` — pass-through, no extra sRGB conversion).
-pub const SRGB_FLAG: u16 = 1;
+/// `srgb` flag value for the production render path. The brush
+/// reaches the shader already in **linear** space (CPU-side
+/// [`ColorResolver::resolve_style_colors_linear`] does the
+/// sRGB → linear step before we pack to u8). Selecting the
+/// pass-through branch (`case 0u`) in `shader.wgsl` lets the
+/// `*UnormSrgb` framebuffer perform the inverse `linear → sRGB`
+/// conversion at write time — symmetric with the quad / FillRect
+/// path (`quad.wgsl`) which also receives linear input.
+///
+/// **Do not set this to 1**: that path applies `srgb_to_linear`
+/// a second time, double-darkening every non-extreme brush
+/// (Issue #112). Pure white (1.0) survives because it is the
+/// fixed point of `srgb_to_linear`, but every other intensity
+/// gets damped proportionally.
+pub const SRGB_FLAG: u16 = 0;
 
 impl ParleyGlyphVertex {
     /// Construct a vertex from a fully-resolved [`DrawableGlyph`].
@@ -205,13 +218,204 @@ mod tests {
     }
 
     #[test]
-    fn srgb_flag_matches_color_mode_web() {
+    fn srgb_flag_selects_pass_through_branch() {
         let g = drawable(0.0, 0.0, ContentKind::Mask, Brush::default());
         let v = ParleyGlyphVertex::from_drawable(&g);
-        // 1 = ColorMode::Web in the shader: no sRGB conversion (we
-        // already pass linear colours).
+        // 0 = pass-through (case 0u) in shader.wgsl: the brush is already
+        // in linear space when it reaches the shader (`emit_text` calls
+        // `resolve_style_colors_linear`), so the shader must not apply
+        // `srgb_to_linear` again — that was Issue #112.
         assert_eq!(v.srgb, SRGB_FLAG);
-        assert_eq!(SRGB_FLAG, 1);
+        assert_eq!(SRGB_FLAG, 0);
+    }
+
+    /// Issue #112 end-to-end pipeline simulation (no GPU). Mirrors the
+    /// math in `emit_text` → `pack_color` → `shader.wgsl` case branch
+    /// → `*UnormSrgb` framebuffer auto-conversion. Verifies that a
+    /// plugin-emitted `Brush::Rgb(r,g,b)` round-trips to display value
+    /// `(r,g,b)` at full mask coverage with the post-fix `SRGB_FLAG=0`.
+    #[test]
+    fn issue_112_end_to_end_pipeline_simulation() {
+        use kasane_core::config::ColorsConfig;
+        use kasane_core::protocol::Brush as KBrush;
+        use kasane_core::protocol::Style;
+
+        // Mirror shader.wgsl `srgb_to_linear`.
+        fn srgb_to_linear(c: f32) -> f32 {
+            if c <= 0.040_45 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        }
+        // Mirror the `*UnormSrgb` framebuffer's linear→sRGB at write.
+        fn linear_to_srgb(c: f32) -> f32 {
+            if c <= 0.003_130_8 {
+                c * 12.92
+            } else {
+                1.055 * c.powf(1.0 / 2.4) - 0.055
+            }
+        }
+
+        let resolver = crate::colors::ColorResolver::from_config(&ColorsConfig::default());
+
+        let cases: &[(&str, [u8; 3])] = &[
+            ("white", [0xff, 0xff, 0xff]),
+            ("near-white", [0xee, 0xee, 0xee]),
+            ("parchment", [0xff, 0xff, 0xe6]),
+            ("pink", [0xff, 0xa0, 0xa0]),
+            ("cream", [0xff, 0xea, 0xa0]),
+            ("cyan", [0x00, 0xff, 0xff]),
+            ("mid-gray", [0x80, 0x80, 0x80]),
+            ("near-black", [0x10, 0x10, 0x10]),
+        ];
+        for (name, [r, g, b]) in cases {
+            let style = Style {
+                fg: KBrush::Solid([*r, *g, *b, 0xff]),
+                ..Style::default()
+            };
+            // (1) emit_text pack: linear u8.
+            let (visual_fg, _, _) = resolver.resolve_style_colors_linear(&style);
+            let packed = [
+                (visual_fg[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (visual_fg[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (visual_fg[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+            ];
+            // (2) Shader vertex branch — SRGB_FLAG=0 means pass-through.
+            let shader_fg = if SRGB_FLAG == 0 {
+                [
+                    packed[0] as f32 / 255.0,
+                    packed[1] as f32 / 255.0,
+                    packed[2] as f32 / 255.0,
+                ]
+            } else {
+                [
+                    srgb_to_linear(packed[0] as f32 / 255.0),
+                    srgb_to_linear(packed[1] as f32 / 255.0),
+                    srgb_to_linear(packed[2] as f32 / 255.0),
+                ]
+            };
+            // (3) Full mask coverage → fragment outputs shader_fg directly.
+            // (4) UnormSrgb framebuffer auto-converts linear→sRGB at write.
+            let displayed = [
+                (linear_to_srgb(shader_fg[0]).clamp(0.0, 1.0) * 255.0).round() as u8,
+                (linear_to_srgb(shader_fg[1]).clamp(0.0, 1.0) * 255.0).round() as u8,
+                (linear_to_srgb(shader_fg[2]).clamp(0.0, 1.0) * 255.0).round() as u8,
+            ];
+            eprintln!(
+                "#112 {name}: input ({r:#04x},{g:#04x},{b:#04x}) → packed-linear ({:#04x},{:#04x},{:#04x}) → shader-fg ({:.3},{:.3},{:.3}) → display ({:#04x},{:#04x},{:#04x})",
+                packed[0],
+                packed[1],
+                packed[2],
+                shader_fg[0],
+                shader_fg[1],
+                shader_fg[2],
+                displayed[0],
+                displayed[1],
+                displayed[2],
+            );
+            // Quantising linear values to u8 loses precision in the
+            // bottom of the dynamic range (one linear LSB spans many
+            // sRGB LSBs near zero). Allow proportionally more drift for
+            // low-luminance channels; tight tolerance for mid / high.
+            let tol = |expected: u8| -> u8 { if expected < 0x20 { 4 } else { 1 } };
+            assert!(
+                displayed[0].abs_diff(*r) <= tol(*r),
+                "{name} R drift: expected 0x{r:02x}, got 0x{:02x}",
+                displayed[0]
+            );
+            assert!(
+                displayed[1].abs_diff(*g) <= tol(*g),
+                "{name} G drift: expected 0x{g:02x}, got 0x{:02x}",
+                displayed[1]
+            );
+            assert!(
+                displayed[2].abs_diff(*b) <= tol(*b),
+                "{name} B drift: expected 0x{b:02x}, got 0x{:02x}",
+                displayed[2]
+            );
+        }
+    }
+
+    /// Issue #112 forensic: reproduces the **pre-fix** (`SRGB_FLAG=1`)
+    /// behaviour to characterise the historical bug. Pure white is the
+    /// fixed point of `srgb_to_linear`, so pre-fix it ought to still
+    /// reach the framebuffer as `0xff`; if user-visible "invisible" was
+    /// observed on pure white, it cannot have come from this gamma
+    /// double-conversion alone — another factor is at play (font weight,
+    /// AA mask, theme palette substitution).
+    #[test]
+    fn issue_112_prefix_double_conversion_simulation() {
+        use kasane_core::config::ColorsConfig;
+        use kasane_core::protocol::Brush as KBrush;
+        use kasane_core::protocol::Style;
+
+        fn srgb_to_linear(c: f32) -> f32 {
+            if c <= 0.040_45 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        }
+        fn linear_to_srgb(c: f32) -> f32 {
+            if c <= 0.003_130_8 {
+                c * 12.92
+            } else {
+                1.055 * c.powf(1.0 / 2.4) - 0.055
+            }
+        }
+
+        let resolver = crate::colors::ColorResolver::from_config(&ColorsConfig::default());
+
+        let cases: &[(&str, [u8; 3])] = &[
+            ("white", [0xff, 0xff, 0xff]),
+            ("near-white", [0xee, 0xee, 0xee]),
+        ];
+        for (name, [r, g, b]) in cases {
+            let style = Style {
+                fg: KBrush::Solid([*r, *g, *b, 0xff]),
+                ..Style::default()
+            };
+            let (visual_fg, _, _) = resolver.resolve_style_colors_linear(&style);
+            let packed = [
+                (visual_fg[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (visual_fg[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (visual_fg[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+            ];
+            // **Force the pre-fix branch**: shader applies srgb_to_linear
+            // *again* on top of the already-linear packed value.
+            let shader_fg = [
+                srgb_to_linear(packed[0] as f32 / 255.0),
+                srgb_to_linear(packed[1] as f32 / 255.0),
+                srgb_to_linear(packed[2] as f32 / 255.0),
+            ];
+            let displayed = [
+                (linear_to_srgb(shader_fg[0]).clamp(0.0, 1.0) * 255.0).round() as u8,
+                (linear_to_srgb(shader_fg[1]).clamp(0.0, 1.0) * 255.0).round() as u8,
+                (linear_to_srgb(shader_fg[2]).clamp(0.0, 1.0) * 255.0).round() as u8,
+            ];
+            eprintln!(
+                "#112 PRE-FIX {name}: input (#{r:02x},#{g:02x},#{b:02x}) → displayed (#{:02x},#{:02x},#{:02x})",
+                displayed[0], displayed[1], displayed[2]
+            );
+        }
+        // Pure white must remain a fixed point even pre-fix. This
+        // formally rules out the gamma double-conversion as the cause
+        // of "pure white invisible" symptoms; only mid-tones are damped.
+        {
+            let style = Style {
+                fg: KBrush::Solid([0xff, 0xff, 0xff, 0xff]),
+                ..Style::default()
+            };
+            let (visual_fg, _, _) = resolver.resolve_style_colors_linear(&style);
+            let packed = (visual_fg[0].clamp(0.0, 1.0) * 255.0).round() as u8;
+            let shader_fg = srgb_to_linear(packed as f32 / 255.0);
+            let displayed = (linear_to_srgb(shader_fg).clamp(0.0, 1.0) * 255.0).round() as u8;
+            assert_eq!(
+                displayed, 0xff,
+                "pure white should be a fixed point even pre-fix"
+            );
+        }
     }
 
     #[test]

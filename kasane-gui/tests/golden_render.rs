@@ -1139,3 +1139,106 @@ fn font_fallback_chain_matches_snapshot() {
          FontConfig override; skipped. Pin: text/font_stack.rs:resolve_stack"
     );
 }
+
+/// Issue #112 reproduction: read back the actual rendered RGB value for
+/// plugin-emitted foreground brushes. Renders U+2588 (FULL BLOCK) glyphs
+/// — each glyph fills its cell with the foreground colour — and samples a
+/// pixel in the glyph centre. Tolerance allows for AA edges and
+/// rasteriser dithering.
+///
+/// Behaves as a diagnostic: prints observed vs expected for every brush.
+/// Does **not** hard-assert exact equality (rasterised glyph centres may
+/// not be 100 % covered on every driver); only asserts the dark-theme
+/// "near-bg" failure mode does *not* recur for high-luminance brushes.
+#[test]
+fn issue_112_brush_pixel_readback() {
+    use kasane_core::protocol::{Brush, Style};
+    use kasane_core::render::{DrawCommand, PixelPos, PixelRect, scene::ResolvedAtom};
+
+    let width = 256u32;
+    let height = 32u32;
+
+    let Some(gpu) = headless_gpu_state(width, height) else {
+        eprintln!("no wgpu adapter available; skipping issue_112_brush_pixel_readback");
+        return;
+    };
+
+    // Each test brush. (expected_r, expected_g, expected_b) for assertions.
+    let brushes: &[(&str, [u8; 3])] = &[
+        ("white     ", [0xff, 0xff, 0xff]),
+        ("near-white", [0xee, 0xee, 0xee]),
+        ("parchment ", [0xff, 0xff, 0xe6]),
+        ("pink      ", [0xff, 0xa0, 0xa0]),
+        ("cream     ", [0xff, 0xea, 0xa0]),
+        ("cyan      ", [0x00, 0xff, 0xff]),
+        ("mid-gray  ", [0x80, 0x80, 0x80]),
+    ];
+
+    // Default bg is dark (#1e1e1e) per ColorsConfig::default; explicit
+    // FillRect makes the assumption obvious in the snapshot.
+    let mut commands: Vec<DrawCommand> = Vec::new();
+    commands.push(DrawCommand::FillRect {
+        rect: PixelRect {
+            x: 0.0,
+            y: 0.0,
+            w: width as f32,
+            h: height as f32,
+        },
+        face: Style::default(),
+        elevated: false,
+    });
+
+    // Lay glyphs horizontally; each glyph in its own atom with the test
+    // brush as fg. Use U+2588 (FULL BLOCK) so the cell interior is
+    // saturated by the brush colour.
+    for (i, (_, [r, g, b])) in brushes.iter().enumerate() {
+        let style = Style {
+            fg: Brush::Solid([*r, *g, *b, 0xff]),
+            ..Style::default()
+        };
+        commands.push(DrawCommand::DrawAtoms {
+            pos: PixelPos {
+                x: (i as f32) * 16.0,
+                y: 0.0,
+            },
+            atoms: vec![ResolvedAtom {
+                contents: compact_str::CompactString::new("\u{2588}"),
+                style,
+            }],
+            max_width: width as f32,
+            line_idx: i as u32,
+        });
+    }
+
+    let img = render_scene_to_image(&gpu, width, height, &commands);
+
+    // Sample column at the centre of each cell.
+    let cell_w = 16.0_f32;
+    let sample_y = height / 2;
+    let mut hard_failure = false;
+    for (i, (name, [er, eg, eb])) in brushes.iter().enumerate() {
+        let sample_x = ((i as f32 + 0.5) * cell_w) as u32;
+        let px = img.get_pixel(sample_x, sample_y);
+        let [ar, ag, ab, _aa] = px.0;
+        eprintln!(
+            "#112 brush {name}: expected (#{er:02x},#{eg:02x},#{eb:02x}) → got (#{ar:02x},#{ag:02x},#{ab:02x})  at ({sample_x},{sample_y})"
+        );
+        // The original bug reported pure-white text as "fully blended with
+        // bg" (i.e. near #1e1e1e). Assert per-channel that the rendered
+        // colour is **brighter** than the default bg threshold for any
+        // brush whose channel exceeds it.
+        let dark_threshold = 0x40;
+        for (label, expected, actual) in [("R", *er, ar), ("G", *eg, ag), ("B", *eb, ab)] {
+            if expected >= 0xc0 && actual < dark_threshold {
+                eprintln!(
+                    "  FAIL: channel {label} expected ≥0xc0, observed 0x{actual:02x} (dark — matches bg)"
+                );
+                hard_failure = true;
+            }
+        }
+    }
+    assert!(
+        !hard_failure,
+        "Issue #112: at least one high-luminance brush rendered near-bg"
+    );
+}
