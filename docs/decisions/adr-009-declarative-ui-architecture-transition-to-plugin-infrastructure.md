@@ -7,7 +7,7 @@ Transform kasane from a mere Kakoune frontend into a UI infrastructure for plugi
 
 **Decision:** Adopt the following 7 design decisions as a package.
 
-See [plugin-development.md](./plugin-development.md) for detailed design.
+See [plugin-development.md](../plugin-development.md) for detailed design.
 
 ### 9-1: Protocol Coupling — Kakoune-specific
 
@@ -97,7 +97,7 @@ See [plugin-development.md](./plugin-development.md) for detailed design.
 - No explicit focus concept; all plugins' `handle_key()` are queried in priority order
 - Each plugin refers to `AppState` to self-determine whether it should handle the event (e.g., a Menu Replacement plugin processes when `state.menu.is_some()`)
 - Aligns with TEA principles (state is the source of truth), avoiding the complexity of implicit focus state transitions
-- See the event propagation section in [plugin-development.md](./plugin-development.md) for details
+- See the event propagation section in [plugin-development.md](../plugin-development.md) for details
 
 ### 9-6: Layout Model — Flex + Overlay + Grid
 

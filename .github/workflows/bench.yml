@@ -98,7 +98,7 @@ jobs:
           }
 
       - name: Check latency budgets
-        run: nix develop --command cargo test -p kasane-core --test latency_budget -- --ignored
+        run: nix develop --command cargo test -p kasane-core-tests --test latency_budget -- --ignored
 
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1

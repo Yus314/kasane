@@ -139,4 +139,4 @@ Reflecting the decisions of 19-1 and 19-2, the Phase P sub-phases are restructur
 - Moved P-c earlier as P-1 (can be implemented independently of process execution)
 - Added P-3 (proof-of-concept phase)
 
-**Implementation status:** All sub-phases (P-1, P-2, P-3) are done. For implementation status, see [roadmap.md](./roadmap.md).
+**Implementation status:** All sub-phases (P-1, P-2, P-3) are done. For implementation status, see [roadmap.md](../roadmap.md).

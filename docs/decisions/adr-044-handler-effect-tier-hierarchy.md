@@ -31,7 +31,7 @@ this ADR → Phase 2/3).
 | A-3e  | `HandlerRegistry::on_command_error` and `HandlerRegistry::on_subscription` setters. Both handlers were previously only reachable via overriding the `PluginBackend` trait method, so the canonical Plugin-trait path had no way to register them. | `on_command_error` accepts `&PluginErrorEvent` and returns `Effects` through the same `dispatch_state_effect!` machinery as the lifecycle handlers. `on_subscription` mirrors the WIT `on-subscription(topic, values) -> runtime-effects` shape and now also takes `&AppView<'_>`. The exhaustive dispatch coverage test gains both handler names. |
 | A-3e effect plumbing | Widen `PluginBackend::deliver_subscriptions` from `-> bool` (a flag no caller read) to `-> Effects` and add `app: &AppView<'_>`. Add `PluginEffects::evaluate_pubsub(&mut self, app) -> EffectsBatch` and route it from `state/update.rs` after `notify_state_changed`. PluginRuntime now owns the topic bus so oscillation history persists across frames without the caller threading a bus in. | Both the native `PluginBridge` and the WASM adapter now forward `on_subscription` effects up. A new test (`test_on_subscription_effects_flow_back_through_evaluate_pubsub`) witnesses a `redraw: BUFFER` flag traveling from a plugin's `on_subscription` handler into the dispatcher's `EffectsBatch`. |
 | A-3g  | `#[deprecated(since = "0.7.1")]` on the seven legacy lifecycle setters (`on_init`, `on_session_ready`, `on_state_changed`, `on_io_event`, `on_update`, `on_process_task`, `on_process_task_streaming`) with notes pointing at the tier replacement. | In-tree test fixtures and the `#[kasane::plugin]` proc-macro emission gate the warnings with scoped `#[allow(deprecated)]`. Input setters (`on_key`, `on_text_input`, `on_drop`, `on_mouse_fallback`) stay un-deprecated because tier-1 there is a stricter opt-in, not the default. |
-| B-5   | WIT 5.0.0 wire bump. `runtime-effects` record removed; the five `runtime-effects`-returning handler exports replaced with their ADR-mapped tier (`on-state-changed-effects` / `on-command-error-effects` / `on-subscription` → `kakoune-side-effects`; `on-io-event-effects` / `update-effects` → `process-capable-effects`). Transitional `on-state-changed-tier1-effects` parallel from B-2 collapsed into the renamed `on-state-changed-effects`. ABI 4.x rejected at load. SDK `Effects` alias becomes `ProcessCapableEffects`; `effects()` helper auto-routes a `Vec<Command>` into the tier-1 base + tier-2 process slots so existing tier-2 plugin bodies keep working. All 13 in-tree `.wasm` blobs (11 examples + `surface-probe` + `instantiate-trap` + `tier1-state`) rebuilt against SDK 5.0.0; manifests bumped. Migration guide at [`docs/migration/0.6-to-0.7.md` §8.3](migration/0.6-to-0.7.md). |
+| B-5   | WIT 5.0.0 wire bump. `runtime-effects` record removed; the five `runtime-effects`-returning handler exports replaced with their ADR-mapped tier (`on-state-changed-effects` / `on-command-error-effects` / `on-subscription` → `kakoune-side-effects`; `on-io-event-effects` / `update-effects` → `process-capable-effects`). Transitional `on-state-changed-tier1-effects` parallel from B-2 collapsed into the renamed `on-state-changed-effects`. ABI 4.x rejected at load. SDK `Effects` alias becomes `ProcessCapableEffects`; `effects()` helper auto-routes a `Vec<Command>` into the tier-1 base + tier-2 process slots so existing tier-2 plugin bodies keep working. All 13 in-tree `.wasm` blobs (11 examples + `surface-probe` + `instantiate-trap` + `tier1-state`) rebuilt against SDK 5.0.0; manifests bumped. Migration guide at [`docs/migration/0.6-to-0.7.md` §8.3](../migration/0.6-to-0.7.md). |
 
 ### Phase B-2 execution playbook (historical)
 
@@ -179,7 +179,7 @@ edits + 10–15 rebuilt `.wasm` blobs. The 4.0 → 4.1 precedent
   pre-dated B-1's symlink consolidation). All 13 in-tree `.wasm`
   blobs rebuilt against the new SDK; ABI 4.x rejected at load with
   a pointer to [`docs/migration/0.6-to-0.7.md`
-  §8.3](migration/0.6-to-0.7.md).
+  §8.3](../migration/0.6-to-0.7.md).
 - **`kak_lint!` / `KakCommand` tier flag (originally listed under
   Implications)** — *No-op.* `KakCommand` (in
   `kasane-plugin-sdk/src/kak_cmd.rs`) renders to Kakoune-side
@@ -454,7 +454,7 @@ that try to return `process-command` from a Tier-1 export hit a
 
 **ABI version:** the WIT split is a backward-incompatible change to
 the plugin contract. ABI version bumps from `4.1.0` → `5.0.0`
-(see [`docs/abi-versioning.md`](abi-versioning.md)).
+(see [`docs/abi-versioning.md`](../abi-versioning.md)).
 
 **Migration:**
 
