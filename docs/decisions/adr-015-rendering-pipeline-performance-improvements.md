@@ -92,4 +92,4 @@ Animation frame:  ──────────── skip ──────�
 
 TUI is not meaningful at 240fps (terminal emulators refresh at 60-120Hz). GUI (wgpu) has 4-8x CPU headroom. Per-frame diff allocation has been eliminated by `iter_diffs()` zero-copy path. Salsa integration further improves large-screen headroom by 30-36%.
 
-For current benchmark data, see [performance.md](./performance.md).
+For current benchmark data, see [performance.md](../performance.md).
