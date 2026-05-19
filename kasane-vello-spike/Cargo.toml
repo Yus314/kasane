@@ -21,7 +21,7 @@ wgpu = { workspace = true }
 # Pinned to vello_hybrid 0.0.7 (Linebender, March 2026). Activate via
 # `--features with-vello`. Once Glifo lands on crates.io and the API
 # stabilises, bump to that version range.
-vello_hybrid = { version = "0.0.7", optional = true }
+vello_hybrid = { version = "0.0.8", optional = true }
 
 [features]
 default = []
