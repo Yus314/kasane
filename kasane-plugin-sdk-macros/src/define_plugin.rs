@@ -192,9 +192,7 @@ impl SettingType {
             "String" => Ok(Self::Str),
             other => Err(syn::Error::new(
                 ident.span(),
-                format!(
-                    "unsupported setting type `{other}`; expected bool, i64, f64, or String"
-                ),
+                format!("unsupported setting type `{other}`; expected bool, i64, f64, or String"),
             )),
         }
     }
@@ -870,19 +868,29 @@ pub(crate) fn define_plugin_impl(
         if persist_fields.is_empty() {
             quote! {}
         } else {
-            let ser_exprs: Vec<_> = persist_fields.iter().map(|f| {
-                let name = &f.name;
-                quote! { state.#name.clone() }
-            }).collect();
-            let field_types: Vec<_> = persist_fields.iter().map(|f| {
-                let ty = &f.ty;
-                quote! { #ty }
-            }).collect();
-            let restore_assigns: Vec<_> = persist_fields.iter().enumerate().map(|(i, f)| {
-                let name = &f.name;
-                let idx = syn::Index::from(i);
-                quote! { state.#name = restored.#idx; }
-            }).collect();
+            let ser_exprs: Vec<_> = persist_fields
+                .iter()
+                .map(|f| {
+                    let name = &f.name;
+                    quote! { state.#name.clone() }
+                })
+                .collect();
+            let field_types: Vec<_> = persist_fields
+                .iter()
+                .map(|f| {
+                    let ty = &f.ty;
+                    quote! { #ty }
+                })
+                .collect();
+            let restore_assigns: Vec<_> = persist_fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let name = &f.name;
+                    let idx = syn::Index::from(i);
+                    quote! { state.#name = restored.#idx; }
+                })
+                .collect();
             quote! {
                 fn persist_state() -> Vec<u8> {
                     STATE.with(|s| {
@@ -2100,9 +2108,7 @@ impl syn::parse::Parse for PluginDef {
 
         // Validate settings {} fields against manifest [settings.*] if both present
         if has_manifest {
-            if let (Some(manifest), Some(settings_fields)) =
-                (&def.manifest, &def.settings)
-            {
+            if let (Some(manifest), Some(settings_fields)) = (&def.manifest, &def.settings) {
                 for field in settings_fields {
                     let key = field.name.to_string();
                     match manifest.settings_schema.get(&key) {

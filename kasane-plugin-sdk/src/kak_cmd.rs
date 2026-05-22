@@ -38,8 +38,8 @@
 //! assert!(lines[1].contains("-override"));
 //! ```
 
-pub use crate::kak::{OptionKind, Scope};
 use crate::kak::escape_arg;
+pub use crate::kak::{OptionKind, Scope};
 
 // ---------------------------------------------------------------------------
 // KakCommand enum
@@ -914,10 +914,7 @@ mod tests {
         let cmd: KakCommand = DeclareOption::new("counter", OptionKind::Int, "0")
             .hidden()
             .into();
-        assert_eq!(
-            cmd.render(),
-            "declare-option -hidden int 'counter' '0'"
-        );
+        assert_eq!(cmd.render(), "declare-option -hidden int 'counter' '0'");
     }
 
     #[test]

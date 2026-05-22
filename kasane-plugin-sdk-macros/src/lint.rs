@@ -106,7 +106,12 @@ const FL_HOOK: &[FlagSpec] = &[flag("-always"), flag_v("-group"), flag("-once")]
 
 const FL_ALIAS: &[FlagSpec] = &[];
 
-const FL_ECHO: &[FlagSpec] = &[flag("-debug"), flag("-markup"), flag("-quoting"), flag_v("-to-file")];
+const FL_ECHO: &[FlagSpec] = &[
+    flag("-debug"),
+    flag("-markup"),
+    flag("-quoting"),
+    flag_v("-to-file"),
+];
 
 const FL_INFO: &[FlagSpec] = &[
     flag_v("-anchor"),
@@ -120,18 +125,54 @@ const FL_TRY: &[FlagSpec] = &[];
 
 /// Top-level catalog. Keep alphabetized.
 pub(crate) const CATALOG: &[CommandSpec] = &[
-    CommandSpec { name: "alias", flags: FL_ALIAS },
-    CommandSpec { name: "declare-option", flags: FL_DECLARE_OPTION },
-    CommandSpec { name: "declare-user-mode", flags: FL_DECLARE_USER_MODE },
-    CommandSpec { name: "define-command", flags: FL_DEFINE_COMMAND },
-    CommandSpec { name: "echo", flags: FL_ECHO },
-    CommandSpec { name: "evaluate-commands", flags: FL_EVALUATE_COMMANDS },
-    CommandSpec { name: "hook", flags: FL_HOOK },
-    CommandSpec { name: "info", flags: FL_INFO },
-    CommandSpec { name: "map", flags: FL_MAP },
-    CommandSpec { name: "set-option", flags: FL_SET_OPTION },
-    CommandSpec { name: "try", flags: FL_TRY },
-    CommandSpec { name: "unset-option", flags: FL_UNSET_OPTION },
+    CommandSpec {
+        name: "alias",
+        flags: FL_ALIAS,
+    },
+    CommandSpec {
+        name: "declare-option",
+        flags: FL_DECLARE_OPTION,
+    },
+    CommandSpec {
+        name: "declare-user-mode",
+        flags: FL_DECLARE_USER_MODE,
+    },
+    CommandSpec {
+        name: "define-command",
+        flags: FL_DEFINE_COMMAND,
+    },
+    CommandSpec {
+        name: "echo",
+        flags: FL_ECHO,
+    },
+    CommandSpec {
+        name: "evaluate-commands",
+        flags: FL_EVALUATE_COMMANDS,
+    },
+    CommandSpec {
+        name: "hook",
+        flags: FL_HOOK,
+    },
+    CommandSpec {
+        name: "info",
+        flags: FL_INFO,
+    },
+    CommandSpec {
+        name: "map",
+        flags: FL_MAP,
+    },
+    CommandSpec {
+        name: "set-option",
+        flags: FL_SET_OPTION,
+    },
+    CommandSpec {
+        name: "try",
+        flags: FL_TRY,
+    },
+    CommandSpec {
+        name: "unset-option",
+        flags: FL_UNSET_OPTION,
+    },
 ];
 
 fn lookup(name: &str) -> Option<&'static CommandSpec> {
@@ -195,7 +236,9 @@ fn tokenize(input: &str) -> Result<Vec<Token<'_>>, String> {
             if !closed {
                 return Err("unterminated single-quoted string".into());
             }
-            tokens.push(Token { text: &input[start..i] });
+            tokens.push(Token {
+                text: &input[start..i],
+            });
             continue;
         }
 
@@ -228,7 +271,9 @@ fn tokenize(input: &str) -> Result<Vec<Token<'_>>, String> {
                     return Err(format!("unterminated %{kind}…{} block", close as char));
                 }
                 let _ = block_start;
-                tokens.push(Token { text: &input[start..i] });
+                tokens.push(Token {
+                    text: &input[start..i],
+                });
                 continue;
             }
         }
@@ -237,7 +282,9 @@ fn tokenize(input: &str) -> Result<Vec<Token<'_>>, String> {
         while i < bytes.len() && !(bytes[i] as char).is_ascii_whitespace() {
             i += 1;
         }
-        tokens.push(Token { text: &input[start..i] });
+        tokens.push(Token {
+            text: &input[start..i],
+        });
     }
     Ok(tokens)
 }
@@ -303,9 +350,7 @@ fn lint(input: &str) -> Result<(), String> {
         if f.takes_value {
             // Consume the value token (could be a quoted block).
             if iter.next().is_none() {
-                return Err(format!(
-                    "flag `{text}` for `{cmd_name}` expects a value"
-                ));
+                return Err(format!("flag `{text}` for `{cmd_name}` expects a value"));
             }
         }
     }
@@ -362,8 +407,10 @@ mod tests {
     #[test]
     fn tokenize_multi() {
         let t = tokenize("map global user b :bump<ret>").unwrap();
-        assert_eq!(t.iter().map(|t| t.text).collect::<Vec<_>>(),
-            vec!["map", "global", "user", "b", ":bump<ret>"]);
+        assert_eq!(
+            t.iter().map(|t| t.text).collect::<Vec<_>>(),
+            vec!["map", "global", "user", "b", ":bump<ret>"]
+        );
     }
 
     #[test]
@@ -383,8 +430,10 @@ mod tests {
     #[test]
     fn tokenize_single_quote_escape() {
         let t = tokenize("echo 'it''s ok'").unwrap();
-        assert_eq!(t.iter().map(|t| t.text).collect::<Vec<_>>(),
-            vec!["echo", "'it''s ok'"]);
+        assert_eq!(
+            t.iter().map(|t| t.text).collect::<Vec<_>>(),
+            vec!["echo", "'it''s ok'"]
+        );
     }
 
     #[test]

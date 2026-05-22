@@ -162,7 +162,11 @@ impl MockAtom {
 pub enum MockBrush {
     #[default]
     Default,
-    Rgb { r: u8, g: u8, b: u8 },
+    Rgb {
+        r: u8,
+        g: u8,
+        b: u8,
+    },
 }
 
 /// Simplified style for tests (covers fg/bg/attributes — the parts plugin
@@ -651,9 +655,7 @@ impl TestHarness {
     }
     pub fn set_scopes_at(&mut self, line: u32, byte_offset: u32, scopes: Vec<String>) {
         MOCK_STATE.with(|s| {
-            s.borrow_mut()
-                .scopes_at
-                .insert((line, byte_offset), scopes);
+            s.borrow_mut().scopes_at.insert((line, byte_offset), scopes);
         });
     }
 
@@ -980,13 +982,7 @@ pub mod mock_host_state {
         })
     }
     pub fn get_indent_level(line: u32) -> u32 {
-        MOCK_STATE.with(|s| {
-            s.borrow()
-                .indent_levels
-                .get(&line)
-                .copied()
-                .unwrap_or(0)
-        })
+        MOCK_STATE.with(|s| s.borrow().indent_levels.get(&line).copied().unwrap_or(0))
     }
 }
 
@@ -1049,10 +1045,7 @@ pub mod mock_element_builder {
         MOCK_ARENA.with(|a| a.borrow_mut().alloc(format!("text_panel({lines}L)")))
     }
     pub fn create_canvas(w: u16, h: u16, ops: usize) -> u32 {
-        MOCK_ARENA.with(|a| {
-            a.borrow_mut()
-                .alloc(format!("canvas({w}x{h}, {ops} ops)"))
-        })
+        MOCK_ARENA.with(|a| a.borrow_mut().alloc(format!("canvas({w}x{h}, {ops} ops)")))
     }
     pub fn create_slot_placeholder(slot: &str) -> u32 {
         MOCK_ARENA.with(|a| a.borrow_mut().alloc(format!("slot({slot})")))
@@ -1183,10 +1176,7 @@ mod tests {
         let mut h = TestHarness::new();
         let s = MockStyle::bg_rgb(40, 40, 50);
         h.set_theme_style("cursor.line.bg", s.clone());
-        assert_eq!(
-            mock_host_state::get_theme_style("cursor.line.bg"),
-            Some(s)
-        );
+        assert_eq!(mock_host_state::get_theme_style("cursor.line.bg"), Some(s));
         assert!(mock_host_state::get_theme_style("missing").is_none());
     }
 

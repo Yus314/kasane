@@ -254,10 +254,7 @@ pub(crate) fn parse_manifest_at_compile_time(path_lit: &syn::LitStr) -> syn::Res
         if compile_time_service_name(&service.name).is_none() {
             return Err(syn::Error::new(
                 path_lit.span(),
-                format!(
-                    "unknown service capability in manifest: `{}`",
-                    service.name
-                ),
+                format!("unknown service capability in manifest: `{}`", service.name),
             ));
         }
         service_capabilities.push(service.name.clone());

@@ -135,10 +135,7 @@ pub trait Effectful {
     type Effects: EffectSet;
 
     /// Run one step of the effect machine.
-    fn step(
-        &mut self,
-        yielder: &mut <Self::Effects as EffectSet>::Yielder,
-    ) -> EffectfulResult;
+    fn step(&mut self, yielder: &mut <Self::Effects as EffectSet>::Yielder) -> EffectfulResult;
 }
 
 /// Plugin-yieldable side effects.
@@ -513,10 +510,7 @@ mod tests {
                     |e| matches!(e, Effect::PasteClipboard),
                     EffectReply::ClipboardText("first".into()),
                 )
-                .respond(
-                    |_| true,
-                    EffectReply::ClipboardText("catch-all".into()),
-                );
+                .respond(|_| true, EffectReply::ClipboardText("catch-all".into()));
             let reply = handler.emit(Effect::PasteClipboard).unwrap();
             assert_eq!(reply, EffectReply::ClipboardText("first".into()));
         }
@@ -553,10 +547,8 @@ mod tests {
 
         #[test]
         fn clear_empties_log_without_dropping_rules() {
-            let mut handler = MockHandler::new().respond(
-                |_| true,
-                EffectReply::ClipboardText("hi".into()),
-            );
+            let mut handler =
+                MockHandler::new().respond(|_| true, EffectReply::ClipboardText("hi".into()));
             let _ = handler.emit(Effect::PasteClipboard);
             handler.clear();
             assert!(handler.emitted().is_empty());

@@ -212,11 +212,7 @@ pub fn set_option(scope: Scope, name: &str, value: &str) -> String {
 /// );
 /// ```
 pub fn set_option_add(scope: Scope, name: &str, entries: &[(&str, &str)]) -> String {
-    let mut out = format!(
-        "set-option -add {} {}",
-        scope.as_str(),
-        escape_arg(name),
-    );
+    let mut out = format!("set-option -add {} {}", scope.as_str(), escape_arg(name),);
     for (k, v) in entries {
         out.push(' ');
         out.push_str(&escape_arg_expand(&format!("{k}={v}")));
@@ -225,13 +221,7 @@ pub fn set_option_add(scope: Scope, name: &str, entries: &[(&str, &str)]) -> Str
 }
 
 /// `map <scope> <mode> <key> <action> [-docstring '...']`.
-pub fn map(
-    scope: Scope,
-    mode: &str,
-    key: &str,
-    action: &str,
-    docstring: Option<&str>,
-) -> String {
+pub fn map(scope: Scope, mode: &str, key: &str, action: &str, docstring: Option<&str>) -> String {
     let mut out = format!(
         "map {} {} {} {}",
         scope.as_str(),
@@ -382,10 +372,7 @@ mod tests {
             ":bump<ret>",
             Some("bump counter"),
         );
-        assert!(
-            out.ends_with(" -docstring 'bump counter'"),
-            "got: {out}"
-        );
+        assert!(out.ends_with(" -docstring 'bump counter'"), "got: {out}");
     }
 
     #[test]
@@ -416,10 +403,7 @@ mod tests {
     fn escape_arg_expand_preserves_percent_sequences() {
         // %opt{} must survive verbatim — that is the entire point of the
         // expand form. The helper does not auto-double `%`.
-        assert_eq!(
-            escape_arg_expand("k=%opt{counter}"),
-            "\"k=%opt{counter}\""
-        );
+        assert_eq!(escape_arg_expand("k=%opt{counter}"), "\"k=%opt{counter}\"");
     }
 
     #[test]
