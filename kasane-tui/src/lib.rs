@@ -571,7 +571,7 @@ where
             let render_start = std::time::Instant::now();
 
             surface_registry.sync_ephemeral_surfaces(&state);
-            plugin_manager.run_pre_render_hooks(&mut state);
+            plugin_manager.run_pre_render_hooks(&mut state, &mut salsa_handles.external);
             registry.prepare_plugin_cache(dirty);
 
             // Sync Salsa inputs from updated state
@@ -582,6 +582,10 @@ where
                 &mut salsa_handles,
                 dirty,
             );
+            // ADR-051 chunk 3c: registry consumers run between drain and
+            // clear_dirty so they can observe per-slot dirty bits.
+            plugin_manager.run_post_sync_hooks(&mut state, &salsa_handles.external);
+            salsa_handles.external.clear_dirty();
             let view = registry.view();
 
             let pane_states_val;

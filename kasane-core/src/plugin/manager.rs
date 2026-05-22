@@ -194,7 +194,7 @@ impl PendingPluginCommit {
 pub struct PluginManager {
     providers: Vec<Box<dyn PluginProvider>>,
     previous: ResolvedPluginSnapshot,
-    pre_render_hooks: Vec<Box<dyn crate::event_loop::PreRenderHook>>,
+    frame_sync_hooks: Vec<Box<dyn crate::event_loop::FrameSyncHook>>,
     /// Per-`(plugin_id, revision)` activation-failure tally. Used to
     /// suppress retries after [`ACTIVATION_QUARANTINE_THRESHOLD`]
     /// consecutive failures of the same revision until
@@ -210,17 +210,17 @@ impl PluginManager {
         Self {
             providers,
             previous: ResolvedPluginSnapshot::default(),
-            pre_render_hooks: Vec::new(),
+            frame_sync_hooks: Vec::new(),
             activation_failures: HashMap::new(),
         }
     }
 
-    /// Add a pre-render hook that runs before each Salsa sync.
+    /// Register a [`FrameSyncHook`](crate::event_loop::FrameSyncHook).
     ///
-    /// Hooks receive `&mut AppState` and can update runtime fields (e.g.
-    /// syntax provider) before the render frame.
-    pub fn add_pre_render_hook(&mut self, hook: Box<dyn crate::event_loop::PreRenderHook>) {
-        self.pre_render_hooks.push(hook);
+    /// The hook's `pre_render` runs before the frame-boundary drain
+    /// (publish phase) and its `post_sync` runs after (consume phase).
+    pub fn add_frame_sync_hook(&mut self, hook: Box<dyn crate::event_loop::FrameSyncHook>) {
+        self.frame_sync_hooks.push(hook);
     }
 
     /// Propagate dynamic configuration changes to all registered providers.
@@ -255,10 +255,28 @@ impl PluginManager {
         diagnostics
     }
 
-    /// Run all pre-render hooks on the given state.
-    pub fn run_pre_render_hooks(&mut self, state: &mut crate::state::AppState) {
-        for hook in &mut self.pre_render_hooks {
-            hook.pre_render(state);
+    /// Run the publish phase of all frame-sync hooks. Called before the
+    /// frame-boundary drain inside `sync_salsa_for_render`.
+    pub fn run_pre_render_hooks(
+        &mut self,
+        state: &mut crate::state::AppState,
+        external: &mut crate::salsa_inputs::external::ExternalInputRegistry,
+    ) {
+        for hook in &mut self.frame_sync_hooks {
+            hook.pre_render(state, external);
+        }
+    }
+
+    /// Run the consume phase of all frame-sync hooks. Called after
+    /// `sync_salsa_for_render` and before
+    /// `ExternalInputRegistry::clear_dirty`.
+    pub fn run_post_sync_hooks(
+        &mut self,
+        state: &mut crate::state::AppState,
+        external: &crate::salsa_inputs::external::ExternalInputRegistry,
+    ) {
+        for hook in &mut self.frame_sync_hooks {
+            hook.post_sync(state, external);
         }
     }
 

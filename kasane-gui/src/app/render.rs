@@ -89,7 +89,8 @@ where
         // Cursor-only animation reuses the cached scene commands.
         if !self.dirty.is_empty() {
             self.surface_registry.sync_ephemeral_surfaces(&self.state);
-            self.plugin_manager.run_pre_render_hooks(&mut self.state);
+            self.plugin_manager
+                .run_pre_render_hooks(&mut self.state, &mut self.salsa_handles.external);
             self.registry.prepare_plugin_cache(self.dirty);
 
             // Sync Salsa inputs from updated state
@@ -100,6 +101,11 @@ where
                 &mut self.salsa_handles,
                 self.dirty,
             );
+            // ADR-051 chunk 3c: registry consumers run between drain and
+            // clear_dirty so they can observe per-slot dirty bits.
+            self.plugin_manager
+                .run_post_sync_hooks(&mut self.state, &self.salsa_handles.external);
+            self.salsa_handles.external.clear_dirty();
             let view = self.registry.view();
 
             let pane_states_val;

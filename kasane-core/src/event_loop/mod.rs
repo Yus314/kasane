@@ -398,6 +398,12 @@ pub fn schedule_diagnostic_overlay(
 /// freshness can intersect each plugin's `view_deps()` with the frame's
 /// dirty flags (replacing the gate previously pre-computed into
 /// `slot.needs_recollect`).
+///
+/// Callers are expected to run `FrameSyncHook::pre_render` *before* this
+/// function (to publish pending external pushes) and
+/// `FrameSyncHook::post_sync` *after* (to consume drained values), then
+/// call `handles.external.clear_dirty()` to close the per-frame dirty
+/// cycle.
 pub fn sync_salsa_for_render(
     db: &mut crate::salsa_db::KasaneDatabase,
     state: &AppState,
@@ -407,45 +413,51 @@ pub fn sync_salsa_for_render(
 ) {
     // ADR-051 frame boundary: drain pending external commits before any
     // downstream Salsa or plugin pull. Enforces the push-to-set /
-    // pull-to-derive split (vision §4.1.8) — commits issued mid-frame by
-    // transport adapters (file watchers, LSP, network) become observable
-    // only after this point. `clear_dirty` at end of frame closes the
-    // per-frame dirty cycle for consumers that gate work on `any_dirty`.
+    // pull-to-derive split (vision §4.1.8) — commits issued by transport
+    // adapters become observable only after this point. The matching
+    // `clear_dirty` is the caller's responsibility, after `post_sync`
+    // hooks have observed the dirty bits.
     handles.external.drain();
 
     crate::salsa_sync::cleanup_unloaded_plugins(registry, handles);
     crate::salsa_sync::sync_inputs_from_state(db, state, handles);
     let view = registry.view();
     crate::salsa_sync::sync_unified_display(db, state, &view, handles, dirty);
-
-    handles.external.clear_dirty();
 }
 
-/// Trait for pre-render hooks that need mutable state access.
+/// Hook into the frame-sync boundary at two well-defined points.
 ///
-/// Implementations (e.g. `kasane-syntax::SyntaxManager`) update `AppState`
-/// before the Salsa sync phase. This is called once per render frame.
-pub trait PreRenderHook: Send {
-    /// Update state before Salsa synchronization.
-    fn pre_render(&mut self, state: &mut AppState);
-}
-
-/// Synchronize all Salsa inputs for a render frame, calling pre-render hooks first.
+/// Implementors run twice per frame:
 ///
-/// Like [`sync_salsa_for_render`], but calls hooks that need mutable `AppState`
-/// access (e.g. `SyntaxManager`) before the Salsa sync.
-pub fn sync_salsa_for_render_with_hooks(
-    db: &mut crate::salsa_db::KasaneDatabase,
-    state: &mut AppState,
-    registry: &mut PluginRuntime,
-    handles: &mut crate::salsa_sync::SalsaInputHandles,
-    hooks: &mut [&mut dyn PreRenderHook],
-    dirty: crate::state::DirtyFlags,
-) {
-    for hook in hooks.iter_mut() {
-        hook.pre_render(state);
+/// - [`Self::pre_render`] before [`sync_salsa_for_render`]. Mutate
+///   `AppState` and publish pending external pushes into
+///   `ExternalInputRegistry` here.
+/// - [`Self::post_sync`] after the registry drain and Salsa input sync.
+///   Read committed values via `external.last(handle)` /
+///   `external.is_dirty(handle)` and reflect them back into state.
+///
+/// Both methods default to no-op so impls only override the phase they
+/// care about. The trait replaces the earlier `PreRenderHook` (single-
+/// phase) once ADR-051 chunk 3c lands.
+pub trait FrameSyncHook: Send {
+    /// Run before the frame-boundary drain. Default: no-op.
+    fn pre_render(
+        &mut self,
+        state: &mut AppState,
+        external: &mut crate::salsa_inputs::external::ExternalInputRegistry,
+    ) {
+        let _ = (state, external);
     }
-    sync_salsa_for_render(db, state, registry, handles, dirty);
+
+    /// Run after the frame-boundary drain has made committed values
+    /// observable. Default: no-op.
+    fn post_sync(
+        &mut self,
+        state: &mut AppState,
+        external: &crate::salsa_inputs::external::ExternalInputRegistry,
+    ) {
+        let _ = (state, external);
+    }
 }
 
 /// Print a hint about reconnecting to a running Kakoune session.

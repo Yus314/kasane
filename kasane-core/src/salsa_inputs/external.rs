@@ -1,10 +1,3 @@
-// ADR-051 Chunk 1: registry skeleton only. The first consumer
-// (syntax-reload migration) lands in a follow-up chunk; until then
-// the registry methods are exercised only by unit tests and the dead-
-// code lint must be silenced. Remove this attribute when the first
-// production caller appears.
-#![allow(dead_code)]
-
 //! Host-internal registry for external data sources.
 //!
 //! `ExternalInputRegistry` is the single mutation surface for data
@@ -270,6 +263,16 @@ impl ExternalInputRegistry {
     /// invalidation work when no external source changed this frame.
     pub fn any_dirty(&self) -> bool {
         self.slots.values().any(|s| s.dirty())
+    }
+
+    /// True if the specified slot was newly committed at the most recent
+    /// [`Self::drain`]. Per-source variant of [`Self::any_dirty`]; pairs
+    /// with [`Self::last`] for `FrameSyncHook::post_sync` consumers.
+    pub fn is_dirty<T: 'static + Send>(&self, handle: ExternalInputId<T>) -> bool {
+        self.slots
+            .get(&handle.id)
+            .map(|s| s.dirty())
+            .unwrap_or(false)
     }
 
     /// Clear dirty flags after consumers have observed the drained

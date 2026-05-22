@@ -402,7 +402,7 @@ fn build_plugin_manager(
     let mut manager = PluginManager::new(providers);
     #[cfg(feature = "syntax")]
     {
-        manager.add_pre_render_hook(Box::new(kasane_syntax::SyntaxManager::new()));
+        manager.add_frame_sync_hook(Box::new(kasane_syntax::SyntaxManager::new()));
     }
     manager
 }

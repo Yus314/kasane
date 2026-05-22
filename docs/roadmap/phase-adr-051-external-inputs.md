@@ -15,8 +15,8 @@ pull-to-derive split) and [ADR-050](../decisions/adr-050-salsa-scope-policy-obse
 | **1** | `ExternalInputRegistry` skeleton + 8 unit tests | `408cbe27` | ✓ landed |
 | **2** | Frame-boundary `drain()` / `clear_dirty()` wiring | `ef51cf0c` | ✓ landed |
 | **3a** | `kasane-syntax/src/watcher.rs` standalone module | `2ff2b7bc` | ✓ landed |
-| **3b** | `SyntaxManager` integration (parallel path) | pending commit | ✓ implemented |
-| **3c** | Registry-mediated reads (consumer migration) | — | not started |
+| **3b** | `SyntaxManager` integration (parallel path) | `4effa145` | ✓ landed |
+| **3c** | Registry-mediated reads (`FrameSyncHook` split) | pending commit | ✓ implemented |
 | **3d** | Demote mtime-poll path to NFS/FUSE fallback (per G2) | — | not started |
 | **3e** | Integration property tests + `delta-24` perf comparison | — | not started |
 
@@ -174,18 +174,16 @@ Gate the real-FS tests behind `KASANE_RUN_FS_WATCH_TESTS=1` (per
 A future session should:
 
 1. Read this doc.
-2. Begin **Chunk 3c** — re-route the watcher signal through
-   `ExternalInputRegistry`:
-   - Register an `ExternalInputId<PathBuf>` for the syntax-reload
-     source (host-side, name something like `"syntax.reload"`).
-   - In `SyntaxManager::update`, replace the local `drain_watcher`
-     check with `registry.read(id)` after the frame-boundary drain has
-     run. The watcher commits canonical paths into the registry from
-     `pre_render`; consumers read from Salsa-tracked state.
-   - Remove the `#![allow(dead_code)]` from
-     `kasane-core/src/salsa_inputs/external.rs` once the first
-     production caller (this one) lands.
-3. After 3c is stable, **Chunk 3d** demotes the mtime path to a
-   conditional NFS/FUSE fallback (per G2): emit the cross-validation
-   warn only on filesystems where inotify is known-broken; remove the
-   reparse trigger from the mtime branch otherwise.
+2. Begin **Chunk 3d** — demote the mtime path to a conditional
+   NFS/FUSE fallback (per G2):
+   - In `SyntaxManager::run_post_sync`, emit the
+     `mtime changed without registry event` warn *only* when the
+     filesystem is known to lack working inotify (heuristic: check
+     `/proc/mounts` or treat repeated divergences as the signal).
+   - On filesystems where the watcher works, remove the mtime-driven
+     reparse trigger entirely so duplicate reparses don't happen for
+     fast successive edits.
+3. After 3d, **Chunk 3e** adds integration property tests
+   (glitch-freedom under bursty pushes, bounded memory under sustained
+   commits) and runs `cargo bench --bench rendering_pipeline -- --baseline
+   delta-24` to verify the 110% exit criterion.

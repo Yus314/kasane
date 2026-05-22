@@ -4,6 +4,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use kasane_core::event_loop::FrameSyncHook;
+use kasane_core::salsa_inputs::external::{
+    BackPressurePolicy, ExternalInputId, ExternalInputRegistry,
+};
 use kasane_core::state::AppState;
 
 use crate::grammar::{GrammarRegistry, language_for_extension};
@@ -12,21 +16,21 @@ use crate::watcher::FileWatcher;
 
 /// Manages the active syntax provider for the current buffer.
 ///
-/// Detects buffer changes (via `ui_options["buffile"]`), reads the file from
-/// disk, and triggers tree-sitter re-parse when content changes. Reparse is
-/// driven by two parallel signals (per ADR-051 chunk 3b):
+/// Lifecycle and reparse are split across two phases per ADR-051 chunk 3c:
 ///
-/// - A `notify`-backed [`FileWatcher`] when available (primary).
-/// - `std::fs::metadata` mtime polling (fallback for NFS/FUSE and the
-///   initial baseline against which the watcher is cross-validated).
-///
-/// When the two signals disagree, the divergence is logged via `tracing`
-/// at warn level. The reparse fires whenever *either* signal indicates a
-/// change so a missed event on one channel cannot starve the parser.
+/// - **`pre_render`** (publish phase): detect buffer/language changes,
+///   create or tear down the [`TreeSitterProvider`], and drain the
+///   [`FileWatcher`] channel into the host's
+///   [`ExternalInputRegistry`].
+/// - **`post_sync`** (consume phase): after the frame-boundary drain,
+///   inspect the registry slot; if it is dirty (or the mtime fallback
+///   path detected change) reparse the file. Cross-validation between
+///   the watcher and the mtime poll is logged at `tracing::warn`.
 pub struct SyntaxManager {
     registry: GrammarRegistry,
     active: Option<ActiveBuffer>,
     watcher: Option<FileWatcher>,
+    syntax_reload_id: Option<ExternalInputId<PathBuf>>,
 }
 
 struct ActiveBuffer {
@@ -50,15 +54,27 @@ impl SyntaxManager {
             registry: GrammarRegistry::new(),
             active: None,
             watcher,
+            syntax_reload_id: None,
         }
     }
 
-    /// Update the syntax provider based on current application state.
-    ///
-    /// Reads `ui_options["buffile"]` to detect buffer identity, drains the
-    /// file-watcher channel, checks mtime, and re-parses on either signal.
-    /// Sets `state.runtime.syntax_provider` with the current provider.
-    pub fn update(&mut self, state: &mut AppState) {
+    fn ensure_registered(
+        &mut self,
+        external: &mut ExternalInputRegistry,
+    ) -> ExternalInputId<PathBuf> {
+        if let Some(id) = self.syntax_reload_id {
+            return id;
+        }
+        let id = external.register::<PathBuf>("syntax.reload", BackPressurePolicy::Coalesce);
+        self.syntax_reload_id = Some(id);
+        id
+    }
+
+    /// Pre-render: lifecycle (provider setup, watch/unwatch) and publish
+    /// pending watcher events into the registry.
+    fn run_pre_render(&mut self, state: &mut AppState, external: &mut ExternalInputRegistry) {
+        let handle = self.ensure_registered(external);
+
         let buffile = match state.observed.ui_options.get("buffile") {
             Some(path) if !path.is_empty() && path != "*scratch*" => PathBuf::from(path),
             _ => {
@@ -73,39 +89,21 @@ impl SyntaxManager {
             return;
         };
 
-        // Drain the watcher *before* touching `self.active` so the
-        // borrow does not conflict with the let-chain below.
-        let watcher_fired = self.drain_watcher();
+        // Publish any pending watcher events for the currently-watched
+        // file. The post_sync consumer reads the resulting registry
+        // slot to decide whether to reparse.
+        if let Some(w) = &mut self.watcher {
+            for path in w.try_recv_all() {
+                external.commit(handle, path);
+            }
+        }
 
-        if let Some(active) = &mut self.active
+        // Same file + language: nothing else to do here. Reparse decision
+        // lives in post_sync once the registry has drained.
+        if let Some(active) = &self.active
             && active.buffile == buffile
             && active.language == lang_name
         {
-            let current_mtime = std::fs::metadata(&buffile).and_then(|m| m.modified()).ok();
-            let mtime_changed = current_mtime.is_some_and(|m| m != active.file_mtime);
-
-            match (watcher_fired, mtime_changed) {
-                (true, false) => tracing::warn!(
-                    buffile = %buffile.display(),
-                    "watcher fired but mtime unchanged"
-                ),
-                (false, true) => tracing::warn!(
-                    buffile = %buffile.display(),
-                    "mtime changed without watcher event (NFS/FUSE fallback?)"
-                ),
-                _ => {}
-            }
-
-            if (watcher_fired || mtime_changed)
-                && let Ok(source) = std::fs::read(&buffile)
-                && let Some(provider) = Arc::get_mut(&mut active.provider)
-            {
-                provider.update(&source);
-                if let Some(m) = current_mtime {
-                    active.file_mtime = m;
-                }
-                state.runtime.syntax_provider = Some(active.provider.clone());
-            }
             return;
         }
 
@@ -154,6 +152,56 @@ impl SyntaxManager {
         });
     }
 
+    /// Post-sync: read the registry slot drained this frame; reparse if
+    /// either the watcher fired or the mtime fallback detected change.
+    fn run_post_sync(&mut self, state: &mut AppState, external: &ExternalInputRegistry) {
+        let Some(handle) = self.syntax_reload_id else {
+            return;
+        };
+        let Some(active) = self.active.as_mut() else {
+            return;
+        };
+
+        // The registry slot is global; verify the most recently committed
+        // path matches our currently-active buffer before treating
+        // `is_dirty` as authoritative for this file.
+        let registry_path = external.last(handle).cloned();
+        let canonical_active = active.buffile.canonicalize().ok();
+        let registry_matches = registry_path
+            .as_ref()
+            .zip(canonical_active.as_ref())
+            .is_some_and(|(r, a)| r == a);
+        let registry_fired = registry_matches && external.is_dirty(handle);
+
+        let current_mtime = std::fs::metadata(&active.buffile)
+            .and_then(|m| m.modified())
+            .ok();
+        let mtime_changed = current_mtime.is_some_and(|m| m != active.file_mtime);
+
+        match (registry_fired, mtime_changed) {
+            (true, false) => tracing::warn!(
+                buffile = %active.buffile.display(),
+                "registry fired but mtime unchanged"
+            ),
+            (false, true) => tracing::warn!(
+                buffile = %active.buffile.display(),
+                "mtime changed without registry event (NFS/FUSE fallback?)"
+            ),
+            _ => {}
+        }
+
+        if (registry_fired || mtime_changed)
+            && let Ok(source) = std::fs::read(&active.buffile)
+            && let Some(provider) = Arc::get_mut(&mut active.provider)
+        {
+            provider.update(&source);
+            if let Some(m) = current_mtime {
+                active.file_mtime = m;
+            }
+            state.runtime.syntax_provider = Some(active.provider.clone());
+        }
+    }
+
     fn clear(&mut self, state: &mut AppState) {
         if self.active.is_some() {
             self.active = None;
@@ -163,13 +211,6 @@ impl SyntaxManager {
             let _ = w.unwatch();
         }
     }
-
-    fn drain_watcher(&mut self) -> bool {
-        self.watcher
-            .as_mut()
-            .map(|w| !w.try_recv_all().is_empty())
-            .unwrap_or(false)
-    }
 }
 
 impl Default for SyntaxManager {
@@ -178,8 +219,12 @@ impl Default for SyntaxManager {
     }
 }
 
-impl kasane_core::event_loop::PreRenderHook for SyntaxManager {
-    fn pre_render(&mut self, state: &mut AppState) {
-        self.update(state);
+impl FrameSyncHook for SyntaxManager {
+    fn pre_render(&mut self, state: &mut AppState, external: &mut ExternalInputRegistry) {
+        self.run_pre_render(state, external);
+    }
+
+    fn post_sync(&mut self, state: &mut AppState, external: &ExternalInputRegistry) {
+        self.run_post_sync(state, external);
     }
 }
