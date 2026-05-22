@@ -10,6 +10,7 @@ use salsa::{Durability, Setter};
 use crate::plugin::ContributionCache;
 use crate::plugin::{AppView, PluginView};
 use crate::salsa_db::KasaneDatabase;
+use crate::salsa_inputs::external::ExternalInputRegistry;
 use crate::salsa_inputs::*;
 use crate::state::AppState;
 use crate::state::snapshot::{InfoSnapshot, MenuSnapshot};
@@ -56,6 +57,11 @@ pub struct SalsaInputHandles {
     /// `display_directives_at_time`).
     pub history: HistoryInput,
     contribution_cache: ContributionCache,
+    /// ADR-051 — host-internal mutation surface for data produced
+    /// outside `AppState`. Drained at the frame boundary by
+    /// [`crate::event_loop::sync_salsa_for_render`]. See
+    /// [`crate::salsa_inputs::external`].
+    pub external: ExternalInputRegistry,
 }
 
 impl SalsaInputHandles {
@@ -105,6 +111,7 @@ impl SalsaInputHandles {
                 crate::history::VersionId::INITIAL,
             ),
             contribution_cache: ContributionCache::default(),
+            external: ExternalInputRegistry::new(),
         }
     }
 

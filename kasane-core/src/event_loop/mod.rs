@@ -405,10 +405,20 @@ pub fn sync_salsa_for_render(
     handles: &mut crate::salsa_sync::SalsaInputHandles,
     dirty: crate::state::DirtyFlags,
 ) {
+    // ADR-051 frame boundary: drain pending external commits before any
+    // downstream Salsa or plugin pull. Enforces the push-to-set /
+    // pull-to-derive split (vision §4.1.8) — commits issued mid-frame by
+    // transport adapters (file watchers, LSP, network) become observable
+    // only after this point. `clear_dirty` at end of frame closes the
+    // per-frame dirty cycle for consumers that gate work on `any_dirty`.
+    handles.external.drain();
+
     crate::salsa_sync::cleanup_unloaded_plugins(registry, handles);
     crate::salsa_sync::sync_inputs_from_state(db, state, handles);
     let view = registry.view();
     crate::salsa_sync::sync_unified_display(db, state, &view, handles, dirty);
+
+    handles.external.clear_dirty();
 }
 
 /// Trait for pre-render hooks that need mutable state access.
