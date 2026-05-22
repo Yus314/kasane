@@ -1,6 +1,6 @@
 # ADR-052: Capability Resources via WIT (DDD-CST Phase β)
 
-**Status:** Proposed (2026-05-22). Derived from
+**Status:** Accepted (2026-05-22). Derived from
 [ddd-cst-vision.md §9 (Phase β)](../ddd-cst-vision.md) and §4.2
 (capability theory). Refines
 [ADR-028](./adr-028-wasm-capability-inference.md) by replacing
@@ -19,6 +19,49 @@ headroom. A full resource-specific benchmark is deferred to first
 implementation; this baseline removes the dominant perf risk but does
 not eliminate it. The ergonomic abandon criterion (handle-threading
 unbearable in author testing) remains open.
+
+**Update 2 (2026-05-22, chunks 1–5 land):** The capability-resource
+machinery is in tree on `kasane:plugin@6.5.0`:
+
+- *WIT* — new `host-capabilities` interface defines `resource
+  buffer-view { get-lines-text }` and `open-buffer-view` (additive
+  minor bump; existing 6.x plugins continue to load).
+- *Host* — `kasane-wasm::buffer_view` wires the WIT resource into
+  `HostState::table` via `bindgen!`'s `with:` mapping; the bound
+  rep type is `BufferViewRep`.
+- *Manifest schema* — `[[capabilities.services]]` array of tables
+  (`kasane-plugin-package::manifest::ServiceDeclaration`); validator
+  rejects unknown / duplicate service names. Known set this chunk:
+  `"buffer"`.
+- *Broker* — `kasane-wasm::broker::CapabilityBroker` is constructed
+  per-plugin from the manifest at `load_with_manifest` time and
+  consulted on every `open-*`. Acquisition-time check, hot path
+  unaffected (per §Rationale 2).
+- *SDK macro* — `define_plugin!` validates service names at compile
+  time, surfaces them as `pub const REQUESTED_SERVICES`, and adds the
+  `host_capabilities` re-export under `__kasane_sdk` so plugin code
+  can write `host_capabilities::open_buffer_view()` directly.
+- *First migration* — `examples/wasm/color-preview` declares
+  `service "buffer"` and uses `BufferView` for the `handle_mouse`
+  safety check. The bundled `.wasm` is rebuilt against 6.5.0.
+- *Tests* — host-side unit tests + two proptest properties:
+  forged handle ids never read buffer state, and a broker-empty
+  plugin is denied on every attempt.
+
+Deferred to follow-up work (not blockers for acceptance):
+
+- A dedicated buffer-view resource-method bench. The Update 1
+  baseline already places the expected cost ~1 μs (≥10× under the
+  abandon threshold); ratification awaits the dedicated bench.
+- Load-time error when a plugin's `.wasm` calls `open-buffer-view`
+  without declaring the matching service. Today the broker returns
+  `open-error::denied` at runtime (the WIT-level type already gives
+  the *unforgeability* property); a load-time scan that lifts the
+  failure earlier is a polish item.
+- APL attenuation end-to-end on `BufferView` — owned by
+  [ADR-056](./adr-056-attenuation-predicate-language.md); requires
+  the additional `buffer-view.attenuate(predicate)` method on the
+  resource. Tracked as ADR-056 Phase β follow-up.
 
 ### Context
 
