@@ -39,6 +39,18 @@ pub enum WasmPluginError {
     #[error("manifest error: {0}")]
     Manifest(#[from] kasane_plugin_package::manifest::ManifestError),
 
+    /// ADR-052 chunk E: the WASM component imports a capability-resource
+    /// interface (e.g. `kasane:plugin/host-capabilities`) but the
+    /// plugin manifest does not declare the matching service. The
+    /// broker would deny `open-*` at runtime; the load-time scan
+    /// surfaces this as a manifest bug before instantiation.
+    #[error(
+        "plugin imports capability interface but manifest is missing \
+         `[[capabilities.services]] name = \"{service}\"`; either \
+         declare the capability or remove the import"
+    )]
+    UndeclaredCapabilityImport { service: String },
+
     #[error("{0}")]
     Other(#[from] anyhow::Error),
 }

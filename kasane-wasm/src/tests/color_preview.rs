@@ -33,6 +33,42 @@ fn plugin_id() {
     assert_eq!(plugin.id().as_str(), "color_preview");
 }
 
+/// ADR-052 chunk E: a manifest that omits `[[capabilities.services]]`
+/// but the WASM imports `host-capabilities` is rejected at load time
+/// with the dedicated `UndeclaredCapabilityImport` error.
+#[test]
+fn rejects_capability_import_without_manifest_declaration() {
+    let loader = WasmPluginLoader::new().expect("failed to create loader");
+    let bytes = crate::load_wasm_fixture("color-preview.wasm").expect("failed to load fixture");
+    // Hand-rolled manifest that matches the bundled color-preview's ID
+    // and ABI but DROPS the `[[capabilities.services]] name = "buffer"`
+    // declaration. The bundled color-preview.wasm imports
+    // `kasane:plugin/host-capabilities`, so the load-time scan must
+    // surface the mismatch.
+    let toml = r#"
+[plugin]
+id = "color_preview"
+abi_version = "6.5.0"
+
+[handlers]
+flags = ["overlay", "input-handler", "annotator"]
+
+[view]
+deps = ["buffer-content", "buffer-cursor"]
+"#;
+    let manifest = crate::manifest::PluginManifest::parse(toml).expect("manifest parses");
+    manifest.validate().expect("manifest validates");
+    let result =
+        loader.load_with_manifest(&bytes, &manifest, &crate::WasiCapabilityConfig::default());
+    match result {
+        Err((_, crate::WasmPluginError::UndeclaredCapabilityImport { service })) => {
+            assert_eq!(service, "buffer");
+        }
+        Err((_, e)) => panic!("expected UndeclaredCapabilityImport, got error: {e}"),
+        Ok(_) => panic!("expected UndeclaredCapabilityImport, but load succeeded"),
+    }
+}
+
 #[test]
 fn detects_colors_in_line() {
     let mut plugin = load_color_preview_plugin();

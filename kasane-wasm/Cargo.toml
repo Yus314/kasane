@@ -10,6 +10,7 @@ kasane-plugin-package = { workspace = true }
 kasane-wit = { workspace = true }
 wasmtime = "43"
 wasmtime-wasi = "43"
+wasmparser = "0.245"
 anyhow = { workspace = true }
 tracing = { workspace = true }
 compact_str = { workspace = true }

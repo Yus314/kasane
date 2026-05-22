@@ -133,7 +133,7 @@ pub struct HostState {
 }
 
 /// Cached session descriptor for WASM host state.
-pub(crate) struct SessionDescriptorCache {
+pub struct SessionDescriptorCache {
     pub key: String,
     pub session_name: Option<String>,
     pub buffer_name: Option<String>,

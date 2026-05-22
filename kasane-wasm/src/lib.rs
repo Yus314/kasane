@@ -8,6 +8,7 @@ pub mod capability;
 mod convert;
 pub mod error;
 mod host;
+pub mod wit_imports;
 pub use kasane_plugin_package::manifest;
 
 mod bindings {
@@ -295,6 +296,32 @@ impl WasmPluginLoader {
                 ));
             }
         }
+        // ADR-052 chunk E: load-time scan for undeclared capability
+        // imports. The broker enforces the same bound at runtime, but
+        // surfacing the mismatch at load time turns a confusing
+        // `open-error::denied` into a clear "fix your manifest" error
+        // before the plugin runs a single instruction.
+        let required_services = wit_imports::required_services(wasm_bytes).map_err(|err| {
+            (
+                ProviderArtifactStage::Load,
+                WasmPluginError::ComponentLoad(err.into()),
+            )
+        })?;
+        for service in &required_services {
+            if !manifest
+                .service_capabilities()
+                .iter()
+                .any(|s| s.name == *service)
+            {
+                return Err((
+                    ProviderArtifactStage::Manifest,
+                    WasmPluginError::UndeclaredCapabilityImport {
+                        service: service.clone(),
+                    },
+                ));
+            }
+        }
+
         let component = self.load_component(wasm_bytes).map_err(|err| {
             (
                 ProviderArtifactStage::Load,
