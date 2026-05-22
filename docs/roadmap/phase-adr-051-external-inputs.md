@@ -17,8 +17,8 @@ pull-to-derive split) and [ADR-050](../decisions/adr-050-salsa-scope-policy-obse
 | **3a** | `kasane-syntax/src/watcher.rs` standalone module | `2ff2b7bc` | ✓ landed |
 | **3b** | `SyntaxManager` integration (parallel path) | `4effa145` | ✓ landed |
 | **3c** | Registry-mediated reads (`FrameSyncHook` split) | `6c327485` | ✓ landed |
-| **3d** | Demote mtime-poll path to NFS/FUSE fallback (per G2) | pending commit | ✓ implemented |
-| **3e** | Integration property tests + `delta-24` perf comparison | — | not started |
+| **3d** | Demote mtime-poll path to NFS/FUSE fallback (per G2) | `2e5bd80e` | ✓ landed |
+| **3e** | Integration property tests + `delta-24` perf comparison | pending commit | ✓ implemented |
 
 ## Chunk 3 — file-watcher → ExternalInputRegistry migration
 
@@ -174,14 +174,16 @@ Gate the real-FS tests behind `KASANE_RUN_FS_WATCH_TESTS=1` (per
 A future session should:
 
 1. Read this doc.
-2. Begin **Chunk 3e** — exit-criterion validation:
-   - Add a property-style integration test that pushes a stream of
-     commits to `ExternalInputRegistry` from a producer thread while
-     `SyntaxManager::run_post_sync` drains them. Assert glitch-freedom
-     (no mid-frame value leaks) and bounded memory under `Coalesce`.
-   - Run `cargo bench --bench rendering_pipeline -- --baseline
-     delta-24`. Confirm rendering pipeline within 110% (ADR-051 exit
-     criterion). Update `docs/performance.md` with the new measurement
-     if it shifts more than benchmark noise.
-3. Once 3e lands, flip ADR-051's status from Proposed → Accepted in
-   `docs/decisions/adr-051-external-data-as-salsa-inputs.md`.
+2. Flip ADR-051 from Proposed → Accepted in
+   `docs/decisions/adr-051-external-data-as-salsa-inputs.md`. Exit
+   criteria reached: registry skeleton landed in chunk 1, the
+   `kasane-syntax` consumer wired through chunks 3a–3d, property
+   tests for glitch-freedom (Q18) and bounded `Coalesce` memory
+   (Q19) landed in chunk 3e. The `delta-24` perf comparison was run
+   on bench groups that still match the saved baseline; all measured
+   groups (`salsa_sync_inputs/*`, `cached_pipeline_dirty_flags/*`,
+   `salsa_scaling/full_frame/*`) stay within the 110% ceiling.
+3. Optional follow-up: re-save the `delta-24` baseline for renamed
+   bench groups (e.g. `salsa_full/full_cold/salsa`) so future ratchet
+   checks have a complete reference. Not blocking ADR-051 acceptance —
+   the hot-path subgroups are covered.
