@@ -15,6 +15,10 @@ anyhow = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+# ADR-053 chunk 5: effect_yield bench measures SDK-side CPS overhead
+# against the MockHandler reference yielder. Path dep — sdk is
+# workspace-excluded so it's pulled in explicitly here.
+kasane-plugin-sdk = { path = "../kasane-plugin-sdk" }
 
 [[bench]]
 name = "raw_overhead"
@@ -30,4 +34,8 @@ harness = false
 
 [[bench]]
 name = "realistic"
+harness = false
+
+[[bench]]
+name = "effect_yield"
 harness = false
