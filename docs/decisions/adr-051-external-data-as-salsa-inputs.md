@@ -6,6 +6,13 @@ reconciliation. Builds on [ADR-020](./adr-020-salsa-incremental-computation-stag
 [ADR-035 §2](./adr-035-first-class-selection-and-time.md), and the
 buffer-lines migration in `kasane-core/src/salsa_sync.rs:149`.
 
+**Implementation progress.** Chunks 1+2 landed (`408cbe27`,
+`ef51cf0c`); registry skeleton lives at
+`kasane-core/src/salsa_inputs/external.rs` and is drained at the
+`sync_salsa_for_render` frame boundary. Chunk 3 (real source
+migration) and beyond are tracked at
+[`docs/roadmap/phase-adr-051-external-inputs.md`](../roadmap/phase-adr-051-external-inputs.md).
+
 ### Context
 
 External data enters Kasane today through three distinct routes:
