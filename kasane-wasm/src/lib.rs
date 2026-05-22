@@ -28,6 +28,19 @@ mod bindings {
 
 pub use capability::WasiCapabilityConfig;
 pub use error::WasmPluginError;
+
+/// Benchmark-only access to host-internal types.
+///
+/// Exposes `HostState` and the bindgen-generated `host-capabilities`
+/// traits so out-of-crate benches (in `benches/`) can exercise the
+/// ADR-052 capability-resource surface directly, without standing
+/// up a WASM guest. Not part of the public API — `#[doc(hidden)]`.
+#[doc(hidden)]
+pub mod bench_api {
+    pub use crate::bindings::kasane::plugin::host_capabilities::{Host, HostBufferView};
+    pub use crate::host::HostState;
+}
+
 /// Public name for a loaded WASM plugin. Re-exports
 /// [`kasane_core::plugin::PluginBridge`] (β-3.3b.12 loader-flip):
 /// `WasmPluginLoader::load` builds the internal adapter and returns a

@@ -17,7 +17,7 @@ use crate::convert;
 ///
 /// Contains cached copies of AppState fields. Updated before each WASM call
 /// via [`sync_from_app_state`].
-pub(crate) struct HostState {
+pub struct HostState {
     pub cursor_line: i32,
     pub cursor_col: i32,
     pub line_count: u32,

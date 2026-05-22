@@ -27,3 +27,7 @@ proptest = "1"
 [[bench]]
 name = "io_event"
 harness = false
+
+[[bench]]
+name = "buffer_view"
+harness = false
