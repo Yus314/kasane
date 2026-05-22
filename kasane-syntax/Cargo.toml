@@ -14,5 +14,8 @@ thiserror = { workspace = true }
 notify = { workspace = true }
 notify-debouncer-full = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }
+
 [dev-dependencies]
 tempfile = "3"

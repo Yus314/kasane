@@ -3,6 +3,7 @@
 //! Provides [`TreeSitterProvider`] (implements `kasane_core::syntax::SyntaxProvider`)
 //! and [`SyntaxManager`] (lifecycle management for per-buffer providers).
 
+mod fs_class;
 mod grammar;
 mod manager;
 mod provider;

@@ -2631,6 +2631,7 @@ name = "kasane-syntax"
 version = "0.1.0"
 dependencies = [
  "kasane-core",
+ "libc",
  "libloading 0.9.0",
  "notify",
  "notify-debouncer-full",

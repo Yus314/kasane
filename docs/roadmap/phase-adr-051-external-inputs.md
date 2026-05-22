@@ -16,8 +16,8 @@ pull-to-derive split) and [ADR-050](../decisions/adr-050-salsa-scope-policy-obse
 | **2** | Frame-boundary `drain()` / `clear_dirty()` wiring | `ef51cf0c` | ✓ landed |
 | **3a** | `kasane-syntax/src/watcher.rs` standalone module | `2ff2b7bc` | ✓ landed |
 | **3b** | `SyntaxManager` integration (parallel path) | `4effa145` | ✓ landed |
-| **3c** | Registry-mediated reads (`FrameSyncHook` split) | pending commit | ✓ implemented |
-| **3d** | Demote mtime-poll path to NFS/FUSE fallback (per G2) | — | not started |
+| **3c** | Registry-mediated reads (`FrameSyncHook` split) | `6c327485` | ✓ landed |
+| **3d** | Demote mtime-poll path to NFS/FUSE fallback (per G2) | pending commit | ✓ implemented |
 | **3e** | Integration property tests + `delta-24` perf comparison | — | not started |
 
 ## Chunk 3 — file-watcher → ExternalInputRegistry migration
@@ -174,16 +174,14 @@ Gate the real-FS tests behind `KASANE_RUN_FS_WATCH_TESTS=1` (per
 A future session should:
 
 1. Read this doc.
-2. Begin **Chunk 3d** — demote the mtime path to a conditional
-   NFS/FUSE fallback (per G2):
-   - In `SyntaxManager::run_post_sync`, emit the
-     `mtime changed without registry event` warn *only* when the
-     filesystem is known to lack working inotify (heuristic: check
-     `/proc/mounts` or treat repeated divergences as the signal).
-   - On filesystems where the watcher works, remove the mtime-driven
-     reparse trigger entirely so duplicate reparses don't happen for
-     fast successive edits.
-3. After 3d, **Chunk 3e** adds integration property tests
-   (glitch-freedom under bursty pushes, bounded memory under sustained
-   commits) and runs `cargo bench --bench rendering_pipeline -- --baseline
-   delta-24` to verify the 110% exit criterion.
+2. Begin **Chunk 3e** — exit-criterion validation:
+   - Add a property-style integration test that pushes a stream of
+     commits to `ExternalInputRegistry` from a producer thread while
+     `SyntaxManager::run_post_sync` drains them. Assert glitch-freedom
+     (no mid-frame value leaks) and bounded memory under `Coalesce`.
+   - Run `cargo bench --bench rendering_pipeline -- --baseline
+     delta-24`. Confirm rendering pipeline within 110% (ADR-051 exit
+     criterion). Update `docs/performance.md` with the new measurement
+     if it shifts more than benchmark noise.
+3. Once 3e lands, flip ADR-051's status from Proposed → Accepted in
+   `docs/decisions/adr-051-external-data-as-salsa-inputs.md`.

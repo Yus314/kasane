@@ -10,6 +10,7 @@ use kasane_core::salsa_inputs::external::{
 };
 use kasane_core::state::AppState;
 
+use crate::fs_class::{self, FsClass};
 use crate::grammar::{GrammarRegistry, language_for_extension};
 use crate::provider::TreeSitterProvider;
 use crate::watcher::FileWatcher;
@@ -38,6 +39,7 @@ struct ActiveBuffer {
     language: String,
     provider: Arc<TreeSitterProvider>,
     file_mtime: SystemTime,
+    fs_class: FsClass,
 }
 
 impl SyntaxManager {
@@ -144,11 +146,13 @@ impl SyntaxManager {
         let provider = Arc::new(provider);
         state.runtime.syntax_provider = Some(provider.clone());
 
+        let fs_class = fs_class::probe(&buffile);
         self.active = Some(ActiveBuffer {
             buffile,
             language: lang_name.to_string(),
             provider,
             file_mtime,
+            fs_class,
         });
     }
 
@@ -178,19 +182,26 @@ impl SyntaxManager {
             .ok();
         let mtime_changed = current_mtime.is_some_and(|m| m != active.file_mtime);
 
-        match (registry_fired, mtime_changed) {
-            (true, false) => tracing::warn!(
+        // `mtime_changed` only drives reparse on filesystems where the
+        // watcher is known unreliable. On local filesystems, the watcher
+        // is authoritative; a divergent mtime there indicates either a
+        // missed kernel event or clock skew — interesting either way.
+        let mtime_drives_reparse = matches!(active.fs_class, FsClass::InotifyBroken);
+
+        match (registry_fired, mtime_changed, active.fs_class) {
+            (true, false, _) => tracing::warn!(
                 buffile = %active.buffile.display(),
                 "registry fired but mtime unchanged"
             ),
-            (false, true) => tracing::warn!(
+            (false, true, FsClass::InotifyTrusted | FsClass::Unknown) => tracing::warn!(
                 buffile = %active.buffile.display(),
-                "mtime changed without registry event (NFS/FUSE fallback?)"
+                "mtime changed without registry event on a watcher-trusted FS"
             ),
             _ => {}
         }
 
-        if (registry_fired || mtime_changed)
+        let should_reparse = registry_fired || (mtime_drives_reparse && mtime_changed);
+        if should_reparse
             && let Ok(source) = std::fs::read(&active.buffile)
             && let Some(provider) = Arc::get_mut(&mut active.provider)
         {
