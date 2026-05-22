@@ -6,6 +6,13 @@ kasane_plugin_sdk::define_plugin! {
         active_line: i32 = -1,
     },
 
+    // ADR-053 chunk 5: empty `effects on StateChanged` block — the
+    // `#[bind]` auto-binding above is the only state-changed effect this
+    // plugin needs, and the macro runs it before the body. The block is
+    // present as a proof-of-form for the algebraic-effect surface; with
+    // no `yield` sites it projects `REQUIRED_CAPABILITIES = &[]`.
+    effects on StateChanged(_flags) {},
+
     display() {
         if state.active_line < 0 {
             return vec![];

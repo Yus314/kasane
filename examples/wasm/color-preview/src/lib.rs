@@ -279,7 +279,13 @@ kasane_plugin_sdk::define_plugin! {
         active_line: i32 = 0,
     },
 
-    on_state_changed_effects(dirty) {
+    // ADR-053 chunk 5: state-mutation-only handler migrated to the
+    // `effects on StateChanged` form. The body has no `yield` sites, so
+    // `REQUIRED_CAPABILITIES` projects to `&[]`; the macro-generated
+    // bridge returns an empty `KakouneSideEffects`. Behavioural diff
+    // versus the legacy form: none — the `#[bind]` auto-binding still
+    // runs before the body, and `state.color_lines` mutates in-place.
+    effects on StateChanged(dirty) {
         if dirty & dirty::BUFFER != 0 {
             let line_count = host_state::get_line_count();
             for i in 0..line_count {
@@ -308,7 +314,6 @@ kasane_plugin_sdk::define_plugin! {
             let lc = line_count as usize;
             state.color_lines.retain(|&k, _| k < lc);
         }
-        KakouneSideEffects::default()
     },
 
     handle_mouse(event, id) {
