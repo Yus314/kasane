@@ -1,6 +1,8 @@
 pub mod abi;
 mod adapter;
 mod authority;
+pub mod broker;
+pub mod buffer_view;
 mod cache;
 pub mod capability;
 mod convert;
@@ -12,6 +14,15 @@ mod bindings {
     wasmtime::component::bindgen!({
         world: "kasane-plugin",
         path: "../kasane-wit/wit",
+        with: {
+            // WIT 6.5 (ADR-052 chunk 1): map the `buffer-view` resource
+            // type to the host-side `BufferViewRep`. `Resource<BufferViewRep>`
+            // flows through the trait surface; the actual handle data lives
+            // in `HostState::table`.
+            // Resource type lookup keys use `.` between interface and item
+            // (see wasmtime-internal-wit-bindgen `Name::lookup_key`).
+            "kasane:plugin/host-capabilities.buffer-view": crate::buffer_view::BufferViewRep,
+        },
     });
 }
 
@@ -134,6 +145,11 @@ impl WasmPluginLoader {
         >(&mut linker, |state| state)?;
         // WIT 3.0 (ADR-035 §2): history interface
         bindings::kasane::plugin::history::add_to_linker::<
+            host::HostState,
+            HasSelf<host::HostState>,
+        >(&mut linker, |state| state)?;
+        // WIT 6.5 (ADR-052 chunk 1): capability resource interface
+        bindings::kasane::plugin::host_capabilities::add_to_linker::<
             host::HostState,
             HasSelf<host::HostState>,
         >(&mut linker, |state| state)?;
@@ -303,6 +319,7 @@ impl WasmPluginLoader {
 
         let host_state = host::HostState {
             wasi: wasi_ctx,
+            capability_broker: broker::CapabilityBroker::from_manifest(manifest),
             ..Default::default()
         };
 

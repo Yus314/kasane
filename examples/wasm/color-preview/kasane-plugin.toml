@@ -1,6 +1,13 @@
 [plugin]
 id = "color_preview"
-abi_version = "6.4.0"
+abi_version = "6.5.0"
+
+# ADR-052 chunk 4: declare the `buffer` capability so the host's
+# CapabilityBroker grants `open-buffer-view`. The safety-check call
+# site in `handle_mouse` uses BufferView to validate the literal at
+# the recorded byte offset before issuing the edit command.
+[[capabilities.services]]
+name = "buffer"
 
 [handlers]
 flags = ["overlay", "input-handler", "annotator"]

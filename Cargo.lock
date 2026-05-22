@@ -2687,6 +2687,7 @@ dependencies = [
  "kasane-core",
  "kasane-plugin-package",
  "kasane-wit",
+ "proptest",
  "serde",
  "sha2 0.11.0",
  "tempfile",

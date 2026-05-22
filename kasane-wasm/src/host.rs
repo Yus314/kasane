@@ -124,6 +124,12 @@ pub(crate) struct HostState {
 
     /// Resource limits for the WASM store (memory, tables, instances).
     pub store_limits: wasmtime::StoreLimits,
+
+    /// ADR-052 service capability gate. Populated from the plugin's
+    /// manifest at instantiation; `Default::default()` produces an
+    /// empty broker (no service authority) so tests and fallback
+    /// paths fail closed.
+    pub capability_broker: crate::broker::CapabilityBroker,
 }
 
 /// Cached session descriptor for WASM host state.
@@ -191,6 +197,7 @@ impl Default for HostState {
                 .table_elements(10_000)
                 .instances(10)
                 .build(),
+            capability_broker: crate::broker::CapabilityBroker::default(),
         }
     }
 }

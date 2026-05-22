@@ -48,6 +48,27 @@ pub struct CapabilitiesSection {
     /// process environment at load time.
     #[serde(default)]
     pub env_vars: Vec<String>,
+    /// ADR-052 capability resource declarations.
+    ///
+    /// Each entry names a service the plugin may acquire a capability
+    /// handle for via the WIT `host-capabilities` interface (e.g.
+    /// `open-buffer-view`). The `CapabilityBroker` (ADR-052 chunk 3)
+    /// uses this list as the authority bound: a plugin omitting a
+    /// service declaration receives `open-error::denied` from the
+    /// matching `open-*` call. Chunk 2 only ships the schema — the
+    /// broker wiring lands in chunk 3.
+    #[serde(default)]
+    pub services: Vec<ServiceDeclaration>,
+}
+
+/// A single ADR-052 service capability declaration.
+///
+/// Chunk 2 carries only `name`; chunks integrating ADR-056 (APL) will
+/// add a scope/attenuation field. The shape is array-of-tables so
+/// future fields can be added without a breaking manifest format.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ServiceDeclaration {
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -104,6 +125,9 @@ pub enum ManifestError {
     #[error("unknown capability name: {0}")]
     UnknownCapability(String),
 
+    #[error("unknown service capability name: {0}")]
+    UnknownService(String),
+
     #[error("unknown authority name: {0}")]
     UnknownAuthority(String),
 
@@ -132,7 +156,7 @@ pub enum ManifestError {
 }
 
 pub const CURRENT_MANIFEST_VERSION: u32 = 2;
-pub const HOST_ABI_VERSION: &str = "6.4.0";
+pub const HOST_ABI_VERSION: &str = "6.5.0";
 
 impl PluginManifest {
     pub fn parse(toml_str: &str) -> Result<Self, ManifestError> {
@@ -182,6 +206,20 @@ impl PluginManifest {
                     });
                 } else if authority_from_name(name).is_none() {
                     errors.push(ManifestError::UnknownAuthority(name.clone()));
+                }
+            }
+        }
+
+        {
+            let mut seen = std::collections::HashSet::new();
+            for service in &self.capabilities.services {
+                if !seen.insert(service.name.as_str()) {
+                    errors.push(ManifestError::DuplicateEntry {
+                        section: "capabilities.services",
+                        name: service.name.clone(),
+                    });
+                } else if service_from_name(&service.name).is_none() {
+                    errors.push(ManifestError::UnknownService(service.name.clone()));
                 }
             }
         }
@@ -298,6 +336,16 @@ impl PluginManifest {
         &self.capabilities.wasi
     }
 
+    /// ADR-052 service capability declarations from `[capabilities.services]`.
+    ///
+    /// Each entry names a service for which the plugin may acquire a
+    /// capability handle (e.g. `open-buffer-view` for `name = "buffer"`).
+    /// Chunk 3's `CapabilityBroker` consults this slice at acquisition
+    /// time; plugins omitting a needed declaration are denied.
+    pub fn service_capabilities(&self) -> &[ServiceDeclaration] {
+        &self.capabilities.services
+    }
+
     pub fn host_authorities(&self) -> &[String] {
         &self.authorities.host
     }
@@ -391,6 +439,20 @@ pub fn capability_from_name(name: &str) -> Option<&'static str> {
     }
 }
 
+/// Validate an ADR-052 service capability name.
+///
+/// Returns the canonical name on a hit and `None` on an unknown
+/// service. The set is intentionally narrow — chunk 2 ships only
+/// `buffer` (matching the `buffer-view` resource introduced in
+/// chunk 1); future chunks add `display`, `git`, etc. alongside
+/// their WIT resource definitions.
+pub fn service_from_name(name: &str) -> Option<&'static str> {
+    match name {
+        "buffer" => Some("buffer"),
+        _ => None,
+    }
+}
+
 pub fn authority_from_name(name: &str) -> Option<PluginAuthorities> {
     match name {
         "dynamic-surface" => Some(PluginAuthorities::DYNAMIC_SURFACE),
@@ -475,7 +537,7 @@ mod tests {
     const MINIMAL_MANIFEST: &str = r#"
 [plugin]
 id = "test_plugin"
-abi_version = "6.4.0"
+abi_version = "6.5.0"
 "#;
 
     #[test]
@@ -486,11 +548,70 @@ abi_version = "6.4.0"
     }
 
     #[test]
+    fn parse_service_capability_declaration() {
+        let toml = r#"
+[plugin]
+id = "buffer_reader"
+abi_version = "6.5.0"
+
+[[capabilities.services]]
+name = "buffer"
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        assert!(manifest.validate().is_ok());
+        let services = manifest.service_capabilities();
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0].name, "buffer");
+    }
+
+    #[test]
+    fn unknown_service_capability_is_rejected() {
+        let toml = r#"
+[plugin]
+id = "rogue"
+abi_version = "6.5.0"
+
+[[capabilities.services]]
+name = "teleportation"
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(
+            matches!(err, ManifestError::UnknownService(ref n) if n == "teleportation"),
+            "expected UnknownService(teleportation), got {err}"
+        );
+    }
+
+    #[test]
+    fn duplicate_service_capability_is_rejected() {
+        let toml = r#"
+[plugin]
+id = "double_dipper"
+abi_version = "6.5.0"
+
+[[capabilities.services]]
+name = "buffer"
+
+[[capabilities.services]]
+name = "buffer"
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        match err {
+            ManifestError::DuplicateEntry { section, name } => {
+                assert_eq!(section, "capabilities.services");
+                assert_eq!(name, "buffer");
+            }
+            other => panic!("expected DuplicateEntry, got {other}"),
+        }
+    }
+
+    #[test]
     fn validate_accumulates_multiple_errors() {
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "6.4.0"
+abi_version = "6.5.0"
 
 [capabilities]
 wasi = ["teleportation"]

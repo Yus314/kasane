@@ -8,7 +8,7 @@ the crate-level axis follows Rust semver and is enforced by Cargo.
 
 | Axis | Source of truth | Example |
 |---|---|---|
-| WIT ABI | `kasane-wit/wit/plugin.wit:1` | `package kasane:plugin@6.4.0;` |
+| WIT ABI | `kasane-wit/wit/plugin.wit:1` | `package kasane:plugin@6.5.0;` |
 | SDK crate semver | `kasane-plugin-sdk/Cargo.toml` | `version = "0.6.0"` |
 
 The two move together for major bumps that change the wire format. The
@@ -79,9 +79,21 @@ SDK that uses only existing WIT types is a *crate* minor bump but
 | 0.7.x | 6.1.0 | 0.7.x |
 | 0.7.x | 6.2.0 | 0.7.x |
 | 0.7.x | 6.3.0 | 0.7.x |
-| 0.7.x (current) | 6.4.0 | 0.7.x |
+| 0.7.x | 6.4.0 | 0.7.x |
+| 0.7.x (current) | 6.5.0 | 0.7.x |
 
 Future entries land here as releases ship.
+
+ABI 6.5.0 ([ADR-052](decisions/adr-052-capability-resources-via-wit.md)
+chunk 1) introduces the `host-capabilities` interface and the first
+WIT capability resource — `buffer-view`. Plugins acquire a handle via
+`open-buffer-view` and call methods on the handle; the resource type
+is the unforgeability guarantee (no Wasm-side construction path).
+Chunk 1 is the resource-shape skeleton only: every `open-buffer-view`
+succeeds when a buffer is focused, and `get-lines-text` on the handle
+mirrors `host-state::get-lines-text` for ergonomic validation. The
+`CapabilityBroker` (manifest-declared bounds at acquisition) lands in
+subsequent chunks. Pure additive — 6.x plugins continue to load.
 
 ABI 6.4.0 ([#111](https://github.com/Yus314/kasane/issues/111)) adds
 `get-display-cells-str` to `host-state`: a cluster-aware batch primitive

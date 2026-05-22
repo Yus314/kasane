@@ -1,4 +1,4 @@
-package kasane:plugin@6.4.0;
+package kasane:plugin@6.5.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -86,6 +86,18 @@ package kasane:plugin@6.4.0;
 // `unicode-width` 0.2; plugins doing column alignment over arbitrary
 // user content must use the batch primitive to match host layout.
 // Pure additive — minor bump.
+//
+// WIT 6.5 (ADR-052 chunk 1): introduces the first capability resource
+// — `buffer-view` — under a new `host-capabilities` interface. A
+// handle is acquired via `open-buffer-view` and threaded through
+// subsequent calls; unforgeability is the WIT resource-type guarantee
+// (no construction path from Wasm). Chunk 1 only ships the resource
+// shape with a single method (`get-lines-text`) that mirrors
+// `host-state::get-lines-text` for ergonomic validation; the
+// `host-state` function remains as the supported call site until
+// authority enforcement (chunks 2–3) and the SDK macro path (chunk 4)
+// land. The `open-error` variant is reserved for those chunks —
+// today every `open-buffer-view` succeeds. Pure additive — minor bump.
 
 interface types {
     enum named-color {
@@ -2316,10 +2328,59 @@ interface history {
     selection-at: func(at: time) -> option<selection-set>;
 }
 
+/// WIT 6.5 (ADR-052 chunk 1): capability resources.
+///
+/// Each resource type in this interface represents a discrete unit of
+/// authority. A plugin that does not hold the handle cannot perform
+/// the corresponding operation — the WIT resource type erases the
+/// only construction path, so handles cannot be forged from Wasm.
+/// Acquisition functions (`open-*`) return `result<handle, open-error>`;
+/// the host's `CapabilityBroker` (chunks 2–3) enforces manifest-
+/// declared bounds at acquisition time, not per-call.
+///
+/// In this chunk only `buffer-view` is defined; subsequent ADR-052
+/// chunks migrate further string-keyed authority surfaces (display,
+/// pubsub, daemon services) into resources.
+interface host-capabilities {
+    /// Reasons `open-*` may refuse to issue a capability handle.
+    ///
+    /// Variant ordering is the wire encoding (see
+    /// `docs/abi-versioning.md`) — append-only.
+    variant open-error {
+        /// Manifest does not declare the requested service capability,
+        /// or the declared attenuation excludes the requested scope.
+        denied,
+        /// The underlying host resource is not available (e.g. no
+        /// buffer focused for `open-buffer-view`).
+        unavailable,
+    }
+
+    /// Buffer-view capability — read-only access to focused-buffer
+    /// line text. Acquired via `open-buffer-view`; carries the same
+    /// semantics as `host-state::get-lines-text` for the methods it
+    /// exposes. Dropping the handle revokes access (membrane pattern,
+    /// vision §4.2.4).
+    resource buffer-view {
+        /// Bulk retrieval of buffer line text. Range is [start, end)
+        /// clamped to line count. Returns empty list when
+        /// start >= end or start >= line count. Mirrors
+        /// `host-state::get-lines-text`.
+        get-lines-text: func(start: u32, end: u32) -> list<string>;
+    }
+
+    /// Acquire a `buffer-view` capability handle. Returns
+    /// `open-error::denied` when the calling plugin's manifest does
+    /// not declare the corresponding service capability (chunks 2–3
+    /// gate this; chunk 1 always succeeds). Returns
+    /// `open-error::unavailable` when no buffer is currently focused.
+    open-buffer-view: func() -> result<buffer-view, open-error>;
+}
+
 world kasane-plugin {
     import host-state;
     import history;
     import element-builder;
     import host-log;
+    import host-capabilities;
     export plugin-api;
 }

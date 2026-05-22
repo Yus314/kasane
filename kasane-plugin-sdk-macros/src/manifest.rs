@@ -35,6 +35,18 @@ pub(crate) struct ManifestPlugin {
 pub(crate) struct ManifestCapabilities {
     #[serde(default)]
     pub(crate) wasi: Vec<String>,
+    /// ADR-052 service capability declarations. Chunk 2 parses; chunk 4
+    /// will surface the names into generated code so plugin identity
+    /// reflects requested authority (D4 / ADR-055).
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub(crate) services: Vec<ManifestServiceDeclaration>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ManifestServiceDeclaration {
+    #[allow(dead_code)]
+    pub(crate) name: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -53,6 +65,19 @@ pub(crate) struct ManifestHandlers {
 pub(crate) struct ManifestView {
     #[serde(default)]
     pub(crate) deps: Vec<String>,
+}
+
+/// Validate an ADR-052 service capability name at compile time.
+///
+/// Mirrors `kasane_plugin_package::manifest::service_from_name`. proc-macro
+/// crates cannot share runtime code, so the set is duplicated and the
+/// two must stay in sync.
+#[allow(dead_code)]
+pub(crate) fn compile_time_service_name(name: &str) -> Option<&'static str> {
+    match name {
+        "buffer" => Some("buffer"),
+        _ => None,
+    }
 }
 
 /// Map WASI capability name to the WIT enum variant path for codegen.
@@ -137,6 +162,13 @@ pub(crate) struct ManifestDef {
     /// Settings declared in manifest `[settings.*]` sections, keyed by name.
     /// Each value is the `type` string ("bool", "integer", "float", "string").
     pub(crate) settings_schema: std::collections::HashMap<String, String>,
+    /// ADR-052 service capability names declared in
+    /// `[[capabilities.services]]`. Chunk 4 will emit these into the
+    /// generated plugin bootstrap so plugin identity reflects requested
+    /// authority (per ADR-055). Today this is captured but not yet
+    /// consumed by codegen.
+    #[allow(dead_code)]
+    pub(crate) service_capabilities: Vec<String>,
 }
 
 /// Read and parse a manifest TOML file at compile time.
@@ -205,6 +237,32 @@ pub(crate) fn parse_manifest_at_compile_time(path_lit: &syn::LitStr) -> syn::Res
         view_deps_mask |= bit;
     }
 
+    // Validate ADR-052 service capabilities. Chunk 2 only validates the
+    // names; chunk 4 will fold them into the bootstrap codegen.
+    let mut service_capabilities = Vec::with_capacity(manifest.capabilities.services.len());
+    let mut seen_services = std::collections::HashSet::new();
+    for service in &manifest.capabilities.services {
+        if !seen_services.insert(service.name.clone()) {
+            return Err(syn::Error::new(
+                path_lit.span(),
+                format!(
+                    "duplicate service capability in manifest: `{}`",
+                    service.name
+                ),
+            ));
+        }
+        if compile_time_service_name(&service.name).is_none() {
+            return Err(syn::Error::new(
+                path_lit.span(),
+                format!(
+                    "unknown service capability in manifest: `{}`",
+                    service.name
+                ),
+            ));
+        }
+        service_capabilities.push(service.name.clone());
+    }
+
     // Compute handler capabilities bitmask
     let handler_caps_mask = if manifest.handlers.flags.is_empty() {
         None
@@ -242,5 +300,6 @@ pub(crate) fn parse_manifest_at_compile_time(path_lit: &syn::LitStr) -> syn::Res
         has_view_deps,
         handler_caps_mask,
         settings_schema,
+        service_capabilities,
     })
 }

@@ -154,6 +154,14 @@ abi_version = "1.0.0"
 [capabilities]
 wasi = ["process"]
 
+# ADR-052: WIT capability resource declarations. Each entry names a
+# service for which the plugin may acquire an unforgeable handle via
+# the matching `open-*` import (e.g. `open-buffer-view`). The
+# `CapabilityBroker` denies acquisition for undeclared services. Known
+# service names: "buffer".
+[[capabilities.services]]
+name = "buffer"
+
 [authorities]
 host = ["pty-process"]
 
@@ -174,6 +182,7 @@ deps = ["buffer-content", "buffer-cursor", "menu-structure", "menu-selection"]
 | `plugin.id` | Yes | — | Plugin identifier |
 | `plugin.abi_version` | Yes | — | WIT package version the plugin targets (see [ABI Versioning Policy](abi-versioning.md)) |
 | `capabilities.wasi` | No | `[]` | WASI capabilities for sandbox construction |
+| `[[capabilities.services]]` | No | `[]` | ADR-052 service capability declarations (each entry has `name` matching a known service like `"buffer"`) |
 | `authorities.host` | No | `[]` | Host authorities for privileged effects |
 | `handlers.flags` | No | `[]` (→ all) | Handler capability bitmask (empty = all-set) |
 | `handlers.transform_targets` | No | `[]` | Transform target names for interference detection |
@@ -331,8 +340,10 @@ kasane plugin dev --release      # Same, but release builds
 `kasane plugin dev` does the same as `install`, then watches `src/`, `Cargo.toml`, and `kasane-plugin.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
 WASM plugin ABI note: current Kasane releases expect
-`kasane:plugin@6.4.0` (adds `get-display-cells-str` cluster-aware
-batch primitive per [#111](https://github.com/Yus314/kasane/issues/111)).
+`kasane:plugin@6.5.0` (adds the `host-capabilities` interface and the
+first capability resource — `buffer-view` — per ADR-052 chunk 1).
+ABI 6.4.0 added `get-display-cells-str` cluster-aware batch primitive
+per [#111](https://github.com/Yus314/kasane/issues/111).
 ABI 6.3.0 added `emit-diagnostic` plugin-emitted diagnostic command per
 [#106](https://github.com/Yus314/kasane/issues/106). ABI 6.2.0 added
 `cell-metrics` + 3 font/cell accessors per
@@ -341,8 +352,8 @@ ABI 6.3.0 added `emit-diagnostic` plugin-emitted diagnostic command per
 ABI 6.0.0 was Phase β-4 — removing the retired `evaluate-extension`
 export per [ADR-045](decisions/adr-045-retire-the-extension-point-dispatch-path.md).
 ABI 5.0.0 is the [ADR-044](decisions/adr-044-handler-effect-tier-hierarchy.md)
-tier-hierarchy split. 6.x plugins (6.0.0 / 6.1.0 / 6.2.0 / 6.3.0) continue to
-load against 6.4.0 hosts (additive bumps). Rebuild and reinstall any
+tier-hierarchy split. 6.x plugins (6.0.0 – 6.4.0) continue to
+load against 6.5.0 hosts (additive bumps). Rebuild and reinstall any
 plugin built against 5.x or earlier; those binaries are rejected at
 load time. See [`docs/migration/0.6-to-0.7.md` §8.3](migration/0.6-to-0.7.md)
 for the per-handler tier mapping.
@@ -367,7 +378,7 @@ If you are upgrading a plugin from `0.25.0`, the required changes are:
    `theme_face_or` → `theme_style_or`, `get_theme_face` → `get_theme_style`,
    `face_merge::*` → `style_merge::*`.
 5. Rebuild and reinstall the `.wasm`. Existing artifacts built against
-   `0.25.0` are rejected at load time by `kasane:plugin@6.4.0` hosts.
+   `0.25.0` are rejected at load time by `kasane:plugin@6.5.0` hosts.
 
 The `style` record exposes `font_weight: u16`, `font_slant`,
 `font_features`, `font_variations`, `letter_spacing`, `underline` /

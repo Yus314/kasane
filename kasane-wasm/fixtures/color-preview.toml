@@ -1,6 +1,10 @@
 [plugin]
 id = "color_preview"
-abi_version = "6.4.0"
+abi_version = "6.5.0"
+
+# ADR-052 chunk 4: BufferView capability for handle_mouse safety check.
+[[capabilities.services]]
+name = "buffer"
 
 [handlers]
 flags = ["overlay", "input-handler", "annotator"]
