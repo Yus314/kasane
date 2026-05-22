@@ -6,7 +6,9 @@
 mod grammar;
 mod manager;
 mod provider;
+mod watcher;
 
 pub use grammar::GrammarRegistry;
 pub use manager::SyntaxManager;
 pub use provider::TreeSitterProvider;
+pub use watcher::{FileWatcher, FileWatcherError};

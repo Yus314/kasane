@@ -14,10 +14,10 @@ pull-to-derive split) and [ADR-050](../decisions/adr-050-salsa-scope-policy-obse
 |---|---|---|---|
 | **1** | `ExternalInputRegistry` skeleton + 8 unit tests | `408cbe27` | ✓ landed |
 | **2** | Frame-boundary `drain()` / `clear_dirty()` wiring | `ef51cf0c` | ✓ landed |
-| **3a** | `kasane-syntax/src/watcher.rs` standalone module | — | open |
+| **3a** | `kasane-syntax/src/watcher.rs` standalone module | pending commit | ✓ implemented |
 | **3b** | `SyntaxManager` integration (parallel path) | — | not started |
 | **3c** | Registry-mediated reads (consumer migration) | — | not started |
-| **3d** | Remove mtime-poll path | — | not started |
+| **3d** | Demote mtime-poll path to NFS/FUSE fallback (per G2) | — | not started |
 | **3e** | Integration property tests + `delta-24` perf comparison | — | not started |
 
 ## Chunk 3 — file-watcher → ExternalInputRegistry migration
@@ -64,16 +64,16 @@ Total: ~4–5 days. Each sub-chunk is an independent PR.
 | **D1** | Value type held by registry | `PathBuf` (file I/O stays main-thread) | confirmed |
 | **D2** | What to watch | Current buffer's file only; workspace-wide watching deferred | confirmed |
 | **D3** | Channel form | `std::sync::mpsc::channel` (unbounded; back-pressure lives in registry policy) | confirmed |
-| **D4** | `notify` library variant | `notify-debouncer-mini` vs `notify-debouncer-full` vs raw `notify` | **OPEN** |
+| **D4** | `notify` library variant | `notify-debouncer-full = "0.4"` (paired with workspace `notify = "7"`); newer `0.5+` requires `notify 8`, deferred | confirmed (3a) |
 | **D5** | Channel-drain call site | Inside `SyntaxManager::pre_render` initially; promote to dedicated hook if other sources adopt | confirmed |
-| **D6** | Migration strategy | parallel path (3b retains mtime poll, 3d removes it) vs hard cutover at 3b | **OPEN** |
+| **D6** | Migration strategy | Parallel path: 3b retains mtime poll, 3d demotes it to NFS/FUSE fallback | confirmed (3a) |
 
 ### Gotchas (known traps; address explicitly in sub-chunks)
 
 | # | Trap | Mitigation |
 |---|---|---|
 | G1 | macOS FSEvents emits multiple events per save | debouncer required (drives D4) |
-| **G2** | NFS / FUSE filesystems lack working inotify | **OPEN**: retain mtime poll as fallback permanently, or drop it (drives D6) |
+| **G2** | NFS / FUSE filesystems lack working inotify | Confirmed (3a): retain mtime poll as a fallback path; 3d demotes rather than removes it |
 | G3 | Editor save dance (`.swp` write + rename) emits `Create + Remove`, not just `Modify` | Watcher must accept any event kind on the watched path |
 | G4 | Symlink vs canonical path mismatch | `canonicalize` once at `watch()` time; compare canonical forms |
 | G5 | CI containers cap `fs.inotify.max_user_watches` (often 128 or 8192) | `FileWatcher::new()` must surface the OS error rather than panic; tests must cover graceful failure |
@@ -82,22 +82,22 @@ Total: ~4–5 days. Each sub-chunk is an independent PR.
 
 ### Open decisions blocking Chunk 3a
 
-Four items must be resolved before writing `kasane-syntax/src/watcher.rs`:
+All four items are resolved (2026-05-22 in-session). The resolutions are
+captured in the table above; the records below preserve the rationale.
 
-1. **D4 (debouncer choice).** Affects dependency footprint and API
-   shape. `mini` is lighter, `full` adds debounce-with-content-hash and
-   better cross-platform behaviour. Recommended: start with
-   `notify-debouncer-full` unless workspace dep policy objects.
-2. **D6 (migration strategy).** Parallel path is safer (regressions
-   visible in cross-validation log); hard cutover is leaner. Recommended:
-   parallel path.
-3. **G2 (polling fallback retention).** If yes, Chunk 3d becomes
-   "polling fallback for NFS only" rather than "remove poll".
-   Recommended: yes (VS Code and JetBrains both retain fallback).
-4. **Test strategy.** CI integration tests that touch real filesystem
-   are flaky on some CI environments. Options: skip in CI with
-   `#[ignore]`, gate by env var, or always run and tolerate flakes.
-   Recommended: gate by `KASANE_RUN_FS_WATCH_TESTS=1` env var.
+1. **D4 — `notify-debouncer-full = "0.4"`.** Workspace already pins
+   `notify = "7"`. The `0.5+` series of debouncer-full requires
+   `notify 8`, which would force a wider bump (kasane-tui, kasane-gui,
+   `kasane` wasm-plugins). Deferred to a separate dep-bump change.
+2. **D6 — parallel path.** Mtime poll stays in `SyntaxManager` through
+   3b so the cross-validation log can flag drift between the two
+   sources of truth.
+3. **G2 — fallback retained.** 3d demotes the mtime path to a
+   conditional NFS/FUSE fallback rather than removing it outright.
+4. **Test strategy — env-gated.** Tests touch the real filesystem only
+   when `KASANE_RUN_FS_WATCH_TESTS=1`. A platform-portable
+   `watch_missing_path_returns_error_not_panic` test runs
+   unconditionally so the error surface stays covered.
 
 ### Chunk 3a — concrete starting point
 
@@ -174,7 +174,13 @@ Gate the real-FS tests behind `KASANE_RUN_FS_WATCH_TESTS=1` (per
 A future session should:
 
 1. Read this doc.
-2. Confirm or revise the four **OPEN** decisions above (D4, D6, G2,
-   test strategy). Recommended starting positions are in §"Open
-   decisions blocking Chunk 3a".
-3. Begin Chunk 3a per §"Chunk 3a — concrete starting point".
+2. Begin **Chunk 3b** — wire `FileWatcher` into `SyntaxManager`:
+   - Hold a `FileWatcher` on the active buffer; `watch()` on buffer
+     change, `unwatch()` on clear.
+   - In `pre_render`, drain `try_recv_all` and reuse the existing
+     re-parse path. Keep the mtime check (parallel path per D6) and
+     emit a `tracing` warn when only one source observes a change.
+3. Confirm or revise the registry connection point: 3b can land before
+   the registry is wired in (the watcher already produces canonical
+   paths); 3c then re-routes consumption through
+   `ExternalInputRegistry`.
