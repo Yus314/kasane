@@ -115,3 +115,9 @@ Per-ADR files live under [`docs/decisions/`](./decisions/). Click an entry to op
 | ADR-048 | Plugin Backend Trait Extinction (Phase β) | [`adr-048-plugin-backend-trait-extinction-phase.md`](./decisions/adr-048-plugin-backend-trait-extinction-phase.md) |
 | ADR-049 | `PluginEntry` Shape and β-3.3 Staging | [`adr-049-pluginentry-shape-and-33-staging.md`](./decisions/adr-049-pluginentry-shape-and-33-staging.md) |
 | ADR-050 | Salsa Scope Policy — Observed Inputs Only | [`adr-050-salsa-scope-policy-observed-inputs-only.md`](./decisions/adr-050-salsa-scope-policy-observed-inputs-only.md) |
+| ADR-051 | External Data as Salsa Inputs (DDD-CST Phase α) — Proposed | [`adr-051-external-data-as-salsa-inputs.md`](./decisions/adr-051-external-data-as-salsa-inputs.md) |
+| ADR-052 | Capability Resources via WIT (DDD-CST Phase β) — Proposed | [`adr-052-capability-resources-via-wit.md`](./decisions/adr-052-capability-resources-via-wit.md) |
+| ADR-053 | Algebraic Effect Macros for the Plugin SDK (DDD-CST Phase γ) — Proposed | [`adr-053-algebraic-effect-macros-plugin-sdk.md`](./decisions/adr-053-algebraic-effect-macros-plugin-sdk.md) |
+| ADR-054 | Daemon Registry as Transport Layer (DDD-CST Phase ε) — Proposed | [`adr-054-daemon-registry-as-transport-layer.md`](./decisions/adr-054-daemon-registry-as-transport-layer.md) |
+| ADR-055 | Prefix / Effect-Log Split for Non-Deterministic Execution Identity — Proposed | [`adr-055-prefix-effect-log-split.md`](./decisions/adr-055-prefix-effect-log-split.md) |
+| ADR-056 | Attenuation Predicate Language (APL) — Proposed | [`adr-056-attenuation-predicate-language.md`](./decisions/adr-056-attenuation-predicate-language.md) |
