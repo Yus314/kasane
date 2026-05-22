@@ -8,6 +8,17 @@ tier hierarchy) and the existing `Effects` type. Pairs with
 [ADR-052](./adr-052-capability-resources-via-wit.md) for capability
 ↔ effect duality.
 
+**Update 1 (2026-05-22, baseline spike):** Wasmtime 43 baseline on
+`kasane-wasm-bench/benches/component_model.rs` shows host-call round-
+trip at **~115 ns per host call** (`on_state_changed` aggregate
+779 ns − guest call 430 ns ÷ 3 host calls) and a single-host-call
+guest function at **~400 ns** (`contribute_lines_24`). A CPS-encoded
+effect yield maps to one host call plus macro-generated state-machine
+bookkeeping; estimated per-yield cost is **≤1 µs** worst-case.
+The **>5 µs/yield abandon threshold has ≥5× headroom**. Full
+effect-yield benchmark deferred to implementation; macro-debuggability
+abandon criterion (Q21) remains the primary open risk.
+
 ### Context
 
 Kasane already has a typed `Effects` enum that plugins return from

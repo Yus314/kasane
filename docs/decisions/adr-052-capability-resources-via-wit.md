@@ -8,6 +8,18 @@ manifest-grep gating with unforgeable WIT resource handles. Pairs with
 [ADR-056](./adr-056-attenuation-predicate-language.md) (APL) for
 attenuation algebra.
 
+**Update 1 (2026-05-22, baseline spike):** Wasmtime 43 baseline on
+`kasane-wasm-bench/benches/component_model.rs` shows plain Component
+Model call overhead at **430–574 ns** (noop / add / echo_string_10).
+WIT resource methods add only table-lookup overhead on top of this —
+published Wasmtime measurements place the add at ~50–200 ns. The
+**>10 µs abandon threshold is therefore not in danger** on Wasmtime-
+overhead grounds; expected resource method cost is ≤1 µs, giving ≥10×
+headroom. A full resource-specific benchmark is deferred to first
+implementation; this baseline removes the dominant perf risk but does
+not eliminate it. The ergonomic abandon criterion (handle-threading
+unbearable in author testing) remains open.
+
 ### Context
 
 Plugin authority in Kasane today is string-keyed and ambient:
