@@ -14,8 +14,8 @@ pull-to-derive split) and [ADR-050](../decisions/adr-050-salsa-scope-policy-obse
 |---|---|---|---|
 | **1** | `ExternalInputRegistry` skeleton + 8 unit tests | `408cbe27` | ✓ landed |
 | **2** | Frame-boundary `drain()` / `clear_dirty()` wiring | `ef51cf0c` | ✓ landed |
-| **3a** | `kasane-syntax/src/watcher.rs` standalone module | pending commit | ✓ implemented |
-| **3b** | `SyntaxManager` integration (parallel path) | — | not started |
+| **3a** | `kasane-syntax/src/watcher.rs` standalone module | `2ff2b7bc` | ✓ landed |
+| **3b** | `SyntaxManager` integration (parallel path) | pending commit | ✓ implemented |
 | **3c** | Registry-mediated reads (consumer migration) | — | not started |
 | **3d** | Demote mtime-poll path to NFS/FUSE fallback (per G2) | — | not started |
 | **3e** | Integration property tests + `delta-24` perf comparison | — | not started |
@@ -174,13 +174,18 @@ Gate the real-FS tests behind `KASANE_RUN_FS_WATCH_TESTS=1` (per
 A future session should:
 
 1. Read this doc.
-2. Begin **Chunk 3b** — wire `FileWatcher` into `SyntaxManager`:
-   - Hold a `FileWatcher` on the active buffer; `watch()` on buffer
-     change, `unwatch()` on clear.
-   - In `pre_render`, drain `try_recv_all` and reuse the existing
-     re-parse path. Keep the mtime check (parallel path per D6) and
-     emit a `tracing` warn when only one source observes a change.
-3. Confirm or revise the registry connection point: 3b can land before
-   the registry is wired in (the watcher already produces canonical
-   paths); 3c then re-routes consumption through
-   `ExternalInputRegistry`.
+2. Begin **Chunk 3c** — re-route the watcher signal through
+   `ExternalInputRegistry`:
+   - Register an `ExternalInputId<PathBuf>` for the syntax-reload
+     source (host-side, name something like `"syntax.reload"`).
+   - In `SyntaxManager::update`, replace the local `drain_watcher`
+     check with `registry.read(id)` after the frame-boundary drain has
+     run. The watcher commits canonical paths into the registry from
+     `pre_render`; consumers read from Salsa-tracked state.
+   - Remove the `#![allow(dead_code)]` from
+     `kasane-core/src/salsa_inputs/external.rs` once the first
+     production caller (this one) lands.
+3. After 3c is stable, **Chunk 3d** demotes the mtime path to a
+   conditional NFS/FUSE fallback (per G2): emit the cross-validation
+   warn only on filesystems where inotify is known-broken; remove the
+   reparse trigger from the mtime branch otherwise.

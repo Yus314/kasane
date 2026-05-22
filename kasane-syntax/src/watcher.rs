@@ -64,6 +64,7 @@ impl FileWatcher {
     /// Watch a single file. Replaces any previous watch.
     pub fn watch(&mut self, path: &Path) -> Result<(), FileWatcherError> {
         self.active = None;
+        self.flush_channel();
 
         let canonical = path
             .canonicalize()
@@ -124,7 +125,15 @@ impl FileWatcher {
     /// Stop watching. Idempotent.
     pub fn unwatch(&mut self) -> Result<(), FileWatcherError> {
         self.active = None;
+        self.flush_channel();
         Ok(())
+    }
+
+    /// Drain and discard any pending messages on the channel. Used to
+    /// prevent events from a previous target from being delivered to a
+    /// caller after a `watch()` / `unwatch()` transition.
+    fn flush_channel(&mut self) {
+        while self.rx.try_recv().is_ok() {}
     }
 
     /// Return the path currently watched (canonical form), if any.
