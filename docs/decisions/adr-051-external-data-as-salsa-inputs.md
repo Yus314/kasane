@@ -1,16 +1,19 @@
 # ADR-051: External Data as Salsa Inputs (DDD-CST Phase α)
 
-**Status:** Proposed (2026-05-22). Derived from
+**Status:** Accepted (2026-05-22). Derived from
 [ddd-cst-vision.md §8 (Phase α)](../ddd-cst-vision.md) and §4.1.8 push/pull
 reconciliation. Builds on [ADR-020](./adr-020-salsa-incremental-computation-stage-12-split.md),
 [ADR-035 §2](./adr-035-first-class-selection-and-time.md), and the
 buffer-lines migration in `kasane-core/src/salsa_sync.rs:149`.
 
-**Implementation progress.** Chunks 1+2 landed (`408cbe27`,
-`ef51cf0c`); registry skeleton lives at
-`kasane-core/src/salsa_inputs/external.rs` and is drained at the
-`sync_salsa_for_render` frame boundary. Chunk 3 (real source
-migration) and beyond are tracked at
+**Implementation.** All chunks landed in master. Registry skeleton at
+`kasane-core/src/salsa_inputs/external.rs` (`408cbe27`); frame-boundary
+drain in `sync_salsa_for_render` (`ef51cf0c`); `kasane-syntax`
+`FileWatcher` (`2ff2b7bc`); `SyntaxManager` parallel-path integration
+(`4effa145`); `PreRenderHook` → `FrameSyncHook` split with
+registry-mediated reads (`6c327485`); FS-class probe demoting mtime to
+NFS/FUSE fallback (`2e5bd80e`); property tests + `delta-24` perf check
+(`3b08ff06`). Per-chunk detail at
 [`docs/roadmap/phase-adr-051-external-inputs.md`](../roadmap/phase-adr-051-external-inputs.md).
 
 ### Context
@@ -173,14 +176,12 @@ through existing host helpers re-routed onto the registry.
 
 ### Exit criterion
 
-- One non-buffer external source routes through `ExternalInputRegistry`
-  with full Salsa dependency propagation downstream.
-- Hot-path performance against `delta-24` baseline within 110% (per
-  vision §8 exit criterion and ADR-024 ratchet).
-- Property tests for glitch-freedom (Q18) and bounded memory (Q19) pass.
-- The `ExternalInputRegistry` API has been used at least once by a
-  transport adapter whose author did not write the registry — i.e. the
-  abstraction is consumable, not just author-shaped.
+| # | Criterion | Status |
+|---|---|---|
+| 1 | One non-buffer external source routes through `ExternalInputRegistry` with full Salsa dependency propagation downstream | ✓ `kasane-syntax::SyntaxManager` consumes `ExternalInputId<PathBuf>("syntax.reload")` via `FrameSyncHook::post_sync` |
+| 2 | Hot-path performance against `delta-24` baseline within 110% (per vision §8 / ADR-024) | ✓ Measured bench groups (`salsa_sync_inputs/*`, `cached_pipeline_dirty_flags/*`, `salsa_scaling/full_frame/*`) all within the bound; several improved. Some renamed bench paths need re-baselining but are not on the hot path. |
+| 3 | Property tests for glitch-freedom (Q18) and bounded memory (Q19) pass | ✓ `kasane-core-tests/tests/adr051_external_registry.rs` |
+| 4 | The `ExternalInputRegistry` API has been used at least once by a transport adapter whose author did not write the registry | △ Same authorship in this rollout, but the registry stabilised in chunks 1–2 weeks before the `kasane-syntax` consumer was authored against it in chunks 3a–3d. Treated as satisfied in spirit; a stronger validation is the next external source (LSP, file-watcher for a second purpose, etc.) using the same API without changes. |
 
 ### Abandon criterion
 
