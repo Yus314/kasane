@@ -8,6 +8,13 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+# Match cursor-line: declare the feature so the SDK macro's
+# `#[cfg(feature = "test-harness")]` branches don't trigger
+# unexpected-cfg warnings even though color-preview's own tests do
+# not use the harness.
+test-harness = ["kasane-plugin-sdk/test-harness"]
+
 [dependencies]
 kasane-plugin-sdk = { path = "../../../kasane-plugin-sdk" }
 wit-bindgen = "0.53"

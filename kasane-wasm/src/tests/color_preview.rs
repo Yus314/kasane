@@ -14,9 +14,17 @@ fn apply_color_preview_state_change(
 fn load_color_preview_plugin() -> crate::WasmPlugin {
     let loader = WasmPluginLoader::new().expect("failed to create loader");
     let bytes = crate::load_wasm_fixture("color-preview.wasm").expect("failed to load fixture");
+    // ADR-052 chunk 4: color-preview now declares a `buffer` service
+    // capability and exercises `open-buffer-view` in `handle_mouse`.
+    // The manifest path is the only one that initializes the host's
+    // `CapabilityBroker` from the declared services — the broker-less
+    // `load(...)` path leaves the broker empty (default policy: deny
+    // every service) which would block `open-buffer-view`.
+    let manifest = load_fixture_manifest("color-preview.toml");
     loader
-        .load(&bytes, &crate::WasiCapabilityConfig::default())
-        .expect("failed to load plugin")
+        .load_with_manifest(&bytes, &manifest, &crate::WasiCapabilityConfig::default())
+        .map_err(|(_, e)| e)
+        .expect("failed to load plugin with manifest")
 }
 
 #[test]

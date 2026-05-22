@@ -59,6 +59,16 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             // Re-export host-log for direct use
             pub use super::kasane::plugin::host_log;
 
+            // ADR-052 chunk 4: re-export the WIT `host-capabilities`
+            // interface so plugins can call `open-buffer-view` (and
+            // future `open-*` capability resources) without manually
+            // referencing `kasane::plugin::host_capabilities`. The
+            // test-harness mock is not yet wired — tests that exercise
+            // capability resources must extract the buffer-reading
+            // logic into a pure function or skip the path in the mock.
+            #[cfg(not(feature = "test-harness"))]
+            pub use super::kasane::plugin::host_capabilities;
+
             use super::kasane::plugin::types::*;
 
             // -----------------------------------------------------------------

@@ -869,6 +869,33 @@ pub(crate) fn define_plugin_impl(
         quote! {}
     };
 
+    // ADR-052 chunk 4: surface declared service capabilities as a
+    // const so plugin code and tooling can introspect requested
+    // authority without re-parsing the manifest. Identity-reflects-
+    // authority (ADR-055) holds via the .kpk package hash — the
+    // manifest is part of the artifact — so this constant is
+    // informational, not a security boundary.
+    let service_capabilities_const = if let Some(ref m) = def.manifest {
+        let names = &m.service_capabilities;
+        if names.is_empty() {
+            quote! {
+                #[allow(dead_code)]
+                pub const REQUESTED_SERVICES: &[&str] = &[];
+            }
+        } else {
+            let entries = names.iter().map(|n| quote! { #n });
+            quote! {
+                #[allow(dead_code)]
+                pub const REQUESTED_SERVICES: &[&str] = &[ #( #entries ),* ];
+            }
+        }
+    } else {
+        quote! {
+            #[allow(dead_code)]
+            pub const REQUESTED_SERVICES: &[&str] = &[];
+        }
+    };
+
     // Combine everything
     Ok(quote! {
         #wit_bindings
@@ -879,6 +906,7 @@ pub(crate) fn define_plugin_impl(
 
         #state_tokens
         #settings_getters
+        #service_capabilities_const
 
         struct __KasanePlugin;
 

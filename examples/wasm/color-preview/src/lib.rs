@@ -333,8 +333,18 @@ kasane_plugin_sdk::define_plugin! {
         let mut channels = [entry.r, entry.g, entry.b];
         channels[channel as usize] = (channels[channel as usize] as i16 + delta).clamp(0, 255) as u8;
 
-        // Safety check: verify old text at expected offset
-        let buffer_text = host_state::get_line_text(line_idx as u32).unwrap_or_default();
+        // Safety check: verify old text at expected offset. ADR-052
+        // chunk 4 — acquire a `BufferView` capability handle for the
+        // read instead of using the ambient `host_state` accessor.
+        // The `[[capabilities.services]] name = "buffer"` manifest
+        // declaration is the host's authority bound for this call.
+        let buffer_text = host_capabilities::open_buffer_view()
+            .ok()
+            .map(|bv| {
+                let lines = bv.get_lines_text(line_idx as u32, line_idx as u32 + 1);
+                lines.into_iter().next().unwrap_or_default()
+            })
+            .unwrap_or_default();
         let old_text = &entry.original;
         if !buffer_text
             .get(entry.byte_offset..)
