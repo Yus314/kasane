@@ -1,0 +1,21 @@
+error: `effects on StateChanged` conflicts with `on_state_changed_effects(...) { ... }`; use one or the other
+  --> tests/fail/define_plugin_effects_block_conflict.rs:7:1
+   |
+ 7 | / kasane_plugin_sdk::define_plugin! {
+ 8 | |     id: "effects_block_conflict",
+ 9 | |
+10 | |     on_state_changed_effects(flags) {
+...  |
+17 | |     },
+18 | | }
+   | |_^
+   |
+   = note: this error originates in the macro `kasane_plugin_sdk::define_plugin` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused import: `kasane_plugin_sdk::effects::Effect`
+ --> tests/fail/define_plugin_effects_block_conflict.rs:5:5
+  |
+5 | use kasane_plugin_sdk::effects::Effect;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

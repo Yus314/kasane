@@ -47,6 +47,28 @@
 //! In `handle_key`, `overlay`, `on_io_event_effects`, etc., `state` is mutable and
 //! `bump_generation()` is called automatically when the guard drops.
 //!
+//! ## Algebraic-effect form (ADR-053)
+//!
+//! Tier-1 handlers can be written in `effects on <Trigger>(<params>)`
+//! form, where each `yield Effect::X(...)` lowers to a host call through
+//! a macro-generated yielder:
+//!
+//! ```ignore
+//! use kasane_plugin_sdk::effects::Effect;
+//!
+//! kasane_plugin_sdk::define_plugin! {
+//!     id: "demo",
+//!
+//!     effects on StateChanged(flags) {
+//!         yield Effect::Redraw(flags);
+//!     },
+//! }
+//! ```
+//!
+//! Supported triggers: `StateChanged`, `Init`, `SessionReady`. The
+//! algebraic form and the legacy `on_state_changed_effects` / etc.
+//! handler blocks are mutually exclusive per trigger.
+//!
 //! For backend-independent physical chrome, implement `Guest::render_ornaments`
 //! and return an `OrnamentBatch` with emphasis, cursor, or surface proposals.
 //!
@@ -85,6 +107,7 @@
 //! `#[plugin]` fills in default implementations for all `Guest` methods
 //! you don't write.
 
+pub mod effects;
 pub mod kak;
 pub mod kak_cmd;
 

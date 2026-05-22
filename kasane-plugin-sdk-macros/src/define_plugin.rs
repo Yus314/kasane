@@ -1,3 +1,4 @@
+use proc_macro2::{Group, TokenStream, TokenTree};
 use quote::quote;
 use syn::ImplItemFn;
 
@@ -43,6 +44,64 @@ pub(crate) struct PluginDef {
     actions: Option<Vec<ActionDef>>,
     settings: Option<Vec<SettingFieldDef>>,
     impl_block: Option<Vec<ImplItemFn>>,
+    effects_blocks: Option<Vec<EffectsBlock>>,
+}
+
+/// ADR-053: a single `effects on <Trigger>(...) { ... }` section.
+struct EffectsBlock {
+    trigger: EffectsTrigger,
+    /// Parameter name(s) the user wrote inside `Trigger(...)`. Bound as
+    /// locals at the top of the lowered handler body.
+    params: Vec<syn::Ident>,
+    /// Raw body tokens; the CPS lowerer rewrites `yield Effect::X(...)`
+    /// to `__yielder.emit(Effect::X(...))?` before the body is spliced
+    /// into the generated Guest method.
+    body: TokenStream,
+}
+
+/// Triggers an `effects on ...` block can name. Chunk 2 of ADR-053 ships
+/// the three tier-1 handlers; key / mouse / IO triggers follow when the
+/// migration target requires them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EffectsTrigger {
+    /// `effects on StateChanged(flags) { ... }` → `on_state_changed_effects`.
+    StateChanged,
+    /// `effects on Init() { ... }` → `on_init_effects`.
+    Init,
+    /// `effects on SessionReady() { ... }` → `on_active_session_ready_effects`.
+    SessionReady,
+}
+
+impl EffectsTrigger {
+    fn from_ident(ident: &syn::Ident) -> syn::Result<Self> {
+        match ident.to_string().as_str() {
+            "StateChanged" => Ok(Self::StateChanged),
+            "Init" => Ok(Self::Init),
+            "SessionReady" => Ok(Self::SessionReady),
+            other => Err(syn::Error::new(
+                ident.span(),
+                format!(
+                    "unknown trigger `{other}` in `effects on ...`; \
+                     supported triggers are StateChanged, Init, SessionReady"
+                ),
+            )),
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::StateChanged => "StateChanged",
+            Self::Init => "Init",
+            Self::SessionReady => "SessionReady",
+        }
+    }
+
+    fn expected_arity(self) -> usize {
+        match self {
+            Self::StateChanged => 1,
+            Self::Init | Self::SessionReady => 0,
+        }
+    }
 }
 
 struct TransformPatchDef {
@@ -316,7 +375,20 @@ pub(crate) fn define_plugin_impl(
         }
     };
 
-    let on_init_method = if let Some(ref body) = def.on_init_effects {
+    // ADR-053 chunk 2: pull `effects on <Trigger>` blocks out, partitioned
+    // by trigger. Each block is lowered to its corresponding Guest method
+    // below; the legacy handler block for the same trigger is mutually
+    // exclusive (validated during parse).
+    let effects_block_for = |trigger: EffectsTrigger| -> Option<&EffectsBlock> {
+        def.effects_blocks
+            .as_ref()?
+            .iter()
+            .find(|b| b.trigger == trigger)
+    };
+
+    let on_init_method = if let Some(block) = effects_block_for(EffectsTrigger::Init) {
+        lower_effects_block(block, has_state)
+    } else if let Some(ref body) = def.on_init_effects {
         let wrapped = wrap_state(body);
         // ADR-044: init is tier-1; the body must evaluate to
         // `KakouneSideEffects` so it projects cleanly to the narrower
@@ -326,8 +398,11 @@ pub(crate) fn define_plugin_impl(
         quote! {}
     };
 
-    let on_active_session_ready_method = if let Some(ref body) = def.on_active_session_ready_effects
+    let on_active_session_ready_method = if let Some(block) =
+        effects_block_for(EffectsTrigger::SessionReady)
     {
+        lower_effects_block(block, has_state)
+    } else if let Some(ref body) = def.on_active_session_ready_effects {
         let wrapped = wrap_state(body);
         // ADR-044: session-ready is tier-1; the body must evaluate to
         // `KakouneSideEffects` so the host's `From<KakouneSideEffects>
@@ -340,12 +415,16 @@ pub(crate) fn define_plugin_impl(
         quote! {}
     };
 
-    let has_osc = def.on_state_changed_effects.is_some();
+    let state_changed_effects_block = effects_block_for(EffectsTrigger::StateChanged);
+    let has_osc = def.on_state_changed_effects.is_some() || state_changed_effects_block.is_some();
 
-    // Determine the dirty-flags parameter name. If the user wrote a
-    // handler block, use its parameter so the body sees the same name.
-    // Otherwise, an auto-bindings-only emission picks `__flags`.
-    let osc_param_name = if let Some(osc) = def.on_state_changed_effects.as_ref() {
+    // Determine the dirty-flags parameter name. Priority:
+    // 1. `effects on StateChanged(<param>)` — ADR-053 chunk 2 form.
+    // 2. `on_state_changed_effects(<param>) { ... }` — legacy form.
+    // 3. Auto-bindings-only emission picks `__flags`.
+    let osc_param_name = if let Some(block) = state_changed_effects_block {
+        block.params[0].clone()
+    } else if let Some(osc) = def.on_state_changed_effects.as_ref() {
         osc.param.clone()
     } else {
         syn::Ident::new("__flags", proc_macro2::Span::call_site())
@@ -381,13 +460,35 @@ pub(crate) fn define_plugin_impl(
     // defaults to `KakouneSideEffects::default()` so the bindings still
     // mutate STATE per tick and the host receives an empty but
     // well-formed tier-1 result.
+    //
+    // ADR-053 chunk 2: an `effects on StateChanged(...)` block replaces
+    // the legacy sync body with a CPS-lowered runner that drives the
+    // `__KasaneYielder` bridge. The auto-binding loop still runs first
+    // so plugin authors keep the same `#[bind]` ergonomics.
     let on_state_changed_method = if has_osc || !auto_bindings.is_empty() {
         let param_name = &osc_param_name;
-        let sync_body = def
-            .on_state_changed_effects
-            .as_ref()
-            .map(|osc| osc.body.clone())
-            .unwrap_or_else(|| quote! { KakouneSideEffects::default() });
+        let sync_body = if let Some(block) = state_changed_effects_block {
+            let lowered = cps_lower_yields(block.body.clone());
+            quote! {
+                #[allow(unused_imports)]
+                use ::kasane_plugin_sdk::effects::Yielder as _;
+                let mut __yielder = __KasaneYielder::new();
+                let __result: ::core::result::Result<
+                    (),
+                    ::kasane_plugin_sdk::effects::EffectError,
+                > = (|| {
+                    #lowered
+                    Ok(())
+                })();
+                let _ = __result;
+                __yielder.into_side_effects()
+            }
+        } else {
+            def.on_state_changed_effects
+                .as_ref()
+                .map(|osc| osc.body.clone())
+                .unwrap_or_else(|| quote! { KakouneSideEffects::default() })
+        };
         let wrapped = if has_state {
             quote! {
                 STATE.with(|__s| {
@@ -896,6 +997,64 @@ pub(crate) fn define_plugin_impl(
         }
     };
 
+    // ADR-053 chunk 2: emit the yielder bridge once if any
+    // `effects on <Trigger>` block was declared.
+    let yielder_bridge = if def.effects_blocks.as_ref().is_some_and(|v| !v.is_empty()) {
+        emit_yielder_bridge()
+    } else {
+        quote! {}
+    };
+
+    // ADR-053 chunk 3: project the effect set onto required capabilities
+    // by scanning every yield site across every `effects on ...` block.
+    // The emitted `__KasaneEffectSet` is a marker type implementing
+    // `EffectSet`, with `REQUIRED_CAPABILITIES` populated. Chunk 5 wires
+    // a manifest cross-check; today the const is consumed by the chunk-4
+    // mock harness and is informational at runtime.
+    let effect_set_marker = if let Some(blocks) = def.effects_blocks.as_ref() {
+        let mut all_variants: Vec<String> = Vec::new();
+        let mut unresolved_spans: Vec<proc_macro2::Span> = Vec::new();
+        for block in blocks {
+            let scan = scan_yield_sites(&block.body);
+            for v in scan.variants {
+                if !all_variants.contains(&v) {
+                    all_variants.push(v);
+                }
+            }
+            unresolved_spans.extend(scan.unresolved);
+        }
+        if let Some(span) = unresolved_spans.first().copied() {
+            return Err(syn::Error::new(
+                span,
+                "ADR-053 chunk 3: each `yield` site must literally name an \
+                 `Effect::<Variant>(...)` constructor so the macro can \
+                 project the required capability set at compile time. \
+                 Indirect yields (function calls, variable references) \
+                 are not supported.",
+            ));
+        }
+        let caps = union_capabilities(&all_variants)?;
+        let cap_literals = caps.iter().map(|name| {
+            quote! { ::kasane_plugin_sdk::effects::CapabilityName(#name) }
+        });
+        quote! {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            struct __KasaneEffectSet;
+
+            impl ::kasane_plugin_sdk::effects::Sealed for __KasaneEffectSet {}
+
+            impl ::kasane_plugin_sdk::effects::EffectSet for __KasaneEffectSet {
+                type Yielder = __KasaneYielder;
+                const REQUIRED_CAPABILITIES:
+                    &'static [::kasane_plugin_sdk::effects::CapabilityName] =
+                    &[ #( #cap_literals ),* ];
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     // Combine everything
     Ok(quote! {
         #wit_bindings
@@ -907,6 +1066,8 @@ pub(crate) fn define_plugin_impl(
         #state_tokens
         #settings_getters
         #service_capabilities_const
+        #yielder_bridge
+        #effect_set_marker
 
         struct __KasanePlugin;
 
@@ -944,6 +1105,326 @@ pub(crate) fn define_plugin_impl(
 
         export!(__KasanePlugin);
     })
+}
+
+// ---------------------------------------------------------------------------
+// ADR-053 chunk 2: effects-block CPS lowering
+// ---------------------------------------------------------------------------
+
+/// ADR-053 chunk 3: capability map for the chunk-1 [`Effect`] taxonomy.
+/// Mirrors `kasane_plugin_sdk::effects::Effect::required_capabilities`.
+/// proc-macro crates cannot share runtime code, so the two sides must
+/// stay in sync — adding a new `Effect` variant requires updating both
+/// the SDK enum *and* this table.
+fn effect_variant_capabilities(variant: &str) -> Option<&'static [&'static str]> {
+    match variant {
+        "Redraw" | "EvalCommand" => Some(&[]),
+        "SetClipboard" | "PasteClipboard" => Some(&["clipboard"]),
+        _ => None,
+    }
+}
+
+/// Walk an `effects on` block body and collect the literal `Effect::<Variant>`
+/// names appearing in `yield` sites. Yields whose right-hand side does not
+/// statically name `Effect::<Variant>` are flagged so the caller can emit a
+/// diagnostic — chunk 3 of ADR-053 demands literal variants so the
+/// capability projection is sound.
+struct YieldScan {
+    /// Variant names in declaration order, deduplicated.
+    variants: Vec<String>,
+    /// Spans of `yield` sites whose RHS could not be matched. Used to
+    /// emit a compile error pointing at the offending site.
+    unresolved: Vec<proc_macro2::Span>,
+}
+
+fn scan_yield_sites(body: &TokenStream) -> YieldScan {
+    let mut scan = YieldScan {
+        variants: Vec::new(),
+        unresolved: Vec::new(),
+    };
+    scan_recursive(body.clone(), &mut scan);
+    scan
+}
+
+fn scan_recursive(body: TokenStream, scan: &mut YieldScan) {
+    let mut iter = body.into_iter().peekable();
+    while let Some(tt) = iter.next() {
+        match tt {
+            TokenTree::Ident(ref id) if id == "yield" => {
+                let span = id.span();
+                // Collect the RHS up to the next `;` at the same depth.
+                let mut rhs: Vec<TokenTree> = Vec::new();
+                while let Some(next) = iter.peek() {
+                    if let TokenTree::Punct(p) = next {
+                        if p.as_char() == ';' {
+                            break;
+                        }
+                    }
+                    rhs.push(iter.next().unwrap());
+                }
+                if let Some(variant) = extract_effect_variant(&rhs) {
+                    if !scan.variants.iter().any(|v| v == &variant) {
+                        scan.variants.push(variant);
+                    }
+                } else {
+                    scan.unresolved.push(span);
+                }
+            }
+            TokenTree::Group(g) => {
+                scan_recursive(g.stream(), scan);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Match `Effect :: <Variant>` (optionally followed by `(...)` or `{...}`)
+/// at the head of `tokens`. Returns the variant name on a successful
+/// match. Anything else — `MyEffect::Variant`, `foo()`, `path::to::Effect::X` —
+/// is rejected so the projection only ever sees literal first-party
+/// effect constructors.
+fn extract_effect_variant(tokens: &[TokenTree]) -> Option<String> {
+    // Skip a leading reference / qualified path that ends in `Effect`.
+    // We accept the canonical `Effect::Variant` form and reject anything
+    // more elaborate. Plugins that need indirection should match on an
+    // enum and yield each branch literally.
+    let mut iter = tokens.iter();
+    let first = iter.next()?;
+    let TokenTree::Ident(head) = first else {
+        return None;
+    };
+    if head != "Effect" {
+        return None;
+    }
+    let colon1 = iter.next()?;
+    let colon2 = iter.next()?;
+    match (colon1, colon2) {
+        (TokenTree::Punct(p1), TokenTree::Punct(p2))
+            if p1.as_char() == ':' && p2.as_char() == ':' => {}
+        _ => return None,
+    }
+    let variant = iter.next()?;
+    let TokenTree::Ident(variant_id) = variant else {
+        return None;
+    };
+    Some(variant_id.to_string())
+}
+
+/// Union the per-variant capability sets into a deduplicated, sorted
+/// `&'static [&'static str]` literal for use in the generated EffectSet impl.
+fn union_capabilities(variants: &[String]) -> syn::Result<Vec<String>> {
+    let mut caps: Vec<String> = Vec::new();
+    for variant in variants {
+        let needs = effect_variant_capabilities(variant).ok_or_else(|| {
+            syn::Error::new(
+                proc_macro2::Span::call_site(),
+                format!(
+                    "unknown Effect variant `{variant}`; supported \
+                     chunk-1 variants are Redraw, EvalCommand, \
+                     SetClipboard, PasteClipboard"
+                ),
+            )
+        })?;
+        for c in needs {
+            if !caps.iter().any(|x| x == c) {
+                caps.push((*c).to_string());
+            }
+        }
+    }
+    caps.sort();
+    Ok(caps)
+}
+
+/// Walk `body`, replacing each statement-level `yield <expr>;` (or `yield
+/// <expr>` as the tail of a `let` initializer) with
+/// `__yielder.emit(<expr>)?`.
+///
+/// The walker descends into every nested group (parentheses, brackets,
+/// braces) so yields inside `if` / `match` / closures lower correctly. It
+/// is intentionally simple: a yield expression spans tokens until the
+/// next `;` *at the same nesting depth*. Yields embedded inside parens —
+/// for example `let x = (yield foo) + 1` — would consume too much and
+/// are not supported in chunk 2. The migration target (chunk 5) uses
+/// only statement-level yields, so the restriction is documented but
+/// not actively enforced.
+fn cps_lower_yields(body: TokenStream) -> TokenStream {
+    let mut out: Vec<TokenTree> = Vec::new();
+    let mut iter = body.into_iter().peekable();
+    while let Some(tt) = iter.next() {
+        match tt {
+            TokenTree::Ident(ref id) if id == "yield" => {
+                let mut expr_tokens: Vec<TokenTree> = Vec::new();
+                while let Some(next) = iter.peek() {
+                    if let TokenTree::Punct(p) = next {
+                        if p.as_char() == ';' {
+                            break;
+                        }
+                    }
+                    expr_tokens.push(iter.next().unwrap());
+                }
+                let expr_ts: TokenStream = expr_tokens.into_iter().collect();
+                let lowered_expr = cps_lower_yields(expr_ts);
+                let replacement = quote! {
+                    __yielder.emit(#lowered_expr)?
+                };
+                out.extend(replacement);
+            }
+            TokenTree::Group(g) => {
+                let lowered_inner = cps_lower_yields(g.stream());
+                let mut regrouped = Group::new(g.delimiter(), lowered_inner);
+                regrouped.set_span(g.span());
+                out.push(TokenTree::Group(regrouped));
+            }
+            other => out.push(other),
+        }
+    }
+    out.into_iter().collect()
+}
+
+/// Emit the `__KasaneYielder` bridge type. The bridge implements
+/// [`kasane_plugin_sdk::effects::Yielder`] and forwards each
+/// [`kasane_plugin_sdk::effects::Effect`] variant to the corresponding
+/// tier-1 `KakouneSideCommand` so that lowered handlers slot into the
+/// existing tier-1 wire format unchanged.
+fn emit_yielder_bridge() -> TokenStream {
+    quote! {
+        #[doc(hidden)]
+        struct __KasaneYielder {
+            commands: ::std::vec::Vec<KakouneSideCommand>,
+            redraw: u16,
+        }
+
+        impl ::kasane_plugin_sdk::effects::Yielder for __KasaneYielder {
+            type Effect = ::kasane_plugin_sdk::effects::Effect;
+            type Reply = ::kasane_plugin_sdk::effects::EffectReply;
+            type Error = ::kasane_plugin_sdk::effects::EffectError;
+
+            fn emit(
+                &mut self,
+                effect: Self::Effect,
+            ) -> ::core::result::Result<Self::Reply, Self::Error> {
+                use ::kasane_plugin_sdk::effects::{Effect, EffectReply, EffectError, CapabilityName};
+                match effect {
+                    Effect::Redraw(mask) => {
+                        self.redraw |= mask;
+                        Ok(EffectReply::Unit)
+                    }
+                    Effect::EvalCommand(s) => {
+                        self.commands.push(KakouneSideCommand::EvalCommand(s));
+                        Ok(EffectReply::Unit)
+                    }
+                    Effect::PasteClipboard => {
+                        self.commands.push(KakouneSideCommand::PasteClipboard);
+                        Ok(EffectReply::Unit)
+                    }
+                    // No tier-1 KakouneSideCommand variant carries clipboard-set.
+                    // Surface as a runtime rejection until the WIT side gains
+                    // a corresponding command (tracked in ADR-053 chunk 5).
+                    Effect::SetClipboard(_) => Err(EffectError::MissingCapability(
+                        CapabilityName("clipboard"),
+                    )),
+                    _ => Err(EffectError::Rejected(
+                        "effect variant has no tier-1 bridge in ADR-053 chunk 2",
+                    )),
+                }
+            }
+        }
+
+        impl __KasaneYielder {
+            fn new() -> Self {
+                Self {
+                    commands: ::std::vec::Vec::new(),
+                    redraw: 0,
+                }
+            }
+
+            fn into_side_effects(self) -> KakouneSideEffects {
+                KakouneSideEffects {
+                    redraw: self.redraw,
+                    commands: self.commands,
+                    scroll_plans: ::std::vec::Vec::new(),
+                }
+            }
+        }
+    }
+}
+
+/// Lower an `EffectsBlock` to the Guest method that backs its trigger.
+/// `has_state` controls whether the body is wrapped in the STATE guard
+/// shared by all other handlers.
+fn lower_effects_block(block: &EffectsBlock, has_state: bool) -> TokenStream {
+    let lowered_body = cps_lower_yields(block.body.clone());
+
+    // The user wrote, say, `effects on StateChanged(flags) { ... }`. The
+    // generated handler signature uses `flags` directly, so the body sees
+    // the same name it declared.
+    let trigger_params: Vec<TokenStream> = match block.trigger {
+        EffectsTrigger::StateChanged => {
+            let p = &block.params[0];
+            vec![quote! { #p: u16 }]
+        }
+        EffectsTrigger::Init | EffectsTrigger::SessionReady => Vec::new(),
+    };
+
+    // The runner closure returns `Result<(), EffectError>` so that lowered
+    // `?` propagates cleanly. Errors are folded into the diagnostic stream
+    // (ADR-033) once chunk 4 wires it; chunk 2 silently drops them, which
+    // matches the legacy behavior of handlers that return whatever
+    // commands they managed to accumulate before panicking.
+    //
+    // The `use Yielder` brings `emit` into scope so the lowered
+    // `__yielder.emit(...)?` calls resolve without the plugin author
+    // having to import the trait.
+    let body_runner = quote! {
+        #[allow(unused_imports)]
+        use ::kasane_plugin_sdk::effects::Yielder as _;
+        let mut __yielder = __KasaneYielder::new();
+        let __result: ::core::result::Result<
+            (),
+            ::kasane_plugin_sdk::effects::EffectError,
+        > = (|| {
+            #lowered_body
+            Ok(())
+        })();
+        let _ = __result;
+        __yielder.into_side_effects()
+    };
+
+    let body_with_state = if has_state {
+        quote! {
+            STATE.with(|__s| {
+                let __old_gen = __s.borrow().generation;
+                let mut state = __KasaneStateMutGuard {
+                    inner: __s.borrow_mut(),
+                    old_generation: __old_gen,
+                    mutated: false,
+                };
+                #body_runner
+            })
+        }
+    } else {
+        body_runner
+    };
+
+    match block.trigger {
+        EffectsTrigger::StateChanged => quote! {
+            fn on_state_changed_effects(#(#trigger_params),*) -> KakouneSideEffects {
+                #body_with_state
+            }
+        },
+        EffectsTrigger::Init => quote! {
+            fn on_init_effects() -> BootstrapEffects {
+                let __effects: KakouneSideEffects = { #body_with_state };
+                __effects.into()
+            }
+        },
+        EffectsTrigger::SessionReady => quote! {
+            fn on_active_session_ready_effects() -> SessionReadyEffects {
+                let __effects: KakouneSideEffects = { #body_with_state };
+                __effects.into()
+            }
+        },
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1116,6 +1597,7 @@ impl syn::parse::Parse for PluginDef {
             actions: None,
             settings: None,
             impl_block: None,
+            effects_blocks: None,
         };
 
         let mut has_id = false;
@@ -1242,6 +1724,59 @@ impl syn::parse::Parse for PluginDef {
                     def.on_state_changed_effects = Some(OnStateChanged {
                         param,
                         body: body.parse()?,
+                    });
+                }
+                "effects" => {
+                    // ADR-053 chunk 2: `effects on <Trigger>(<params>) { <body> }`.
+                    // Lower yield-based effect blocks to existing handler form
+                    // (StateChanged → on_state_changed_effects, etc.).
+                    let on_kw: syn::Ident = input.parse()?;
+                    if on_kw != "on" {
+                        return Err(syn::Error::new(
+                            on_kw.span(),
+                            "expected `on` after `effects` (e.g. \
+                             `effects on StateChanged(flags) { ... }`)",
+                        ));
+                    }
+                    let trigger_ident: syn::Ident = input.parse()?;
+                    let trigger = EffectsTrigger::from_ident(&trigger_ident)?;
+                    let params_buf;
+                    syn::parenthesized!(params_buf in input);
+                    let mut params: Vec<syn::Ident> = Vec::new();
+                    while !params_buf.is_empty() {
+                        params.push(params_buf.parse()?);
+                        if !params_buf.is_empty() {
+                            params_buf.parse::<syn::Token![,]>()?;
+                        }
+                    }
+                    if params.len() != trigger.expected_arity() {
+                        return Err(syn::Error::new(
+                            trigger_ident.span(),
+                            format!(
+                                "trigger `{}` expects {} parameter(s); got {}",
+                                trigger.label(),
+                                trigger.expected_arity(),
+                                params.len()
+                            ),
+                        ));
+                    }
+                    let body;
+                    syn::braced!(body in input);
+                    let body_tokens: TokenStream = body.parse()?;
+                    let blocks = def.effects_blocks.get_or_insert_with(Vec::new);
+                    if blocks.iter().any(|b| b.trigger == trigger) {
+                        return Err(syn::Error::new(
+                            trigger_ident.span(),
+                            format!(
+                                "duplicate `effects on {}` block in define_plugin!",
+                                trigger.label()
+                            ),
+                        ));
+                    }
+                    blocks.push(EffectsBlock {
+                        trigger,
+                        params,
+                        body: body_tokens,
                     });
                 }
                 "on_state_changed_tier1_effects" => {
@@ -1601,6 +2136,36 @@ impl syn::parse::Parse for PluginDef {
                 proc_macro2::Span::call_site(),
                 "define_plugin! `impl { ... }` requires a `state { ... }` section",
             ));
+        }
+
+        // ADR-053 chunk 2: an `effects on <Trigger>` block and the legacy
+        // handler block for the same trigger are mutually exclusive — both
+        // emit the same Guest method body, so allowing both would silently
+        // drop one of them.
+        if let Some(blocks) = def.effects_blocks.as_ref() {
+            for block in blocks {
+                let conflict = match block.trigger {
+                    EffectsTrigger::StateChanged => {
+                        def.on_state_changed_effects.is_some().then_some(
+                            "`effects on StateChanged` conflicts with \
+                             `on_state_changed_effects(...) { ... }`; use one or the other",
+                        )
+                    }
+                    EffectsTrigger::Init => def.on_init_effects.is_some().then_some(
+                        "`effects on Init` conflicts with \
+                         `on_init_effects() { ... }`; use one or the other",
+                    ),
+                    EffectsTrigger::SessionReady => {
+                        def.on_active_session_ready_effects.is_some().then_some(
+                            "`effects on SessionReady` conflicts with \
+                             `on_active_session_ready_effects() { ... }`; use one or the other",
+                        )
+                    }
+                };
+                if let Some(msg) = conflict {
+                    return Err(syn::Error::new(proc_macro2::Span::call_site(), msg));
+                }
+            }
         }
 
         Ok(def)

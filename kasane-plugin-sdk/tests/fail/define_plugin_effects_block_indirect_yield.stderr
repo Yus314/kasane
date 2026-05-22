@@ -1,0 +1,5 @@
+error: ADR-053 chunk 3: each `yield` site must literally name an `Effect::<Variant>(...)` constructor so the macro can project the required capability set at compile time. Indirect yields (function calls, variable references) are not supported.
+  --> tests/fail/define_plugin_effects_block_indirect_yield.rs:17:9
+   |
+17 |         yield make_effect();
+   |         ^^^^^

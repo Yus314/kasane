@@ -116,6 +116,12 @@ pub fn kasane_generate(input: TokenStream) -> TokenStream {
 /// - `authorities: [Auth1, Auth2]` → `fn requested_authorities()`
 /// - `update_effects(payload) { ... }` → `fn update_effects() -> Effects`
 /// - `on_io_event_effects(event) { ... }` → `fn on_io_event_effects() -> Effects`
+/// - `effects on <Trigger>(<params>) { yield Effect::X(...); ... }`
+///   (ADR-053 chunk 2) — algebraic-effect form for one of the tier-1
+///   handlers (`StateChanged`, `Init`, `SessionReady`). Each
+///   `yield Effect::X(...)` lowers to a host call through a macro-generated
+///   yielder; the legacy handler form for the same trigger is mutually
+///   exclusive.
 /// - `impl { fn method(&self) { ... } ... }` — helper methods on `__KasanePluginState` (requires `state`)
 #[proc_macro]
 pub fn kasane_define_plugin(input: TokenStream) -> TokenStream {
