@@ -2,6 +2,13 @@
 //!
 //! These structs are set once per frame from `AppState` via `sync_inputs_from_state()`.
 //! They follow the protocol message boundary grouping from `apply.rs`.
+//!
+//! Sibling module [`external`] provides the host-internal
+//! `ExternalInputRegistry` — the mutation surface for data produced
+//! outside `AppState` (file watchers, LSP transports, network responses).
+//! See ADR-051 for the push-to-set / pull-to-derive discipline.
+
+pub(crate) mod external;
 
 use std::sync::Arc;
 
