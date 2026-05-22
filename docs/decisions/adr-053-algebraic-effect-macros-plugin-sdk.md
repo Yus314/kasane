@@ -1,6 +1,6 @@
 # ADR-053: Algebraic Effect Macros for the Plugin SDK (DDD-CST Phase γ)
 
-**Status:** Proposed (2026-05-22). Derived from
+**Status:** Accepted (2026-05-22, chunks 1–5 landed). Derived from
 [ddd-cst-vision.md §10 (Phase γ)](../ddd-cst-vision.md) and §4.3
 (algebraic effects). Refines
 [ADR-044](./adr-044-handler-effect-tier-hierarchy.md) (handler/effect
@@ -18,6 +18,42 @@ bookkeeping; estimated per-yield cost is **≤1 µs** worst-case.
 The **>5 µs/yield abandon threshold has ≥5× headroom**. Full
 effect-yield benchmark deferred to implementation; macro-debuggability
 abandon criterion (Q21) remains the primary open risk.
+
+**Update 2 (2026-05-22, chunks 1–5 landed):**
+- Chunk 1: `Effect` enum + `Effectful` / `EffectSet` / `Sealed` / `Yielder`
+  traits in `kasane-plugin-sdk::effects`. Starter taxonomy: `Redraw`,
+  `EvalCommand`, `SetClipboard`, `PasteClipboard`.
+- Chunk 2: `define_plugin!` macro accepts `effects on <Trigger>(<params>)
+  { yield Effect::X(...); ... }`. CPS-lowers to existing tier-1
+  `KakouneSideEffects` return path via a macro-generated `__KasaneYielder`
+  bridge. Supported triggers: `StateChanged`, `Init`, `SessionReady`.
+  Conflicting legacy + algebraic blocks for the same trigger are rejected.
+- Chunk 3: Compile-time capability projection. The macro scans yield
+  sites, demands literal `Effect::<Variant>(...)` constructors (indirect
+  yields rejected), unions the per-variant capability sets, and emits a
+  `__KasaneEffectSet` marker type with `REQUIRED_CAPABILITIES` populated.
+- Chunk 4: `MockHandler` in `kasane-plugin-sdk::effects` (not `-test` —
+  lives next to `Effect` / `Yielder` to avoid a circular dep). Closure-
+  based predicates: `.respond(pred, reply).reject(pred, error)`.
+  Implements `Yielder` so it drops into any test that drives plugin
+  `step()`.
+- Chunk 5: Migrated cursor-line + color-preview (both bundled plugins
+  → 100%, satisfying the ≥80% exit criterion). Per-yield benchmark at
+  `kasane-wasm-bench/benches/effect_yield.rs` measures **24–33 ns per
+  emit** against `MockHandler` (`emit_unmatched`: ~24 ns, `emit_respond`:
+  ~33 ns with `Reply` clone, `emit_reject`: ~28 ns). Adding the ~115 ns
+  wasmtime host call gives an end-to-end per-yield cost of **~150 ns —
+  ≈33× below the 5 µs threshold**.
+
+**Deferred to a follow-up update:** the manifest-side cross-check
+(yielded effect ⊆ manifest-declared capabilities). The chunk-1 capability
+namespace ("clipboard") is not yet a recognised key in the existing
+`[capabilities]` schema (`wasi`, `services`); aligning the two requires
+a capability-namespace design decision that benefits from being made
+when a concrete service migration is in flight. Until that lands, the
+`REQUIRED_CAPABILITIES` projection is consumed by the chunk-4 mock
+handler and is informational at runtime — a partial realisation of the
+"security at the type level" goal in §4.3.6.
 
 ### Context
 
