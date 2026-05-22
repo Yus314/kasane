@@ -8,6 +8,49 @@ theoretical commitment underpinning attenuation in
 [ADR-053](./adr-053-algebraic-effect-macros-plugin-sdk.md) effect
 handlers.
 
+**Update 1 (2026-05-22, expressiveness spike):** Five canonical
+attenuation use cases were exercised against the APL grammar
+(vision §19 decision point 2'):
+
+| # | Use case | APL form | Result |
+|---|---|---|---|
+| 1 | Git capability scoped to a single repository | `path_prefix("/repos/myproj/")` | ✓ Clean |
+| 2 | Buffer edit limited to a line range | `range(line, 100, 200)` | ✓ Clean¹ |
+| 3 | Git command allowlist (`diff`, `log`, `show`) | `enum_subset(subcommand, {Diff, Log, Show})` | ✓ Clean |
+| 4 | Time-bounded session grant | `timestamp_before(2026-06-01T00:00:00Z)` | ✓ Clean |
+| 5 | LSP scoped to current project files | `path_prefix(project_root)` | ✓ Clean¹ |
+
+¹ Requires Amendment 1 below (clarifying that bounds are
+predicate-construction-time constants, not Rust compile-time literals).
+
+Three stress cases push past APL:
+
+| # | Stress case | Outcome |
+|---|---|---|
+| 6 | "LSP allowed only when buffer language is Rust" | **Escape to handler** — `buffer_language` is *runtime-mutable* state, not a request field. APL correctly excludes this; ADR-053 effect handler is the proper surface. |
+| 7 | "Read files except those whose path components start with `.`" | **Grammar widening candidate** — `path_prefix` cannot express segment-wise patterns. A future `glob_match` atom would address this. |
+| 8 | "Spawn git but only with subcommand args `diff`/`log`/`show`" | **Grammar extension or escape** — list-element field access into `args[0]` is not in the current grammar. A `list_head_in(field, S)` atom would address this; alternatively, escape to handler. |
+
+**Verdict on §19 DP 2'.** APL covers the 5 canonical cases cleanly
+(5/5). The escape rate on stress cases (1/3 escape, 2/3 grammar
+extension candidates) is acceptable — the abandon criterion ("routine
+escape, static surface fictional") does **not** trigger. Two atom
+extensions (`glob_match`, `list_head_in`) are noted for a future
+ADR if demand emerges.
+
+**Amendment 1 (2026-05-22, wording clarification):** The grammar text
+below originally read "lo, hi, S, T : compile-time const". This was
+ambiguous between (a) Rust compile-time literals and (b) values fixed at
+predicate construction. The algebraic laws (idempotence, confluence)
+require only (b): a predicate must evaluate consistently after
+construction. Case 5 above (`path_prefix(project_root)` where
+`project_root` is determined at plugin load) needs (b) but not (a).
+The grammar is amended to "P, lo, hi, S, T : predicate-construction-time
+constants — values captured at the moment of predicate construction and
+immutable thereafter. Rust compile-time literals are a sufficient but
+not necessary special case." This loosens the *expressed* constraint
+without weakening any algebraic property.
+
 ### Context
 
 Attenuation is the operation of producing a weaker capability from a
@@ -47,16 +90,24 @@ evaluates them by case analysis without invoking Wasm.
 **Grammar:**
 
 ```
-predicate ::= path_prefix( P )           -- P : string literal
-            | range( field, lo, hi )     -- lo, hi : compile-time const
-            | enum_subset( field, S )    -- S : compile-time const set
-            | timestamp_before( T )      -- T : compile-time const
-            | timestamp_after( T )       -- T : compile-time const
+predicate ::= path_prefix( P )           -- P : string, frozen at construction
+            | range( field, lo, hi )     -- lo, hi : numeric, frozen at construction
+            | enum_subset( field, S )    -- S : finite set, frozen at construction
+            | timestamp_before( T )      -- T : timestamp, frozen at construction
+            | timestamp_after( T )       -- T : timestamp, frozen at construction
             | predicate ∧ predicate
             | predicate ∨ predicate
             | ¬ predicate
             | ⊤ | ⊥
 ```
+
+"Frozen at construction" means the value is captured at the moment
+the predicate is built (e.g. at the plugin's `attenuate()` call site)
+and never mutates afterwards. Rust compile-time literals satisfy this
+trivially; runtime-captured values (e.g. a project root path resolved
+at plugin load) also satisfy it. What is forbidden is referencing
+*mutable* state from inside the predicate — see "No time-varying
+atoms" below.
 
 **Atom types** (extensible by ADR, not by plugin):
 
@@ -74,9 +125,10 @@ predicate ::= path_prefix( P )           -- P : string literal
   the same field collapse to interval / set algebra.
 - **No host-side Wasm execution.** Predicate evaluation is host-native
   case analysis; cost is `O(predicate_depth)`, not `O(wasm_call)`.
-- **No time-varying atoms.** Atoms reference compile-time constants
-  only. Predicates that depend on *runtime* state (e.g. "buffer
-  language is Rust") must escape to effect handlers.
+- **No time-varying atoms.** Atoms reference values that are *frozen
+  at predicate construction*. Predicates that depend on *mutable
+  runtime state* (e.g. "buffer language is Rust", whose value changes
+  with buffer switches) must escape to effect handlers.
 
 **Escape valve.** A plugin needing a check outside APL **yields a
 request as an effect** (ADR-053) and lets the handler decide. This
