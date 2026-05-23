@@ -1,0 +1,5 @@
+error: trigger `StateChanged` expects 1 parameter(s); got 2
+ --> tests/fail/define_plugin_effects_block_arity_extra.rs:8:16
+  |
+8 |     effects on StateChanged(flags, extra) {
+  |                ^^^^^^^^^^^^

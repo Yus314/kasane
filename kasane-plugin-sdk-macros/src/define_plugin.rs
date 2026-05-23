@@ -1020,13 +1020,13 @@ pub(crate) fn define_plugin_impl(
     // a manifest cross-check; today the const is consumed by the chunk-4
     // mock harness and is informational at runtime.
     let effect_set_marker = if let Some(blocks) = def.effects_blocks.as_ref() {
-        let mut all_variants: Vec<String> = Vec::new();
+        let mut all_variants: Vec<(String, proc_macro2::Span)> = Vec::new();
         let mut unresolved_spans: Vec<proc_macro2::Span> = Vec::new();
         for block in blocks {
             let scan = scan_yield_sites(&block.body);
-            for v in scan.variants {
-                if !all_variants.contains(&v) {
-                    all_variants.push(v);
+            for (name, span) in scan.variants {
+                if !all_variants.iter().any(|(n, _)| n == &name) {
+                    all_variants.push((name, span));
                 }
             }
             unresolved_spans.extend(scan.unresolved);
@@ -1138,8 +1138,10 @@ fn effect_variant_capabilities(variant: &str) -> Option<&'static [&'static str]>
 /// diagnostic — chunk 3 of ADR-053 demands literal variants so the
 /// capability projection is sound.
 struct YieldScan {
-    /// Variant names in declaration order, deduplicated.
-    variants: Vec<String>,
+    /// Variant names in declaration order, deduplicated; paired with the
+    /// span of the variant identifier so capability-resolution errors can
+    /// point at the offending `yield` site.
+    variants: Vec<(String, proc_macro2::Span)>,
     /// Spans of `yield` sites whose RHS could not be matched. Used to
     /// emit a compile error pointing at the offending site.
     unresolved: Vec<proc_macro2::Span>,
@@ -1170,9 +1172,9 @@ fn scan_recursive(body: TokenStream, scan: &mut YieldScan) {
                     }
                     rhs.push(iter.next().unwrap());
                 }
-                if let Some(variant) = extract_effect_variant(&rhs) {
-                    if !scan.variants.iter().any(|v| v == &variant) {
-                        scan.variants.push(variant);
+                if let Some((variant, variant_span)) = extract_effect_variant(&rhs) {
+                    if !scan.variants.iter().any(|(n, _)| n == &variant) {
+                        scan.variants.push((variant, variant_span));
                     }
                 } else {
                     scan.unresolved.push(span);
@@ -1191,7 +1193,7 @@ fn scan_recursive(body: TokenStream, scan: &mut YieldScan) {
 /// match. Anything else — `MyEffect::Variant`, `foo()`, `path::to::Effect::X` —
 /// is rejected so the projection only ever sees literal first-party
 /// effect constructors.
-fn extract_effect_variant(tokens: &[TokenTree]) -> Option<String> {
+fn extract_effect_variant(tokens: &[TokenTree]) -> Option<(String, proc_macro2::Span)> {
     // Skip a leading reference / qualified path that ends in `Effect`.
     // We accept the canonical `Effect::Variant` form and reject anything
     // more elaborate. Plugins that need indirection should match on an
@@ -1215,17 +1217,17 @@ fn extract_effect_variant(tokens: &[TokenTree]) -> Option<String> {
     let TokenTree::Ident(variant_id) = variant else {
         return None;
     };
-    Some(variant_id.to_string())
+    Some((variant_id.to_string(), variant_id.span()))
 }
 
 /// Union the per-variant capability sets into a deduplicated, sorted
 /// `&'static [&'static str]` literal for use in the generated EffectSet impl.
-fn union_capabilities(variants: &[String]) -> syn::Result<Vec<String>> {
+fn union_capabilities(variants: &[(String, proc_macro2::Span)]) -> syn::Result<Vec<String>> {
     let mut caps: Vec<String> = Vec::new();
-    for variant in variants {
+    for (variant, span) in variants {
         let needs = effect_variant_capabilities(variant).ok_or_else(|| {
             syn::Error::new(
-                proc_macro2::Span::call_site(),
+                *span,
                 format!(
                     "unknown Effect variant `{variant}`; supported \
                      chunk-1 variants are Redraw, EvalCommand, \

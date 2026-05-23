@@ -1,0 +1,5 @@
+error: unknown trigger `StateChange` in `effects on ...`; supported triggers are StateChanged, Init, SessionReady
+ --> tests/fail/define_plugin_effects_block_unknown_trigger.rs:9:16
+  |
+9 |     effects on StateChange(flags) {
+  |                ^^^^^^^^^^^

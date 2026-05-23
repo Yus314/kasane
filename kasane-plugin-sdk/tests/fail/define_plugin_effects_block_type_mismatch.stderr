@@ -1,0 +1,13 @@
+error[E0308]: mismatched types
+  --> tests/fail/define_plugin_effects_block_type_mismatch.rs:14:30
+   |
+14 |         yield Effect::Redraw("not-a-u16");
+   |               -------------- ^^^^^^^^^^^ expected `u16`, found `&str`
+   |               |
+   |               arguments to this enum variant are incorrect
+   |
+note: tuple variant defined here
+  --> src/effects.rs
+   |
+   |     Redraw(u16),
+   |     ^^^^^^

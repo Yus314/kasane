@@ -1,0 +1,13 @@
+error: unknown Effect variant `Telepathy`; supported chunk-1 variants are Redraw, EvalCommand, SetClipboard, PasteClipboard
+  --> tests/fail/define_plugin_effects_block_unknown_effect.rs:13:23
+   |
+13 |         yield Effect::Telepathy("hello".into());
+   |                       ^^^^^^^^^
+
+warning: unused import: `kasane_plugin_sdk::effects::Effect`
+ --> tests/fail/define_plugin_effects_block_unknown_effect.rs:6:5
+  |
+6 | use kasane_plugin_sdk::effects::Effect;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
