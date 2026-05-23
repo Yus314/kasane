@@ -651,22 +651,33 @@ where
     }
 
     fn drain_runtime_diagnostics(&mut self) {
-        // The snapshot is shared with the registry slot (ADR-051 chunk
-        // 3c, second source) by `Arc::clone`; tracing and overlay
-        // consumers read through the same refcount.
-        let diagnostics: kasane_core::salsa_inputs::diagnostics::PluginDiagnosticBurst =
+        // Canonical path: drain into the registry slot, then consumers
+        // read via `external.last()` (returned by `drain_slot`). The
+        // synchronous per-slot drain lets diagnostic-only frames (no
+        // state changes) still surface diagnostics; the frame-boundary
+        // global drain gates on dirty and would skip them.
+        let burst: kasane_core::salsa_inputs::diagnostics::PluginDiagnosticBurst =
             self.registry.drain_all_diagnostics().into();
-        if !diagnostics.is_empty() {
+        if !burst.is_empty() {
             self.salsa_handles
                 .external
-                .commit(self.salsa_handles.plugin_diagnostics, diagnostics.clone());
-            report_plugin_diagnostics(&diagnostics);
+                .commit(self.salsa_handles.plugin_diagnostics, burst);
+        }
+        if let Some(published) = self
+            .salsa_handles
+            .external
+            .drain_slot(self.salsa_handles.plugin_diagnostics)
+        {
+            report_plugin_diagnostics(published);
             kasane_core::event_loop::schedule_diagnostic_overlay(
                 &kasane_core::event_loop::GenericDiagnosticScheduler(self.gui_sink.clone()),
                 &mut self.diagnostic_overlay,
                 &mut self.state.runtime.diagnostic_history,
-                &diagnostics,
+                published,
             );
+            self.salsa_handles
+                .external
+                .clear_dirty_slot(self.salsa_handles.plugin_diagnostics);
         }
     }
 

@@ -283,6 +283,43 @@ impl ExternalInputRegistry {
             slot.clear_dirty();
         }
     }
+
+    /// Drain pending values for a single slot and return a reference
+    /// to the newly published value, or `None` if nothing was pending.
+    ///
+    /// Complements the frame-boundary [`Self::drain`]: sources whose
+    /// producer and primary consumer share a stack frame (e.g. the
+    /// host-side per-frame plugin diagnostic aggregator) can publish
+    /// and read in one synchronous step without waiting for the
+    /// global drain. The slot's dirty flag is set as with `drain`, so
+    /// secondary consumers that read via [`Self::last`] + [`Self::is_dirty`]
+    /// observe the same signal as if the global drain had run.
+    pub fn drain_slot<T: 'static + Send>(&mut self, handle: ExternalInputId<T>) -> Option<&T> {
+        let drained = self
+            .slots
+            .get_mut(&handle.id)
+            .map(|s| s.drain())
+            .unwrap_or(0);
+        if drained == 0 {
+            return None;
+        }
+        self.slots
+            .get(&handle.id)?
+            .as_any()
+            .downcast_ref::<TypedSlot<T>>()?
+            .last_committed
+            .as_ref()
+    }
+
+    /// Clear the dirty flag for a single slot. Complements
+    /// [`Self::clear_dirty`] for sources whose dirty bit is consumed
+    /// outside the frame-boundary cycle (typically the same caller
+    /// that issued [`Self::drain_slot`]).
+    pub fn clear_dirty_slot<T: 'static + Send>(&mut self, handle: ExternalInputId<T>) {
+        if let Some(slot) = self.slots.get_mut(&handle.id) {
+            slot.clear_dirty();
+        }
+    }
 }
 
 impl Default for ExternalInputRegistry {
@@ -404,6 +441,58 @@ mod tests {
         // Distinct registrations produce distinct ids.
         let other = reg.register::<u32>("other", BackPressurePolicy::Coalesce);
         assert_ne!(id, other);
+    }
+
+    #[test]
+    fn drain_slot_publishes_and_marks_only_named_slot_dirty() {
+        let mut reg = ExternalInputRegistry::new();
+        let target = reg.register::<u32>("target", BackPressurePolicy::Coalesce);
+        let bystander = reg.register::<u32>("bystander", BackPressurePolicy::Coalesce);
+
+        reg.commit(target, 7);
+        reg.commit(bystander, 99);
+
+        // Per-slot drain advances only the target.
+        let observed = reg.drain_slot(target);
+        assert_eq!(observed, Some(&7));
+        assert!(reg.is_dirty(target));
+        // Bystander's commit is still pending and unobservable.
+        assert!(!reg.is_dirty(bystander));
+        assert_eq!(reg.last(bystander), None);
+
+        // Global drain catches up the bystander; target's pending was
+        // already drained, so the second drain is a no-op for it.
+        reg.drain();
+        assert_eq!(reg.last(bystander), Some(&99));
+        assert!(reg.is_dirty(target));
+    }
+
+    #[test]
+    fn drain_slot_returns_none_when_no_pending() {
+        let mut reg = ExternalInputRegistry::new();
+        let id = reg.register::<u32>("test", BackPressurePolicy::Coalesce);
+        assert!(reg.drain_slot(id).is_none());
+        assert!(!reg.is_dirty(id));
+    }
+
+    #[test]
+    fn clear_dirty_slot_isolates_to_named_slot() {
+        let mut reg = ExternalInputRegistry::new();
+        let a = reg.register::<u32>("a", BackPressurePolicy::Coalesce);
+        let b = reg.register::<u32>("b", BackPressurePolicy::Coalesce);
+
+        reg.commit(a, 1);
+        reg.commit(b, 2);
+        reg.drain();
+        assert!(reg.is_dirty(a));
+        assert!(reg.is_dirty(b));
+
+        reg.clear_dirty_slot(a);
+        assert!(!reg.is_dirty(a));
+        assert!(
+            reg.is_dirty(b),
+            "clear_dirty_slot must not touch other slots"
+        );
     }
 
     #[test]

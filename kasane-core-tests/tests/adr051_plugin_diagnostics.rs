@@ -201,6 +201,68 @@ impl DiagMethodForTest for PluginDiagnostic {
 }
 
 #[test]
+fn canonical_flow_drain_slot_round_trip() {
+    // Mirrors the TUI / GUI per-frame canonical path post-A-1:
+    //   1. Drain plugin runtime into a burst.
+    //   2. Commit to registry slot.
+    //   3. Consume via `drain_slot` (synchronous per-slot publish).
+    //   4. Clear the slot's dirty bit after consumption.
+    // Verify that across two frames the slot's `last()` reflects the
+    // most recent burst, `is_dirty` cycles correctly, and a third
+    // frame with no diagnostics surfaces no spurious publication.
+    let mut reg = ExternalInputRegistry::new();
+    let slot = register_slot(&mut reg);
+
+    // Frame 1
+    let frame1: PluginDiagnosticBurst = vec![diag_for("plugin-a", "step")].into();
+    reg.commit(slot, frame1);
+    let observed = reg.drain_slot(slot).expect("frame1 publishes");
+    assert_eq!(observed.len(), 1);
+    assert!(reg.is_dirty(slot));
+    reg.clear_dirty_slot(slot);
+    assert!(!reg.is_dirty(slot));
+
+    // Frame 2: different burst supersedes
+    let frame2: PluginDiagnosticBurst =
+        vec![diag_for("plugin-b", "step"), diag_for("plugin-c", "step")].into();
+    reg.commit(slot, frame2);
+    let observed = reg.drain_slot(slot).expect("frame2 publishes");
+    assert_eq!(observed.len(), 2);
+    assert!(reg.is_dirty(slot));
+    reg.clear_dirty_slot(slot);
+
+    // Frame 3: no commit. drain_slot returns None; last keeps frame 2.
+    assert!(reg.drain_slot(slot).is_none());
+    assert!(!reg.is_dirty(slot));
+    assert_eq!(reg.last(slot).expect("frame2 survives").len(), 2);
+}
+
+#[test]
+fn drain_slot_does_not_advance_other_slots() {
+    // Critical for the TUI/GUI integration: calling drain_slot on the
+    // diagnostic slot must not drain `syntax.reload` (or any other
+    // slot) prematurely. Other slots wait for the frame-boundary
+    // global `drain` inside `sync_salsa_for_render`.
+    let mut reg = ExternalInputRegistry::new();
+    let diagnostics = register_slot(&mut reg);
+    let watcher = reg.register::<u32>("syntax.reload", BackPressurePolicy::Coalesce);
+
+    reg.commit(diagnostics, vec![diag_for("plugin-x", "step")].into());
+    reg.commit(watcher, 42);
+
+    let _ = reg.drain_slot(diagnostics).expect("diagnostic published");
+
+    // Watcher slot must still be pending (no global drain has run).
+    assert_eq!(reg.last(watcher), None);
+    assert!(!reg.is_dirty(watcher));
+
+    // Global drain — now the watcher publishes too.
+    reg.drain();
+    assert_eq!(reg.last(watcher), Some(&42));
+    assert!(reg.is_dirty(watcher));
+}
+
+#[test]
 fn arc_clones_share_underlying_storage() {
     // The commit path moves an Arc into the registry while tracing and
     // overlay consumers retain their own Arc to the same allocation.

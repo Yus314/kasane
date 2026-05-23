@@ -532,25 +532,35 @@ where
             tracing::debug!(batch_count, "event batch drained");
         }
 
-        // Drain runtime diagnostics accumulated during the batch. The
-        // snapshot is shared with the registry slot (ADR-051 chunk 3c,
-        // second source) by `Arc::clone`; tracing and overlay
-        // consumers read through the same refcount.
+        // Drain runtime diagnostics accumulated during the batch and
+        // route them through the `plugin.diagnostics` registry slot —
+        // the canonical path per DDD-CST vision DP-1'. The synchronous
+        // `drain_slot` lets tracing and overlay consumers read the
+        // just-committed burst via `external.last()` without waiting
+        // for the frame-boundary global drain (which gates on dirty
+        // and would skip diagnostic-only frames).
         {
-            let runtime_diagnostics: kasane_core::salsa_inputs::diagnostics::PluginDiagnosticBurst =
+            let burst: kasane_core::salsa_inputs::diagnostics::PluginDiagnosticBurst =
                 registry.drain_all_diagnostics().into();
-            if !runtime_diagnostics.is_empty() {
-                salsa_handles.external.commit(
-                    salsa_handles.plugin_diagnostics,
-                    runtime_diagnostics.clone(),
-                );
-                report_plugin_diagnostics(&runtime_diagnostics);
+            if !burst.is_empty() {
+                salsa_handles
+                    .external
+                    .commit(salsa_handles.plugin_diagnostics, burst);
+            }
+            if let Some(published) = salsa_handles
+                .external
+                .drain_slot(salsa_handles.plugin_diagnostics)
+            {
+                report_plugin_diagnostics(published);
                 kasane_core::event_loop::schedule_diagnostic_overlay(
                     &kasane_core::event_loop::GenericDiagnosticScheduler(tui_sink.clone()),
                     &mut state.runtime.diagnostic_overlay,
                     &mut state.runtime.diagnostic_history,
-                    &runtime_diagnostics,
+                    published,
                 );
+                salsa_handles
+                    .external
+                    .clear_dirty_slot(salsa_handles.plugin_diagnostics);
             }
         }
 
