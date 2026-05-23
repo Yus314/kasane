@@ -8,6 +8,7 @@
 //! outside `AppState` (file watchers, LSP transports, network responses).
 //! See ADR-051 for the push-to-set / pull-to-derive discipline.
 
+pub mod diagnostics;
 pub mod external;
 
 use std::sync::Arc;

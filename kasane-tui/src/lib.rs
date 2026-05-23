@@ -532,10 +532,18 @@ where
             tracing::debug!(batch_count, "event batch drained");
         }
 
-        // Drain runtime diagnostics accumulated during the batch.
+        // Drain runtime diagnostics accumulated during the batch. The
+        // snapshot is shared with the registry slot (ADR-051 chunk 3c,
+        // second source) by `Arc::clone`; tracing and overlay
+        // consumers read through the same refcount.
         {
-            let runtime_diagnostics = registry.drain_all_diagnostics();
+            let runtime_diagnostics: kasane_core::salsa_inputs::diagnostics::PluginDiagnosticBurst =
+                registry.drain_all_diagnostics().into();
             if !runtime_diagnostics.is_empty() {
+                salsa_handles.external.commit(
+                    salsa_handles.plugin_diagnostics,
+                    runtime_diagnostics.clone(),
+                );
                 report_plugin_diagnostics(&runtime_diagnostics);
                 kasane_core::event_loop::schedule_diagnostic_overlay(
                     &kasane_core::event_loop::GenericDiagnosticScheduler(tui_sink.clone()),

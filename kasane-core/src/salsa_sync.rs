@@ -10,7 +10,8 @@ use salsa::{Durability, Setter};
 use crate::plugin::ContributionCache;
 use crate::plugin::{AppView, PluginView};
 use crate::salsa_db::KasaneDatabase;
-use crate::salsa_inputs::external::ExternalInputRegistry;
+use crate::salsa_inputs::diagnostics::{PLUGIN_DIAGNOSTIC_SLOT, PluginDiagnosticBurst};
+use crate::salsa_inputs::external::{BackPressurePolicy, ExternalInputId, ExternalInputRegistry};
 use crate::salsa_inputs::*;
 use crate::state::AppState;
 use crate::state::snapshot::{InfoSnapshot, MenuSnapshot};
@@ -62,11 +63,23 @@ pub struct SalsaInputHandles {
     /// [`crate::event_loop::sync_salsa_for_render`]. See
     /// [`crate::salsa_inputs::external`].
     pub external: ExternalInputRegistry,
+    /// ADR-051 chunk 3c (second source): plugin diagnostic snapshot
+    /// slot. The per-frame `drain_all_diagnostics()` result is
+    /// committed here in parallel with the existing tracing / overlay
+    /// path. Validates the registry abstraction against a
+    /// sparse / bursty / multi-source workload (DDD-CST vision
+    /// §19.1' — Decision Point 1').
+    pub plugin_diagnostics: ExternalInputId<PluginDiagnosticBurst>,
 }
 
 impl SalsaInputHandles {
     /// Create all Salsa input instances with default values.
     pub fn new(db: &mut KasaneDatabase) -> Self {
+        let mut external = ExternalInputRegistry::new();
+        let plugin_diagnostics = external.register::<PluginDiagnosticBurst>(
+            PLUGIN_DIAGNOSTIC_SLOT,
+            BackPressurePolicy::Coalesce,
+        );
         Self {
             buffer: BufferInput::new(
                 db,
@@ -111,7 +124,8 @@ impl SalsaInputHandles {
                 crate::history::VersionId::INITIAL,
             ),
             contribution_cache: ContributionCache::default(),
-            external: ExternalInputRegistry::new(),
+            external,
+            plugin_diagnostics,
         }
     }
 

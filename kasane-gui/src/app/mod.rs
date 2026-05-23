@@ -651,8 +651,15 @@ where
     }
 
     fn drain_runtime_diagnostics(&mut self) {
-        let diagnostics = self.registry.drain_all_diagnostics();
+        // The snapshot is shared with the registry slot (ADR-051 chunk
+        // 3c, second source) by `Arc::clone`; tracing and overlay
+        // consumers read through the same refcount.
+        let diagnostics: kasane_core::salsa_inputs::diagnostics::PluginDiagnosticBurst =
+            self.registry.drain_all_diagnostics().into();
         if !diagnostics.is_empty() {
+            self.salsa_handles
+                .external
+                .commit(self.salsa_handles.plugin_diagnostics, diagnostics.clone());
             report_plugin_diagnostics(&diagnostics);
             kasane_core::event_loop::schedule_diagnostic_overlay(
                 &kasane_core::event_loop::GenericDiagnosticScheduler(self.gui_sink.clone()),
