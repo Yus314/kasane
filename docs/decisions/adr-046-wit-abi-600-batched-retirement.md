@@ -1,7 +1,7 @@
 # ADR-046: WIT ABI 6.0.0 — Batched Retirement
 
 **Status:** Proposed (draft). Triggers when the W1 workstream
-([Tier-1 ABI completion](roadmap.md#21-recently-completed)) is ready
+([Tier-1 ABI completion](../roadmap.md)) is ready
 to ship. Targets `kasane:plugin@6.0.0`.
 
 ### Context

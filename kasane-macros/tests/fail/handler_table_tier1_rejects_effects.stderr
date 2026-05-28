@@ -1,17 +1,17 @@
-error[E0277]: the trait bound `KakouneSideEffects: From<Effects>` is not satisfied
+error[E0277]: the trait bound `KakouneSideEffects: From<kasane_core::plugin::Effects>` is not satisfied
   --> tests/fail/handler_table_tier1_rejects_effects.rs:22:14
    |
 22 |     registry.on_init_tier1(|state, _app| (*state, Effects::default()));
-   |              ^^^^^^^^^^^^^ the trait `From<Effects>` is not implemented for `KakouneSideEffects`
+   |              ^^^^^^^^^^^^^ the trait `From<kasane_core::plugin::Effects>` is not implemented for `KakouneSideEffects`
    |
-help: the trait `From<Effects>` is not implemented for `KakouneSideEffects`
+help: the trait `From<kasane_core::plugin::Effects>` is not implemented for `KakouneSideEffects`
       but trait `From<ObservationEffects>` is implemented for it
   --> $WORKSPACE/kasane-core/src/plugin/effect/effect_tiers.rs
    |
    | impl From<ObservationEffects> for KakouneSideEffects {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: for that trait implementation, expected `ObservationEffects`, found `Effects`
-   = note: required for `Effects` to implement `Into<KakouneSideEffects>`
+   = help: for that trait implementation, expected `ObservationEffects`, found `kasane_core::plugin::Effects`
+   = note: required for `kasane_core::plugin::Effects` to implement `Into<KakouneSideEffects>`
 note: required by a bound in `spec::HandlerRegistry::<S>::on_init_tier1`
   --> tests/fail/handler_table_tier1_rejects_effects.rs:8:1
    |

@@ -201,6 +201,5 @@ handler-family.
 
 ## Related Documents
 
-- [semantics.md](./semantics.md) — Authoritative specification
-- [index.md](./index.md) — Documentation entry point and architecture overview
-- [index.md](./index.md) — Entry point for all docs
+- [semantics.md](../semantics.md) — Authoritative specification
+- [index.md](../index.md) — Documentation entry point and architecture overview

@@ -18,13 +18,13 @@ A 4-stage gate approach was used. All gates passed (Gate 3 conditionally — rat
 - **Gate 3 (Component Model overhead):** ~500 ns fixed overhead from canonical ABI. 4.1x–23.7x ratio vs raw module, but absolute values < 7 μs. Conditional pass.
 - **Gate 4 (Realistic simulation):** ~1.8 μs/plugin (linear), 5 plugins = 8.91 μs (18.2% of frame budget). Pass.
 
-For detailed benchmark tables, see [performance.md — WASM Plugin Benchmarks](./performance.md#wasm-plugin-benchmarks).
+For detailed benchmark tables, see [performance.md — WASM Plugin Benchmarks](../performance.md#wasm-plugin-benchmarks).
 
 ### 13-2: Frame Budget Analysis
 
 5 plugins consume 18.2% of the ~49 μs frame budget; 10 plugins consume 36.7%. L1 cache (DirtyFlags) completely skips WASM calls on frames with no state change (cache hit: 0.26 ns).
 
-For detailed budget breakdown, see [performance.md — WASM Plugin Benchmarks](./performance.md#realistic-plugin-simulation).
+For detailed budget breakdown, see [performance.md — WASM Plugin Benchmarks](../performance.md#realistic-plugin-simulation).
 
 ### 13-3: Decision
 

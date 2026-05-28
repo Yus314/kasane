@@ -22,12 +22,30 @@ wgpu = { workspace = true }
 # `--features with-vello`. Once Glifo lands on crates.io and the API
 # stabilises, bump to that version range.
 vello_hybrid = { version = "0.0.7", optional = true }
+# `peniko` is `vello_common`'s public re-export point for `Color`,
+# `kurbo`, etc. `vello_hybrid` does *not* re-export `peniko` directly,
+# so the spike consumes it as a direct dependency. Pinned to the same
+# 0.6.0 version `vello_common` 0.0.7 brings in transitively, so the
+# graph stays single-version (unlike the wgpu 28/29 split — see
+# `scene_translate.rs` Finding 1).
+peniko = { version = "0.6", default-features = false, features = ["bytemuck"], optional = true }
+# Day-2 (text fast path) translation needs `vello_common::glyph::Glyph`
+# directly — `vello_hybrid` only re-exports `multi_atlas` and `pixmap`,
+# not `glyph`. Pinned to 0.0.7 to share the same graph as
+# `vello_hybrid 0.0.7`. See `scene_translate.rs` Finding 3 — the
+# Glifo-on-crates.io adoption gate is potentially satisfied by this
+# crate's built-in glyph atlas instead.
+vello_common = { version = "0.0.7", optional = true }
+# Day-2 needs `parley::Run::font()` / `font_size()` / `normalized_coords()`
+# to source the glyph stream that feeds `vello_common::glyph::Glyph`.
+# Workspace pins parley = "0.9" via kasane-core; matched here.
+parley = { version = "0.9", optional = true }
 
 [features]
 default = []
 # Pulls in vello_hybrid and switches the VelloBackend impl from
 # `Unsupported`-stub to actual GPU/CPU rendering.
-with-vello = ["dep:vello_hybrid"]
+with-vello = ["dep:vello_hybrid", "dep:peniko", "dep:vello_common", "dep:parley"]
 
 [dev-dependencies]
 criterion = { workspace = true }

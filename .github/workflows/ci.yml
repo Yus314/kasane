@@ -123,10 +123,19 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         uses: lycheeverse/lychee-action@v2
         with:
+          # Exclude docs.rs paths for crates / modules that have not yet
+          # been published. `kasane-core` and `kasane-plugin-sdk-test`
+          # are not on crates.io; `kasane-plugin-sdk` is published but
+          # the `kak`, `kak_cmd`, and `kak_lint` items live in unreleased
+          # source. Drop these exclusions as the corresponding releases
+          # land.
           args: >-
             --no-progress
             --exclude-path=target
             --exclude-path=contrib
+            --exclude='docs\.rs/kasane-core/'
+            --exclude='docs\.rs/kasane-plugin-sdk-test/'
+            --exclude='docs\.rs/kasane-plugin-sdk/latest/kasane_plugin_sdk/(kak|macro\.kak)'
             --include-fragments
             'docs/**/*.md'
             'README.md'

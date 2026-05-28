@@ -58,8 +58,7 @@ wit::SessionReadyCommand::EvalCommand(cmd) => Command::kakoune_command(cmd),
 
 **Rationale:**
 
-The pre-RFC investigation ([Issue #89
-comment](https://github.com/Yus314/kasane/issues/89#issuecomment-4416506582))
+The pre-RFC investigation ([Issue #89](https://github.com/Yus314/kasane/issues/89))
 established that the exclusion is **cosmetic, not technical**:
 
 - `Command::EvalCommand` is internally identical to a wrapped
